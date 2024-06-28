@@ -7,6 +7,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expr {
     Number(i64, Span),
+    String(String, Span),
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
@@ -16,6 +17,7 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Expr::Number(_, span) => span.clone(),
+            Expr::String(_, span) => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
             Expr::FunctionCall(_, _, span) => span.clone(),
@@ -27,6 +29,7 @@ impl Expr {
 pub enum Stmt {
     Let(String, Expr, Span),
     Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
+    ReturnExpression(Expr),
     Expression(Expr),
 }
 
@@ -92,7 +95,17 @@ impl Parser {
                         self.advance(); // Consume ';'
                         let end_span = self.current_token().span.end;
                         return Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)));
+                    } else {
+                        return Err(Error::new_parse(
+                            "Expected ';' after expression".to_string(),
+                            self.current_token().span,
+                        ));
                     }
+                } else {
+                    return Err(Error::new_parse(
+                        "Invalid expression in let statement".to_string(),
+                        self.current_token().span,
+                    ));
                 }
             }
         }
@@ -199,6 +212,7 @@ impl Parser {
         };
 
         // --- Parse function body ---
+
         if self.current_token().kind != TokenKind::LBrace {
             return Err(Error::new_parse(
                 "Expected '{' after function declaration".to_string(),
@@ -241,6 +255,7 @@ impl Parser {
                 self.advance(); // Consume ';'
                 return Ok(Stmt::Expression(expr));
             }
+            return Ok(Stmt::ReturnExpression(expr));
         }
         Err(Error::new_parse(
             "Invalid expression statement".to_string(),
@@ -278,21 +293,19 @@ impl Parser {
                 self.advance(); // Consume number
                 Ok(Expr::Number(value, span))
             }
+            TokenKind::String(ref value) => {
+                let value = value.clone();
+                self.advance(); // Consume string
+                println!(
+                    "current_token after string: {:?}",
+                    self.current_token().kind
+                );
+                Ok(Expr::String(value, span))
+            }
             TokenKind::Identifier(ref name) => {
                 let name = name.clone();
                 self.advance(); // Consume identifier
                 if self.current_token().kind == TokenKind::LParen {
-                    // self.advance(); // Consume '('
-                    // let mut args = Vec::new();
-                    // while self.current_token().kind != TokenKind::RParen {
-                    //     let arg = self.parse_expression()?;
-                    //     args.push(arg);
-                    //     if self.current_token().kind == TokenKind::Comma {
-                    //         self.advance(); // Consume ','
-                    //     }
-                    // }
-                    // self.advance(); // Consume ')'
-                    // Ok(Expr::FunctionCall(name, args, span))
                     self.parse_function_call(name, span)
                 } else {
                     Ok(Expr::Identifier(name, span))
@@ -355,6 +368,20 @@ mod tests {
         )];
 
         assert_eq!(ast, expected_ast);
+    }
+
+    #[test]
+    fn test_parse_let_with_string() {
+        let input = r#"
+            let name = "Felipe";
+            let y = 5;
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        println!("AST: {:?}", ast);
     }
 
     // #[test]

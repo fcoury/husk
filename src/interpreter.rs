@@ -40,7 +40,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
         match stmt {
             Stmt::Let(name, expr, _) => {
                 let value = self.evaluate_expr(expr)?;
@@ -57,13 +57,18 @@ impl Interpreter {
             Stmt::Expression(expr) => {
                 self.evaluate_expr(expr)?;
             }
+            Stmt::ReturnExpression(expr) => {
+                let value = self.evaluate_expr(expr)?;
+                return Ok(value);
+            }
         }
-        Ok(())
+        Ok(Value::Void)
     }
 
     fn evaluate_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
             Expr::Number(n, _) => Ok(Value::Number(*n)),
+            Expr::String(s, _) => Ok(Value::String(s.to_string())),
             Expr::Identifier(name, span) => {
                 self.environment.get(name).cloned().ok_or_else(|| {
                     Error::new_runtime(format!("Undefined variable: {}", name), *span)
@@ -103,11 +108,12 @@ impl Interpreter {
                             environment: local_env,
                         };
 
+                        let mut result = Value::Void;
                         for stmt in body {
-                            interpreter.execute_stmt(&stmt)?;
+                            result = interpreter.execute_stmt(&stmt)?;
                         }
 
-                        Ok(Value::Number(0)) // Placeholder return value, adjust as needed
+                        Ok(result)
                     }
                     _ => Err(Error::new_runtime(
                         format!("{} is not a function", name),
@@ -146,7 +152,9 @@ impl Interpreter {
 
 #[derive(Clone)]
 pub enum Value {
+    Void,
     Number(i64),
+    String(String),
     Function(Function),
     // Function {
     //     params: Vec<(String, String)>, // Parameter names and their types
@@ -166,7 +174,7 @@ fn stdlib_print(args: &[Value]) -> Result<Value> {
     for arg in args {
         match arg {
             Value::Number(n) => print!("{}", n),
-            // Value::String(s) => print!("{}", s),
+            Value::String(s) => print!("{}", s),
             _ => {
                 return Err(Error::new_runtime(
                     "Unsupported type for print".to_string(),

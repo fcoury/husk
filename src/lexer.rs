@@ -17,6 +17,7 @@ pub enum TokenKind {
     Let,
     Identifier(String),
     Number(i64),
+    String(String),
     Equals,
     Semicolon,
     LParen,
@@ -121,9 +122,11 @@ impl Lexer {
             Some('*') => self.create_token(TokenKind::Asterisk),
             Some(':') => self.create_token(TokenKind::Colon),
             Some('/') => self.create_token(TokenKind::Slash),
+            Some('"') => self.read_string(),
             Some(c) => {
                 if c.is_alphabetic() {
-                    return self.read_identifier_or_type();
+                    let token = self.read_identifier_or_type();
+                    return token;
                 } else if c.is_ascii_digit() {
                     return self.read_number();
                 } else {
@@ -153,7 +156,6 @@ impl Lexer {
             }
         }
         let identifier: String = self.input[start_position..self.position].to_string();
-
         let kind = match identifier.as_str() {
             "fn" => TokenKind::Function,
             "let" => TokenKind::Let,
@@ -162,6 +164,20 @@ impl Lexer {
         };
 
         self.create_token(kind)
+    }
+
+    fn read_string(&mut self) -> Token {
+        self.read_char();
+        let position = self.position;
+        while let Some(c) = self.ch {
+            if c == '"' {
+                break;
+            }
+            self.read_char();
+        }
+
+        let string = self.input[position..self.position].to_string();
+        self.create_token(TokenKind::String(string))
     }
 
     fn read_number(&mut self) -> Token {
@@ -211,6 +227,27 @@ mod tests {
             TokenKind::Identifier("y".to_string()),
             TokenKind::Semicolon,
             TokenKind::RBrace,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token.kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_let_with_string() {
+        let input = r#"
+            let name = "Felipe";
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("name".to_string()),
+            TokenKind::Equals,
+            TokenKind::String("Felipe".to_string()),
+            TokenKind::Semicolon,
             TokenKind::Eof,
         ];
 
