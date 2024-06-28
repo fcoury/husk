@@ -7,7 +7,7 @@ pub struct Token {
 }
 
 pub const EOF: Token = Token {
-    kind: TokenKind::EOF,
+    kind: TokenKind::Eof,
     span: Span { start: 0, end: 0 },
 };
 
@@ -24,12 +24,15 @@ pub enum TokenKind {
     LBrace,
     RBrace,
     Comma,
+    Arrow,
+    Type(String),
     Plus,
     Minus,
     Asterisk,
     Slash,
+    Colon,
     Error(String),
-    EOF,
+    Eof,
 }
 
 #[derive(Debug)]
@@ -58,7 +61,7 @@ impl Lexer {
         let mut tokens = Vec::new();
         loop {
             let token = self.next_token();
-            if token.kind == TokenKind::EOF {
+            if token.kind == TokenKind::Eof {
                 break;
             }
             tokens.push(token);
@@ -76,13 +79,13 @@ impl Lexer {
         self.read_position += 1;
     }
 
-    // fn peek_char(&self) -> Option<char> {
-    //     if self.read_position >= self.input.len() {
-    //         None
-    //     } else {
-    //         Some(self.input.chars().nth(self.read_position).unwrap())
-    //     }
-    // }
+    fn peek_char(&self) -> Option<char> {
+        if self.read_position >= self.input.len() {
+            None
+        } else {
+            Some(self.input.chars().nth(self.read_position).unwrap())
+        }
+    }
 
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.ch {
@@ -107,19 +110,27 @@ impl Lexer {
             Some('}') => self.create_token(TokenKind::RBrace),
             Some(',') => self.create_token(TokenKind::Comma),
             Some('+') => self.create_token(TokenKind::Plus),
-            Some('-') => self.create_token(TokenKind::Minus),
+            Some('-') => {
+                if self.peek_char() == Some('>') {
+                    self.read_char();
+                    self.create_token(TokenKind::Arrow)
+                } else {
+                    self.create_token(TokenKind::Minus)
+                }
+            }
             Some('*') => self.create_token(TokenKind::Asterisk),
+            Some(':') => self.create_token(TokenKind::Colon),
             Some('/') => self.create_token(TokenKind::Slash),
             Some(c) => {
                 if c.is_alphabetic() {
-                    return self.read_identifier();
-                } else if c.is_digit(10) {
+                    return self.read_identifier_or_type();
+                } else if c.is_ascii_digit() {
                     return self.read_number();
                 } else {
                     self.create_token(TokenKind::Error(format!("Unexpected character: {}", c)))
                 }
             }
-            None => self.create_token(TokenKind::EOF),
+            None => self.create_token(TokenKind::Eof),
         };
         self.read_char();
         token
@@ -132,20 +143,22 @@ impl Lexer {
         }
     }
 
-    fn read_identifier(&mut self) -> Token {
-        let position = self.position;
+    fn read_identifier_or_type(&mut self) -> Token {
+        let start_position = self.position;
         while let Some(c) = self.ch {
-            if !c.is_alphabetic() {
+            if c.is_alphanumeric() || c == '_' {
+                self.read_char();
+            } else {
                 break;
             }
-            self.read_char();
         }
+        let identifier: String = self.input[start_position..self.position].to_string();
 
-        let ident = self.input[position..self.position].to_string();
-        let kind = match ident.as_str() {
+        let kind = match identifier.as_str() {
             "fn" => TokenKind::Function,
             "let" => TokenKind::Let,
-            _ => TokenKind::Identifier(ident),
+            "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
+            _ => TokenKind::Identifier(identifier),
         };
 
         self.create_token(kind)
@@ -154,7 +167,7 @@ impl Lexer {
     fn read_number(&mut self) -> Token {
         let position = self.position;
         while let Some(c) = self.ch {
-            if !c.is_digit(10) {
+            if !c.is_ascii_digit() {
                 break;
             }
             self.read_char();
@@ -198,7 +211,7 @@ mod tests {
             TokenKind::Identifier("y".to_string()),
             TokenKind::Semicolon,
             TokenKind::RBrace,
-            TokenKind::EOF,
+            TokenKind::Eof,
         ];
 
         for expected in expected_tokens {

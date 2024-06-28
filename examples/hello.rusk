@@ -14,6 +14,10 @@ struct Blob {
   mime_type: String,
 }
 
+fn add(a: usize, b: usize) -> usize {
+  a + b
+}
+
 fn main() {
   let txt_msg = Message {
     content: Content::Text("Hello World!"),

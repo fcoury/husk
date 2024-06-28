@@ -43,4 +43,8 @@ impl Span {
 
         format!("{}\n{}", line, arrow)
     }
+
+    pub fn default() -> Span {
+        Span { start: 0, end: 0 }
+    }
 }
