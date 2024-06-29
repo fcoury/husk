@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use crate::{interpreter::Interpreter, lexer::Lexer, parser::Parser, semantic::SemanticAnalyzer};
+use crate::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
 
 #[allow(dead_code)]
 pub fn repl() -> io::Result<()> {
@@ -23,17 +23,11 @@ pub fn repl() -> io::Result<()> {
 
         let mut parser = Parser::new(tokens);
         match parser.parse() {
-            Ok(ast) => {
-                let mut analyzer = SemanticAnalyzer::new();
-                match analyzer.analyze(&ast) {
-                    Ok(_) => match interpreter.interpret(&ast) {
-                        Ok(_) => println!("Execution successful"),
-                        Err(e) => println!("Runtime error: {}", e),
-                    },
-                    Err(e) => println!("Semantic error: {}", e),
-                }
-            }
-            Err(e) => println!("Parse error: {}", e),
+            Ok(ast) => match interpreter.interpret(&ast) {
+                Ok(val) => println!("{}", val),
+                Err(e) => println!("{}", e.pretty_print(input)),
+            },
+            Err(e) => println!("{}", e.pretty_print(input)),
         }
     }
 

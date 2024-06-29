@@ -11,6 +11,10 @@ mod semantic;
 mod span;
 
 fn main() -> anyhow::Result<()> {
+    repl::repl();
+    if true {
+        return Ok(());
+    }
     let code = r#"
         struct Person {
             name: string,

@@ -33,11 +33,12 @@ impl Interpreter {
         );
     }
 
-    pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<()> {
+    pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
+        let mut value = Value::Void;
         for stmt in stmts {
-            self.execute_stmt(stmt)?;
+            value = self.execute_stmt(stmt)?;
         }
-        Ok(())
+        Ok(value)
     }
 
     fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
