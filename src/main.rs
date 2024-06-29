@@ -33,6 +33,9 @@ fn main() -> anyhow::Result<()> {
         let result = x + y + five + 3;
         println(result);
 
+        let average = 0.1;
+        println(average);
+
         let final = add(x, result);
         p(name);
         println("Final: ", final);

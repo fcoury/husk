@@ -159,9 +159,7 @@ impl SemanticAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::Operator;
-
-    use super::*;
+    // use super::*;
 
     // #[test]
     // fn test_variable_declaration() {

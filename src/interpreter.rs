@@ -158,12 +158,6 @@ pub enum Value {
     Float(f64),
     String(String),
     Function(Function),
-    // Function {
-    //     params: Vec<(String, String)>, // Parameter names and their types
-    //     body: Vec<Stmt>,
-    //     environment: HashMap<String, Value>, // Closure environment
-    // },
-    // Add other types as needed
 }
 
 #[derive(Clone)]
@@ -176,6 +170,7 @@ fn stdlib_print(args: &[Value]) -> Result<Value> {
     for arg in args {
         match arg {
             Value::Int(n) => print!("{}", n),
+            Value::Float(f) => print!("{}", f),
             Value::String(s) => print!("{}", s),
             _ => {
                 return Err(Error::new_runtime(
