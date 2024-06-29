@@ -36,8 +36,14 @@ fn main() -> anyhow::Result<()> {
         let average = 0.1;
         println(average);
 
-        let use_average = true;
+        let use_average = false;
         println(use_average);
+
+        if use_average {
+            println("Average on");
+        } else {
+            println("Average off");
+        }
 
         let final = add(x, result);
         p(name);

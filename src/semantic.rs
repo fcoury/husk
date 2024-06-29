@@ -84,6 +84,16 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
+            Stmt::If(condition, then_block, else_block, _span) => {
+                self.analyze_expr(condition)?;
+                for stmt in then_block {
+                    self.analyze_stmt(stmt)?;
+                }
+                for stmt in else_block {
+                    self.analyze_stmt(stmt)?;
+                }
+                Ok(())
+            }
             Stmt::ReturnExpression(expr) | Stmt::Expression(expr) => {
                 self.analyze_expr(expr)?;
                 Ok(())

@@ -53,6 +53,7 @@ impl Expr {
 pub enum Stmt {
     Let(String, Expr, Span),
     Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
+    If(Expr, Vec<Stmt>, Vec<Stmt>, Span),
     ReturnExpression(Expr),
     Expression(Expr),
 }
@@ -103,8 +104,17 @@ impl Parser {
         match self.current_token().kind {
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Function => self.parse_function(),
+            TokenKind::If => self.parse_if_statement(),
             _ => self.parse_expression_statement(),
         }
+    }
+
+    fn parse_block(&mut self) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            statements.push(self.parse_statement()?);
+        }
+        Ok(statements)
     }
 
     fn parse_let_statement(&mut self) -> Result<Stmt> {
@@ -140,6 +150,66 @@ impl Parser {
                 end: self.current_token().span.end,
             },
         ))
+    }
+
+    fn parse_if_statement(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'if'
+
+        let Ok(condition) = self.parse_expression() else {
+            return Err(Error::new_parse(
+                "Invalid expression in if statement".to_string(),
+                self.current_token().span,
+            ));
+        };
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after if condition".to_string(),
+                self.current_token().span,
+            ));
+        }
+
+        self.advance(); // Consume '{'
+        let mut then_block = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            then_block.push(self.parse_statement()?);
+        }
+
+        let mut else_block = Vec::new();
+        let mut end_span = self.current_token().span.end;
+
+        self.advance(); // Consume '}'
+
+        if self.current_token().kind == TokenKind::Else {
+            self.advance(); // Consume 'else'
+
+            if self.current_token().kind != TokenKind::LBrace {
+                return Err(Error::new_parse(
+                    "Expected '{' after else condition".to_string(),
+                    self.current_token().span,
+                ));
+            }
+
+            self.advance(); // Consume '{'
+            else_block = self.parse_block()?;
+
+            if self.current_token().kind != TokenKind::RBrace {
+                return Err(Error::new_parse(
+                    "Expected '}' after else block".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            end_span = self.current_token().span.end;
+            self.advance(); // Consume '}'
+        }
+
+        return Ok(Stmt::If(
+            condition,
+            then_block,
+            else_block,
+            Span::new(start_span, end_span),
+        ));
     }
 
     fn consume_identifier(&mut self) -> Result<Option<String>> {
@@ -466,6 +536,66 @@ mod tests {
                 "name".to_string(),
                 Expr::String("Felipe".to_string(), Span::new(24, 32)),
                 Span::new(13, 33),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_if() {
+        let input = r#"
+            if true {
+                let x = 5;
+            }
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::If(
+                Expr::Bool(true, Span::new(16, 20)),
+                vec![Stmt::Let(
+                    "x".to_string(),
+                    Expr::Int(5, Span::new(47, 48)),
+                    Span::new(39, 49),
+                )],
+                vec![],
+                Span::new(13, 63),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_if_else() {
+        let input = r#"
+            if true {
+                let x = 5;
+            } else {
+                let y = 10;
+            }
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::If(
+                Expr::Bool(true, Span::new(16, 20)),
+                vec![Stmt::Let(
+                    "x".to_string(),
+                    Expr::Int(5, Span::new(47, 48)),
+                    Span::new(39, 49),
+                )],
+                vec![Stmt::Let(
+                    "y".to_string(),
+                    Expr::Int(10, Span::new(95, 97)),
+                    Span::new(87, 98),
+                )],
+                Span::new(13, 112),
             )
         );
     }

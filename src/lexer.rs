@@ -25,6 +25,8 @@ pub const EOF: Token = Token {
 pub enum TokenKind {
     Function,
     Let,
+    If,
+    Else,
     Identifier(String),
     Int(i64),
     Float(f64),
@@ -180,6 +182,8 @@ impl Lexer {
             "true" => TokenKind::Bool(true),
             "fn" => TokenKind::Function,
             "let" => TokenKind::Let,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
             "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
             _ => TokenKind::Identifier(identifier),
         };
@@ -352,6 +356,72 @@ mod tests {
             Token::new(TokenKind::String("Felipe".to_string()), 24, 32),
             Token::new(TokenKind::Semicolon, 32, 33),
             Token::new(TokenKind::Eof, 42, 42),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_if() {
+        let input = r#"
+            if true {
+                let x = 10;
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::If, 13, 15),
+            Token::new(TokenKind::Bool(true), 16, 20),
+            Token::new(TokenKind::LBrace, 21, 22),
+            Token::new(TokenKind::Let, 39, 42),
+            Token::new(TokenKind::Identifier("x".to_string()), 43, 44),
+            Token::new(TokenKind::Equals, 45, 46),
+            Token::new(TokenKind::Int(10), 47, 49),
+            Token::new(TokenKind::Semicolon, 49, 50),
+            Token::new(TokenKind::RBrace, 63, 64),
+            Token::new(TokenKind::Eof, 73, 73),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_if_else() {
+        let input = r#"
+            if true {
+                let x = 10;
+            } else {
+                let x = 20;
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::If, 13, 15),
+            Token::new(TokenKind::Bool(true), 16, 20),
+            Token::new(TokenKind::LBrace, 21, 22),
+            Token::new(TokenKind::Let, 39, 42),
+            Token::new(TokenKind::Identifier("x".to_string()), 43, 44),
+            Token::new(TokenKind::Equals, 45, 46),
+            Token::new(TokenKind::Int(10), 47, 49),
+            Token::new(TokenKind::Semicolon, 49, 50),
+            Token::new(TokenKind::RBrace, 63, 64),
+            Token::new(TokenKind::Else, 65, 69),
+            Token::new(TokenKind::LBrace, 70, 71),
+            Token::new(TokenKind::Let, 88, 91),
+            Token::new(TokenKind::Identifier("x".to_string()), 92, 93),
+            Token::new(TokenKind::Equals, 94, 95),
+            Token::new(TokenKind::Int(20), 96, 98),
+            Token::new(TokenKind::Semicolon, 98, 99),
+            Token::new(TokenKind::RBrace, 112, 113),
+            Token::new(TokenKind::Eof, 122, 122),
         ];
 
         for expected in expected_tokens {

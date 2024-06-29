@@ -54,6 +54,18 @@ impl Interpreter {
                 ));
                 self.environment.insert(name.clone(), func);
             }
+            Stmt::If(condition, then_block, else_block, _) => {
+                let condition_value = self.evaluate_expr(condition)?;
+                if let Value::Bool(true) = condition_value {
+                    for stmt in then_block {
+                        self.execute_stmt(stmt)?;
+                    }
+                } else {
+                    for stmt in else_block {
+                        self.execute_stmt(stmt)?;
+                    }
+                }
+            }
             Stmt::Expression(expr) => {
                 self.evaluate_expr(expr)?;
             }
