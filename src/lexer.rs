@@ -24,6 +24,7 @@ pub const EOF: Token = Token {
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind {
     Function,
+    Struct,
     Let,
     If,
     Else,
@@ -46,6 +47,7 @@ pub enum TokenKind {
     Asterisk,
     Slash,
     Colon,
+    Dot,
     Error(String),
     Eof,
 }
@@ -136,6 +138,7 @@ impl Lexer {
             Some('*') => self.create_token(TokenKind::Asterisk),
             Some(':') => self.create_token(TokenKind::Colon),
             Some('/') => self.create_token(TokenKind::Slash),
+            Some('.') => self.create_token(TokenKind::Dot),
             Some('"') => self.read_string(),
             Some(c) => {
                 if c.is_alphabetic() {
@@ -178,6 +181,7 @@ impl Lexer {
         }
         let identifier: String = self.input[start_position..self.position].to_string();
         let kind = match identifier.as_str() {
+            "struct" => TokenKind::Struct,
             "false" => TokenKind::Bool(false),
             "true" => TokenKind::Bool(true),
             "fn" => TokenKind::Function,
@@ -422,6 +426,108 @@ mod tests {
             Token::new(TokenKind::Semicolon, 98, 99),
             Token::new(TokenKind::RBrace, 112, 113),
             Token::new(TokenKind::Eof, 122, 122),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_struct() {
+        let input = r#"
+            struct Person {
+                name: string,
+                age: int,
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::Struct, 13, 19),
+            Token::new(TokenKind::Identifier("Person".to_string()), 20, 26),
+            Token::new(TokenKind::LBrace, 27, 28),
+            Token::new(TokenKind::Identifier("name".to_string()), 45, 49),
+            Token::new(TokenKind::Colon, 49, 50),
+            Token::new(TokenKind::Type("string".to_string()), 51, 57),
+            Token::new(TokenKind::Comma, 57, 58),
+            Token::new(TokenKind::Identifier("age".to_string()), 75, 78),
+            Token::new(TokenKind::Colon, 78, 79),
+            Token::new(TokenKind::Type("int".to_string()), 80, 83),
+            Token::new(TokenKind::Comma, 83, 84),
+            Token::new(TokenKind::RBrace, 97, 98),
+            Token::new(TokenKind::Eof, 107, 107),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_struct_instance() {
+        let input = r#"
+            struct Person {
+                name: string,
+                age: int,
+            }
+
+            let p = Person {
+                name: "Felipe",
+                age: 30,
+            };
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::Struct, 13, 19),
+            Token::new(TokenKind::Identifier("Person".to_string()), 20, 26),
+            Token::new(TokenKind::LBrace, 27, 28),
+            Token::new(TokenKind::Identifier("name".to_string()), 45, 49),
+            Token::new(TokenKind::Colon, 49, 50),
+            Token::new(TokenKind::Type("string".to_string()), 51, 57),
+            Token::new(TokenKind::Comma, 57, 58),
+            Token::new(TokenKind::Identifier("age".to_string()), 75, 78),
+            Token::new(TokenKind::Colon, 78, 79),
+            Token::new(TokenKind::Type("int".to_string()), 80, 83),
+            Token::new(TokenKind::Comma, 83, 84),
+            Token::new(TokenKind::RBrace, 97, 98),
+            Token::new(TokenKind::Let, 112, 115),
+            Token::new(TokenKind::Identifier("p".to_string()), 116, 117),
+            Token::new(TokenKind::Equals, 118, 119),
+            Token::new(TokenKind::Identifier("Person".to_string()), 120, 126),
+            Token::new(TokenKind::LBrace, 127, 128),
+            Token::new(TokenKind::Identifier("name".to_string()), 145, 149),
+            Token::new(TokenKind::Colon, 149, 150),
+            Token::new(TokenKind::String("Felipe".to_string()), 151, 159),
+            Token::new(TokenKind::Comma, 159, 160),
+            Token::new(TokenKind::Identifier("age".to_string()), 177, 180),
+            Token::new(TokenKind::Colon, 180, 181),
+            Token::new(TokenKind::Int(30), 182, 184),
+            Token::new(TokenKind::Comma, 184, 185),
+            Token::new(TokenKind::RBrace, 198, 199),
+            Token::new(TokenKind::Semicolon, 199, 200),
+            Token::new(TokenKind::Eof, 209, 209),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_struct_field_access() {
+        let input = "p.name";
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::Identifier("p".to_string()), 0, 1),
+            Token::new(TokenKind::Dot, 1, 2),
+            Token::new(TokenKind::Identifier("name".to_string()), 2, 6),
+            Token::new(TokenKind::Eof, 6, 6),
         ];
 
         for expected in expected_tokens {

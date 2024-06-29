@@ -46,6 +46,14 @@ impl Interpreter {
                 let value = self.evaluate_expr(expr)?;
                 self.environment.insert(name.clone(), value);
             }
+            Stmt::Struct(name, fields, _) => {
+                let mut field_map = HashMap::new();
+                for (field_name, field_type) in fields {
+                    field_map.insert(field_name.clone(), field_type.clone());
+                }
+                self.environment
+                    .insert(name.clone(), Value::Struct(name.clone(), field_map));
+            }
             Stmt::Function(name, params, _, body, _) => {
                 let func = Value::Function(Function::UserDefined(
                     params.clone(),
@@ -135,6 +143,61 @@ impl Interpreter {
                     )),
                 }
             }
+            Expr::StructInit(name, fields, span) => {
+                let struct_type = self.environment.get(name).cloned().ok_or_else(|| {
+                    Error::new_runtime(format!("Undefined struct: {}", name), *span)
+                })?;
+
+                let Value::Struct(_, struct_fields) = struct_type else {
+                    return Err(Error::new_runtime(
+                        format!("{} is not a struct", name),
+                        *span,
+                    ));
+                };
+
+                let mut instance_fields = HashMap::new();
+                for (field_name, field_expr) in fields.iter() {
+                    let Some(expected_type) = struct_fields.get(field_name) else {
+                        return Err(Error::new_runtime(
+                            format!("Missing field {} in struct {}", field_name, name),
+                            *span,
+                        ));
+                    };
+
+                    let field_value = self.evaluate_expr(field_expr)?;
+                    let field_type = field_value.type_str();
+
+                    if field_type != *expected_type {
+                        return Err(Error::new_runtime(
+                            format!(
+                                "Field {} in struct {} has wrong type: expected {}, got {}",
+                                field_name, name, expected_type, field_type
+                            ),
+                            *span,
+                        ));
+                    }
+                    instance_fields.insert(field_name.clone(), field_value);
+                }
+
+                Ok(Value::StructInstance(name.to_string(), instance_fields))
+            }
+            Expr::MemberAccess(struct_expr, field_name, span) => {
+                let struct_value = self.evaluate_expr(struct_expr)?;
+                match struct_value {
+                    Value::StructInstance(_name, fields) => {
+                        fields.get(field_name).cloned().ok_or_else(|| {
+                            Error::new_runtime(
+                                format!("Field {} not found in struct instance", field_name),
+                                *span,
+                            )
+                        })
+                    }
+                    _ => Err(Error::new_runtime(
+                        "Field access on non-struct value".to_string(),
+                        *span,
+                    )),
+                }
+            }
         }
     }
 
@@ -164,7 +227,7 @@ impl Interpreter {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Void,
     Int(i64),
@@ -172,9 +235,69 @@ pub enum Value {
     Bool(bool),
     String(String),
     Function(Function),
+    Struct(String, HashMap<String, String>),
+    StructInstance(String, HashMap<String, Value>),
 }
 
-#[derive(Clone)]
+impl Value {
+    pub fn to_string(&self) -> String {
+        match self {
+            Value::Void => "void".to_string(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::String(s) => s.clone(),
+            Value::Function(_) => "function".to_string(),
+            Value::Struct(name, _) => format!("struct {}", name),
+            Value::StructInstance(name, fields) => {
+                let mut field_strings = Vec::new();
+                for (name, value) in fields {
+                    field_strings.push(format!("{}: {:?}", name, value));
+                }
+                format!("struct {} {{{}}}", name, field_strings.join(", "))
+            }
+        }
+    }
+
+    pub fn type_str(&self) -> String {
+        match self {
+            Value::Void => "void".to_string(),
+            Value::Int(_) => "int".to_string(),
+            Value::Float(_) => "float".to_string(),
+            Value::Bool(_) => "bool".to_string(),
+            Value::String(_) => "string".to_string(),
+            Value::Function(_) => "function".to_string(),
+            Value::Struct(name, _) => format!("struct {name}"),
+            Value::StructInstance(name, _) => format!("struct instance {name}"),
+        }
+    }
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Void, Value::Void) => true,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Function(_), Value::Function(_)) => false, // Functions are not comparable
+            (Value::Struct(a, _), Value::Struct(b, _)) => a == b,
+            (Value::StructInstance(a_name, a_values), Value::StructInstance(b_name, b_values)) => {
+                a_name == b_name && a_values == b_values
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Function {
     UserDefined(Vec<(String, String)>, Vec<Stmt>, HashMap<String, Value>),
     BuiltIn(fn(&[Value]) -> Result<Value>),
@@ -182,18 +305,7 @@ pub enum Function {
 
 fn stdlib_print(args: &[Value]) -> Result<Value> {
     for arg in args {
-        match arg {
-            Value::Int(n) => print!("{}", n),
-            Value::Float(f) => print!("{}", f),
-            Value::String(s) => print!("{}", s),
-            Value::Bool(b) => print!("{}", b),
-            _ => {
-                return Err(Error::new_runtime(
-                    "Unsupported type for print".to_string(),
-                    Span::default(),
-                ))
-            }
-        }
+        print!("{}", arg);
     }
     io::stdout()
         .flush()

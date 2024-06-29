@@ -12,42 +12,15 @@ mod span;
 
 fn main() -> anyhow::Result<()> {
     let code = r#"
-        fn add(x: int, y: int) -> int {
-            println("x: ", x);
-            println("y: ", y);
-            let res = x + y;
-            println("res: ", res);
-            res
+        struct Person {
+            name: string,
+            age: int,
         }
 
-        fn p(s: string) {
-            println(s);
-        }
-
-        let name = "Felipe";
-
-        let five = 5; 
-        let x = 10;
-        let y = 20;
-        let y = 1;
-        let result = x + y + five + 3;
-        println(result);
-
-        let average = 0.1;
-        println(average);
-
-        let use_average = false;
-        println(use_average);
-
-        if use_average {
-            println("Average on");
-        } else {
-            println("Average off");
-        }
-
-        let final = add(x, result);
-        p(name);
-        println("Final: ", final);
+        let person = Person { name: "Felipe", age: 44 };
+        println(person.name);
+        println(person.age);
+        println(person);
     "#;
     let mut lexer = Lexer::new(code.to_string());
     let tokens = lexer.lex_all();

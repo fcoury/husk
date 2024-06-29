@@ -13,6 +13,8 @@ pub enum Expr {
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
+    StructInit(String, Vec<(String, Expr)>, Span),
+    MemberAccess(Box<Expr>, String, Span),
 }
 
 impl PartialEq for Expr {
@@ -45,6 +47,8 @@ impl Expr {
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
             Expr::FunctionCall(_, _, span) => span.clone(),
+            Expr::StructInit(_, _, span) => span.clone(),
+            Expr::MemberAccess(_, _, span) => span.clone(),
         }
     }
 }
@@ -56,6 +60,7 @@ pub enum Stmt {
     If(Expr, Vec<Stmt>, Vec<Stmt>, Span),
     ReturnExpression(Expr),
     Expression(Expr),
+    Struct(String, Vec<(String, String)>, Span),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,6 +107,7 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Result<Stmt> {
         match self.current_token().kind {
+            TokenKind::Struct => self.parse_struct(),
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Function => self.parse_function(),
             TokenKind::If => self.parse_if_statement(),
@@ -115,6 +121,63 @@ impl Parser {
             statements.push(self.parse_statement()?);
         }
         Ok(statements)
+    }
+
+    fn parse_struct(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'struct'
+
+        let Some(name) = self.consume_identifier()? else {
+            return Err(Error::new_parse(
+                "Expected struct name".to_string(),
+                self.current_token().span,
+            ));
+        };
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                format!(
+                    "Expected '{{' after struct name, found {:?}",
+                    self.current_token()
+                ),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume '{'
+
+        let mut fields = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            let field_name = self.consume_identifier()?.ok_or_else(|| {
+                Error::new_parse("Expected field name".to_string(), self.current_token().span)
+            })?;
+            if self.current_token().kind != TokenKind::Colon {
+                return Err(Error::new_parse(
+                    "Expected ':' after field name".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            self.advance(); // Consume ':'
+            let field_type = self.consume_type()?.ok_or_else(|| {
+                Error::new_parse(
+                    "Expected type after ':'".to_string(),
+                    self.current_token().span,
+                )
+            })?;
+            fields.push((field_name, field_type));
+
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            } else if self.current_token().kind != TokenKind::RBrace {
+                return Err(Error::new_parse(
+                    "Expected ',' or '}' in field list".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+        Ok(Stmt::Struct(name, fields, Span::new(start_span, end_span)))
     }
 
     fn parse_let_statement(&mut self) -> Result<Stmt> {
@@ -131,7 +194,10 @@ impl Parser {
                         return Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)));
                     } else {
                         return Err(Error::new_parse(
-                            "Expected ';' after expression".to_string(),
+                            format!(
+                                "Expected ';' after expression, found {:?}",
+                                self.current_token()
+                            ),
                             self.current_token().span,
                         ));
                     }
@@ -351,6 +417,7 @@ impl Parser {
             }
             return Ok(Stmt::ReturnExpression(expr));
         }
+
         Err(Error::new_parse(
             "Invalid expression statement".to_string(),
             self.current_token().span,
@@ -402,10 +469,25 @@ impl Parser {
             TokenKind::Identifier(ref name) => {
                 let name = name.clone();
                 self.advance(); // Consume identifier
-                if self.current_token().kind == TokenKind::LParen {
-                    self.parse_function_call(name, span)
-                } else {
-                    Ok(Expr::Identifier(name, span))
+
+                match self.current_token().kind {
+                    TokenKind::Dot => {
+                        self.advance(); // Consume '.'
+                        let field_name = self.consume_identifier()?.ok_or_else(|| {
+                            Error::new_parse(
+                                "Expected field name after '.'".to_string(),
+                                self.current_token().span,
+                            )
+                        })?;
+                        Ok(Expr::MemberAccess(
+                            Box::new(Expr::Identifier(name, span)),
+                            field_name,
+                            Span::new(span.start, self.current_token().span.end),
+                        ))
+                    }
+                    TokenKind::LParen => self.parse_function_call(name, span),
+                    TokenKind::LBrace => self.parse_struct_init(name, span),
+                    _ => Ok(Expr::Identifier(name, span)),
                 }
             }
             _ => Err(Error::new_parse(
@@ -430,6 +512,42 @@ impl Parser {
         Ok(Expr::FunctionCall(
             name,
             args,
+            Span::new(start_span.start, end_span.end),
+        ))
+    }
+
+    fn parse_struct_init(&mut self, name: String, start_span: Span) -> Result<Expr> {
+        let mut fields = Vec::new();
+        self.advance(); // Consume '{'
+
+        while self.current_token().kind != TokenKind::RBrace {
+            let field_name = self.consume_identifier()?.ok_or_else(|| {
+                Error::new_parse("Expected field name".to_string(), self.current_token().span)
+            })?;
+            if self.current_token().kind != TokenKind::Colon {
+                return Err(Error::new_parse(
+                    "Expected ':' after field name".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            self.advance(); // Consume ':'
+            let field_value = self.parse_expression()?;
+            fields.push((field_name, field_value));
+
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            } else if self.current_token().kind != TokenKind::RBrace {
+                return Err(Error::new_parse(
+                    "Expected ',' or '}' in field list".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+        let end_span = self.current_token().span;
+        self.advance(); // Consume '}'
+        Ok(Expr::StructInit(
+            name,
+            fields,
             Span::new(start_span.start, end_span.end),
         ))
     }
@@ -596,6 +714,90 @@ mod tests {
                     Span::new(87, 98),
                 )],
                 Span::new(13, 112),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_struct() {
+        let input = r#"
+            struct Person {
+                name: string,
+                age: int,
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Struct(
+                "Person".to_string(),
+                vec![
+                    ("name".to_string(), "string".to_string()),
+                    ("age".to_string(), "int".to_string()),
+                ],
+                Span::new(13, 98),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_struct_instance() {
+        let input = r#"
+            let p = Person {
+                name: "Felipe",
+                age: 30,
+            };
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "p".to_string(),
+                Expr::StructInit(
+                    "Person".to_string(),
+                    vec![
+                        (
+                            "name".to_string(),
+                            Expr::String("Felipe".to_string(), Span::new(52, 60))
+                        ),
+                        ("age".to_string(), Expr::Int(30, Span::new(83, 85))),
+                    ],
+                    Span::new(21, 100),
+                ),
+                Span::new(13, 101),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_struct_field_access() {
+        let input = "let name = p.name;";
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "name".to_string(),
+                Expr::MemberAccess(
+                    Box::new(Expr::Identifier("p".to_string(), Span::new(11, 12))),
+                    "name".to_string(),
+                    Span::new(11, 18),
+                ),
+                Span::new(0, 18),
             )
         );
     }

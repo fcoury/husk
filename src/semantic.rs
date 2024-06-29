@@ -8,6 +8,7 @@ use crate::{
 
 pub struct SemanticAnalyzer {
     symbol_table: HashMap<String, String>, // Variable name to type mapping
+    structs: HashMap<String, HashMap<String, String>>, // Struct name to field name to type mapping
     functions: HashMap<String, (Vec<(String, String)>, String, Span)>, // Function name to parameter types mapping
 }
 
@@ -15,6 +16,7 @@ impl SemanticAnalyzer {
     pub fn new() -> Self {
         let mut analyzer = SemanticAnalyzer {
             symbol_table: HashMap::new(),
+            structs: HashMap::new(),
             functions: HashMap::new(),
         };
         analyzer.init_standard_library();
@@ -44,6 +46,17 @@ impl SemanticAnalyzer {
             Stmt::Let(name, expr, _span) => {
                 let expr_type = self.analyze_expr(expr)?;
                 self.symbol_table.insert(name.clone(), expr_type);
+                Ok(())
+            }
+            Stmt::Struct(name, fields, _span) => {
+                self.symbol_table.insert(name.clone(), "struct".to_string());
+
+                let mut struct_fields = HashMap::new();
+                for (field_name, field_type) in fields {
+                    struct_fields.insert(field_name.clone(), field_type.clone());
+                }
+
+                self.structs.insert(name.clone(), struct_fields);
                 Ok(())
             }
             Stmt::Function(name, params, return_type, body, span) => {
@@ -160,6 +173,76 @@ impl SemanticAnalyzer {
                 } else {
                     Err(Error::new_semantic(
                         format!("Undefined function: {}", name),
+                        *span,
+                    ))
+                }
+            }
+            Expr::StructInit(name, fields, span) => {
+                let Some(symbol_type) = self.symbol_table.get(name) else {
+                    return Err(Error::new_semantic(
+                        format!("Undefined struct: {}", name),
+                        *span,
+                    ));
+                };
+
+                if symbol_type != "struct" {
+                    return Err(Error::new_semantic(
+                        format!("Type mismatch: expected struct, found {}", symbol_type),
+                        *span,
+                    ));
+                }
+
+                let struct_fields = self.structs.get(name).expect(
+                    "struct exists in symbol table with type struct but not in structs hashmap",
+                );
+
+                let mut missing_fields = struct_fields
+                    .keys()
+                    .filter(|field| !fields.iter().find(|(name, _)| name == *field).is_some());
+
+                if let Some(missing_field) = missing_fields.next() {
+                    return Err(Error::new_semantic(
+                        format!("Missing field '{}' in {}", missing_field, name),
+                        *span,
+                    ));
+                }
+                for (field_name, field_expr) in fields {
+                    let found_type = self.analyze_expr(field_expr)?;
+                    let Some(expected_type) = struct_fields.get(field_name) else {
+                        return Err(Error::new_semantic(
+                            format!("Struct {} has no field named '{}'", name, field_name),
+                            *span,
+                        ));
+                    };
+
+                    if found_type != *expected_type {
+                        return Err(Error::new_semantic(
+                            format!(
+                                "Type mismatch in {name}: field '{field_name}' should be {expected_type}, found {found_type}"
+                            ),
+                            *span,
+                        ));
+                    }
+                }
+                Ok(name.clone())
+            }
+            Expr::MemberAccess(struct_expr, field_name, span) => {
+                let struct_type = self.analyze_expr(struct_expr)?;
+                if let Some(field_type) = self.symbol_table.get(field_name) {
+                    if struct_type == *field_type {
+                        Ok(field_type.clone())
+                    } else {
+                        Err(Error::new_semantic(
+                            format!(
+                                "Type mismatch in struct field access: expected {}, found {}",
+                                field_type, struct_type
+                            ),
+                            *span,
+                        ))
+                    }
+                } else {
+                    Err(Error::new_semantic(
+                        format!("Undefined field: {}", field_name),
                         *span,
                     ))
                 }
