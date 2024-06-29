@@ -21,6 +21,9 @@ fn main() -> anyhow::Result<()> {
         println(person.name);
         println(person.age);
         println(person);
+
+        person.age = 22;
+        println(person.age);
     "#;
     let mut lexer = Lexer::new(code.to_string());
     let tokens = lexer.lex_all();

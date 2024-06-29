@@ -535,4 +535,25 @@ mod tests {
             assert_eq!(token, expected);
         }
     }
+
+    #[test]
+    fn test_lex_struct_field_set() {
+        let input = "client.age = 12;";
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::Identifier("client".to_string()), 0, 6),
+            Token::new(TokenKind::Dot, 6, 7),
+            Token::new(TokenKind::Identifier("age".to_string()), 7, 10),
+            Token::new(TokenKind::Equals, 11, 12),
+            Token::new(TokenKind::Int(12), 13, 15),
+            Token::new(TokenKind::Semicolon, 15, 16),
+            Token::new(TokenKind::Eof, 16, 16),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
 }

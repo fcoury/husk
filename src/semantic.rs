@@ -142,6 +142,22 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
+            Expr::Assign(left, right, span) => {
+                let expected_type = self.analyze_expr(left)?;
+                let actual_type = self.analyze_expr(right)?;
+
+                if expected_type == actual_type {
+                    Ok(expected_type)
+                } else {
+                    Err(Error::new_semantic(
+                        format!(
+                            "Type mismatch in assignment: expected {}, found {}",
+                            expected_type, actual_type
+                        ),
+                        *span,
+                    ))
+                }
+            }
             Expr::FunctionCall(name, args, span) => {
                 if let Some((param_types, return_type, _func_span)) = self.functions.get(name) {
                     if name == "print" || name == "println" {
@@ -228,23 +244,21 @@ impl SemanticAnalyzer {
             }
             Expr::MemberAccess(struct_expr, field_name, span) => {
                 let struct_type = self.analyze_expr(struct_expr)?;
-                if let Some(field_type) = self.symbol_table.get(field_name) {
-                    if struct_type == *field_type {
-                        Ok(field_type.clone())
-                    } else {
-                        Err(Error::new_semantic(
-                            format!(
-                                "Type mismatch in struct field access: expected {}, found {}",
-                                field_type, struct_type
-                            ),
-                            *span,
-                        ))
-                    }
+
+                let Some(struct_fields) = self.structs.get(&struct_type) else {
+                    return Err(Error::new_semantic(
+                        format!("Undefined struct: {}", struct_type),
+                        *span,
+                    ));
+                };
+
+                if let Some(field_type) = struct_fields.get(field_name) {
+                    Ok(field_type.clone())
                 } else {
-                    Err(Error::new_semantic(
+                    return Err(Error::new_semantic(
                         format!("Undefined field: {}", field_name),
                         *span,
-                    ))
+                    ));
                 }
             }
         }

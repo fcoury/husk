@@ -198,6 +198,46 @@ impl Interpreter {
                     )),
                 }
             }
+            Expr::Assign(left, right, span) => {
+                match left.as_ref() {
+                    Expr::Identifier(name, _) => {
+                        // TODO: mutability
+                        let value = self.evaluate_expr(right)?;
+                        self.environment.insert(name.clone(), value);
+                        Ok(Value::Void)
+                    }
+                    Expr::MemberAccess(access_expr, field_name, _) => match access_expr.as_ref() {
+                        Expr::Identifier(name, span) => {
+                            let new_value = self.evaluate_expr(right)?;
+
+                            let Some(value) = self.environment.get_mut(name) else {
+                                return Err(Error::new_runtime(
+                                    format!("Undefined struct instance: {}", name),
+                                    *span,
+                                ));
+                            };
+
+                            let Some(instance) = value.as_mut_instance() else {
+                                return Err(Error::new_runtime(
+                                    format!("{} is not a struct instance", name),
+                                    *span,
+                                ));
+                            };
+
+                            instance.get_mut(field_name).map(|field| *field = new_value);
+                            Ok(Value::Void)
+                        }
+                        _ => Err(Error::new_runtime(
+                            "Invalid assignment target".to_string(),
+                            *span,
+                        )),
+                    },
+                    _ => Err(Error::new_runtime(
+                        "Invalid assignment target".to_string(),
+                        *span,
+                    )),
+                }
+            }
         }
     }
 
@@ -214,10 +254,6 @@ impl Interpreter {
                 Operator::Minus => Ok(Value::Int(left - right)),
                 Operator::Multiply => Ok(Value::Int(left * right)),
                 Operator::Divide => Ok(Value::Int(left / right)),
-                // _ => Err(Error::new_runtime(
-                //     format!("Unsupported binary operator: {:#?}", op),
-                //     span,
-                // )),
             },
             _ => Err(Error::new_runtime(
                 "Binary operation on non-numeric values".to_string(),
@@ -269,6 +305,13 @@ impl Value {
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {name}"),
             Value::StructInstance(name, _) => format!("struct instance {name}"),
+        }
+    }
+
+    pub fn as_mut_instance(&mut self) -> Option<&mut HashMap<String, Value>> {
+        match self {
+            Value::StructInstance(_, fields) => Some(fields),
+            _ => None,
         }
     }
 }

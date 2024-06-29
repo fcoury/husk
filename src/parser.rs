@@ -15,6 +15,7 @@ pub enum Expr {
     FunctionCall(String, Vec<Expr>, Span),
     StructInit(String, Vec<(String, Expr)>, Span),
     MemberAccess(Box<Expr>, String, Span),
+    Assign(Box<Expr>, Box<Expr>, Span),
 }
 
 impl PartialEq for Expr {
@@ -49,6 +50,7 @@ impl Expr {
             Expr::FunctionCall(_, _, span) => span.clone(),
             Expr::StructInit(_, _, span) => span.clone(),
             Expr::MemberAccess(_, _, span) => span.clone(),
+            Expr::Assign(_, _, span) => span.clone(),
         }
     }
 }
@@ -414,6 +416,22 @@ impl Parser {
             if self.current_token().kind == TokenKind::Semicolon {
                 self.advance(); // Consume ';'
                 return Ok(Stmt::Expression(expr));
+            } else if self.current_token().kind == TokenKind::Equals {
+                self.advance(); // Consume '='
+                let value = self.parse_expression()?;
+
+                if self.current_token().kind == TokenKind::Semicolon {
+                    self.advance(); // Consume ';'
+                    return Ok(Stmt::Expression(Expr::Assign(
+                        Box::new(expr.clone()),
+                        Box::new(value.clone()),
+                        Span::new(expr.span().start, value.span().end),
+                    )));
+                }
+                return Err(Error::new_parse(
+                    "Expected ';' after assignment".to_string(),
+                    self.current_token().span,
+                ));
             }
             return Ok(Stmt::ReturnExpression(expr));
         }
@@ -799,6 +817,29 @@ mod tests {
                 ),
                 Span::new(0, 18),
             )
+        );
+    }
+
+    #[test]
+    fn test_parse_struct_field_set() {
+        let input = "client.age = 12;";
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Expression(Expr::Assign(
+                Box::new(Expr::MemberAccess(
+                    Box::new(Expr::Identifier("client".to_string(), Span::new(0, 6))),
+                    "age".to_string(),
+                    Span::new(0, 15),
+                )),
+                Box::new(Expr::Int(12, Span::new(13, 15))),
+                Span::new(0, 15),
+            ))
         );
     }
 
