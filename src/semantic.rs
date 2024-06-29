@@ -93,7 +93,8 @@ impl SemanticAnalyzer {
 
     fn analyze_expr(&self, expr: &Expr) -> Result<String> {
         match expr {
-            Expr::Number(_, _) => Ok("int".to_string()),
+            Expr::Int(_, _) => Ok("int".to_string()),
+            Expr::Float(_, _) => Ok("float".to_string()),
             Expr::String(_, _) => Ok("string".to_string()),
             Expr::Identifier(name, span) => {
                 if let Some(var_type) = self.symbol_table.get(name) {

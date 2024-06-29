@@ -13,25 +13,28 @@ mod span;
 fn main() -> anyhow::Result<()> {
     let code = r#"
         fn add(x: int, y: int) -> int {
-            println(x);
-            println(y);
-            x + y
+            println("x: ", x);
+            println("y: ", y);
+            let res = x + y;
+            println("res: ", res);
+            res
+        }
+
+        fn p(s: string) {
+            println(s);
         }
 
         let name = "Felipe";
 
         let five = 5; 
-        println(five);
         let x = 10;
-        println(x);
         let y = 20;
-        println(y);
         let y = 1;
-        println(y);
         let result = x + y + five + 3;
         println(result);
 
         let final = add(x, result);
+        p(name);
         println("Final: ", final);
     "#;
     let mut lexer = Lexer::new(code.to_string());

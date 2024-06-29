@@ -67,7 +67,8 @@ impl Interpreter {
 
     fn evaluate_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
-            Expr::Number(n, _) => Ok(Value::Number(*n)),
+            Expr::Int(n, _) => Ok(Value::Int(*n)),
+            Expr::Float(f, _) => Ok(Value::Float(*f)),
             Expr::String(s, _) => Ok(Value::String(s.to_string())),
             Expr::Identifier(name, span) => {
                 self.environment.get(name).cloned().ok_or_else(|| {
@@ -132,11 +133,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<Value> {
         match (left, right) {
-            (Value::Number(left), Value::Number(right)) => match op {
-                Operator::Plus => Ok(Value::Number(left + right)),
-                Operator::Minus => Ok(Value::Number(left - right)),
-                Operator::Multiply => Ok(Value::Number(left * right)),
-                Operator::Divide => Ok(Value::Number(left / right)),
+            (Value::Int(left), Value::Int(right)) => match op {
+                Operator::Plus => Ok(Value::Int(left + right)),
+                Operator::Minus => Ok(Value::Int(left - right)),
+                Operator::Multiply => Ok(Value::Int(left * right)),
+                Operator::Divide => Ok(Value::Int(left / right)),
                 // _ => Err(Error::new_runtime(
                 //     format!("Unsupported binary operator: {:#?}", op),
                 //     span,
@@ -153,7 +154,8 @@ impl Interpreter {
 #[derive(Clone)]
 pub enum Value {
     Void,
-    Number(i64),
+    Int(i64),
+    Float(f64),
     String(String),
     Function(Function),
     // Function {
@@ -173,7 +175,7 @@ pub enum Function {
 fn stdlib_print(args: &[Value]) -> Result<Value> {
     for arg in args {
         match arg {
-            Value::Number(n) => print!("{}", n),
+            Value::Int(n) => print!("{}", n),
             Value::String(s) => print!("{}", s),
             _ => {
                 return Err(Error::new_runtime(
@@ -186,11 +188,11 @@ fn stdlib_print(args: &[Value]) -> Result<Value> {
     io::stdout()
         .flush()
         .map_err(|e| Error::new_runtime(format!("IO error: {}", e), Span::default()))?;
-    Ok(Value::Number(0)) // print returns 0 on success
+    Ok(Value::Int(0)) // print returns 0 on success
 }
 
 fn stdlib_println(args: &[Value]) -> Result<Value> {
     stdlib_print(args)?;
     println!();
-    Ok(Value::Number(0)) // println returns 0 on success
+    Ok(Value::Int(0)) // println returns 0 on success
 }

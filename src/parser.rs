@@ -4,19 +4,41 @@ use crate::{
     span::Span,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub enum Expr {
-    Number(i64, Span),
+    Int(i64, Span),
+    Float(f64, Span),
     String(String, Span),
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
 }
 
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        self.span() == other.span()
+    }
+}
+
+impl Eq for Expr {}
+
+impl PartialOrd for Expr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Expr {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.span().cmp(&other.span())
+    }
+}
+
 impl Expr {
     pub fn span(&self) -> Span {
         match self {
-            Expr::Number(_, span) => span.clone(),
+            Expr::Int(_, span) => span.clone(),
+            Expr::Float(_, span) => span.clone(),
             Expr::String(_, span) => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
@@ -92,8 +114,8 @@ impl Parser {
                 self.advance(); // Consume '='
                 if let Ok(expr) = self.parse_expression() {
                     if self.current_token().kind == TokenKind::Semicolon {
-                        self.advance(); // Consume ';'
                         let end_span = self.current_token().span.end;
+                        self.advance(); // Consume ';'
                         return Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)));
                     } else {
                         return Err(Error::new_parse(
@@ -287,19 +309,18 @@ impl Parser {
 
     fn parse_primary_expression(&mut self) -> Result<Expr> {
         let span = self.current_token().span;
-
         match self.current_token().kind {
-            TokenKind::Number(value) => {
+            TokenKind::Int(value) => {
                 self.advance(); // Consume number
-                Ok(Expr::Number(value, span))
+                Ok(Expr::Int(value, span))
+            }
+            TokenKind::Float(value) => {
+                self.advance(); // Consume number
+                Ok(Expr::Float(value, span))
             }
             TokenKind::String(ref value) => {
                 let value = value.clone();
                 self.advance(); // Consume string
-                println!(
-                    "current_token after string: {:?}",
-                    self.current_token().kind
-                );
                 Ok(Expr::String(value, span))
             }
             TokenKind::Identifier(ref name) => {
@@ -354,7 +375,24 @@ mod tests {
     use crate::lexer::Lexer;
 
     #[test]
-    fn test_parse_let_statement() {
+    fn test_parse_let_float() {
+        let input = "let x = 5.0;";
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        let ast = parser.parse().unwrap();
+        let expected_ast = vec![Stmt::Let(
+            "x".to_string(),
+            Expr::Float(5.0, Span::new(8, 11)),
+            Span::new(0, 12),
+        )];
+
+        assert_eq!(ast, expected_ast);
+    }
+
+    #[test]
+    fn test_parse_let_int() {
         let input = "let x = 5;";
         let mut lexer = Lexer::new(input.to_string());
         let tokens = lexer.lex_all(); // Assume you have a method to lex all tokens
@@ -363,15 +401,33 @@ mod tests {
         let ast = parser.parse().unwrap();
         let expected_ast = vec![Stmt::Let(
             "x".to_string(),
-            Expr::Number(5, Span::new(8, 9)),
-            Span::new(0, 9),
+            Expr::Int(5, Span::new(8, 9)),
+            Span::new(0, 10),
         )];
 
         assert_eq!(ast, expected_ast);
     }
 
     #[test]
-    fn test_parse_let_with_string() {
+    fn test_parse_string() {
+        let input = r#"let x = "Hello, World!";"#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "x".to_string(),
+                Expr::String("Hello, World!".to_string(), Span::new(8, 23)),
+                Span::new(0, 24),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_let_string_and_int() {
         let input = r#"
             let name = "Felipe";
             let y = 5;
@@ -381,7 +437,14 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().unwrap();
 
-        println!("AST: {:?}", ast);
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "name".to_string(),
+                Expr::String("Felipe".to_string(), Span::new(24, 32)),
+                Span::new(13, 33),
+            )
+        );
     }
 
     // #[test]
