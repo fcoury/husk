@@ -9,6 +9,7 @@ pub enum Expr {
     Int(i64, Span),
     Float(f64, Span),
     String(String, Span),
+    Bool(bool, Span),
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
@@ -40,6 +41,7 @@ impl Expr {
             Expr::Int(_, span) => span.clone(),
             Expr::Float(_, span) => span.clone(),
             Expr::String(_, span) => span.clone(),
+            Expr::Bool(_, span) => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
             Expr::FunctionCall(_, _, span) => span.clone(),
@@ -323,6 +325,10 @@ impl Parser {
                 self.advance(); // Consume string
                 Ok(Expr::String(value, span))
             }
+            TokenKind::Bool(value) => {
+                self.advance(); // Consume boolean
+                Ok(Expr::Bool(value, span))
+            }
             TokenKind::Identifier(ref name) => {
                 let name = name.clone();
                 self.advance(); // Consume identifier
@@ -424,6 +430,23 @@ mod tests {
                 Span::new(0, 24),
             )
         );
+    }
+
+    #[test]
+    fn test_parse_bool() {
+        let input = "let x = true;";
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        let ast = parser.parse().unwrap();
+        let expected_ast = vec![Stmt::Let(
+            "x".to_string(),
+            Expr::Identifier("true".to_string(), Span::new(8, 12)),
+            Span::new(0, 13),
+        )];
+
+        assert_eq!(ast, expected_ast);
     }
 
     #[test]

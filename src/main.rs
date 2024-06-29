@@ -36,6 +36,9 @@ fn main() -> anyhow::Result<()> {
         let average = 0.1;
         println(average);
 
+        let use_average = true;
+        println(use_average);
+
         let final = add(x, result);
         p(name);
         println("Final: ", final);

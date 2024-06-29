@@ -70,6 +70,7 @@ impl Interpreter {
             Expr::Int(n, _) => Ok(Value::Int(*n)),
             Expr::Float(f, _) => Ok(Value::Float(*f)),
             Expr::String(s, _) => Ok(Value::String(s.to_string())),
+            Expr::Bool(b, _) => Ok(Value::Bool(*b)),
             Expr::Identifier(name, span) => {
                 self.environment.get(name).cloned().ok_or_else(|| {
                     Error::new_runtime(format!("Undefined variable: {}", name), *span)
@@ -156,6 +157,7 @@ pub enum Value {
     Void,
     Int(i64),
     Float(f64),
+    Bool(bool),
     String(String),
     Function(Function),
 }
@@ -172,6 +174,7 @@ fn stdlib_print(args: &[Value]) -> Result<Value> {
             Value::Int(n) => print!("{}", n),
             Value::Float(f) => print!("{}", f),
             Value::String(s) => print!("{}", s),
+            Value::Bool(b) => print!("{}", b),
             _ => {
                 return Err(Error::new_runtime(
                     "Unsupported type for print".to_string(),

@@ -29,6 +29,7 @@ pub enum TokenKind {
     Int(i64),
     Float(f64),
     String(String),
+    Bool(bool),
     Equals,
     Semicolon,
     LParen,
@@ -175,6 +176,8 @@ impl Lexer {
         }
         let identifier: String = self.input[start_position..self.position].to_string();
         let kind = match identifier.as_str() {
+            "false" => TokenKind::Bool(false),
+            "true" => TokenKind::Bool(true),
             "fn" => TokenKind::Function,
             "let" => TokenKind::Let,
             "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
@@ -309,6 +312,25 @@ mod tests {
             Token::new(TokenKind::String("Felipe".to_string()), 11, 19),
             Token::new(TokenKind::Semicolon, 19, 20),
             Token::new(TokenKind::Eof, 20, 20),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_let_bool() {
+        let input = r#"let is_true = true;"#;
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::Let, 0, 3),
+            Token::new(TokenKind::Identifier("is_true".to_string()), 4, 11),
+            Token::new(TokenKind::Equals, 12, 13),
+            Token::new(TokenKind::Bool(true), 14, 18),
+            Token::new(TokenKind::Semicolon, 18, 19),
+            Token::new(TokenKind::Eof, 19, 19),
         ];
 
         for expected in expected_tokens {
