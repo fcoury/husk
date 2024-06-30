@@ -21,8 +21,8 @@ pub fn execute_script(code: impl Into<String>) -> Result<Value> {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse()?;
 
-    let mut analyzer = SemanticAnalyzer::new();
-    let _ = analyzer.analyze(&ast)?;
+    // let mut analyzer = SemanticAnalyzer::new();
+    // let _ = analyzer.analyze(&ast)?;
 
     let mut interpreter = Interpreter::new();
     interpreter.interpret(&ast)
