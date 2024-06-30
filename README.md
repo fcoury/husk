@@ -1,7 +1,7 @@
 # Husk - Script Language Inspired by Rust
 
 <p align="center">
-  <img src="assets/logo.png" alt="AIPIM Icon" />
+  <img src="assets/logo-small.png" alt="AIPIM Icon" />
 </p>
 
 [![Build Status](https://github.com/fcoury/husk/actions/workflows/rust.yml/badge.svg)](https://github.com/fcoury/fcoury/actions)
