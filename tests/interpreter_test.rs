@@ -1,6 +1,6 @@
 use std::fs;
 
-use rusk::execute_script;
+use husk::execute_script;
 
 #[test]
 fn test_scripts() -> anyhow::Result<()> {

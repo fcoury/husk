@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use rusk::{execute_script, repl};
+use husk::{execute_script, repl};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -9,10 +9,10 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Executes a rusk script
+    /// Executes a husk script
     Run { file: std::path::PathBuf },
 
-    /// Runs the rusk REPL
+    /// Runs the husk REPL
     Repl,
 }
 
