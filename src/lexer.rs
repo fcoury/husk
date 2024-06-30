@@ -34,6 +34,7 @@ pub enum TokenKind {
     String(String),
     Bool(bool),
     Equals,
+    DblEquals,
     Semicolon,
     LParen,
     RParen,
@@ -50,6 +51,12 @@ pub enum TokenKind {
     Dot,
     Error(String),
     Eof,
+}
+
+impl TokenKind {
+    pub fn is_identifier(&self) -> bool {
+        matches!(self, TokenKind::Identifier(_))
+    }
 }
 
 #[derive(Debug)]
@@ -120,7 +127,14 @@ impl Lexer {
         self.skip_whitespace();
         self.start_position = self.position;
         let token = match self.ch {
-            Some('=') => self.create_token(TokenKind::Equals),
+            Some('=') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::DblEquals)
+                } else {
+                    self.create_token(TokenKind::Equals)
+                }
+            }
             Some(';') => self.create_token(TokenKind::Semicolon),
             Some('(') => self.create_token(TokenKind::LParen),
             Some(')') => self.create_token(TokenKind::RParen),
@@ -565,8 +579,7 @@ mod tests {
         let mut lexer = Lexer::new(input.to_string());
         let expected_tokens = vec![
             Token::new(TokenKind::Identifier("x".to_string()), 0, 1),
-            Token::new(TokenKind::Equals, 2, 3),
-            Token::new(TokenKind::Equals, 3, 4),
+            Token::new(TokenKind::DblEquals, 2, 4),
             Token::new(TokenKind::Int(10), 5, 7),
             Token::new(TokenKind::Semicolon, 7, 8),
             Token::new(TokenKind::Eof, 8, 8),

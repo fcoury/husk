@@ -91,10 +91,6 @@ impl Parser {
         self.tokens.get(self.position).unwrap_or(&EOF)
     }
 
-    fn peek_token(&self) -> Option<&Token> {
-        self.tokens.get(self.position + 1)
-    }
-
     fn advance(&mut self) {
         if self.position < self.tokens.len() {
             self.position += 1;
@@ -186,38 +182,45 @@ impl Parser {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'let'
 
-        if let Some(name) = self.consume_identifier()? {
-            if self.current_token().kind == TokenKind::Equals {
-                self.advance(); // Consume '='
-                if let Ok(expr) = self.parse_expression() {
-                    if self.current_token().kind == TokenKind::Semicolon {
-                        let end_span = self.current_token().span.end;
-                        self.advance(); // Consume ';'
-                        return Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)));
-                    } else {
-                        return Err(Error::new_parse(
-                            format!(
-                                "Expected ';' after expression, found {:?}",
-                                self.current_token()
-                            ),
-                            self.current_token().span,
-                        ));
-                    }
-                } else {
-                    return Err(Error::new_parse(
-                        "Invalid expression in let statement".to_string(),
-                        self.current_token().span,
-                    ));
-                }
-            }
+        let Some(name) = self.consume_identifier()? else {
+            return Err(Error::new_parse(
+                "Expected identifier after 'let'".to_string(),
+                self.current_token().span,
+            ));
+        };
+
+        if self.current_token().kind != TokenKind::Equals {
+            return Err(Error::new_parse(
+                format!(
+                    "Expected '=' after identifier, found {:?}",
+                    self.current_token()
+                ),
+                self.current_token().span,
+            ));
         }
-        Err(Error::new_parse(
-            "Invalid let statement".to_string(),
-            Span {
-                start: start_span,
-                end: self.current_token().span.end,
-            },
-        ))
+
+        self.advance(); // Consume '='
+        let Ok(expr) = self.parse_expression() else {
+            return Err(Error::new_parse(
+                "Invalid expression in let statement".to_string(),
+                self.current_token().span,
+            ));
+        };
+
+        if self.current_token().kind != TokenKind::Semicolon {
+            return Err(Error::new_parse(
+                format!(
+                    "Expected ';' after expression, found {:?}",
+                    self.current_token()
+                ),
+                self.current_token().span,
+            ));
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume ';'
+
+        Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)))
     }
 
     fn parse_if_statement(&mut self) -> Result<Stmt> {
@@ -473,26 +476,29 @@ impl Parser {
                 let name = name.clone();
                 self.advance(); // Consume identifier
 
-                match self.current_token().kind {
-                    TokenKind::Dot => {
-                        self.advance(); // Consume '.'
-                        let field_name = self.consume_identifier()?.ok_or_else(|| {
-                            Error::new_parse(
-                                "Expected field name after '.'".to_string(),
-                                self.current_token().span,
-                            )
-                        })?;
-                        Ok(Expr::MemberAccess(
-                            Box::new(Expr::Identifier(name, span)),
-                            field_name,
-                            Span::new(span.start, self.current_token().span.end),
-                        ))
+                if self.current_token().kind == TokenKind::LBrace
+                    && self.lookahead_for_struct_initialization()
+                {
+                    self.parse_struct_init(name, span)
+                } else {
+                    match self.current_token().kind {
+                        TokenKind::Dot => {
+                            self.advance(); // Consume '.'
+                            let field_name = self.consume_identifier()?.ok_or_else(|| {
+                                Error::new_parse(
+                                    "Expected field name after '.'".to_string(),
+                                    self.current_token().span,
+                                )
+                            })?;
+                            Ok(Expr::MemberAccess(
+                                Box::new(Expr::Identifier(name, span)),
+                                field_name,
+                                Span::new(span.start, self.current_token().span.end),
+                            ))
+                        }
+                        TokenKind::LParen => self.parse_function_call(name, span),
+                        _ => Ok(Expr::Identifier(name, span)),
                     }
-                    TokenKind::LParen => self.parse_function_call(name, span),
-                    // FIXME: When we are declaring a struct instance, this needs to be here,
-                    //        so our logic is flawed
-                    TokenKind::LBrace => self.parse_struct_init(name, span),
-                    _ => Ok(Expr::Identifier(name, span)),
                 }
             }
             _ => Err(Error::new_parse(
@@ -519,6 +525,27 @@ impl Parser {
             args,
             Span::new(start_span.start, end_span.end),
         ))
+    }
+
+    fn lookahead_for_struct_initialization(&self) -> bool {
+        let mut lookahead_index = self.position + 1;
+        while lookahead_index < self.tokens.len() {
+            match self.tokens[lookahead_index].kind {
+                TokenKind::Identifier(_) => {
+                    if self
+                        .tokens
+                        .get(lookahead_index + 1)
+                        .map_or(false, |t| t.kind == TokenKind::Colon)
+                    {
+                        return true;
+                    }
+                }
+                TokenKind::RBrace => return true,
+                _ => return false,
+            }
+            lookahead_index += 1;
+        }
+        false
     }
 
     fn parse_struct_init(&mut self, name: String, start_span: Span) -> Result<Expr> {
@@ -563,16 +590,7 @@ impl Parser {
             TokenKind::Minus => Some(Operator::Minus),
             TokenKind::Asterisk => Some(Operator::Multiply),
             TokenKind::Slash => Some(Operator::Divide),
-            TokenKind::Equals => {
-                if let Some(next_token) = self.peek_token() {
-                    if next_token.kind == TokenKind::Equals {
-                        self.advance();
-                        return Some(Operator::Equals);
-                    }
-                };
-
-                None
-            }
+            TokenKind::DblEquals => return Some(Operator::Equals),
             _ => None,
         }
     }
@@ -963,5 +981,20 @@ mod tests {
                 Span::new(13, 95),
             )
         );
+    }
+
+    #[test]
+    fn test_if_vs_struct() {
+        let code = r#"
+        let p = Person { name: "Felipe" };
+        if y == x {
+            println(p);
+        }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        assert!(parser.parse().is_ok());
     }
 }
