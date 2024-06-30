@@ -55,6 +55,14 @@ impl Interpreter {
                 self.environment
                     .insert(name.clone(), Value::Struct(name.clone(), field_map));
             }
+            Stmt::Enum(name, variants, _) => {
+                let mut variant_map = HashMap::new();
+                for (variant_name, variant_type) in variants {
+                    variant_map.insert(variant_name.clone(), variant_type.clone());
+                }
+                self.environment
+                    .insert(name.clone(), Value::Enum(name.clone(), variant_map));
+            }
             Stmt::Function(name, params, _, body, _) => {
                 let func = Value::Function(Function::UserDefined(
                     params.clone(),
@@ -88,6 +96,36 @@ impl Interpreter {
         Ok(Value::Void)
     }
 
+    fn evaluate_parts(&mut self, name: &str, span: Span) -> Result<Value> {
+        let parts: Vec<&str> = name.split("::").collect();
+        let first_part = parts.first().unwrap();
+        let rest = &parts[1..];
+
+        let value = self.environment.get(*first_part).cloned().ok_or_else(|| {
+            Error::new_runtime(format!("Undefined variable: {}", first_part), span)
+        })?;
+
+        match value {
+            Value::Enum(_, variants) => {
+                let variant_name = rest.first().unwrap();
+                let _variant_type = variants.get(*variant_name).ok_or_else(|| {
+                    Error::new_runtime(format!("Undefined variant: {}", variant_name), span)
+                })?;
+
+                Ok(Value::EnumVariant(
+                    first_part.to_string(),
+                    variant_name.to_string(),
+                ))
+            }
+            _ => {
+                return Err(Error::new_runtime(
+                    format!("{} is not a valid identifier", name),
+                    span,
+                ));
+            }
+        }
+    }
+
     fn evaluate_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
             Expr::Int(n, _) => Ok(Value::Int(*n)),
@@ -95,6 +133,10 @@ impl Interpreter {
             Expr::String(s, _) => Ok(Value::String(s.to_string())),
             Expr::Bool(b, _) => Ok(Value::Bool(*b)),
             Expr::Identifier(name, span) => {
+                if name.contains("::") {
+                    return self.evaluate_parts(name, *span);
+                }
+
                 self.environment.get(name).cloned().ok_or_else(|| {
                     Error::new_runtime(format!("Undefined variable: {}", name), *span)
                 })
@@ -276,7 +318,9 @@ pub enum Value {
     String(String),
     Function(Function),
     Struct(String, HashMap<String, String>),
+    Enum(String, HashMap<String, String>),
     StructInstance(String, HashMap<String, Value>),
+    EnumVariant(String, String),
 }
 
 impl Value {
@@ -296,6 +340,8 @@ impl Value {
                 }
                 format!("struct {} {{{}}}", name, field_strings.join(", "))
             }
+            Value::Enum(name, _) => format!("enum {}", name),
+            Value::EnumVariant(name, variant) => format!("{}::{}", name, variant),
         }
     }
 
@@ -309,6 +355,8 @@ impl Value {
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {name}"),
             Value::StructInstance(name, _) => format!("struct instance {name}"),
+            Value::Enum(name, _) => format!("enum {name}"),
+            Value::EnumVariant(name, variant) => format!("{name}::{variant}"),
         }
     }
 
@@ -430,5 +478,33 @@ mod tests {
 
         // FIXME: identify why this is returning void
         assert_eq!(val, Value::Int(0));
+    }
+
+    #[test]
+    fn test_enum() {
+        let code = r#"
+            enum Color {
+                Red,
+                Green,
+                Blue,
+            }
+
+            let c = Color::Red;
+            c
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        let mut interpreter = Interpreter::new();
+        let val = interpreter.interpret(&ast).unwrap();
+
+        let Value::EnumVariant(name, variant) = val else {
+            panic!("Expected EnumVariant, got {:?}", val);
+        };
+
+        assert_eq!(name, "Color");
+        assert_eq!(variant, "Red");
     }
 }

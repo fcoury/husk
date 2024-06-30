@@ -63,6 +63,7 @@ pub enum Stmt {
     ReturnExpression(Expr),
     Expression(Expr),
     Struct(String, Vec<(String, String)>, Span),
+    Enum(String, Vec<(String, String)>, Span),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -111,6 +112,7 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Stmt> {
         match self.current_token().kind {
             TokenKind::Struct => self.parse_struct(),
+            TokenKind::Enum => self.parse_enum(),
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Function => self.parse_function(),
             TokenKind::If => self.parse_if_statement(),
@@ -178,6 +180,68 @@ impl Parser {
         Ok(Stmt::Struct(name, fields, Span::new(start_span, end_span)))
     }
 
+    fn parse_enum(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'enum'
+
+        let Some(name) = self.consume_identifier()? else {
+            return Err(Error::new_parse(
+                "Expected enum name".to_string(),
+                self.current_token().span,
+            ));
+        };
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                format!(
+                    "Expected '{{' after enum name, found {:?}",
+                    self.current_token()
+                ),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume '{'
+
+        let mut variants = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            let variant_name = self.consume_identifier()?.ok_or_else(|| {
+                Error::new_parse(
+                    "Expected variant name".to_string(),
+                    self.current_token().span,
+                )
+            })?;
+
+            let variant_type = if self.current_token().kind == TokenKind::LParen {
+                self.advance(); // Consume '('
+                let variant_type = self.consume_type().unwrap();
+                if self.current_token().kind != TokenKind::RParen {
+                    return Err(Error::new_parse(
+                        "Expected ')' after variant type".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.advance(); // Consume ')'
+                variant_type
+            } else {
+                "unit".to_string()
+            };
+            variants.push((variant_name, variant_type));
+
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            } else if self.current_token().kind != TokenKind::RBrace {
+                return Err(Error::new_parse(
+                    "Expected ',' or '}' in variant list".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+        Ok(Stmt::Enum(name, variants, Span::new(start_span, end_span)))
+    }
+
     fn parse_let_statement(&mut self) -> Result<Stmt> {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'let'
@@ -200,12 +264,7 @@ impl Parser {
         }
 
         self.advance(); // Consume '='
-        let Ok(expr) = self.parse_expression() else {
-            return Err(Error::new_parse(
-                "Invalid expression in let statement".to_string(),
-                self.current_token().span,
-            ));
-        };
+        let expr = self.parse_expression()?;
 
         if self.current_token().kind != TokenKind::Semicolon {
             return Err(Error::new_parse(
@@ -431,10 +490,6 @@ impl Parser {
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
-        self.parse_binary_expression()
-    }
-
-    fn parse_binary_expression(&mut self) -> Result<Expr> {
         let mut left = self.parse_primary_expression()?;
         while let Some(op) = self.parse_operator() {
             let start_span = left.span().start;
@@ -476,29 +531,50 @@ impl Parser {
                 let name = name.clone();
                 self.advance(); // Consume identifier
 
-                if self.current_token().kind == TokenKind::LBrace
-                    && self.lookahead_for_struct_initialization()
-                {
-                    self.parse_struct_init(name, span)
-                } else {
-                    match self.current_token().kind {
-                        TokenKind::Dot => {
-                            self.advance(); // Consume '.'
-                            let field_name = self.consume_identifier()?.ok_or_else(|| {
-                                Error::new_parse(
-                                    "Expected field name after '.'".to_string(),
-                                    self.current_token().span,
-                                )
-                            })?;
-                            Ok(Expr::MemberAccess(
-                                Box::new(Expr::Identifier(name, span)),
-                                field_name,
-                                Span::new(span.start, self.current_token().span.end),
-                            ))
-                        }
-                        TokenKind::LParen => self.parse_function_call(name, span),
-                        _ => Ok(Expr::Identifier(name, span)),
+                match self.current_token().kind {
+                    TokenKind::Dot => {
+                        self.advance(); // Consume '.'
+                        let field_name = self.consume_identifier()?.ok_or_else(|| {
+                            Error::new_parse(
+                                "Expected field name after '.'".to_string(),
+                                self.current_token().span,
+                            )
+                        })?;
+                        Ok(Expr::MemberAccess(
+                            Box::new(Expr::Identifier(name, span)),
+                            field_name,
+                            Span::new(span.start, self.current_token().span.end),
+                        ))
                     }
+                    TokenKind::LParen => self.parse_function_call(name, span),
+                    TokenKind::LBrace if self.lookahead_for_struct_initialization() => {
+                        self.parse_struct_init(name, span)
+                    }
+                    TokenKind::Colon => {
+                        self.advance(); // Consume first ':'
+
+                        if self.current_token().kind != TokenKind::Colon {
+                            return Err(Error::new_parse(
+                                format!(
+                                    "Expected '::' after enum name, got {:?}",
+                                    self.current_token()
+                                ),
+                                self.current_token().span,
+                            ));
+                        }
+                        self.advance(); // Consume second ':'
+
+                        let variant_name = self.consume_identifier()?.ok_or_else(|| {
+                            Error::new_parse(
+                                "Expected enum variant name".to_string(),
+                                self.current_token().span,
+                            )
+                        })?;
+
+                        let span = Span::new(span.start, self.current_token().span.end);
+                        Ok(Expr::Identifier(format!("{name}::{variant_name}"), span))
+                    }
+                    _ => Ok(Expr::Identifier(name, span)),
                 }
             }
             _ => Err(Error::new_parse(
@@ -996,5 +1072,60 @@ mod tests {
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         assert!(parser.parse().is_ok());
+    }
+
+    #[test]
+    fn test_parse_enum() {
+        let code = r#"
+            enum Color {
+                Red,
+                Green,
+                Blue,
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        let Stmt::Enum(enum_name, variants, _) = &ast[0] else {
+            panic!("Expected Enum statement");
+        };
+
+        assert_eq!(enum_name, "Color");
+        assert_eq!(
+            variants,
+            &[
+                ("Red".to_string(), "unit".to_string()),
+                ("Green".to_string(), "unit".to_string()),
+                ("Blue".to_string(), "unit".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_enum_variant() {
+        let code = r"let c = Color::Red;";
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        match parser.parse() {
+            Ok(ast) => {
+                assert_eq!(
+                    ast[0],
+                    Stmt::Let(
+                        "c".to_string(),
+                        Expr::Identifier("Color::Red".to_string(), Span::new(8, 19)),
+                        Span::new(0, 19),
+                    )
+                );
+            }
+            Err(e) => {
+                panic!("{}", e.pretty_print(code))
+            }
+        }
     }
 }

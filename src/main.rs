@@ -24,7 +24,13 @@ fn main() -> anyhow::Result<()> {
             command: Command::Run { file },
         } => {
             let code = std::fs::read_to_string(file)?;
-            execute_script(code)?;
+            match execute_script(&code) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("{}", e.pretty_print(code));
+                    std::process::exit(1);
+                }
+            }
         }
         Cli {
             command: Command::Repl,

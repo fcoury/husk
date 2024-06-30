@@ -25,6 +25,7 @@ pub const EOF: Token = Token {
 pub enum TokenKind {
     Function,
     Struct,
+    Enum,
     Let,
     If,
     Else,
@@ -197,6 +198,7 @@ impl Lexer {
         let identifier: String = self.input[start_position..self.position].to_string();
         let kind = match identifier.as_str() {
             "struct" => TokenKind::Struct,
+            "enum" => TokenKind::Enum,
             "false" => TokenKind::Bool(false),
             "true" => TokenKind::Bool(true),
             "fn" => TokenKind::Function,
@@ -588,6 +590,60 @@ mod tests {
         for expected in expected_tokens {
             let token = lexer.next_token();
             assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_enum() {
+        let input = r#"
+            enum Option {
+                Some(String),
+                None,
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            TokenKind::Enum,
+            TokenKind::Identifier("Option".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Identifier("Some".to_string()),
+            TokenKind::LParen,
+            TokenKind::Identifier("String".to_string()),
+            TokenKind::RParen,
+            TokenKind::Comma,
+            TokenKind::Identifier("None".to_string()),
+            TokenKind::Comma,
+            TokenKind::RBrace,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_enum_variant() {
+        let input = r"let c = Color::Red;";
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("c".to_string()),
+            TokenKind::Equals,
+            TokenKind::Identifier("Color".to_string()),
+            TokenKind::Colon,
+            TokenKind::Colon,
+            TokenKind::Identifier("Red".to_string()),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
         }
     }
 }

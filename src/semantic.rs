@@ -10,6 +10,7 @@ pub struct SemanticAnalyzer {
     symbol_table: HashMap<String, String>, // Variable name to type mapping
     structs: HashMap<String, HashMap<String, String>>, // Struct name to field name to type mapping
     functions: HashMap<String, (Vec<(String, String)>, String, Span)>, // Function name to parameter types mapping
+    enums: HashMap<String, HashMap<String, String>>, // Enum name to variant name to type mapping
 }
 
 impl SemanticAnalyzer {
@@ -18,6 +19,7 @@ impl SemanticAnalyzer {
             symbol_table: HashMap::new(),
             structs: HashMap::new(),
             functions: HashMap::new(),
+            enums: HashMap::new(),
         };
         analyzer.init_standard_library();
         analyzer
@@ -57,6 +59,17 @@ impl SemanticAnalyzer {
                 }
 
                 self.structs.insert(name.clone(), struct_fields);
+                Ok(())
+            }
+            Stmt::Enum(name, variants, _span) => {
+                self.symbol_table.insert(name.clone(), "enum".to_string());
+
+                let mut enum_variants = HashMap::new();
+                for (name, typ) in variants {
+                    enum_variants.insert(name.to_string(), typ.to_string());
+                }
+
+                self.enums.insert(name.clone(), enum_variants);
                 Ok(())
             }
             Stmt::Function(name, params, return_type, body, span) => {

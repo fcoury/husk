@@ -13,7 +13,8 @@ pub use parser::Parser;
 pub use repl::repl;
 pub use semantic::SemanticAnalyzer;
 
-pub fn execute_script(code: String) -> Result<Value> {
+pub fn execute_script(code: impl Into<String>) -> Result<Value> {
+    let code = code.into();
     let mut lexer = Lexer::new(code.to_string());
     let tokens = lexer.lex_all();
 
