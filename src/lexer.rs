@@ -62,7 +62,8 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn new(input: String) -> Lexer {
+    pub fn new(input: impl Into<String>) -> Lexer {
+        let input = input.into();
         let mut l = Lexer {
             input,
             position: 0,
@@ -549,6 +550,26 @@ mod tests {
             Token::new(TokenKind::Int(12), 13, 15),
             Token::new(TokenKind::Semicolon, 15, 16),
             Token::new(TokenKind::Eof, 16, 16),
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_eq() {
+        let input = "x == 10;";
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            Token::new(TokenKind::Identifier("x".to_string()), 0, 1),
+            Token::new(TokenKind::Equals, 2, 3),
+            Token::new(TokenKind::Equals, 3, 4),
+            Token::new(TokenKind::Int(10), 5, 7),
+            Token::new(TokenKind::Semicolon, 7, 8),
+            Token::new(TokenKind::Eof, 8, 8),
         ];
 
         for expected in expected_tokens {

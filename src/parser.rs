@@ -71,6 +71,7 @@ pub enum Operator {
     Minus,
     Multiply,
     Divide,
+    Equals,
 }
 
 pub struct Parser {
@@ -88,6 +89,10 @@ impl Parser {
 
     fn current_token(&self) -> &Token {
         self.tokens.get(self.position).unwrap_or(&EOF)
+    }
+
+    fn peek_token(&self) -> Option<&Token> {
+        self.tokens.get(self.position + 1)
     }
 
     fn advance(&mut self) {
@@ -159,12 +164,7 @@ impl Parser {
                 ));
             }
             self.advance(); // Consume ':'
-            let field_type = self.consume_type()?.ok_or_else(|| {
-                Error::new_parse(
-                    "Expected type after ':'".to_string(),
-                    self.current_token().span,
-                )
-            })?;
+            let field_type = self.consume_type().unwrap();
             fields.push((field_name, field_type));
 
             if self.current_token().kind == TokenKind::Comma {
@@ -224,12 +224,7 @@ impl Parser {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'if'
 
-        let Ok(condition) = self.parse_expression() else {
-            return Err(Error::new_parse(
-                "Invalid expression in if statement".to_string(),
-                self.current_token().span,
-            ));
-        };
+        let condition = self.parse_expression()?;
 
         if self.current_token().kind != TokenKind::LBrace {
             return Err(Error::new_parse(
@@ -340,12 +335,7 @@ impl Parser {
                 ));
             }
             self.advance(); // Consume ':'
-            let param_type = self.consume_type()?.ok_or_else(|| {
-                Error::new_parse(
-                    "Expected type after ':'".to_string(),
-                    self.current_token().span,
-                )
-            })?;
+            let param_type = self.consume_type().unwrap();
             params.push((param_name, param_type));
 
             if self.current_token().kind == TokenKind::Comma {
@@ -363,12 +353,7 @@ impl Parser {
 
         let return_type = if self.current_token().kind == TokenKind::Arrow {
             self.advance(); // Consume '->'
-            self.consume_type()?.ok_or_else(|| {
-                Error::new_parse(
-                    "Expected return type after '->'".to_string(),
-                    self.current_token().span,
-                )
-            })?
+            self.consume_type().unwrap()
         } else {
             "void".to_string() // Default return type
         };
@@ -401,14 +386,14 @@ impl Parser {
         ))
     }
 
-    fn consume_type(&mut self) -> Result<Option<String>> {
-        if let TokenKind::Type(ref type_name) = self.current_token().kind {
-            let type_name = type_name.clone();
-            self.advance(); // Consume type
-            Ok(Some(type_name))
-        } else {
-            Ok(None)
-        }
+    fn consume_type(&mut self) -> Option<String> {
+        let typ = match self.current_token().kind {
+            TokenKind::Type(ref type_name) => Some(type_name.clone()),
+            TokenKind::Identifier(ref name) => Some(name.clone()),
+            _ => return None,
+        };
+        self.advance(); // Consume type
+        typ
     }
 
     fn parse_expression_statement(&mut self) -> Result<Stmt> {
@@ -504,6 +489,8 @@ impl Parser {
                         ))
                     }
                     TokenKind::LParen => self.parse_function_call(name, span),
+                    // FIXME: When we are declaring a struct instance, this needs to be here,
+                    //        so our logic is flawed
                     TokenKind::LBrace => self.parse_struct_init(name, span),
                     _ => Ok(Expr::Identifier(name, span)),
                 }
@@ -570,12 +557,22 @@ impl Parser {
         ))
     }
 
-    fn parse_operator(&self) -> Option<Operator> {
+    fn parse_operator(&mut self) -> Option<Operator> {
         match self.current_token().kind {
             TokenKind::Plus => Some(Operator::Plus),
             TokenKind::Minus => Some(Operator::Minus),
             TokenKind::Asterisk => Some(Operator::Multiply),
             TokenKind::Slash => Some(Operator::Divide),
+            TokenKind::Equals => {
+                if let Some(next_token) = self.peek_token() {
+                    if next_token.kind == TokenKind::Equals {
+                        self.advance();
+                        return Some(Operator::Equals);
+                    }
+                };
+
+                None
+            }
             _ => None,
         }
     }
@@ -843,26 +840,128 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_parse_function() {
-    //     let input = "fn add(x, y) { x + y; }";
-    //     let mut lexer = Lexer::new(input.to_string());
-    //     let tokens = lexer.lex_all();
-    //     let mut parser = Parser::new(tokens);
-    //
-    //     let ast = parser.parse().unwrap();
-    //     let expected_ast = vec![Stmt::Function(
-    //         "add".to_string(),
-    //         vec!["x".to_string(), "y".to_string()],
-    //         vec![Stmt::Expression(Expr::BinaryOp(
-    //             Box::new(Expr::Identifier("x".to_string(), Span::new(15, 17))),
-    //             Operator::Plus,
-    //             Box::new(Expr::Identifier("y".to_string(), Span::new(19, 20))),
-    //             Span::new(15, 20),
-    //         ))],
-    //         Span::new(0, 0),
-    //     )];
-    //
-    //     assert_eq!(ast, expected_ast);
-    // }
+    #[test]
+    fn test_parse_function() {
+        let input = "fn add(x: int, y: int) -> int { x + y }";
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Function(
+                "add".to_string(),
+                vec![
+                    ("x".to_string(), "int".to_string()),
+                    ("y".to_string(), "int".to_string()),
+                ],
+                "int".to_string(),
+                vec![Stmt::ReturnExpression(Expr::BinaryOp(
+                    Box::new(Expr::Identifier("x".to_string(), Span::new(32, 33))),
+                    Operator::Plus,
+                    Box::new(Expr::Identifier("y".to_string(), Span::new(36, 37))),
+                    Span::new(32, 35),
+                ))],
+                Span::new(0, 39),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_function_returning_struct() {
+        let input = r#"
+            fn create_person(name: string, age: int) -> Person {
+                Person {
+                    name: name,
+                    age: age,
+                }
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Function(
+                "create_person".to_string(),
+                vec![
+                    ("name".to_string(), "string".to_string()),
+                    ("age".to_string(), "int".to_string()),
+                ],
+                "Person".to_string(),
+                vec![Stmt::ReturnExpression(Expr::StructInit(
+                    "Person".to_string(),
+                    vec![
+                        (
+                            "name".to_string(),
+                            Expr::Identifier("name".to_string(), Span::new(117, 121))
+                        ),
+                        (
+                            "age".to_string(),
+                            Expr::Identifier("age".to_string(), Span::new(148, 151))
+                        ),
+                    ],
+                    Span::new(82, 170),
+                ))],
+                Span::new(13, 184),
+            )
+        );
+    }
+
+    #[test]
+    fn test_eq() {
+        let code = "x == y;";
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::Expression(Expr::BinaryOp(
+                Box::new(Expr::Identifier("x".to_string(), Span::new(0, 1))),
+                Operator::Equals,
+                Box::new(Expr::Identifier("y".to_string(), Span::new(5, 6))),
+                Span::new(0, 4),
+            ))
+        );
+    }
+
+    #[test]
+    fn test_if_expr_eq() {
+        let code = r#"
+            if x == y {
+                1
+            } else {
+                0
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        assert_eq!(
+            ast[0],
+            Stmt::If(
+                Expr::BinaryOp(
+                    Box::new(Expr::Identifier("x".to_string(), Span::new(16, 17))),
+                    Operator::Equals,
+                    Box::new(Expr::Identifier("y".to_string(), Span::new(21, 22))),
+                    Span::new(16, 20),
+                ),
+                vec![Stmt::ReturnExpression(Expr::Int(1, Span::new(41, 42)))],
+                vec![Stmt::ReturnExpression(Expr::Int(0, Span::new(80, 81)))],
+                Span::new(13, 95),
+            )
+        );
+    }
 }

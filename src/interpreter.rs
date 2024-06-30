@@ -64,16 +64,18 @@ impl Interpreter {
                 self.environment.insert(name.clone(), func);
             }
             Stmt::If(condition, then_block, else_block, _) => {
+                let mut result = Value::Void;
                 let condition_value = self.evaluate_expr(condition)?;
                 if let Value::Bool(true) = condition_value {
                     for stmt in then_block {
-                        self.execute_stmt(stmt)?;
+                        result = self.execute_stmt(stmt)?;
                     }
                 } else {
                     for stmt in else_block {
-                        self.execute_stmt(stmt)?;
+                        result = self.execute_stmt(stmt)?;
                     }
                 }
+                return Ok(result);
             }
             Stmt::Expression(expr) => {
                 self.evaluate_expr(expr)?;
@@ -255,6 +257,7 @@ impl Interpreter {
                 Operator::Minus => Ok(Value::Int(left - right)),
                 Operator::Multiply => Ok(Value::Int(left * right)),
                 Operator::Divide => Ok(Value::Int(left / right)),
+                Operator::Equals => Ok(Value::Bool(left == right)),
             },
             _ => Err(Error::new_runtime(
                 "Binary operation on non-numeric values".to_string(),
@@ -361,4 +364,71 @@ fn stdlib_println(args: &[Value]) -> Result<Value> {
     stdlib_print(args)?;
     println!();
     Ok(Value::Int(0)) // println returns 0 on success
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Lexer, Parser};
+
+    use super::*;
+
+    #[test]
+    fn test_fn_struct_return() {
+        let code = r#"
+            struct Point {
+                x: int,
+                y: int,
+            }
+
+            fn make_point(x: int, y: int) -> Point {
+                Point { x: x, y: y }
+            }
+
+            let p = make_point(1, 2);
+            p
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        let mut interpreter = Interpreter::new();
+        let val = interpreter.interpret(&ast).unwrap();
+
+        assert_eq!(
+            val,
+            Value::StructInstance(
+                "Point".to_string(),
+                vec![
+                    ("x".to_string(), Value::Int(1)),
+                    ("y".to_string(), Value::Int(2))
+                ]
+                .into_iter()
+                .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn test_if_expr_eq() {
+        let code = r#"
+            let x = 1;
+            let y = 2;
+            if x == y {
+                1
+            } else {
+                0
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        let mut interpreter = Interpreter::new();
+        let val = interpreter.interpret(&ast).unwrap();
+
+        // FIXME: identify why this is returning void
+        assert_eq!(val, Value::Int(0));
+    }
 }

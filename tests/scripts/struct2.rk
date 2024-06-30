@@ -1,0 +1,15 @@
+struct Error {
+  message: string,
+  code: int,
+}
+
+fn get_error(code: int) -> Error {
+  if code == 0 {
+    Error { message: "Success", code: 0 }
+  } else {
+    Error { message: "Error", code: code }
+  }
+} 
+
+println(get_error(0));
+println(get_error(1));
