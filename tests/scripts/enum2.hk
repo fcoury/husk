@@ -1,12 +1,10 @@
 enum Option {
+  Some(string),
   None,
-  Some(String),
 }
 
-fn main() {
-  let option = Option::Some("Hello".to_string());
-  match option {
-    Option::None => println!("None"),
-    Option::Some(value) => println!("{}", value),
-  }
-}
+let a = Option::Some("Felipe");
+let b = Option::None;
+
+println(a);
+println(b);

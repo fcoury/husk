@@ -115,6 +115,7 @@ impl Interpreter {
                 Ok(Value::EnumVariant(
                     first_part.to_string(),
                     variant_name.to_string(),
+                    None,
                 ))
             }
             _ => {
@@ -243,6 +244,23 @@ impl Interpreter {
                     )),
                 }
             }
+            Expr::EnumVariant {
+                name,
+                variant,
+                value,
+                span: _,
+            } => {
+                let value = value
+                    .as_ref()
+                    .map(|expr| self.evaluate_expr(expr))
+                    .transpose()?
+                    .map(Box::new);
+                Ok(Value::EnumVariant(
+                    name.to_string(),
+                    variant.to_string(),
+                    value,
+                ))
+            }
             Expr::Assign(left, right, span) => {
                 match left.as_ref() {
                     Expr::Identifier(name, _) => {
@@ -320,7 +338,7 @@ pub enum Value {
     Struct(String, HashMap<String, String>),
     Enum(String, HashMap<String, String>),
     StructInstance(String, HashMap<String, Value>),
-    EnumVariant(String, String),
+    EnumVariant(String, String, Option<Box<Value>>),
 }
 
 impl Value {
@@ -341,7 +359,10 @@ impl Value {
                 format!("struct {} {{{}}}", name, field_strings.join(", "))
             }
             Value::Enum(name, _) => format!("enum {}", name),
-            Value::EnumVariant(name, variant) => format!("{}::{}", name, variant),
+            Value::EnumVariant(name, variant, value) => match value {
+                Some(value) => format!("{}::{}({})", name, variant, value),
+                None => format!("{}::{}", name, variant),
+            },
         }
     }
 
@@ -356,7 +377,10 @@ impl Value {
             Value::Struct(name, _) => format!("struct {name}"),
             Value::StructInstance(name, _) => format!("struct instance {name}"),
             Value::Enum(name, _) => format!("enum {name}"),
-            Value::EnumVariant(name, variant) => format!("{name}::{variant}"),
+            Value::EnumVariant(name, variant, value) => match value {
+                Some(value) => format!("{name}::{variant}({value})"),
+                None => format!("{name}::{variant}"),
+            },
         }
     }
 
@@ -500,11 +524,39 @@ mod tests {
         let mut interpreter = Interpreter::new();
         let val = interpreter.interpret(&ast).unwrap();
 
-        let Value::EnumVariant(name, variant) = val else {
+        let Value::EnumVariant(name, variant, _) = val else {
             panic!("Expected EnumVariant, got {:?}", val);
         };
 
         assert_eq!(name, "Color");
         assert_eq!(variant, "Red");
+    }
+
+    #[test]
+    fn test_enum_with_associated_value() {
+        let code = r#"
+            enum Name {
+                Existing(String),
+                NotExisting,
+            }
+
+            let n = Name::Existing("Alice");
+            n
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        let mut interpreter = Interpreter::new();
+        let val = interpreter.interpret(&ast).unwrap();
+
+        let Value::EnumVariant(name, variant, value) = val else {
+            panic!("Expected EnumVariant, got {:?}", val);
+        };
+
+        assert_eq!(name, "Name");
+        assert_eq!(variant, "Existing");
+        assert_eq!(value.unwrap().as_ref(), &Value::String("Alice".to_string()));
     }
 }

@@ -10,6 +10,12 @@ pub enum Expr {
     Float(f64, Span),
     String(String, Span),
     Bool(bool, Span),
+    EnumVariant {
+        name: String,
+        variant: String,
+        value: Option<Box<Expr>>,
+        span: Span,
+    },
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
@@ -45,6 +51,12 @@ impl Expr {
             Expr::Float(_, span) => span.clone(),
             Expr::String(_, span) => span.clone(),
             Expr::Bool(_, span) => span.clone(),
+            Expr::EnumVariant {
+                name: _,
+                variant: _,
+                value: _,
+                span,
+            } => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
             Expr::FunctionCall(_, _, span) => span.clone(),
@@ -550,30 +562,7 @@ impl Parser {
                     TokenKind::LBrace if self.lookahead_for_struct_initialization() => {
                         self.parse_struct_init(name, span)
                     }
-                    TokenKind::Colon => {
-                        self.advance(); // Consume first ':'
-
-                        if self.current_token().kind != TokenKind::Colon {
-                            return Err(Error::new_parse(
-                                format!(
-                                    "Expected '::' after enum name, got {:?}",
-                                    self.current_token()
-                                ),
-                                self.current_token().span,
-                            ));
-                        }
-                        self.advance(); // Consume second ':'
-
-                        let variant_name = self.consume_identifier()?.ok_or_else(|| {
-                            Error::new_parse(
-                                "Expected enum variant name".to_string(),
-                                self.current_token().span,
-                            )
-                        })?;
-
-                        let span = Span::new(span.start, self.current_token().span.end);
-                        Ok(Expr::Identifier(format!("{name}::{variant_name}"), span))
-                    }
+                    TokenKind::Colon => self.parse_enum_expression(name, span),
                     _ => Ok(Expr::Identifier(name, span)),
                 }
             }
@@ -582,6 +571,58 @@ impl Parser {
                 span,
             )),
         }
+    }
+
+    fn parse_enum_expression(&mut self, name: String, span: Span) -> Result<Expr> {
+        self.advance(); // Consume first ':'
+
+        if self.current_token().kind != TokenKind::Colon {
+            return Err(Error::new_parse(
+                format!(
+                    "Expected '::' after enum name, got {:?}",
+                    self.current_token()
+                ),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume second ':'
+
+        let variant_name = self.consume_identifier()?.ok_or_else(|| {
+            Error::new_parse(
+                "Expected enum variant name".to_string(),
+                self.current_token().span,
+            )
+        })?;
+
+        // variant value
+        if self.current_token().kind == TokenKind::LParen {
+            self.advance(); // Consume '('
+            let expr = self.parse_expression()?;
+            let span = Span::new(span.start, self.current_token().span.end);
+
+            if self.current_token().kind != TokenKind::RParen {
+                return Err(Error::new_parse(
+                    "Expected ')' after enum variant value".to_string(),
+                    self.current_token().span,
+                ));
+            }
+
+            self.advance(); // Consume ')'
+            return Ok(Expr::EnumVariant {
+                name,
+                variant: variant_name,
+                value: Some(Box::new(expr)),
+                span,
+            });
+        }
+
+        let span = Span::new(span.start, self.current_token().span.end);
+        Ok(Expr::EnumVariant {
+            name,
+            variant: variant_name,
+            value: None,
+            span,
+        })
     }
 
     fn parse_function_call(&mut self, name: String, start_span: Span) -> Result<Expr> {
@@ -1105,6 +1146,34 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_enum_with_associated_value() {
+        let code = r#"
+            enum Name {
+                Existing(string),
+                New(string),
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        let Stmt::Enum(enum_name, variants, _) = &ast[0] else {
+            panic!("Expected Enum statement");
+        };
+
+        assert_eq!(enum_name, "Name");
+        assert_eq!(
+            variants,
+            &[
+                ("Existing".to_string(), "string".to_string()),
+                ("New".to_string(), "string".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn test_parse_enum_variant() {
         let code = r"let c = Color::Red;";
 
@@ -1120,6 +1189,39 @@ mod tests {
                         "c".to_string(),
                         Expr::Identifier("Color::Red".to_string(), Span::new(8, 19)),
                         Span::new(0, 19),
+                    )
+                );
+            }
+            Err(e) => {
+                panic!("{}", e.pretty_print(code))
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_enum_variant_with_associated_value() {
+        let code = r#"let n = Name::Existing("Alice");"#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        match parser.parse() {
+            Ok(ast) => {
+                assert_eq!(
+                    ast[0],
+                    Stmt::Let(
+                        "n".to_string(),
+                        Expr::EnumVariant {
+                            name: "Name".to_string(),
+                            variant: "Existing".to_string(),
+                            value: Some(Box::new(Expr::String(
+                                "Alice".to_string(),
+                                Span::new(23, 30)
+                            ))),
+                            span: Span::new(8, 31),
+                        },
+                        Span::new(0, 32),
                     )
                 );
             }

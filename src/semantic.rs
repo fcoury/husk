@@ -274,6 +274,12 @@ impl SemanticAnalyzer {
                     ));
                 }
             }
+            Expr::EnumVariant {
+                name: _,
+                variant,
+                value: _,
+                span: _,
+            } => Ok(variant.to_string()),
         }
     }
 }
