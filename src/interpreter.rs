@@ -41,6 +41,10 @@ impl Interpreter {
         Ok(value)
     }
 
+    pub fn get_var(&self, name: &str) -> Option<Value> {
+        self.environment.get(name).cloned()
+    }
+
     fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
         match stmt {
             Stmt::Let(name, expr, _) => {
@@ -85,8 +89,18 @@ impl Interpreter {
                 }
                 return Ok(result);
             }
+            Stmt::Match(expr, arms, _) => {
+                let expr_value = self.evaluate_expr(expr)?;
+                match expr_value {
+                    Value::EnumVariant(ref name, ref variant, ref value) => {
+                        return self.execute_enum_match(&arms, name, variant, value);
+                    }
+                    _ => {}
+                }
+            }
             Stmt::Expression(expr) => {
-                self.evaluate_expr(expr)?;
+                let value = self.evaluate_expr(expr)?;
+                return Ok(value);
             }
             Stmt::ReturnExpression(expr) => {
                 let value = self.evaluate_expr(expr)?;
@@ -94,6 +108,64 @@ impl Interpreter {
             }
         }
         Ok(Value::Void)
+    }
+
+    fn execute_enum_match(
+        &mut self,
+        arms: &[(Expr, Vec<Stmt>)],
+        name: &str,
+        variant: &str,
+        value: &Option<Box<Value>>,
+    ) -> Result<Value> {
+        let mut res = Value::Void;
+
+        for (expr, body) in arms {
+            let Expr::EnumVariant {
+                name: arm_name,
+                variant: arm_variant,
+                value: arm_value,
+                span: _,
+            } = expr
+            else {
+                // FIXME: not expected?
+                unreachable!();
+            };
+
+            if arm_name != name {
+                unreachable!("Enum match with wrong enum name");
+            }
+
+            if arm_variant != variant {
+                continue;
+            }
+
+            let mut local_env = self.environment.clone();
+
+            let Some(arm_value) = arm_value else {
+                for stmt in body {
+                    res = self.execute_stmt(stmt).unwrap();
+                }
+                return Ok(res);
+            };
+
+            let Expr::Identifier(param_name, _) = arm_value.as_ref() else {
+                unimplemented!("Enum match without binding");
+            };
+
+            if let Some(value) = value {
+                local_env.insert(param_name.to_string(), *value.clone());
+            }
+
+            let mut interpreter = Interpreter {
+                environment: local_env,
+            };
+
+            for stmt in body {
+                res = interpreter.execute_stmt(stmt).unwrap();
+            }
+        }
+
+        Ok(res)
     }
 
     fn evaluate_parts(&mut self, name: &str, span: Span) -> Result<Value> {
@@ -460,15 +532,8 @@ mod tests {
             p
         "#;
 
-        let mut lexer = Lexer::new(code);
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        let mut interpreter = Interpreter::new();
-        let val = interpreter.interpret(&ast).unwrap();
-
         assert_eq!(
-            val,
+            run_code(code, None).unwrap(),
             Value::StructInstance(
                 "Point".to_string(),
                 vec![
@@ -493,15 +558,8 @@ mod tests {
             }
         "#;
 
-        let mut lexer = Lexer::new(code);
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        let mut interpreter = Interpreter::new();
-        let val = interpreter.interpret(&ast).unwrap();
-
         // FIXME: identify why this is returning void
-        assert_eq!(val, Value::Int(0));
+        assert_eq!(run_code(code, None).unwrap(), Value::Int(0));
     }
 
     #[test]
@@ -517,12 +575,7 @@ mod tests {
             c
         "#;
 
-        let mut lexer = Lexer::new(code);
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        let mut interpreter = Interpreter::new();
-        let val = interpreter.interpret(&ast).unwrap();
+        let val = run_code(code, None).unwrap();
 
         let Value::EnumVariant(name, variant, _) = val else {
             panic!("Expected EnumVariant, got {:?}", val);
@@ -544,12 +597,7 @@ mod tests {
             n
         "#;
 
-        let mut lexer = Lexer::new(code);
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        let mut interpreter = Interpreter::new();
-        let val = interpreter.interpret(&ast).unwrap();
+        let val = run_code(code, None).unwrap();
 
         let Value::EnumVariant(name, variant, value) = val else {
             panic!("Expected EnumVariant, got {:?}", val);
@@ -558,5 +606,61 @@ mod tests {
         assert_eq!(name, "Name");
         assert_eq!(variant, "Existing");
         assert_eq!(value.unwrap().as_ref(), &Value::String("Alice".to_string()));
+    }
+
+    #[test]
+    fn test_match_enum() {
+        let mut int = Interpreter::new();
+
+        let code = r#"
+            enum Name {
+                Existing(String),
+                NotExisting,
+            }
+        "#;
+        run_code(code, Some(&mut int)).unwrap();
+
+        let code = r#"
+            let n = Name::Existing("Alice");
+            match n {
+                Name::Existing(name) => name,
+                Name::NotExisting => "Not existing",
+            }
+        "#;
+
+        match run_code(code, Some(&mut int)) {
+            Ok(val) => assert_eq!(val, Value::String("Alice".to_string())),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+
+        let code = r#"
+            let n = Name::NotExisting;
+            match n {
+                Name::Existing(name) => name,
+                Name::NotExisting => "Not existing",
+            }
+        "#;
+
+        match run_code(code, Some(&mut int)) {
+            Ok(val) => assert_eq!(val, Value::String("Not existing".to_string())),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    fn run_code(code: &str, interpreter: Option<&mut Interpreter>) -> Result<Value> {
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+
+        let mut parser = Parser::new(tokens);
+        let ast = match parser.parse() {
+            Ok(ast) => ast,
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        };
+
+        let interpreter = match interpreter {
+            Some(interpreter) => interpreter,
+            None => &mut Interpreter::new(),
+        };
+        interpreter.interpret(&ast)
     }
 }
