@@ -29,6 +29,7 @@ pub enum TokenKind {
     Let,
     If,
     Else,
+    Match,
     Identifier(String),
     Int(i64),
     Float(f64),
@@ -43,6 +44,7 @@ pub enum TokenKind {
     RBrace,
     Comma,
     Arrow,
+    FatArrow,
     Type(String),
     Plus,
     Minus,
@@ -132,6 +134,9 @@ impl Lexer {
                 if self.peek_char() == Some('=') {
                     self.read_char();
                     self.create_token(TokenKind::DblEquals)
+                } else if self.peek_char() == Some('>') {
+                    self.read_char();
+                    self.create_token(TokenKind::FatArrow)
                 } else {
                     self.create_token(TokenKind::Equals)
                 }
@@ -205,6 +210,7 @@ impl Lexer {
             "let" => TokenKind::Let,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
+            "match" => TokenKind::Match,
             "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
             _ => TokenKind::Identifier(identifier),
         };
@@ -638,6 +644,47 @@ mod tests {
             TokenKind::Colon,
             TokenKind::Identifier("Red".to_string()),
             TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_match_enum() {
+        let code = r#"
+            match n {
+                Name::Existing(name) => name,
+                Name::NotExisting => "Not existing",
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Match,
+            TokenKind::Identifier("n".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Identifier("Name".to_string()),
+            TokenKind::Colon,
+            TokenKind::Colon,
+            TokenKind::Identifier("Existing".to_string()),
+            TokenKind::LParen,
+            TokenKind::Identifier("name".to_string()),
+            TokenKind::RParen,
+            TokenKind::FatArrow,
+            TokenKind::Identifier("name".to_string()),
+            TokenKind::Comma,
+            TokenKind::Identifier("Name".to_string()),
+            TokenKind::Colon,
+            TokenKind::Colon,
+            TokenKind::Identifier("NotExisting".to_string()),
+            TokenKind::FatArrow,
+            TokenKind::String("Not existing".to_string()),
+            TokenKind::Comma,
+            TokenKind::RBrace,
             TokenKind::Eof,
         ];
 

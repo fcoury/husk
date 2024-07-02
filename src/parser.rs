@@ -72,6 +72,7 @@ pub enum Stmt {
     Let(String, Expr, Span),
     Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
     If(Expr, Vec<Stmt>, Vec<Stmt>, Span),
+    Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
     ReturnExpression(Expr),
     Expression(Expr),
     Struct(String, Vec<(String, String)>, Span),
@@ -128,6 +129,7 @@ impl Parser {
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Function => self.parse_function(),
             TokenKind::If => self.parse_if_statement(),
+            TokenKind::Match => self.parse_match_statement(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -347,6 +349,54 @@ impl Parser {
             else_block,
             Span::new(start_span, end_span),
         ));
+    }
+
+    fn parse_match_statement(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'match'
+
+        let expr = self.parse_expression()?;
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after match expression".to_string(),
+                self.current_token().span,
+            ));
+        }
+
+        self.advance(); // Consume '{'
+
+        let mut arms = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            let pattern = self.parse_expression()?;
+
+            if self.current_token().kind != TokenKind::FatArrow {
+                return Err(Error::new_parse(
+                    "Expected '=>' after pattern".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            self.advance(); // Consume '=>'
+
+            if self.current_token().kind == TokenKind::LBrace {
+                self.advance(); // Consume '{'
+                let body = self.parse_block()?;
+                arms.push((pattern, body));
+            } else {
+                let stmt = self.parse_expression()?;
+                arms.push((pattern, vec![Stmt::Expression(stmt)]));
+            }
+
+            // TODO: refine need for comma after match arm
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            }
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+
+        Ok(Stmt::Match(expr, arms, Span::new(start_span, end_span)))
     }
 
     fn consume_identifier(&mut self) -> Result<Option<String>> {
@@ -654,7 +704,12 @@ impl Parser {
                         .get(lookahead_index + 1)
                         .map_or(false, |t| t.kind == TokenKind::Colon)
                     {
-                        return true;
+                        return self.tokens.get(lookahead_index + 2).map_or(false, |t| {
+                            matches!(
+                                t.kind,
+                                TokenKind::Int(_) | TokenKind::String(_) | TokenKind::Bool(_)
+                            )
+                        });
                     }
                 }
                 TokenKind::RBrace => return true,
@@ -1223,6 +1278,58 @@ mod tests {
                         },
                         Span::new(0, 32),
                     )
+                );
+            }
+            Err(e) => {
+                panic!("{}", e.pretty_print(code))
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_match_enum() {
+        let code = r#"
+            match n {
+                Name::Existing(name) => name,
+                Name::NotExisting => "Not existing",
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        match parser.parse() {
+            Ok(ast) => {
+                println!("{:?}", ast);
+            }
+            Err(e) => {
+                panic!("{}", e.pretty_print(code))
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_match_pattern_as_expression() {
+        let code = "Name::Existing(name)";
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        match parser.parse() {
+            Ok(ast) => {
+                assert_eq!(
+                    ast[0],
+                    Stmt::ReturnExpression(Expr::EnumVariant {
+                        name: "Name".to_string(),
+                        variant: "Existing".to_string(),
+                        value: Some(Box::new(Expr::Identifier(
+                            "name".to_string(),
+                            Span::new(15, 19)
+                        ))),
+                        span: Span::new(0, 20),
+                    })
                 );
             }
             Err(e) => {

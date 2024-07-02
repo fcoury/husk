@@ -120,6 +120,47 @@ impl SemanticAnalyzer {
                 }
                 Ok(())
             }
+            Stmt::Match(expr, arms, _span) => {
+                let _expr_type = self.analyze_expr(expr)?;
+                for (pattern, stmts) in arms {
+                    match pattern {
+                        Expr::EnumVariant {
+                            name,
+                            variant,
+                            value,
+                            span,
+                        } => {
+                            let enum_variants = self.enums.get(name).expect(
+                                "enum exists in symbol table with type enum but not in enums hashmap",
+                            );
+                            if let Some(expected_type) = enum_variants.get(variant) {
+                                if let Some(value) = value {
+                                    let value_type = self.analyze_expr(value)?;
+                                    if value_type != *expected_type {
+                                        return Err(Error::new_semantic(
+                                            format!(
+                                                "Type mismatch in enum variant: expected {}, found {}",
+                                                expected_type, value_type
+                                            ),
+                                            *span,
+                                        ));
+                                    }
+                                }
+                            } else {
+                                return Err(Error::new_semantic(
+                                    format!("Undefined variant: {}", variant),
+                                    *span,
+                                ));
+                            }
+                        }
+                        _ => unimplemented!(),
+                    }
+                    for stmt in stmts {
+                        self.analyze_stmt(stmt)?;
+                    }
+                }
+                Ok(())
+            }
             Stmt::ReturnExpression(expr) | Stmt::Expression(expr) => {
                 self.analyze_expr(expr)?;
                 Ok(())
