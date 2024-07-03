@@ -1391,6 +1391,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_block_comments() {
+        let code = r#"
+            /* This is a comment */
+            let x = 5; /* Another comment */
+            /* let y = 10; */
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "x".to_string(),
+                Expr::Int(5, Span::new(57, 58)),
+                Span::new(49, 59),
+            )
+        );
+    }
+
     fn parse(code: &str) -> Vec<Stmt> {
         let mut lexer = Lexer::new(code.to_string());
         let tokens = lexer.lex_all();

@@ -167,6 +167,16 @@ impl Lexer {
                         self.read_char();
                     }
                     return self.next_token();
+                } else if self.peek_char() == Some('*') {
+                    while let Some(c) = self.ch {
+                        if c == '*' && self.peek_char() == Some('/') {
+                            self.read_char();
+                            self.read_char();
+                            break;
+                        }
+                        self.read_char();
+                    }
+                    return self.next_token();
                 } else {
                     return self.create_token(TokenKind::Slash);
                 }
@@ -711,6 +721,30 @@ mod tests {
         let code = r#"
             // This is a comment
             let x = 10; // Another comment
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_block_comments() {
+        let code = r#"
+            /* This is a multi
+             * line comment */
+            let x = 10; /* Another comment */
         "#;
 
         let mut lexer = Lexer::new(code);
