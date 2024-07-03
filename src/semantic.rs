@@ -321,6 +321,7 @@ impl SemanticAnalyzer {
                 value: _,
                 span: _,
             } => Ok(variant.to_string()),
+            Expr::Array(_, _) => todo!(),
         }
     }
 }

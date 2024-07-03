@@ -42,6 +42,8 @@ pub enum TokenKind {
     RParen,
     LBrace,
     RBrace,
+    LSquare,
+    RSquare,
     Comma,
     Arrow,
     FatArrow,
@@ -146,6 +148,8 @@ impl Lexer {
             Some(')') => self.create_token(TokenKind::RParen),
             Some('{') => self.create_token(TokenKind::LBrace),
             Some('}') => self.create_token(TokenKind::RBrace),
+            Some('[') => self.create_token(TokenKind::LSquare),
+            Some(']') => self.create_token(TokenKind::RSquare),
             Some(',') => self.create_token(TokenKind::Comma),
             Some('+') => self.create_token(TokenKind::Plus),
             Some('-') => {
@@ -753,6 +757,44 @@ mod tests {
             TokenKind::Identifier("x".to_string()),
             TokenKind::Equals,
             TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_array() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            print(arr);
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("arr".to_string()),
+            TokenKind::Equals,
+            TokenKind::LSquare,
+            TokenKind::Int(1),
+            TokenKind::Comma,
+            TokenKind::Int(2),
+            TokenKind::Comma,
+            TokenKind::Int(3),
+            TokenKind::Comma,
+            TokenKind::Int(4),
+            TokenKind::Comma,
+            TokenKind::Int(5),
+            TokenKind::RSquare,
+            TokenKind::Semicolon,
+            TokenKind::Identifier("print".to_string()),
+            TokenKind::LParen,
+            TokenKind::Identifier("arr".to_string()),
+            TokenKind::RParen,
             TokenKind::Semicolon,
             TokenKind::Eof,
         ];

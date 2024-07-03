@@ -371,6 +371,13 @@ impl Interpreter {
                     )),
                 }
             }
+            Expr::Array(elements, _) => {
+                let mut values = Vec::new();
+                for element in elements {
+                    values.push(self.evaluate_expr(element)?);
+                }
+                Ok(Value::Array(values))
+            }
         }
     }
 
@@ -404,6 +411,7 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     String(String),
+    Array(Vec<Value>),
     Function(Function),
     Struct(String, IndexMap<String, String>),
     Enum(String, IndexMap<String, String>),
@@ -419,6 +427,10 @@ impl Value {
             Value::Float(f) => f.to_string(),
             Value::Bool(b) => b.to_string(),
             Value::String(s) => s.clone(),
+            Value::Array(elements) => {
+                let elements_str: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                format!("[{}]", elements_str.join(", "))
+            }
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {}", name),
             Value::StructInstance(name, fields) => {
@@ -443,6 +455,7 @@ impl Value {
             Value::Float(_) => "float".to_string(),
             Value::Bool(_) => "bool".to_string(),
             Value::String(_) => "string".to_string(),
+            Value::Array(_) => "array".to_string(),
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {name}"),
             Value::StructInstance(name, _) => format!("struct instance {name}"),
@@ -476,6 +489,7 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Function(_), Value::Function(_)) => false, // Functions are not comparable
             (Value::Struct(a, _), Value::Struct(b, _)) => a == b,
             (Value::StructInstance(a_name, a_values), Value::StructInstance(b_name, b_values)) => {
@@ -513,6 +527,23 @@ mod tests {
     use crate::{Lexer, Parser};
 
     use super::*;
+
+    fn run_code(code: &str, interpreter: Option<&mut Interpreter>) -> Result<Value> {
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+
+        let mut parser = Parser::new(tokens);
+        let ast = match parser.parse() {
+            Ok(ast) => ast,
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        };
+
+        let interpreter = match interpreter {
+            Some(interpreter) => interpreter,
+            None => &mut Interpreter::new(),
+        };
+        interpreter.interpret(&ast)
+    }
 
     #[test]
     fn test_fn_struct_return() {
@@ -700,20 +731,25 @@ mod tests {
         }
     }
 
-    fn run_code(code: &str, interpreter: Option<&mut Interpreter>) -> Result<Value> {
-        let mut lexer = Lexer::new(code);
-        let tokens = lexer.lex_all();
+    #[test]
+    fn test_array() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            arr
+        "#;
 
-        let mut parser = Parser::new(tokens);
-        let ast = match parser.parse() {
-            Ok(ast) => ast,
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(
+                val,
+                Value::Array(vec![
+                    Value::Int(1),
+                    Value::Int(2),
+                    Value::Int(3),
+                    Value::Int(4),
+                    Value::Int(5)
+                ])
+            ),
             Err(e) => panic!("{}", e.pretty_print(code)),
-        };
-
-        let interpreter = match interpreter {
-            Some(interpreter) => interpreter,
-            None => &mut Interpreter::new(),
-        };
-        interpreter.interpret(&ast)
+        }
     }
 }

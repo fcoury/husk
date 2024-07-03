@@ -18,6 +18,7 @@ pub enum Expr {
         value: Option<Box<Expr>>,
         span: Span,
     },
+    Array(Vec<Expr>, Span),
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
@@ -65,6 +66,7 @@ impl Expr {
             Expr::StructInit(_, _, span) => span.clone(),
             Expr::MemberAccess(_, _, span) => span.clone(),
             Expr::Assign(_, _, span) => span.clone(),
+            Expr::Array(_, span) => span.clone(),
         }
     }
 }
@@ -115,6 +117,17 @@ impl fmt::Display for Expr {
             }
             Expr::MemberAccess(expr, field, _) => write!(f, "{}.{}", expr, field),
             Expr::Assign(left, right, _) => write!(f, "{} = {}", left, right),
+            Expr::Array(elements, _) => {
+                write!(
+                    f,
+                    "[{}]",
+                    elements
+                        .iter()
+                        .map(|element| element.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
         }
     }
 }
@@ -640,6 +653,7 @@ impl Parser {
                 self.advance(); // Consume boolean
                 Ok(Expr::Bool(value, span))
             }
+            TokenKind::LSquare => self.parse_array(),
             TokenKind::Identifier(ref name) => {
                 let name = name.clone();
                 let start_pos = self.position;
@@ -812,6 +826,30 @@ impl Parser {
             _ => None,
         }
     }
+
+    fn parse_array(&mut self) -> std::result::Result<Expr, Error> {
+        let start = self.current_token().span.start;
+        self.advance(); // Consume '['
+
+        let mut elements = Vec::new();
+        while self.current_token().kind != TokenKind::RSquare {
+            elements.push(self.parse_expression()?);
+
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            } else if self.current_token().kind != TokenKind::RSquare {
+                return Err(Error::new_parse(
+                    "Expected ',' or ']' in array".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+
+        self.advance(); // Consume ']'
+        let end = self.current_token().span.end;
+
+        Ok(Expr::Array(elements, Span::new(start, end)))
+    }
 }
 
 fn is_operator(kind: &TokenKind) -> bool {
@@ -829,6 +867,16 @@ fn is_operator(kind: &TokenKind) -> bool {
 mod tests {
     use super::*;
     use crate::lexer::Lexer;
+
+    fn parse(code: &str) -> Vec<Stmt> {
+        let mut lexer = Lexer::new(code.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        match parser.parse() {
+            Ok(ast) => ast,
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
 
     #[test]
     fn test_parse_let_float() {
@@ -1411,13 +1459,31 @@ mod tests {
         );
     }
 
-    fn parse(code: &str) -> Vec<Stmt> {
-        let mut lexer = Lexer::new(code.to_string());
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-        match parser.parse() {
-            Ok(ast) => ast,
-            Err(e) => panic!("{}", e.pretty_print(code)),
-        }
+    #[test]
+    fn test_parse_array() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            print(arr);
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "arr".to_string(),
+                Expr::Array(
+                    vec![
+                        Expr::Int(1, Span::new(24, 25)),
+                        Expr::Int(2, Span::new(26, 27)),
+                        Expr::Int(3, Span::new(28, 29)),
+                        Expr::Int(4, Span::new(30, 31)),
+                        Expr::Int(5, Span::new(32, 33)),
+                    ],
+                    Span::new(23, 35),
+                ),
+                Span::new(13, 35),
+            )
+        );
     }
 }
