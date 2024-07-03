@@ -73,7 +73,6 @@ pub enum Stmt {
     Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
     If(Expr, Vec<Stmt>, Vec<Stmt>, Span),
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
-    ReturnExpression(Expr),
     Expression(Expr),
     Struct(String, Vec<(String, String)>, Span),
     Enum(String, Vec<(String, String)>, Span),
@@ -542,7 +541,7 @@ impl Parser {
                     self.current_token().span,
                 ));
             }
-            return Ok(Stmt::ReturnExpression(expr));
+            return Ok(Stmt::Expression(expr));
         }
 
         Err(Error::new_parse(
@@ -592,6 +591,11 @@ impl Parser {
             TokenKind::Identifier(ref name) => {
                 let name = name.clone();
                 self.advance(); // Consume identifier
+
+                // println!(
+                //     "lookahead: {:?}",
+                //     self.lookahead_for_struct_initialization()
+                // );
 
                 match self.current_token().kind {
                     TokenKind::Dot => {
@@ -1048,7 +1052,7 @@ mod tests {
                     ("y".to_string(), "int".to_string()),
                 ],
                 "int".to_string(),
-                vec![Stmt::ReturnExpression(Expr::BinaryOp(
+                vec![Stmt::Expression(Expr::BinaryOp(
                     Box::new(Expr::Identifier("x".to_string(), Span::new(32, 33))),
                     Operator::Plus,
                     Box::new(Expr::Identifier("y".to_string(), Span::new(36, 37))),
@@ -1085,7 +1089,7 @@ mod tests {
                     ("age".to_string(), "int".to_string()),
                 ],
                 "Person".to_string(),
-                vec![Stmt::ReturnExpression(Expr::StructInit(
+                vec![Stmt::Expression(Expr::StructInit(
                     "Person".to_string(),
                     vec![
                         (
@@ -1148,8 +1152,8 @@ mod tests {
                     Box::new(Expr::Identifier("y".to_string(), Span::new(21, 22))),
                     Span::new(16, 20),
                 ),
-                vec![Stmt::ReturnExpression(Expr::Int(1, Span::new(41, 42)))],
-                vec![Stmt::ReturnExpression(Expr::Int(0, Span::new(80, 81)))],
+                vec![Stmt::Expression(Expr::Int(1, Span::new(41, 42)))],
+                vec![Stmt::Expression(Expr::Int(0, Span::new(80, 81)))],
                 Span::new(13, 95),
             )
         );
@@ -1321,7 +1325,7 @@ mod tests {
             Ok(ast) => {
                 assert_eq!(
                     ast[0],
-                    Stmt::ReturnExpression(Expr::EnumVariant {
+                    Stmt::Expression(Expr::EnumVariant {
                         name: "Name".to_string(),
                         variant: "Existing".to_string(),
                         value: Some(Box::new(Expr::Identifier(
