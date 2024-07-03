@@ -1,7 +1,6 @@
-use std::{
-    collections::HashMap,
-    io::{self, Write},
-};
+use std::io::{self, Write};
+
+use indexmap::IndexMap;
 
 use crate::{
     error::{Error, Result},
@@ -10,13 +9,13 @@ use crate::{
 };
 
 pub struct Interpreter {
-    environment: HashMap<String, Value>,
+    environment: IndexMap<String, Value>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         let mut interpreter = Interpreter {
-            environment: HashMap::new(),
+            environment: IndexMap::new(),
         };
         interpreter.init_standard_library();
         interpreter
@@ -52,7 +51,7 @@ impl Interpreter {
                 self.environment.insert(name.clone(), value);
             }
             Stmt::Struct(name, fields, _) => {
-                let mut field_map = HashMap::new();
+                let mut field_map = IndexMap::new();
                 for (field_name, field_type) in fields {
                     field_map.insert(field_name.clone(), field_type.clone());
                 }
@@ -60,7 +59,7 @@ impl Interpreter {
                     .insert(name.clone(), Value::Struct(name.clone(), field_map));
             }
             Stmt::Enum(name, variants, _) => {
-                let mut variant_map = HashMap::new();
+                let mut variant_map = IndexMap::new();
                 for (variant_name, variant_type) in variants {
                     variant_map.insert(variant_name.clone(), variant_type.clone());
                 }
@@ -272,7 +271,7 @@ impl Interpreter {
                     ));
                 };
 
-                let mut instance_fields = HashMap::new();
+                let mut instance_fields = IndexMap::new();
                 for (field_name, field_expr) in fields.iter() {
                     let Some(expected_type) = struct_fields.get(field_name) else {
                         return Err(Error::new_runtime(
@@ -406,9 +405,9 @@ pub enum Value {
     Bool(bool),
     String(String),
     Function(Function),
-    Struct(String, HashMap<String, String>),
-    Enum(String, HashMap<String, String>),
-    StructInstance(String, HashMap<String, Value>),
+    Struct(String, IndexMap<String, String>),
+    Enum(String, IndexMap<String, String>),
+    StructInstance(String, IndexMap<String, Value>),
     EnumVariant(String, String, Option<Box<Value>>),
 }
 
@@ -455,7 +454,7 @@ impl Value {
         }
     }
 
-    pub fn as_mut_instance(&mut self) -> Option<&mut HashMap<String, Value>> {
+    pub fn as_mut_instance(&mut self) -> Option<&mut IndexMap<String, Value>> {
         match self {
             Value::StructInstance(_, fields) => Some(fields),
             _ => None,
@@ -489,7 +488,7 @@ impl PartialEq for Value {
 
 #[derive(Clone, Debug)]
 pub enum Function {
-    UserDefined(Vec<(String, String)>, Vec<Stmt>, HashMap<String, Value>),
+    UserDefined(Vec<(String, String)>, Vec<Stmt>, IndexMap<String, Value>),
     BuiltIn(fn(&[Value]) -> Result<Value>),
 }
 
