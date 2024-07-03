@@ -161,7 +161,7 @@ impl SemanticAnalyzer {
                 }
                 Ok(())
             }
-            Stmt::ReturnExpression(expr) | Stmt::Expression(expr) => {
+            Stmt::Expression(expr) => {
                 self.analyze_expr(expr)?;
                 Ok(())
             }

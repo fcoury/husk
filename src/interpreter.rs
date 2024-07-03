@@ -102,10 +102,6 @@ impl Interpreter {
                 let value = self.evaluate_expr(expr)?;
                 return Ok(value);
             }
-            Stmt::ReturnExpression(expr) => {
-                let value = self.evaluate_expr(expr)?;
-                return Ok(value);
-            }
         }
         Ok(Value::Void)
     }
