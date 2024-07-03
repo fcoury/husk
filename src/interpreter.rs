@@ -378,6 +378,30 @@ impl Interpreter {
                 }
                 Ok(Value::Array(values))
             }
+            Expr::ArrayIndex(array_expr, index_expr, span) => {
+                let array = self.evaluate_expr(array_expr)?;
+                let index = self.evaluate_expr(index_expr)?;
+
+                match (array, index) {
+                    (Value::Array(elements), Value::Int(i)) => {
+                        if i < 0 || i >= elements.len() as i64 {
+                            return Err(Error::new_runtime(
+                                format!("Array index out of bounds: {}", i),
+                                *span,
+                            ));
+                        }
+                        Ok(elements[i as usize].clone())
+                    }
+                    (Value::Array(_), _) => Err(Error::new_runtime(
+                        "Array index must be an integer".to_string(),
+                        *span,
+                    )),
+                    (_, _) => Err(Error::new_runtime(
+                        "Cannot perform array access on non-array value".to_string(),
+                        *span,
+                    )),
+                }
+            }
         }
     }
 
@@ -732,7 +756,7 @@ mod tests {
     }
 
     #[test]
-    fn test_array() {
+    fn test_array_decl() {
         let code = r#"
             let arr = [1,2,3,4,5];
             arr
@@ -749,6 +773,19 @@ mod tests {
                     Value::Int(5)
                 ])
             ),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_array_access() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            arr[2]
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(3)),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

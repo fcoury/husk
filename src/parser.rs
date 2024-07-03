@@ -19,6 +19,7 @@ pub enum Expr {
         span: Span,
     },
     Array(Vec<Expr>, Span),
+    ArrayIndex(Box<Expr>, Box<Expr>, Span),
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
@@ -67,6 +68,7 @@ impl Expr {
             Expr::MemberAccess(_, _, span) => span.clone(),
             Expr::Assign(_, _, span) => span.clone(),
             Expr::Array(_, span) => span.clone(),
+            Expr::ArrayIndex(_, _, span) => span.clone(),
         }
     }
 }
@@ -128,6 +130,7 @@ impl fmt::Display for Expr {
                         .join(", ")
                 )
             }
+            Expr::ArrayIndex(array, index, _) => write!(f, "{}[{}]", array, index),
         }
     }
 }
@@ -635,7 +638,7 @@ impl Parser {
 
     fn parse_primary_expression(&mut self) -> Result<Expr> {
         let span = self.current_token().span;
-        match self.current_token().kind {
+        let mut expr = match self.current_token().kind {
             TokenKind::Int(value) => {
                 self.advance(); // Consume number
                 Ok(Expr::Int(value, span))
@@ -686,7 +689,30 @@ impl Parser {
                 "Invalid primary expression".to_string(),
                 span,
             )),
+        }?;
+
+        while self.current_token().kind == TokenKind::LSquare {
+            let start_span = expr.span();
+            self.advance(); // Consume '['
+            let index = self.parse_expression()?;
+            let end_span = self.current_token().span;
+
+            if self.current_token().kind != TokenKind::RSquare {
+                return Err(Error::new_parse(
+                    "Expected ']' after array index".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            self.advance(); // Consume ']'
+
+            expr = Expr::ArrayIndex(
+                Box::new(expr),
+                Box::new(index),
+                Span::new(start_span.start, end_span.end),
+            );
         }
+
+        Ok(expr)
     }
 
     fn parse_enum_expression(&mut self, name: String, span: Span) -> Result<Expr> {
@@ -1460,7 +1486,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_array() {
+    fn test_parse_array_decl() {
         let code = r#"
             let arr = [1,2,3,4,5];
             print(arr);
@@ -1483,6 +1509,29 @@ mod tests {
                     Span::new(23, 35),
                 ),
                 Span::new(13, 35),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_array_index() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            let x = arr[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[1],
+            Stmt::Let(
+                "x".to_string(),
+                Expr::ArrayIndex(
+                    Box::new(Expr::Identifier("arr".to_string(), Span::new(56, 59))),
+                    Box::new(Expr::Int(0, Span::new(60, 61))),
+                    Span::new(56, 62),
+                ),
+                Span::new(48, 63),
             )
         );
     }
