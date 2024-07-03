@@ -50,3 +50,6 @@ jobs:
 
       - name: Test
         run: cargo test --verbose
+
+      - name: Scripts test
+        run: tests/scripts/test.sh
