@@ -1,0 +1,12 @@
+// this is a line long comment
+enum Test {
+  First,    // first option
+  Second,   // second option
+}
+
+let a = /* first */ Test::First; 
+/*
+ * let b = a
+ **/
+
+println(a)

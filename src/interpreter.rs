@@ -669,6 +669,37 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_line_comments() {
+        let code = r#"
+            // This is a comment
+            let x = 1; // This is another comment
+            x
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(1)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_block_comments() {
+        let code = r#"
+            /* 
+             * This is a 
+             * multi-line comment 
+             */
+            let x = 1; /* This is another comment */
+            x
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(1)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
     fn run_code(code: &str, interpreter: Option<&mut Interpreter>) -> Result<Value> {
         let mut lexer = Lexer::new(code);
         let tokens = lexer.lex_all();

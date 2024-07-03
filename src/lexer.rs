@@ -158,7 +158,29 @@ impl Lexer {
             }
             Some('*') => self.create_token(TokenKind::Asterisk),
             Some(':') => self.create_token(TokenKind::Colon),
-            Some('/') => self.create_token(TokenKind::Slash),
+            Some('/') => {
+                if self.peek_char() == Some('/') {
+                    while let Some(c) = self.ch {
+                        if c == '\n' {
+                            break;
+                        }
+                        self.read_char();
+                    }
+                    return self.next_token();
+                } else if self.peek_char() == Some('*') {
+                    while let Some(c) = self.ch {
+                        if c == '*' && self.peek_char() == Some('/') {
+                            self.read_char();
+                            self.read_char();
+                            break;
+                        }
+                        self.read_char();
+                    }
+                    return self.next_token();
+                } else {
+                    return self.create_token(TokenKind::Slash);
+                }
+            }
             Some('.') => self.create_token(TokenKind::Dot),
             Some('"') => self.read_string(),
             Some(c) => {
@@ -685,6 +707,53 @@ mod tests {
             TokenKind::String("Not existing".to_string()),
             TokenKind::Comma,
             TokenKind::RBrace,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_line_comments() {
+        let code = r#"
+            // This is a comment
+            let x = 10; // Another comment
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_block_comments() {
+        let code = r#"
+            /* This is a multi
+             * line comment */
+            let x = 10; /* Another comment */
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
             TokenKind::Eof,
         ];
 
