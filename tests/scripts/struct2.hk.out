@@ -1,0 +1,2 @@
+struct Error {message: String("Success"), code: Int(0)}
+struct Error {message: String("Error"), code: Int(1)}
