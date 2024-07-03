@@ -19,6 +19,10 @@ impl Span {
         self.start - line_start + 1
     }
 
+    pub fn to_line_column(&self, code: &str) -> (usize, usize) {
+        (self.line_number(code), self.column_number(code))
+    }
+
     pub fn pretty_print(&self, code: &str) -> String {
         let code: String = code.into();
         let code_chars: Vec<char> = code.chars().collect();
@@ -42,6 +46,15 @@ impl Span {
         let arrow = " ".repeat(arrow_start) + &"^".repeat(arrow_end - arrow_start);
 
         format!("{}\n{}", line, arrow)
+    }
+
+    pub fn location(&self, code: impl Into<String>) -> String {
+        let code = code.into();
+        format!(
+            "line {}, column {}",
+            self.line_number(&code),
+            self.column_number(&code)
+        )
     }
 
     pub fn default() -> Span {
