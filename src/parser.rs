@@ -590,12 +590,8 @@ impl Parser {
             }
             TokenKind::Identifier(ref name) => {
                 let name = name.clone();
+                let start_pos = self.position;
                 self.advance(); // Consume identifier
-
-                // println!(
-                //     "lookahead: {:?}",
-                //     self.lookahead_for_struct_initialization()
-                // );
 
                 match self.current_token().kind {
                     TokenKind::Dot => {
@@ -613,7 +609,7 @@ impl Parser {
                         ))
                     }
                     TokenKind::LParen => self.parse_function_call(name, span),
-                    TokenKind::LBrace if self.lookahead_for_struct_initialization() => {
+                    TokenKind::LBrace if self.lookahead_for_struct_initialization(start_pos) => {
                         self.parse_struct_init(name, span)
                     }
                     TokenKind::Colon => self.parse_enum_expression(name, span),
@@ -698,27 +694,21 @@ impl Parser {
         ))
     }
 
-    fn lookahead_for_struct_initialization(&self) -> bool {
+    fn lookahead_for_struct_initialization(&self, start_pos: usize) -> bool {
+        if start_pos > 1 {
+            let lookback_index = self.position - 2;
+            let before_identifier = &self.tokens[lookback_index];
+            if before_identifier.kind == TokenKind::If || is_operator(&before_identifier.kind) {
+                return false;
+            }
+        }
         let mut lookahead_index = self.position + 1;
         while lookahead_index < self.tokens.len() {
             match self.tokens[lookahead_index].kind {
-                TokenKind::Identifier(_) => {
-                    if self
-                        .tokens
-                        .get(lookahead_index + 1)
-                        .map_or(false, |t| t.kind == TokenKind::Colon)
-                    {
-                        return self.tokens.get(lookahead_index + 2).map_or(false, |t| {
-                            matches!(
-                                t.kind,
-                                TokenKind::Int(_) | TokenKind::String(_) | TokenKind::Bool(_)
-                            )
-                        });
-                    }
-                }
+                TokenKind::FatArrow => return false,
                 TokenKind::RBrace => return true,
-                _ => return false,
-            }
+                _ => false,
+            };
             lookahead_index += 1;
         }
         false
@@ -769,6 +759,17 @@ impl Parser {
             TokenKind::DblEquals => return Some(Operator::Equals),
             _ => None,
         }
+    }
+}
+
+fn is_operator(kind: &TokenKind) -> bool {
+    match kind {
+        TokenKind::Plus
+        | TokenKind::Minus
+        | TokenKind::Asterisk
+        | TokenKind::Slash
+        | TokenKind::DblEquals => true,
+        _ => false,
     }
 }
 
@@ -1074,11 +1075,7 @@ mod tests {
             }
         "#;
 
-        let mut lexer = Lexer::new(input.to_string());
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-
-        let ast = parser.parse().unwrap();
+        let ast = parse(input);
 
         assert_eq!(
             ast[0],
@@ -1260,34 +1257,24 @@ mod tests {
     #[test]
     fn test_parse_enum_variant_with_associated_value() {
         let code = r#"let n = Name::Existing("Alice");"#;
+        let ast = parse(code);
 
-        let mut lexer = Lexer::new(code);
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-
-        match parser.parse() {
-            Ok(ast) => {
-                assert_eq!(
-                    ast[0],
-                    Stmt::Let(
-                        "n".to_string(),
-                        Expr::EnumVariant {
-                            name: "Name".to_string(),
-                            variant: "Existing".to_string(),
-                            value: Some(Box::new(Expr::String(
-                                "Alice".to_string(),
-                                Span::new(23, 30)
-                            ))),
-                            span: Span::new(8, 31),
-                        },
-                        Span::new(0, 32),
-                    )
-                );
-            }
-            Err(e) => {
-                panic!("{}", e.pretty_print(code))
-            }
-        }
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "n".to_string(),
+                Expr::EnumVariant {
+                    name: "Name".to_string(),
+                    variant: "Existing".to_string(),
+                    value: Some(Box::new(Expr::String(
+                        "Alice".to_string(),
+                        Span::new(23, 30)
+                    ))),
+                    span: Span::new(8, 31),
+                },
+                Span::new(0, 32),
+            )
+        );
     }
 
     #[test]
@@ -1316,29 +1303,29 @@ mod tests {
     #[test]
     fn test_parse_match_pattern_as_expression() {
         let code = "Name::Existing(name)";
+        let ast = parse(code);
 
-        let mut lexer = Lexer::new(code);
+        assert_eq!(
+            ast[0],
+            Stmt::Expression(Expr::EnumVariant {
+                name: "Name".to_string(),
+                variant: "Existing".to_string(),
+                value: Some(Box::new(Expr::Identifier(
+                    "name".to_string(),
+                    Span::new(15, 19)
+                ))),
+                span: Span::new(0, 20),
+            })
+        );
+    }
+
+    fn parse(code: &str) -> Vec<Stmt> {
+        let mut lexer = Lexer::new(code.to_string());
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
-
         match parser.parse() {
-            Ok(ast) => {
-                assert_eq!(
-                    ast[0],
-                    Stmt::Expression(Expr::EnumVariant {
-                        name: "Name".to_string(),
-                        variant: "Existing".to_string(),
-                        value: Some(Box::new(Expr::Identifier(
-                            "name".to_string(),
-                            Span::new(15, 19)
-                        ))),
-                        span: Span::new(0, 20),
-                    })
-                );
-            }
-            Err(e) => {
-                panic!("{}", e.pretty_print(code))
-            }
+            Ok(ast) => ast,
+            Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }
 }
