@@ -1,0 +1,14 @@
+enum Option {
+  None,
+  Some(string),
+}
+
+fn main() {
+  let option = Option::Some("Hello");
+  match option {
+    Option::None => println("None"),
+    Option::Some(value) => println(value),
+  }
+}
+
+main()
