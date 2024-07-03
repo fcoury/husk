@@ -7,7 +7,7 @@ fn test_scripts() -> anyhow::Result<()> {
     for entry in fs::read_dir("tests/scripts")? {
         let entry = entry?;
         if let Some(extension) = entry.path().extension() {
-            if extension != "rk" {
+            if extension != "hk" {
                 continue;
             }
         }
