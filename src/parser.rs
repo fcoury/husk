@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::{
     error::{Error, Result},
     lexer::{Token, TokenKind, EOF},
@@ -63,6 +65,56 @@ impl Expr {
             Expr::StructInit(_, _, span) => span.clone(),
             Expr::MemberAccess(_, _, span) => span.clone(),
             Expr::Assign(_, _, span) => span.clone(),
+        }
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Expr::Int(value, _) => write!(f, "{}", value),
+            Expr::Float(value, _) => write!(f, "{}", value),
+            Expr::String(value, _) => write!(f, "\"{}\"", value),
+            Expr::Bool(value, _) => write!(f, "{}", value),
+            Expr::EnumVariant {
+                name,
+                variant,
+                value: Some(expr),
+                ..
+            } => write!(f, "{}::{}({})", name, variant, expr),
+            Expr::EnumVariant {
+                name,
+                variant,
+                value: None,
+                ..
+            } => write!(f, "{}::{}", name, variant),
+            Expr::Identifier(name, _) => write!(f, "{}", name),
+            Expr::BinaryOp(left, op, right, _) => write!(f, "({} {:?} {})", left, op, right),
+            Expr::FunctionCall(name, args, _) => {
+                write!(
+                    f,
+                    "{}({})",
+                    name,
+                    args.iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
+            Expr::StructInit(name, fields, _) => {
+                write!(
+                    f,
+                    "{} {{ {} }}",
+                    name,
+                    fields
+                        .iter()
+                        .map(|(name, value)| format!("{}: {}", name, value))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
+            Expr::MemberAccess(expr, field, _) => write!(f, "{}.{}", expr, field),
+            Expr::Assign(left, right, _) => write!(f, "{} = {}", left, right),
         }
     }
 }

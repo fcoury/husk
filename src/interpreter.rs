@@ -124,7 +124,10 @@ impl Interpreter {
             } = expr
             else {
                 // FIXME: not expected?
-                unreachable!();
+                return Err(Error::new_runtime(
+                    format!("Undefined variant '{}'", expr),
+                    expr.span(),
+                ));
             };
 
             if arm_name != name {
@@ -640,6 +643,30 @@ mod tests {
         match run_code(code, Some(&mut int)) {
             Ok(val) => assert_eq!(val, Value::String("Not existing".to_string())),
             Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_enum_invalid_member() {
+        let code = r#"
+            enum Option {
+              None,
+              Some(string),
+            }
+                      
+            let option = Option::Some("Hello");
+            match option {
+              None => println("None"),
+              Some(value) => println(value),
+            }
+        "#;
+
+        match run_code(code, None) {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => assert_eq!(
+                e.pretty_print(code),
+                "error: 8:15 - Undefined variant 'None'\n              None => println(\"None\"),\n              ^^^^"
+            ),
         }
     }
 
