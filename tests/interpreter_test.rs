@@ -1,19 +1,13 @@
-use std::fs;
-
-use husk::execute_script;
+use std::process::Command;
 
 #[test]
 fn test_scripts() -> anyhow::Result<()> {
-    for entry in fs::read_dir("tests/scripts")? {
-        let entry = entry?;
-        if let Some(extension) = entry.path().extension() {
-            if extension != "hk" {
-                continue;
-            }
-        }
-        println!("Running test: {:?}", entry.path());
-        let contents = fs::read_to_string(entry.path())?;
-        let _ = execute_script(contents);
+    // executes script.sh and checks for exit code
+    let output = Command::new("bash").arg("tests/scripts/test.sh").output()?;
+
+    if !output.status.success() {
+        let output = String::from_utf8(output.stdout).unwrap();
+        panic!("script.sh failed: \n\n{}", output);
     }
 
     Ok(())
