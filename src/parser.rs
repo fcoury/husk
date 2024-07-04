@@ -772,7 +772,9 @@ impl Parser {
     ) -> Result<Expr> {
         let mut end_span = self.current_token().span.end;
         self.advance(); // Consume '..'
-        let right_expr = if self.current_token().kind == TokenKind::Semicolon {
+
+        let kind = &self.current_token().kind;
+        let right_expr = if *kind == TokenKind::Semicolon || *kind == TokenKind::RSquare {
             None
         } else {
             let expr = self.parse_expression()?;

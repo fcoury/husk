@@ -392,8 +392,19 @@ impl Interpreter {
                         }
                         Ok(elements[i as usize].clone())
                     }
-                    (Value::Array(_), _) => Err(Error::new_runtime(
-                        "Array index must be an integer".to_string(),
+                    (Value::Array(elements), Value::Range(start, end, inclusive)) => {
+                        let start = start.unwrap_or(0);
+                        let end = end.unwrap_or(elements.len() as i64);
+                        let end = if inclusive { end + 1 } else { end };
+
+                        let mut result = Vec::new();
+                        for i in start..end {
+                            result.push(elements[i as usize].clone());
+                        }
+                        Ok(Value::Array(result))
+                    }
+                    (Value::Array(_), index) => Err(Error::new_runtime(
+                        format!("Array index must be an integer, got {:?}", index),
                         *span,
                     )),
                     (_, _) => Err(Error::new_runtime(
@@ -851,6 +862,40 @@ mod tests {
 
         match run_code(code, None) {
             Ok(val) => assert_eq!(val, Value::Range(Some(1), Some(5), true)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_range_of_array() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            arr[1..3]
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Array(vec![Value::Int(2), Value::Int(3)])),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_until_end_range_of_array() {
+        let code = r#"
+            let arr = [1,2,3,4,5];
+            arr[1..]
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(
+                val,
+                Value::Array(vec![
+                    Value::Int(2),
+                    Value::Int(3),
+                    Value::Int(4),
+                    Value::Int(5)
+                ])
+            ),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }
