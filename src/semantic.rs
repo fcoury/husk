@@ -165,6 +165,39 @@ impl SemanticAnalyzer {
                 self.analyze_expr(expr)?;
                 Ok(())
             }
+            Stmt::ForLoop(variable, iterable, body, span) => {
+                let iterable_type = self.analyze_expr(iterable)?;
+                if !iterable_type.starts_with("array<") && iterable_type != "range" {
+                    return Err(Error::new_semantic(
+                        format!(
+                            "For loop iterable must be an array or range, found: {}",
+                            iterable_type
+                        ),
+                        *span,
+                    ));
+                }
+
+                let element_type = if iterable_type.starts_with("array<") {
+                    iterable_type
+                        .trim_start_matches("array<")
+                        .trim_end_matches('>')
+                        .to_string()
+                } else {
+                    "int".to_string() // Range elements are always integers
+                };
+
+                // Create a new scope for the loop body
+                self.symbol_table.insert(variable.clone(), element_type);
+
+                for stmt in body {
+                    self.analyze_stmt(stmt)?;
+                }
+
+                // Remove the loop variable from the symbol table after analyzing the body
+                self.symbol_table.remove(variable);
+
+                Ok(())
+            }
         }
     }
 

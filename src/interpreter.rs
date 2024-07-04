@@ -101,6 +101,45 @@ impl Interpreter {
                 let value = self.evaluate_expr(expr)?;
                 return Ok(value);
             }
+            Stmt::ForLoop(variable, iterable, body, span) => {
+                let iterable_value = self.evaluate_expr(iterable)?;
+                match iterable_value {
+                    Value::Array(elements) => {
+                        for element in elements {
+                            self.environment.insert(variable.clone(), element.clone());
+                            for stmt in body {
+                                self.execute_stmt(stmt)?;
+                            }
+                        }
+                    }
+                    Value::Range(start, end, inclusive) => {
+                        let start = start.unwrap_or(0);
+                        let end = end.unwrap_or(i64::MAX);
+
+                        if inclusive {
+                            for i in start..=end {
+                                self.environment.insert(variable.clone(), Value::Int(i));
+                                for stmt in body {
+                                    self.execute_stmt(stmt)?;
+                                }
+                            }
+                        } else {
+                            for i in start..end {
+                                self.environment.insert(variable.clone(), Value::Int(i));
+                                for stmt in body {
+                                    self.execute_stmt(stmt)?;
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "For loop iterable must be an array or range".to_string(),
+                            *span,
+                        ))
+                    }
+                }
+            }
         }
         Ok(Value::Void)
     }
@@ -896,6 +935,39 @@ mod tests {
                     Value::Int(5)
                 ])
             ),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_interpret_for_loop_array() {
+        let code = r#"
+            let a = [1, 2, 3, 4, 5];
+            let sum = 0;
+            for x in a {
+                sum = sum + x;
+            }
+            sum
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(15)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_interpret_for_loop_range() {
+        let code = r#"
+            let sum = 0;
+            for i in 1..=5 {
+                sum = sum + i;
+            }
+            sum
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(15)),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

@@ -264,6 +264,7 @@ pub enum Stmt {
     Expression(Expr),
     Struct(String, Vec<(String, String)>, Span),
     Enum(String, Vec<(String, String)>, Span),
+    ForLoop(String, Expr, Vec<Stmt>, Span),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -317,8 +318,51 @@ impl Parser {
             TokenKind::Function => self.parse_function(),
             TokenKind::If => self.parse_if_statement(),
             TokenKind::Match => self.parse_match_statement(),
+            TokenKind::For => self.parse_for_loop(),
             _ => self.parse_expression_statement(),
         }
+    }
+
+    fn parse_for_loop(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span;
+        self.advance(); // Consume 'for'
+
+        let variable = self.consume_identifier()?.ok_or_else(|| {
+            Error::new_parse(
+                "Expected identifier after 'for'".to_string(),
+                self.current_token().span,
+            )
+        })?;
+
+        if self.current_token().kind != TokenKind::In {
+            return Err(Error::new_parse(
+                "Expected 'in' after for loop variable".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume 'in'
+
+        let iterable = self.parse_expression()?;
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after for loop iterable".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume '{'
+
+        let body = self.parse_block()?;
+
+        let end_span = self.current_token().span;
+        self.advance(); // Consume '}'
+
+        Ok(Stmt::ForLoop(
+            variable,
+            iterable,
+            body,
+            Span::new(start_span.start, end_span.end),
+        ))
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>> {
@@ -949,7 +993,11 @@ impl Parser {
         if start_pos > 1 {
             let lookback_index = self.position - 2;
             let before_identifier = &self.tokens[lookback_index];
-            if before_identifier.kind == TokenKind::If || is_operator(&before_identifier.kind) {
+            if before_identifier.kind == TokenKind::If
+                || before_identifier.kind == TokenKind::For
+                || before_identifier.kind == TokenKind::In
+                || is_operator(&before_identifier.kind)
+            {
                 return false;
             }
         }
@@ -1842,5 +1890,20 @@ mod tests {
                 Span::new(13, 30),
             )
         );
+    }
+
+    #[test]
+    fn test_parse_for_loop() {
+        let input = r#"
+            for x in 1..5 {
+                print(x);
+            }
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+
+        let ast = parser.parse().unwrap();
+        assert!(matches!(ast[0], Stmt::ForLoop(_, _, _, _)));
     }
 }

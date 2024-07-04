@@ -30,6 +30,8 @@ pub enum TokenKind {
     If,
     Else,
     Match,
+    For,
+    In,
     Identifier(String),
     Int(i64),
     Float(f64),
@@ -255,6 +257,8 @@ impl Lexer {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "match" => TokenKind::Match,
+            "for" => TokenKind::For,
+            "in" => TokenKind::In,
             "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
             _ => TokenKind::Identifier(identifier),
         };
