@@ -11,6 +11,7 @@ pub struct SemanticAnalyzer {
     structs: HashMap<String, HashMap<String, String>>, // Struct name to field name to type mapping
     functions: HashMap<String, (Vec<(String, String)>, String, Span)>, // Function name to parameter types mapping
     enums: HashMap<String, HashMap<String, String>>, // Enum name to variant name to type mapping
+    loop_depth: u32,
 }
 
 impl SemanticAnalyzer {
@@ -20,6 +21,7 @@ impl SemanticAnalyzer {
             structs: HashMap::new(),
             functions: HashMap::new(),
             enums: HashMap::new(),
+            loop_depth: 0,
         };
         analyzer.init_standard_library();
         analyzer
@@ -38,12 +40,12 @@ impl SemanticAnalyzer {
 
     pub fn analyze(&mut self, stmts: &Vec<Stmt>) -> Result<()> {
         for stmt in stmts {
-            self.analyze_stmt(stmt, false)?;
+            self.analyze_stmt(stmt)?;
         }
         Ok(())
     }
 
-    fn analyze_stmt(&mut self, stmt: &Stmt, in_loop: bool) -> Result<()> {
+    fn analyze_stmt(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Let(name, expr, _span) => {
                 let expr_type = self.analyze_expr(expr)?;
@@ -86,7 +88,7 @@ impl SemanticAnalyzer {
 
                 // Analyze function body
                 for stmt in body {
-                    self.analyze_stmt(stmt, false)?;
+                    self.analyze_stmt(stmt)?;
                 }
 
                 // Check if return type matches the last expression in the body (if any)
@@ -113,10 +115,10 @@ impl SemanticAnalyzer {
             Stmt::If(condition, then_block, else_block, _span) => {
                 self.analyze_expr(condition)?;
                 for stmt in then_block {
-                    self.analyze_stmt(stmt, false)?;
+                    self.analyze_stmt(stmt)?;
                 }
                 for stmt in else_block {
-                    self.analyze_stmt(stmt, false)?;
+                    self.analyze_stmt(stmt)?;
                 }
                 Ok(())
             }
@@ -156,7 +158,7 @@ impl SemanticAnalyzer {
                         _ => unimplemented!(),
                     }
                     for stmt in stmts {
-                        self.analyze_stmt(stmt, true)?;
+                        self.analyze_stmt(stmt)?;
                     }
                 }
                 Ok(())
@@ -189,9 +191,11 @@ impl SemanticAnalyzer {
                 // Create a new scope for the loop body
                 self.symbol_table.insert(variable.clone(), element_type);
 
+                self.loop_depth += 1;
                 for stmt in body {
-                    self.analyze_stmt(stmt, true)?;
+                    self.analyze_stmt(stmt)?;
                 }
+                self.loop_depth -= 1;
 
                 // Remove the loop variable from the symbol table after analyzing the body
                 self.symbol_table.remove(variable);
@@ -199,7 +203,7 @@ impl SemanticAnalyzer {
                 Ok(())
             }
             Stmt::Break(span) => {
-                if !in_loop {
+                if self.loop_depth == 0 {
                     return Err(Error::new_semantic(
                         "'break' outside of loop".to_string(),
                         *span,
@@ -208,7 +212,7 @@ impl SemanticAnalyzer {
                 Ok(())
             }
             Stmt::Continue(span) => {
-                if !in_loop {
+                if self.loop_depth == 0 {
                     return Err(Error::new_semantic(
                         "'continue' outside of loop".to_string(),
                         *span,
@@ -407,6 +411,22 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("'break' outside of loop"));
+    }
+
+    #[test]
+    fn test_break_outside_loop_false_positive() {
+        let result = analyze(
+            r#"
+                for i in 1..10 {
+                  if i == 3 {
+                    break;
+                  }
+                  println(i)
+                }
+            "#,
+        );
+
+        assert!(result.is_ok());
     }
 
     #[test]
