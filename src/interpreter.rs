@@ -402,6 +402,23 @@ impl Interpreter {
                     )),
                 }
             }
+            Expr::Range(start, end, inclusive, span) => {
+                let start_val = start.as_ref().map(|e| self.evaluate_expr(e)).transpose()?;
+                let end_val = end.as_ref().map(|e| self.evaluate_expr(e)).transpose()?;
+
+                match (start_val, end_val) {
+                    (Some(Value::Int(s)), Some(Value::Int(e))) => {
+                        Ok(Value::Range(Some(s), Some(e), *inclusive))
+                    }
+                    (Some(Value::Int(s)), None) => Ok(Value::Range(Some(s), None, *inclusive)),
+                    (None, Some(Value::Int(e))) => Ok(Value::Range(None, Some(e), *inclusive)),
+                    (None, None) => Ok(Value::Range(None, None, *inclusive)),
+                    _ => Err(Error::new_runtime(
+                        "Invalid range values".to_string(),
+                        *span,
+                    )),
+                }
+            }
         }
     }
 
@@ -436,6 +453,7 @@ pub enum Value {
     Bool(bool),
     String(String),
     Array(Vec<Value>),
+    Range(Option<i64>, Option<i64>, bool),
     Function(Function),
     Struct(String, IndexMap<String, String>),
     Enum(String, IndexMap<String, String>),
@@ -454,6 +472,22 @@ impl Value {
             Value::Array(elements) => {
                 let elements_str: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 format!("[{}]", elements_str.join(", "))
+            }
+            Value::Range(start, end, inclusive) => {
+                let start_str = start
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "None".to_string());
+                let end_str = end
+                    .as_ref()
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "None".to_string());
+                format!(
+                    "{}..{}{}",
+                    start_str,
+                    end_str,
+                    if *inclusive { "=" } else { "" }
+                )
             }
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {}", name),
@@ -480,6 +514,7 @@ impl Value {
             Value::Bool(_) => "bool".to_string(),
             Value::String(_) => "string".to_string(),
             Value::Array(_) => "array".to_string(),
+            Value::Range(_, _, _) => "range".to_string(),
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {name}"),
             Value::StructInstance(name, _) => format!("struct instance {name}"),
@@ -519,6 +554,10 @@ impl PartialEq for Value {
             (Value::StructInstance(a_name, a_values), Value::StructInstance(b_name, b_values)) => {
                 a_name == b_name && a_values == b_values
             }
+            (
+                Value::Range(a_start, a_end, a_inclusive),
+                Value::Range(b_start, b_end, b_inclusive),
+            ) => a_start == b_start && a_end == b_end && a_inclusive == b_inclusive,
             _ => false,
         }
     }
@@ -786,6 +825,32 @@ mod tests {
 
         match run_code(code, None) {
             Ok(val) => assert_eq!(val, Value::Int(3)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_range() {
+        let code = r#"
+            let r = 1..5;
+            r
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Range(Some(1), Some(5), false)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_inclusive_range() {
+        let code = r#"
+            let r = 1..=5;
+            r
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Range(Some(1), Some(5), true)),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

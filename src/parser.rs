@@ -26,11 +26,122 @@ pub enum Expr {
     StructInit(String, Vec<(String, Expr)>, Span),
     MemberAccess(Box<Expr>, String, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
+    Range(Option<Box<Expr>>, Option<Box<Expr>>, bool, Span),
 }
 
 impl PartialEq for Expr {
     fn eq(&self, other: &Self) -> bool {
-        self.span() == other.span()
+        match self {
+            Expr::Int(value, _) => {
+                if let Expr::Int(other_value, _) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            }
+            Expr::Float(value, _) => {
+                if let Expr::Float(other_value, _) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            }
+            Expr::String(value, _) => {
+                if let Expr::String(other_value, _) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            }
+            Expr::Bool(value, _) => {
+                if let Expr::Bool(other_value, _) = other {
+                    value == other_value
+                } else {
+                    false
+                }
+            }
+            Expr::EnumVariant {
+                name,
+                variant,
+                value,
+                ..
+            } => {
+                if let Expr::EnumVariant {
+                    name: other_name,
+                    variant: other_variant,
+                    value: other_value,
+                    ..
+                } = other
+                {
+                    name == other_name && variant == other_variant && value == other_value
+                } else {
+                    false
+                }
+            }
+            Expr::Array(elements, _) => {
+                if let Expr::Array(other_elements, _) = other {
+                    elements == other_elements
+                } else {
+                    false
+                }
+            }
+            Expr::ArrayIndex(array, index, _) => {
+                if let Expr::ArrayIndex(other_array, other_index, _) = other {
+                    array == other_array && index == other_index
+                } else {
+                    false
+                }
+            }
+            Expr::Identifier(name, _) => {
+                if let Expr::Identifier(other_name, _) = other {
+                    name == other_name
+                } else {
+                    false
+                }
+            }
+            Expr::BinaryOp(left, op, right, _) => {
+                if let Expr::BinaryOp(other_left, other_op, other_right, _) = other {
+                    left == other_left && op == other_op && right == other_right
+                } else {
+                    false
+                }
+            }
+            Expr::FunctionCall(name, args, _) => {
+                if let Expr::FunctionCall(other_name, other_args, _) = other {
+                    name == other_name && args == other_args
+                } else {
+                    false
+                }
+            }
+            Expr::StructInit(name, fields, _) => {
+                if let Expr::StructInit(other_name, other_fields, _) = other {
+                    name == other_name && fields == other_fields
+                } else {
+                    false
+                }
+            }
+            Expr::MemberAccess(expr, field, _) => {
+                if let Expr::MemberAccess(other_expr, other_field, _) = other {
+                    expr == other_expr && field == other_field
+                } else {
+                    false
+                }
+            }
+            Expr::Assign(left, right, _) => {
+                if let Expr::Assign(other_left, other_right, _) = other {
+                    left == other_left && right == other_right
+                } else {
+                    false
+                }
+            }
+            Expr::Range(start, end, inclusive, _) => {
+                if let Expr::Range(other_start, other_end, other_inclusive, _) = other {
+                    start == other_start && end == other_end && inclusive == other_inclusive
+                } else {
+                    false
+                }
+            }
+        }
     }
 }
 
@@ -69,6 +180,7 @@ impl Expr {
             Expr::Assign(_, _, span) => span.clone(),
             Expr::Array(_, span) => span.clone(),
             Expr::ArrayIndex(_, _, span) => span.clone(),
+            Expr::Range(_, _, _, span) => span.clone(),
         }
     }
 }
@@ -131,6 +243,14 @@ impl fmt::Display for Expr {
                 )
             }
             Expr::ArrayIndex(array, index, _) => write!(f, "{}[{}]", array, index),
+            Expr::Range(start, end, inclusive, _) => {
+                if *inclusive {
+                    write!(f, "{:?}..={:?}", start, end)?;
+                } else {
+                    write!(f, "{:?}..{:?}", start, end)?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -619,6 +739,7 @@ impl Parser {
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
+        let start_span = self.current_token().span.start;
         let mut left = self.parse_primary_expression()?;
         while let Some(op) = self.parse_operator() {
             let start_span = left.span().start;
@@ -633,7 +754,39 @@ impl Parser {
                 Span::new(start_span, end_span),
             );
         }
+
+        if self.current_token().kind == TokenKind::DblDot
+            || self.current_token().kind == TokenKind::DblDotEquals
+        {
+            let inclusive = self.current_token().kind == TokenKind::DblDotEquals;
+            left = self.parse_range_expression(Some(left.clone()), inclusive, start_span)?;
+        }
         Ok(left)
+    }
+
+    fn parse_range_expression(
+        &mut self,
+        left_expr: Option<Expr>,
+        inclusive: bool,
+        start_span: usize,
+    ) -> Result<Expr> {
+        let mut end_span = self.current_token().span.end;
+        self.advance(); // Consume '..'
+        let right_expr = if self.current_token().kind == TokenKind::Semicolon {
+            None
+        } else {
+            let expr = self.parse_expression()?;
+            end_span = self.current_token().span.end;
+            Some(Box::new(expr))
+        };
+
+        let left_expr = left_expr.map(Box::new);
+        Ok(Expr::Range(
+            left_expr,
+            right_expr,
+            inclusive,
+            Span::new(start_span, end_span),
+        ))
     }
 
     fn parse_primary_expression(&mut self) -> Result<Expr> {
@@ -655,6 +808,10 @@ impl Parser {
             TokenKind::Bool(value) => {
                 self.advance(); // Consume boolean
                 Ok(Expr::Bool(value, span))
+            }
+            TokenKind::DblDot | TokenKind::DblDotEquals => {
+                let inclusive = self.current_token().kind == TokenKind::DblDotEquals;
+                self.parse_range_expression(None, inclusive, span.start)
             }
             TokenKind::LSquare => self.parse_array(),
             TokenKind::Identifier(ref name) => {
@@ -966,7 +1123,7 @@ mod tests {
         let ast = parser.parse().unwrap();
         let expected_ast = vec![Stmt::Let(
             "x".to_string(),
-            Expr::Identifier("true".to_string(), Span::new(8, 12)),
+            Expr::Bool(true, Span::new(8, 12)),
             Span::new(0, 13),
         )];
 
@@ -1369,7 +1526,12 @@ mod tests {
                     ast[0],
                     Stmt::Let(
                         "c".to_string(),
-                        Expr::Identifier("Color::Red".to_string(), Span::new(8, 19)),
+                        Expr::EnumVariant {
+                            name: "Color".to_string(),
+                            variant: "Red".to_string(),
+                            value: None,
+                            span: Span::new(8, 19)
+                        },
                         Span::new(0, 19),
                     )
                 );
@@ -1532,6 +1694,150 @@ mod tests {
                     Span::new(56, 62),
                 ),
                 Span::new(48, 63),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_range() {
+        let code = r#"
+            let range = 1..5;
+            let x = range[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "range".to_string(),
+                Expr::Range(
+                    Option::Some(Box::new(Expr::Int(1, Span::new(25, 26)))),
+                    Option::Some(Box::new(Expr::Int(5, Span::new(28, 29)))),
+                    false,
+                    Span::new(25, 29)
+                ),
+                Span::new(13, 30),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_inclusive_range() {
+        let code = r#"
+            let range = 1..=5;
+            let x = range[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "range".to_string(),
+                Expr::Range(
+                    Option::Some(Box::new(Expr::Int(1, Span::new(25, 26)))),
+                    Option::Some(Box::new(Expr::Int(5, Span::new(29, 30)))),
+                    true,
+                    Span::new(25, 30)
+                ),
+                Span::new(13, 31),
+            )
+        );
+    }
+
+    #[test]
+    fn test_from_start_range() {
+        let code = r#"
+            let range = ..5;
+            let x = range[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "range".to_string(),
+                Expr::Range(
+                    Option::None,
+                    Option::Some(Box::new(Expr::Int(5, Span::new(27, 28)))),
+                    false,
+                    Span::new(25, 28)
+                ),
+                Span::new(13, 29),
+            )
+        );
+    }
+
+    #[test]
+    fn test_from_start_inclusive_range() {
+        let code = r#"
+            let range = ..=5;
+            let x = range[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "range".to_string(),
+                Expr::Range(
+                    Option::None,
+                    Option::Some(Box::new(Expr::Int(5, Span::new(28, 29)))),
+                    true,
+                    Span::new(25, 29)
+                ),
+                Span::new(13, 30),
+            )
+        );
+    }
+
+    #[test]
+    fn test_until_end_range() {
+        let code = r#"
+            let range = 1..;
+            let x = range[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "range".to_string(),
+                Expr::Range(
+                    Option::Some(Box::new(Expr::Int(1, Span::new(25, 26)))),
+                    None,
+                    false,
+                    Span::new(25, 28)
+                ),
+                Span::new(13, 29),
+            )
+        );
+    }
+
+    #[test]
+    fn test_until_end_inclusve_range() {
+        let code = r#"
+            let range = 1..=;
+            let x = range[0];
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "range".to_string(),
+                Expr::Range(
+                    Option::Some(Box::new(Expr::Int(1, Span::new(25, 26)))),
+                    None,
+                    true,
+                    Span::new(25, 29)
+                ),
+                Span::new(13, 30),
             )
         );
     }

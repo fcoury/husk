@@ -54,6 +54,8 @@ pub enum TokenKind {
     Slash,
     Colon,
     Dot,
+    DblDot,
+    DblDotEquals,
     Error(String),
     Eof,
 }
@@ -185,7 +187,23 @@ impl Lexer {
                     return self.create_token(TokenKind::Slash);
                 }
             }
-            Some('.') => self.create_token(TokenKind::Dot),
+            Some('.') => {
+                let start = self.position;
+                if self.peek_char() == Some('.') {
+                    self.read_char();
+
+                    if self.peek_char() == Some('=') {
+                        self.read_char();
+                        self.read_char();
+                        return Token::new(TokenKind::DblDotEquals, start, self.position);
+                    }
+
+                    self.read_char();
+                    return Token::new(TokenKind::DblDot, start, self.position);
+                } else {
+                    self.create_token(TokenKind::Dot)
+                }
+            }
             Some('"') => self.read_string(),
             Some(c) => {
                 if c.is_alphabetic() {
@@ -261,6 +279,9 @@ impl Lexer {
     fn read_number(&mut self) -> Token {
         let position = self.position;
         while let Some(c) = self.ch {
+            if c == '.' && self.peek_char() == Some('.') {
+                break;
+            }
             if !c.is_ascii_digit() && !(c == '.') {
                 break;
             }
@@ -795,6 +816,128 @@ mod tests {
             TokenKind::LParen,
             TokenKind::Identifier("arr".to_string()),
             TokenKind::RParen,
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_range() {
+        let code = "let range = 1..10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("range".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(1),
+            TokenKind::DblDot,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_inclusive_range() {
+        let code = "let range = 1..=10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("range".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(1),
+            TokenKind::DblDotEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_from_start_range() {
+        let code = "let range = ..10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("range".to_string()),
+            TokenKind::Equals,
+            TokenKind::DblDot,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_from_start_inclusive_range() {
+        let code = "let range = ..=10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("range".to_string()),
+            TokenKind::Equals,
+            TokenKind::DblDotEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_until_end_range() {
+        let code = "let range = 1..;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("range".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(1),
+            TokenKind::DblDot,
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_until_end_inclusive_range() {
+        let code = "let range = 1..=;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Let,
+            TokenKind::Identifier("range".to_string()),
+            TokenKind::Equals,
+            TokenKind::Int(1),
+            TokenKind::DblDotEquals,
             TokenKind::Semicolon,
             TokenKind::Eof,
         ];
