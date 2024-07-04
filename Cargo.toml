@@ -7,4 +7,6 @@ edition = "2021"
 anyhow = "1.0.86"
 clap = { version = "4.5.8", features = ["derive"] }
 indexmap = "2.2.6"
+rustyline = "14.0.0"
+simple-home-dir = "0.3.5"
 thiserror = "1.0.61"

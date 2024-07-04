@@ -1,34 +1,60 @@
-use std::io::{self, Write};
+use rustyline::{error::ReadlineError, history::FileHistory, CompletionType, Config, Editor};
+use simple_home_dir::home_dir;
 
 use crate::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
 
 #[allow(dead_code)]
-pub fn repl() -> io::Result<()> {
+pub fn repl() -> anyhow::Result<()> {
+    let config = Config::builder()
+        .history_ignore_space(true)
+        .completion_type(CompletionType::List)
+        .build();
+    let history_file = format!("{}/.husk_history", home_dir().unwrap().to_str().unwrap());
+    let mut rl: Editor<(), FileHistory> = Editor::with_config(config)?;
     let mut interpreter = Interpreter::new();
+    rl.load_history(&history_file).unwrap_or_default();
 
     loop {
-        print!("> ");
-        io::stdout().flush()?;
+        let readline = rl.readline("> ");
+        match readline {
+            Ok(line) => {
+                if line == "exit" {
+                    break;
+                }
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+                if line == "clear" {
+                    // clear screen
+                    println!("\x1B[2J\x1B[1;1H");
+                    continue;
+                }
 
-        let input = input.trim();
-        if input == "exit" {
-            break;
+                rl.add_history_entry(line.as_str())?;
+                let mut lexer = Lexer::new(&line);
+                let tokens = lexer.lex_all();
+
+                let mut parser = Parser::new(tokens);
+                match parser.parse() {
+                    Ok(ast) => match interpreter.interpret(&ast) {
+                        Ok(val) => println!("{}", val),
+                        Err(e) => println!("{}", e.pretty_print(line)),
+                    },
+                    Err(e) => println!("{}", e.pretty_print(line)),
+                }
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("CTRL-D");
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
         }
-
-        let mut lexer = Lexer::new(input.to_string());
-        let tokens = lexer.lex_all();
-
-        let mut parser = Parser::new(tokens);
-        match parser.parse() {
-            Ok(ast) => match interpreter.interpret(&ast) {
-                Ok(val) => println!("{}", val),
-                Err(e) => println!("{}", e.pretty_print(input)),
-            },
-            Err(e) => println!("{}", e.pretty_print(input)),
-        }
+        rl.append_history(&history_file).unwrap();
     }
 
     Ok(())
