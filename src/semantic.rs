@@ -38,12 +38,12 @@ impl SemanticAnalyzer {
 
     pub fn analyze(&mut self, stmts: &Vec<Stmt>) -> Result<()> {
         for stmt in stmts {
-            self.analyze_stmt(stmt)?;
+            self.analyze_stmt(stmt, false)?;
         }
         Ok(())
     }
 
-    fn analyze_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    fn analyze_stmt(&mut self, stmt: &Stmt, in_loop: bool) -> Result<()> {
         match stmt {
             Stmt::Let(name, expr, _span) => {
                 let expr_type = self.analyze_expr(expr)?;
@@ -86,7 +86,7 @@ impl SemanticAnalyzer {
 
                 // Analyze function body
                 for stmt in body {
-                    self.analyze_stmt(stmt)?;
+                    self.analyze_stmt(stmt, false)?;
                 }
 
                 // Check if return type matches the last expression in the body (if any)
@@ -113,10 +113,10 @@ impl SemanticAnalyzer {
             Stmt::If(condition, then_block, else_block, _span) => {
                 self.analyze_expr(condition)?;
                 for stmt in then_block {
-                    self.analyze_stmt(stmt)?;
+                    self.analyze_stmt(stmt, false)?;
                 }
                 for stmt in else_block {
-                    self.analyze_stmt(stmt)?;
+                    self.analyze_stmt(stmt, false)?;
                 }
                 Ok(())
             }
@@ -156,7 +156,7 @@ impl SemanticAnalyzer {
                         _ => unimplemented!(),
                     }
                     for stmt in stmts {
-                        self.analyze_stmt(stmt)?;
+                        self.analyze_stmt(stmt, true)?;
                     }
                 }
                 Ok(())
@@ -190,12 +190,30 @@ impl SemanticAnalyzer {
                 self.symbol_table.insert(variable.clone(), element_type);
 
                 for stmt in body {
-                    self.analyze_stmt(stmt)?;
+                    self.analyze_stmt(stmt, true)?;
                 }
 
                 // Remove the loop variable from the symbol table after analyzing the body
                 self.symbol_table.remove(variable);
 
+                Ok(())
+            }
+            Stmt::Break(span) => {
+                if !in_loop {
+                    return Err(Error::new_semantic(
+                        "'break' outside of loop".to_string(),
+                        *span,
+                    ));
+                }
+                Ok(())
+            }
+            Stmt::Continue(span) => {
+                if !in_loop {
+                    return Err(Error::new_semantic(
+                        "'continue' outside of loop".to_string(),
+                        *span,
+                    ));
+                }
                 Ok(())
             }
         }
@@ -363,7 +381,44 @@ impl SemanticAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use crate::{Lexer, Parser};
+
+    use super::*;
+
+    fn analyze(code: impl Into<String>) -> Result<()> {
+        let code = code.into();
+
+        let mut lexer = Lexer::new(code);
+        let tokens = lexer.lex_all();
+
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+
+        let mut analyzer = SemanticAnalyzer::new();
+        analyzer.analyze(&ast)
+    }
+
+    #[test]
+    fn test_break_outside_loop() {
+        let result = analyze("break;");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("'break' outside of loop"));
+    }
+
+    #[test]
+    fn test_continue_outside_loop() {
+        let result = analyze("continue;");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("'continue' outside of loop"));
+    }
 
     // #[test]
     // fn test_variable_declaration() {

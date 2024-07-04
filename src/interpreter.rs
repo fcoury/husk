@@ -35,7 +35,7 @@ impl Interpreter {
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
         let mut value = Value::Void;
         for stmt in stmts {
-            value = self.execute_stmt(stmt)?;
+            (value, _) = self.execute_stmt(stmt)?;
         }
         Ok(value)
     }
@@ -44,7 +44,7 @@ impl Interpreter {
         self.environment.get(name).cloned()
     }
 
-    fn execute_stmt(&mut self, stmt: &Stmt) -> Result<Value> {
+    fn execute_stmt(&mut self, stmt: &Stmt) -> Result<(Value, ControlFlow)> {
         match stmt {
             Stmt::Let(name, expr, _) => {
                 let value = self.evaluate_expr(expr)?;
@@ -75,7 +75,7 @@ impl Interpreter {
                 self.environment.insert(name.clone(), func);
             }
             Stmt::If(condition, then_block, else_block, _) => {
-                let mut result = Value::Void;
+                let mut result = (Value::Void, ControlFlow::Normal);
                 let condition_value = self.evaluate_expr(condition)?;
                 if let Value::Bool(true) = condition_value {
                     for stmt in then_block {
@@ -92,14 +92,16 @@ impl Interpreter {
                 let expr_value = self.evaluate_expr(expr)?;
                 match expr_value {
                     Value::EnumVariant(ref name, ref variant, ref value) => {
-                        return self.execute_enum_match(&arms, name, variant, value);
+                        return self
+                            .execute_enum_match(&arms, name, variant, value)
+                            .map(|v| (v, ControlFlow::Normal));
                     }
                     _ => {}
                 }
             }
             Stmt::Expression(expr) => {
                 let value = self.evaluate_expr(expr)?;
-                return Ok(value);
+                return Ok((value, ControlFlow::Normal));
             }
             Stmt::ForLoop(variable, iterable, body, span) => {
                 let iterable_value = self.evaluate_expr(iterable)?;
@@ -108,7 +110,14 @@ impl Interpreter {
                         for element in elements {
                             self.environment.insert(variable.clone(), element.clone());
                             for stmt in body {
-                                self.execute_stmt(stmt)?;
+                                let (_, control_flow) = self.execute_stmt(stmt)?;
+                                match control_flow {
+                                    ControlFlow::Break => {
+                                        return Ok((Value::Void, ControlFlow::Normal))
+                                    }
+                                    ControlFlow::Continue => break,
+                                    ControlFlow::Normal => {}
+                                }
                             }
                         }
                     }
@@ -120,14 +129,28 @@ impl Interpreter {
                             for i in start..=end {
                                 self.environment.insert(variable.clone(), Value::Int(i));
                                 for stmt in body {
-                                    self.execute_stmt(stmt)?;
+                                    let (_, control_flow) = self.execute_stmt(stmt)?;
+                                    match control_flow {
+                                        ControlFlow::Break => {
+                                            return Ok((Value::Void, ControlFlow::Normal))
+                                        }
+                                        ControlFlow::Continue => break,
+                                        ControlFlow::Normal => {}
+                                    }
                                 }
                             }
                         } else {
                             for i in start..end {
                                 self.environment.insert(variable.clone(), Value::Int(i));
                                 for stmt in body {
-                                    self.execute_stmt(stmt)?;
+                                    let (_, control_flow) = self.execute_stmt(stmt)?;
+                                    match control_flow {
+                                        ControlFlow::Break => {
+                                            return Ok((Value::Void, ControlFlow::Normal))
+                                        }
+                                        ControlFlow::Continue => break,
+                                        ControlFlow::Normal => {}
+                                    }
                                 }
                             }
                         }
@@ -140,8 +163,10 @@ impl Interpreter {
                     }
                 }
             }
+            Stmt::Break(_) => return Ok((Value::Void, ControlFlow::Break)),
+            Stmt::Continue(_) => return Ok((Value::Void, ControlFlow::Continue)),
         }
-        Ok(Value::Void)
+        Ok((Value::Void, ControlFlow::Normal))
     }
 
     fn execute_enum_match(
@@ -180,7 +205,7 @@ impl Interpreter {
 
             let Some(arm_value) = arm_value else {
                 for stmt in body {
-                    res = self.execute_stmt(stmt).unwrap();
+                    (res, _) = self.execute_stmt(stmt).unwrap();
                 }
                 return Ok(res);
             };
@@ -198,7 +223,7 @@ impl Interpreter {
             };
 
             for stmt in body {
-                res = interpreter.execute_stmt(stmt).unwrap();
+                (res, _) = interpreter.execute_stmt(stmt).unwrap();
             }
         }
 
@@ -287,7 +312,7 @@ impl Interpreter {
 
                         let mut result = Value::Void;
                         for stmt in body {
-                            result = interpreter.execute_stmt(&stmt)?;
+                            (result, _) = interpreter.execute_stmt(&stmt)?;
                         }
 
                         Ok(result)
@@ -493,6 +518,13 @@ impl Interpreter {
             )),
         }
     }
+}
+
+#[derive(Debug, PartialEq)]
+enum ControlFlow {
+    Normal,
+    Break,
+    Continue,
 }
 
 #[derive(Clone, Debug)]
@@ -968,6 +1000,46 @@ mod tests {
 
         match run_code(code, None) {
             Ok(val) => assert_eq!(val, Value::Int(15)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_break() {
+        let code = r#"
+            let a = [1, 2, 3, 4, 5];
+            let sum = 0;
+            for x in a {
+                if x == 3 {
+                    break;
+                }
+                sum = sum + x;
+            }
+            sum
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(3)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_for_loop_with_continue() {
+        let code = r#"
+            let a = [1, 2, 3, 4, 5];
+            let sum = 0;
+            for x in a {
+                if x == 3 {
+                    continue;
+                }
+                sum = sum + x;
+            }
+            sum
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(12)),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

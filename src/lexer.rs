@@ -32,6 +32,8 @@ pub enum TokenKind {
     Match,
     For,
     In,
+    Break,
+    Continue,
     Identifier(String),
     Int(i64),
     Float(f64),
@@ -259,6 +261,8 @@ impl Lexer {
             "match" => TokenKind::Match,
             "for" => TokenKind::For,
             "in" => TokenKind::In,
+            "break" => TokenKind::Break,
+            "continue" => TokenKind::Continue,
             "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
             _ => TokenKind::Identifier(identifier),
         };

@@ -265,6 +265,8 @@ pub enum Stmt {
     Struct(String, Vec<(String, String)>, Span),
     Enum(String, Vec<(String, String)>, Span),
     ForLoop(String, Expr, Vec<Stmt>, Span),
+    Break(Span),
+    Continue(Span),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -319,8 +321,36 @@ impl Parser {
             TokenKind::If => self.parse_if_statement(),
             TokenKind::Match => self.parse_match_statement(),
             TokenKind::For => self.parse_for_loop(),
+            TokenKind::Break => self.parse_break(),
+            TokenKind::Continue => self.parse_continue(),
             _ => self.parse_expression_statement(),
         }
+    }
+
+    fn parse_break(&mut self) -> Result<Stmt> {
+        let span = self.current_token().span;
+        self.advance(); // Consume 'break'
+        if self.current_token().kind != TokenKind::Semicolon {
+            return Err(Error::new_parse(
+                "Expected ';' after 'break'".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume ';'
+        Ok(Stmt::Break(span))
+    }
+
+    fn parse_continue(&mut self) -> Result<Stmt> {
+        let span = self.current_token().span;
+        self.advance(); // Consume 'continue'
+        if self.current_token().kind != TokenKind::Semicolon {
+            return Err(Error::new_parse(
+                "Expected ';' after 'continue'".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume ';'
+        Ok(Stmt::Continue(span))
     }
 
     fn parse_for_loop(&mut self) -> Result<Stmt> {
