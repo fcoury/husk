@@ -33,7 +33,7 @@ impl Interpreter {
     }
 
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
-        let mut value = Value::Void;
+        let mut value = Value::Unit;
         for stmt in stmts {
             (value, _) = self.execute_stmt(stmt)?;
         }
@@ -75,7 +75,7 @@ impl Interpreter {
                 self.environment.insert(name.clone(), func);
             }
             Stmt::If(condition, then_block, else_block, _) => {
-                let mut result = (Value::Void, ControlFlow::Normal);
+                let mut result = (Value::Unit, ControlFlow::Normal);
                 let condition_value = self.evaluate_expr(condition)?;
                 if let Value::Bool(true) = condition_value {
                     for stmt in then_block {
@@ -113,7 +113,7 @@ impl Interpreter {
                                 let (_, control_flow) = self.execute_stmt(stmt)?;
                                 match control_flow {
                                     ControlFlow::Break => {
-                                        return Ok((Value::Void, ControlFlow::Normal))
+                                        return Ok((Value::Unit, ControlFlow::Normal))
                                     }
                                     ControlFlow::Continue => break,
                                     ControlFlow::Normal => {}
@@ -132,7 +132,7 @@ impl Interpreter {
                                     let (_, control_flow) = self.execute_stmt(stmt)?;
                                     match control_flow {
                                         ControlFlow::Break => {
-                                            return Ok((Value::Void, ControlFlow::Normal))
+                                            return Ok((Value::Unit, ControlFlow::Normal))
                                         }
                                         ControlFlow::Continue => break,
                                         ControlFlow::Normal => {}
@@ -146,7 +146,7 @@ impl Interpreter {
                                     let (_, control_flow) = self.execute_stmt(stmt)?;
                                     match control_flow {
                                         ControlFlow::Break => {
-                                            return Ok((Value::Void, ControlFlow::Normal))
+                                            return Ok((Value::Unit, ControlFlow::Normal))
                                         }
                                         ControlFlow::Continue => break,
                                         ControlFlow::Normal => {}
@@ -163,10 +163,10 @@ impl Interpreter {
                     }
                 }
             }
-            Stmt::Break(_) => return Ok((Value::Void, ControlFlow::Break)),
-            Stmt::Continue(_) => return Ok((Value::Void, ControlFlow::Continue)),
+            Stmt::Break(_) => return Ok((Value::Unit, ControlFlow::Break)),
+            Stmt::Continue(_) => return Ok((Value::Unit, ControlFlow::Continue)),
         }
-        Ok((Value::Void, ControlFlow::Normal))
+        Ok((Value::Unit, ControlFlow::Normal))
     }
 
     fn execute_enum_match(
@@ -176,7 +176,7 @@ impl Interpreter {
         variant: &str,
         value: &Option<Box<Value>>,
     ) -> Result<Value> {
-        let mut res = Value::Void;
+        let mut res = Value::Unit;
 
         for (expr, body) in arms {
             let Expr::EnumVariant {
@@ -310,7 +310,7 @@ impl Interpreter {
                             environment: local_env,
                         };
 
-                        let mut result = Value::Void;
+                        let mut result = Value::Unit;
                         for stmt in body {
                             (result, _) = interpreter.execute_stmt(&stmt)?;
                         }
@@ -401,7 +401,7 @@ impl Interpreter {
                         // TODO: mutability
                         let value = self.evaluate_expr(right)?;
                         self.environment.insert(name.clone(), value);
-                        Ok(Value::Void)
+                        Ok(Value::Unit)
                     }
                     Expr::MemberAccess(access_expr, field_name, _) => match access_expr.as_ref() {
                         Expr::Identifier(name, span) => {
@@ -422,7 +422,7 @@ impl Interpreter {
                             };
 
                             instance.get_mut(field_name).map(|field| *field = new_value);
-                            Ok(Value::Void)
+                            Ok(Value::Unit)
                         }
                         _ => Err(Error::new_runtime(
                             "Invalid assignment target".to_string(),
@@ -529,7 +529,7 @@ enum ControlFlow {
 
 #[derive(Clone, Debug)]
 pub enum Value {
-    Void,
+    Unit,
     Int(i64),
     Float(f64),
     Bool(bool),
@@ -546,7 +546,7 @@ pub enum Value {
 impl Value {
     pub fn to_string(&self) -> String {
         match self {
-            Value::Void => "void".to_string(),
+            Value::Unit => "()".to_string(),
             Value::Int(n) => n.to_string(),
             Value::Float(f) => f.to_string(),
             Value::Bool(b) => b.to_string(),
@@ -590,7 +590,7 @@ impl Value {
 
     pub fn type_str(&self) -> String {
         match self {
-            Value::Void => "void".to_string(),
+            Value::Unit => "void".to_string(),
             Value::Int(_) => "int".to_string(),
             Value::Float(_) => "float".to_string(),
             Value::Bool(_) => "bool".to_string(),
@@ -625,7 +625,7 @@ impl std::fmt::Display for Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Value::Void, Value::Void) => true,
+            (Value::Unit, Value::Unit) => true,
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
