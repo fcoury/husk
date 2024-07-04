@@ -132,20 +132,15 @@ impl SemanticAnalyzer {
                             value,
                             span,
                         } => {
-                            let enum_variants = self.enums.get(name).expect(
-                                "enum exists in symbol table with type enum but not in enums hashmap",
-                            );
+                            let enum_variants = self.enums.get(name).ok_or_else(|| {
+                                Error::new_semantic(format!("Undefined enum: {}", name), *span)
+                            })?;
                             if let Some(expected_type) = enum_variants.get(variant) {
                                 if let Some(value) = value {
-                                    let value_type = self.analyze_expr(value)?;
-                                    if value_type != *expected_type {
-                                        return Err(Error::new_semantic(
-                                            format!(
-                                                "Type mismatch in enum variant: expected {}, found {}",
-                                                expected_type, value_type
-                                            ),
-                                            *span,
-                                        ));
+                                    if let Expr::Identifier(var_name, _) = value.as_ref() {
+                                        // Add the bound variable to the symbol table
+                                        self.symbol_table
+                                            .insert(var_name.clone(), expected_type.clone());
                                     }
                                 }
                             } else {
@@ -155,8 +150,14 @@ impl SemanticAnalyzer {
                                 ));
                             }
                         }
-                        _ => unimplemented!(),
+                        _ => {
+                            return Err(Error::new_semantic(
+                                "Invalid match pattern".to_string(),
+                                pattern.span(),
+                            ))
+                        }
                     }
+
                     for stmt in stmts {
                         self.analyze_stmt(stmt)?;
                     }
@@ -376,9 +377,73 @@ impl SemanticAnalyzer {
                 value: _,
                 span: _,
             } => Ok(variant.to_string()),
-            Expr::Array(_, _) => todo!(),
-            Expr::ArrayIndex(_, _, _) => todo!(),
-            Expr::Range(_, _, _, _) => todo!(),
+            Expr::Array(elements, span) => {
+                if elements.is_empty() {
+                    return Ok("array".to_string());
+                }
+                let first_element_type = self.analyze_expr(&elements[0])?;
+                for element in elements.iter().skip(1) {
+                    let element_type = self.analyze_expr(element)?;
+                    if element_type != first_element_type {
+                        return Err(Error::new_semantic(
+                            format!(
+                                "Inconsistent array element types: expected {}, found {}",
+                                first_element_type, element_type
+                            ),
+                            *span,
+                        ));
+                    }
+                }
+                Ok(format!("array<{}>", first_element_type))
+            }
+            Expr::ArrayIndex(array_expr, index_expr, span) => {
+                let array_type = self.analyze_expr(array_expr)?;
+                let index_type = self.analyze_expr(index_expr)?;
+
+                if !array_type.starts_with("array<") {
+                    return Err(Error::new_semantic(
+                        format!(
+                            "Cannot perform array access on non-array type: {}",
+                            array_type
+                        ),
+                        *span,
+                    ));
+                }
+
+                if index_type != "int" {
+                    return Err(Error::new_semantic(
+                        format!("Array index must be of type int, found: {}", index_type),
+                        *span,
+                    ));
+                }
+
+                // Extract the element type from array<T>
+                let element_type = array_type
+                    .trim_start_matches("array<")
+                    .trim_end_matches('>');
+                Ok(element_type.to_string())
+            }
+            Expr::Range(start, end, _, span) => {
+                if let Some(start) = start {
+                    let start_type = self.analyze_expr(start)?;
+                    if start_type != "int" {
+                        return Err(Error::new_semantic(
+                            format!("Range start must be of type int, found: {}", start_type),
+                            *span,
+                        ));
+                    }
+                }
+                if let Some(end) = end {
+                    let end_type = self.analyze_expr(end)?;
+                    if end_type != "int" {
+                        return Err(Error::new_semantic(
+                            format!("Range end must be of type int, found: {}", end_type),
+                            *span,
+                        ));
+                    }
+                }
+                Ok("range".to_string())
+            }
         }
     }
 }
