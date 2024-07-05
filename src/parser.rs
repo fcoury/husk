@@ -287,6 +287,10 @@ pub enum Operator {
     Divide,
     Equals,
     Modulo,
+    LessThan,
+    GreaterThan,
+    LessThanEquals,
+    GreaterThanEquals,
 }
 
 pub struct Parser {
@@ -1127,6 +1131,11 @@ impl Parser {
             TokenKind::Asterisk => Some(Operator::Multiply),
             TokenKind::Slash => Some(Operator::Divide),
             TokenKind::DblEquals => return Some(Operator::Equals),
+            TokenKind::LessThan => return Some(Operator::LessThan),
+            TokenKind::GreaterThan => return Some(Operator::GreaterThan),
+            TokenKind::LessThanEquals => return Some(Operator::LessThanEquals),
+            TokenKind::GreaterThanEquals => return Some(Operator::GreaterThanEquals),
+            TokenKind::Percent => Some(Operator::Modulo),
             _ => None,
         }
     }
@@ -2008,6 +2017,115 @@ mod tests {
                 Operator::Minus,
                 Box::new(Expr::Int(1, Span::new(17, 18))),
                 Span::new(13, 22),
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_operators() {
+        let code = r#"
+            let x = 1 + 2;
+            let y = 3 - 4;
+            let z = 5 * 6;
+            let w = 7 / 8;
+            let a = 9 % 10;
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Let(
+                "x".to_string(),
+                Expr::BinaryOp(
+                    Box::new(Expr::Int(1, Span::new(21, 22))),
+                    Operator::Plus,
+                    Box::new(Expr::Int(2, Span::new(25, 26))),
+                    Span::new(21, 24),
+                ),
+                Span::new(13, 27),
+            )
+        );
+
+        assert_eq!(
+            ast[1],
+            Stmt::Let(
+                "y".to_string(),
+                Expr::BinaryOp(
+                    Box::new(Expr::Int(3, Span::new(48, 49))),
+                    Operator::Minus,
+                    Box::new(Expr::Int(4, Span::new(52, 53))),
+                    Span::new(48, 51),
+                ),
+                Span::new(40, 54),
+            )
+        );
+
+        assert_eq!(
+            ast[2],
+            Stmt::Let(
+                "z".to_string(),
+                Expr::BinaryOp(
+                    Box::new(Expr::Int(5, Span::new(75, 76))),
+                    Operator::Multiply,
+                    Box::new(Expr::Int(6, Span::new(79, 80))),
+                    Span::new(75, 78),
+                ),
+                Span::new(67, 81),
+            )
+        );
+
+        assert_eq!(
+            ast[3],
+            Stmt::Let(
+                "w".to_string(),
+                Expr::BinaryOp(
+                    Box::new(Expr::Int(7, Span::new(102, 103))),
+                    Operator::Divide,
+                    Box::new(Expr::Int(8, Span::new(106, 107))),
+                    Span::new(102, 105),
+                ),
+                Span::new(94, 108),
+            )
+        );
+
+        assert_eq!(
+            ast[4],
+            Stmt::Let(
+                "a".to_string(),
+                Expr::BinaryOp(
+                    Box::new(Expr::Int(9, Span::new(129, 130))),
+                    Operator::Modulo,
+                    Box::new(Expr::Int(10, Span::new(133, 135))),
+                    Span::new(129, 134),
+                ),
+                Span::new(121, 136),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_compound_operators() {
+        let code = r#"
+            x += 2;
+            y -= 4;
+            z *= 6;
+            w /= 8;
+            a %= 10;
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Expression(Expr::CompoundAssign(
+                Box::new(Expr::Identifier(
+                    "x".to_string(),
+                    Span { start: 13, end: 14 }
+                )),
+                Operator::Plus,
+                Box::new(Expr::Int(2, Span { start: 18, end: 19 })),
+                Span { start: 13, end: 19 }
             ))
         );
     }

@@ -30,6 +30,7 @@ pub enum TokenKind {
     If,
     Else,
     Match,
+    While,
     For,
     In,
     Break,
@@ -62,6 +63,10 @@ pub enum TokenKind {
     StarEquals,
     SlashEquals,
     PercentEquals,
+    LessThan,
+    LessThanEquals,
+    GreaterThan,
+    GreaterThanEquals,
     Colon,
     Dot,
     DblDot,
@@ -162,6 +167,22 @@ impl Lexer {
             Some('}') => self.create_token(TokenKind::RBrace),
             Some('[') => self.create_token(TokenKind::LSquare),
             Some(']') => self.create_token(TokenKind::RSquare),
+            Some('>') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::GreaterThanEquals)
+                } else {
+                    self.create_token(TokenKind::GreaterThan)
+                }
+            }
+            Some('<') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::LessThanEquals)
+                } else {
+                    self.create_token(TokenKind::LessThan)
+                }
+            }
             Some(',') => self.create_token(TokenKind::Comma),
             Some('+') => {
                 if self.peek_char() == Some('=') {
@@ -214,7 +235,7 @@ impl Lexer {
                     self.read_char();
                     self.create_token(TokenKind::SlashEquals)
                 } else {
-                    return self.create_token(TokenKind::Slash);
+                    self.create_token(TokenKind::Slash)
                 }
             }
             Some('%') => {
@@ -293,6 +314,7 @@ impl Lexer {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "match" => TokenKind::Match,
+            "while" => TokenKind::While,
             "for" => TokenKind::For,
             "in" => TokenKind::In,
             "break" => TokenKind::Break,
@@ -1079,4 +1101,63 @@ mod tests {
             assert_eq!(kind, expected);
         }
     }
+
+    #[test]
+    fn test_comparison_operators() {
+        let code = "x > 10; x < 10; x >= 10; x <= 10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::GreaterThan,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::LessThan,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::GreaterThanEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::LessThanEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    // #[test]
+    // fn test_lex_while() {
+    //     let code = r#"
+    //         while x < 10 {
+    //             x += 1;
+    //         }
+    //     "#;
+    //
+    //     let mut lexer = Lexer::new(code);
+    //     let expected_tokens = vec![
+    //         TokenKind::While,
+    //         TokenKind::Identifier("x".to_string()),
+    //         TokenKind::DblLess,
+    //         TokenKind::Int(10),
+    //         TokenKind::LBrace,
+    //         TokenKind::Identifier("x".to_string()),
+    //         TokenKind::PlusEquals,
+    //         TokenKind::Int(1),
+    //         TokenKind::Semicolon,
+    //         TokenKind::RBrace,
+    //         TokenKind::Eof,
+    //     ];
+    //
+    //     for expected in expected_tokens {
+    //         let kind = lexer.next_token().kind;
+    //         assert_eq!(kind, expected);
+    //     }
+    // }
 }
