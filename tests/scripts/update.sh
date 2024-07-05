@@ -39,7 +39,7 @@ do
   fi
 
   # Run the command and update .out and .err files
-  cargo run -q -- run "$file" > "$out_file" 2> "$err_file"
+  cargo run -q -- "$file" > "$out_file" 2> "$err_file"
 
   echo "Updated $base_name.hk.out and $base_name.hk.err"
 done
