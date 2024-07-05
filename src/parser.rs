@@ -2233,10 +2233,10 @@ mod tests {
             Stmt::Loop(
                 vec![Stmt::Expression(Expr::FunctionCall(
                     "print".to_string(),
-                    vec![Expr::String("Hello".to_string(), Span::new(29, 36))],
-                    Span::new(23, 37),
+                    vec![Expr::String("Hello".to_string(), Span::new(42, 49))],
+                    Span::new(36, 50),
                 ))],
-                Span::new(13, 43),
+                Span::new(13, 65),
             )
         );
     }
