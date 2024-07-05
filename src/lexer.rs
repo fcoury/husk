@@ -56,6 +56,8 @@ pub enum TokenKind {
     Minus,
     Asterisk,
     Slash,
+    PlusEquals,
+    MinusEquals,
     Colon,
     Dot,
     DblDot,
@@ -157,9 +159,19 @@ impl Lexer {
             Some('[') => self.create_token(TokenKind::LSquare),
             Some(']') => self.create_token(TokenKind::RSquare),
             Some(',') => self.create_token(TokenKind::Comma),
-            Some('+') => self.create_token(TokenKind::Plus),
+            Some('+') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::PlusEquals)
+                } else {
+                    self.create_token(TokenKind::Plus)
+                }
+            }
             Some('-') => {
-                if self.peek_char() == Some('>') {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::MinusEquals)
+                } else if self.peek_char() == Some('>') {
                     self.read_char();
                     self.create_token(TokenKind::Arrow)
                 } else {
@@ -946,6 +958,42 @@ mod tests {
             TokenKind::Equals,
             TokenKind::Int(1),
             TokenKind::DblDotEquals,
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_plus_equals() {
+        let code = "x += 10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::PlusEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_less_equals() {
+        let code = "x -= 10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::MinusEquals,
+            TokenKind::Int(10),
             TokenKind::Semicolon,
             TokenKind::Eof,
         ];

@@ -26,6 +26,7 @@ pub enum Expr {
     StructInit(String, Vec<(String, Expr)>, Span),
     MemberAccess(Box<Expr>, String, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
+    CompoundAssign(Box<Expr>, Operator, Box<Expr>, Span),
     Range(Option<Box<Expr>>, Option<Box<Expr>>, bool, Span),
 }
 
@@ -134,6 +135,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::CompoundAssign(left, op, right, _) => {
+                if let Expr::CompoundAssign(other_left, other_op, other_right, _) = other {
+                    left == other_left && op == other_op && right == other_right
+                } else {
+                    false
+                }
+            }
             Expr::Range(start, end, inclusive, _) => {
                 if let Expr::Range(other_start, other_end, other_inclusive, _) = other {
                     start == other_start && end == other_end && inclusive == other_inclusive
@@ -178,6 +186,7 @@ impl Expr {
             Expr::StructInit(_, _, span) => span.clone(),
             Expr::MemberAccess(_, _, span) => span.clone(),
             Expr::Assign(_, _, span) => span.clone(),
+            Expr::CompoundAssign(_, _, _, span) => span.clone(),
             Expr::Array(_, span) => span.clone(),
             Expr::ArrayIndex(_, _, span) => span.clone(),
             Expr::Range(_, _, _, span) => span.clone(),
@@ -231,6 +240,7 @@ impl fmt::Display for Expr {
             }
             Expr::MemberAccess(expr, field, _) => write!(f, "{}.{}", expr, field),
             Expr::Assign(left, right, _) => write!(f, "{} = {}", left, right),
+            Expr::CompoundAssign(left, op, right, _) => write!(f, "{} {:?}= {}", left, op, right),
             Expr::Array(elements, _) => {
                 write!(
                     f,
@@ -815,6 +825,29 @@ impl Parser {
     fn parse_expression(&mut self) -> Result<Expr> {
         let start_span = self.current_token().span.start;
         let mut left = self.parse_primary_expression()?;
+
+        loop {
+            match self.current_token().kind {
+                TokenKind::PlusEquals | TokenKind::MinusEquals => {
+                    let op = match self.current_token().kind {
+                        TokenKind::PlusEquals => Operator::Plus,
+                        TokenKind::MinusEquals => Operator::Minus,
+                        _ => unreachable!(),
+                    };
+                    self.advance();
+                    let right = self.parse_primary_expression()?;
+                    let end_span = right.span().end;
+                    left = Expr::CompoundAssign(
+                        Box::new(left),
+                        op,
+                        Box::new(right),
+                        Span::new(start_span, end_span),
+                    );
+                }
+                _ => break,
+            }
+        }
+
         while let Some(op) = self.parse_operator() {
             let start_span = left.span().start;
             let end_span = self.current_token().span.end;
@@ -1935,5 +1968,39 @@ mod tests {
 
         let ast = parser.parse().unwrap();
         assert!(matches!(ast[0], Stmt::ForLoop(_, _, _, _)));
+    }
+
+    #[test]
+    fn test_parse_compound_assignment_plus() {
+        let code = "x += 1;";
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Expression(Expr::CompoundAssign(
+                Box::new(Expr::Identifier("x".to_string(), Span::new(13, 14))),
+                Operator::Plus,
+                Box::new(Expr::Int(1, Span::new(17, 18))),
+                Span::new(13, 22),
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_compound_assignment_minus() {
+        let code = "x -= 1;";
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Expression(Expr::CompoundAssign(
+                Box::new(Expr::Identifier("x".to_string(), Span::new(13, 14))),
+                Operator::Minus,
+                Box::new(Expr::Int(1, Span::new(17, 18))),
+                Span::new(13, 22),
+            ))
+        );
     }
 }

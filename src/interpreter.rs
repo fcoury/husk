@@ -435,6 +435,21 @@ impl Interpreter {
                     )),
                 }
             }
+            Expr::CompoundAssign(left, op, right, span) => match left.as_ref() {
+                Expr::Identifier(name, _) => {
+                    let left_value = self.environment.get(name).cloned().ok_or_else(|| {
+                        Error::new_runtime(format!("Undefined variable: {}", name), *span)
+                    })?;
+                    let right_value = self.evaluate_expr(right)?;
+                    let result = self.evaluate_binary_op(left_value, op, right_value, *span)?;
+                    self.environment.insert(name.clone(), result);
+                    Ok(Value::Unit)
+                }
+                _ => Err(Error::new_runtime(
+                    "Invalid compound assignment target".to_string(),
+                    *span,
+                )),
+            },
             Expr::Array(elements, _) => {
                 let mut values = Vec::new();
                 for element in elements {
@@ -1040,6 +1055,34 @@ mod tests {
 
         match run_code(code, None) {
             Ok(val) => assert_eq!(val, Value::Int(12)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_plus_compound_assignment() {
+        let code = r#"
+            let x = 1;
+            x += 2;
+            x
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(3)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_minus_compound_assignment() {
+        let code = r#"
+            let x = 3;
+            x -= 2;
+            x
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(1)),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

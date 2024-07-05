@@ -268,6 +268,22 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
+            Expr::CompoundAssign(left, _, right, span) => {
+                let expected_type = self.analyze_expr(left)?;
+                let actual_type = self.analyze_expr(right)?;
+
+                if expected_type == actual_type {
+                    Ok(expected_type)
+                } else {
+                    Err(Error::new_semantic(
+                        format!(
+                            "Type mismatch in compound assignment: expected {}, found {}",
+                            expected_type, actual_type
+                        ),
+                        *span,
+                    ))
+                }
+            }
             Expr::FunctionCall(name, args, span) => {
                 if let Some((param_types, return_type, _func_span)) = self.functions.get(name) {
                     if name == "print" || name == "println" {
