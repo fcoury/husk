@@ -203,6 +203,26 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
+            Stmt::While(condition, body, span) => {
+                let condition_type = self.analyze_expr(condition)?;
+                if condition_type != "bool" {
+                    return Err(Error::new_semantic(
+                        format!(
+                            "While condition must be a boolean, found {}",
+                            condition_type
+                        ),
+                        *span,
+                    ));
+                }
+
+                self.loop_depth += 1;
+                for stmt in body {
+                    self.analyze_stmt(stmt)?;
+                }
+                self.loop_depth -= 1;
+
+                Ok(())
+            }
             Stmt::Break(span) => {
                 if self.loop_depth == 0 {
                     return Err(Error::new_semantic(

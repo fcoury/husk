@@ -275,6 +275,7 @@ pub enum Stmt {
     Struct(String, Vec<(String, String)>, Span),
     Enum(String, Vec<(String, String)>, Span),
     ForLoop(String, Expr, Vec<Stmt>, Span),
+    While(Expr, Vec<Stmt>, Span),
     Break(Span),
     Continue(Span),
 }
@@ -336,6 +337,7 @@ impl Parser {
             TokenKind::If => self.parse_if_statement(),
             TokenKind::Match => self.parse_match_statement(),
             TokenKind::For => self.parse_for_loop(),
+            TokenKind::While => self.parse_while_statement(),
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
             _ => self.parse_expression_statement(),
@@ -407,6 +409,32 @@ impl Parser {
             iterable,
             body,
             Span::new(start_span.start, end_span.end),
+        ))
+    }
+
+    fn parse_while_statement(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'while'
+
+        let condition = self.parse_expression()?;
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after while condition".to_string(),
+                self.current_token().span,
+            ));
+        }
+
+        self.advance(); // Consume '{'
+        let body = self.parse_block()?;
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+
+        Ok(Stmt::While(
+            condition,
+            body,
+            Span::new(start_span, end_span),
         ))
     }
 
@@ -2127,6 +2155,44 @@ mod tests {
                 Box::new(Expr::Int(2, Span { start: 18, end: 19 })),
                 Span { start: 13, end: 19 }
             ))
+        );
+    }
+
+    #[test]
+    fn test_parse_while() {
+        let code = r#"
+            while x < 10 {
+                print(x);
+                x += 1;
+            }
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::While(
+                Expr::BinaryOp(
+                    Box::new(Expr::Identifier("x".to_string(), Span::new(19, 20))),
+                    Operator::LessThan,
+                    Box::new(Expr::Int(10, Span::new(23, 25))),
+                    Span::new(19, 22),
+                ),
+                vec![
+                    Stmt::Expression(Expr::FunctionCall(
+                        "print".to_string(),
+                        vec![Expr::Identifier("x".to_string(), Span::new(50, 51))],
+                        Span::new(44, 52),
+                    )),
+                    Stmt::Expression(Expr::CompoundAssign(
+                        Box::new(Expr::Identifier("x".to_string(), Span::new(70, 71))),
+                        Operator::Plus,
+                        Box::new(Expr::Int(1, Span::new(75, 76))),
+                        Span::new(70, 76),
+                    )),
+                ],
+                Span::new(13, 91),
+            )
         );
     }
 }

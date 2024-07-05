@@ -1132,32 +1132,32 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_lex_while() {
-    //     let code = r#"
-    //         while x < 10 {
-    //             x += 1;
-    //         }
-    //     "#;
-    //
-    //     let mut lexer = Lexer::new(code);
-    //     let expected_tokens = vec![
-    //         TokenKind::While,
-    //         TokenKind::Identifier("x".to_string()),
-    //         TokenKind::DblLess,
-    //         TokenKind::Int(10),
-    //         TokenKind::LBrace,
-    //         TokenKind::Identifier("x".to_string()),
-    //         TokenKind::PlusEquals,
-    //         TokenKind::Int(1),
-    //         TokenKind::Semicolon,
-    //         TokenKind::RBrace,
-    //         TokenKind::Eof,
-    //     ];
-    //
-    //     for expected in expected_tokens {
-    //         let kind = lexer.next_token().kind;
-    //         assert_eq!(kind, expected);
-    //     }
-    // }
+    #[test]
+    fn test_lex_while() {
+        let code = r#"
+            while x < 10 {
+                x += 1;
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::While,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::LessThan,
+            TokenKind::Int(10),
+            TokenKind::LBrace,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::PlusEquals,
+            TokenKind::Int(1),
+            TokenKind::Semicolon,
+            TokenKind::RBrace,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
 }
