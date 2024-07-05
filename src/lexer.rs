@@ -56,8 +56,12 @@ pub enum TokenKind {
     Minus,
     Asterisk,
     Slash,
+    Percent,
     PlusEquals,
     MinusEquals,
+    StarEquals,
+    SlashEquals,
+    PercentEquals,
     Colon,
     Dot,
     DblDot,
@@ -178,7 +182,14 @@ impl Lexer {
                     self.create_token(TokenKind::Minus)
                 }
             }
-            Some('*') => self.create_token(TokenKind::Asterisk),
+            Some('*') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::StarEquals)
+                } else {
+                    self.create_token(TokenKind::Asterisk)
+                }
+            }
             Some(':') => self.create_token(TokenKind::Colon),
             Some('/') => {
                 if self.peek_char() == Some('/') {
@@ -199,8 +210,19 @@ impl Lexer {
                         self.read_char();
                     }
                     return self.next_token();
+                } else if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::SlashEquals)
                 } else {
                     return self.create_token(TokenKind::Slash);
+                }
+            }
+            Some('%') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::PercentEquals)
+                } else {
+                    self.create_token(TokenKind::Percent)
                 }
             }
             Some('.') => {
@@ -993,6 +1015,60 @@ mod tests {
         let expected_tokens = vec![
             TokenKind::Identifier("x".to_string()),
             TokenKind::MinusEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_times_equals() {
+        let code = "x *= 10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::StarEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_divide_equals() {
+        let code = "x /= 10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::SlashEquals,
+            TokenKind::Int(10),
+            TokenKind::Semicolon,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_mod_equals() {
+        let code = "x %= 10;";
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::PercentEquals,
             TokenKind::Int(10),
             TokenKind::Semicolon,
             TokenKind::Eof,

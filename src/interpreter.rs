@@ -526,6 +526,7 @@ impl Interpreter {
                 Operator::Multiply => Ok(Value::Int(left * right)),
                 Operator::Divide => Ok(Value::Int(left / right)),
                 Operator::Equals => Ok(Value::Bool(left == right)),
+                Operator::Modulo => Ok(Value::Int(left % right)),
             },
             _ => Err(Error::new_runtime(
                 "Binary operation on non-numeric values".to_string(),

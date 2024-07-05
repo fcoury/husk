@@ -286,6 +286,7 @@ pub enum Operator {
     Multiply,
     Divide,
     Equals,
+    Modulo,
 }
 
 pub struct Parser {
@@ -828,10 +829,17 @@ impl Parser {
 
         loop {
             match self.current_token().kind {
-                TokenKind::PlusEquals | TokenKind::MinusEquals => {
+                TokenKind::PlusEquals
+                | TokenKind::MinusEquals
+                | TokenKind::StarEquals
+                | TokenKind::SlashEquals
+                | TokenKind::PercentEquals => {
                     let op = match self.current_token().kind {
                         TokenKind::PlusEquals => Operator::Plus,
                         TokenKind::MinusEquals => Operator::Minus,
+                        TokenKind::StarEquals => Operator::Multiply,
+                        TokenKind::SlashEquals => Operator::Divide,
+                        TokenKind::PercentEquals => Operator::Modulo,
                         _ => unreachable!(),
                     };
                     self.advance();
