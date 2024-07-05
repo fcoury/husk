@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     error::{Error, Result},
-    parser::{Expr, Stmt},
+    parser::{Expr, Operator, Stmt},
     span::Span,
 };
 
@@ -260,16 +260,38 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
-            Expr::BinaryOp(left, _, right, span) => {
+            Expr::BinaryOp(left, op, right, span) => {
                 let left_type = self.analyze_expr(left)?;
                 let right_type = self.analyze_expr(right)?;
-                if left_type == right_type {
-                    Ok(left_type)
-                } else {
-                    Err(Error::new_semantic(
-                        "Type mismatch in binary operation".to_string(),
-                        *span,
-                    ))
+
+                match op {
+                    Operator::LessThan
+                    | Operator::LessThanEquals
+                    | Operator::GreaterThan
+                    | Operator::GreaterThanEquals => {
+                        if (left_type == "int" || left_type == "float") && left_type == right_type {
+                            Ok("bool".to_string())
+                        } else {
+                            Err(Error::new_semantic(
+                                format!(
+                                    "Invalid types for comparison: {} and {}",
+                                    left_type, right_type
+                                ),
+                                *span,
+                            ))
+                        }
+                    }
+                    // TODO: handle other binary operators
+                    _ => {
+                        if left_type == right_type {
+                            Ok(left_type)
+                        } else {
+                            Err(Error::new_semantic(
+                                format!("Type mismatch: {} and {}", left_type, right_type),
+                                *span,
+                            ))
+                        }
+                    }
                 }
             }
             Expr::Assign(left, right, span) => {
