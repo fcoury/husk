@@ -276,6 +276,7 @@ pub enum Stmt {
     Enum(String, Vec<(String, String)>, Span),
     ForLoop(String, Expr, Vec<Stmt>, Span),
     While(Expr, Vec<Stmt>, Span),
+    Loop(Vec<Stmt>, Span),
     Break(Span),
     Continue(Span),
 }
@@ -338,10 +339,31 @@ impl Parser {
             TokenKind::Match => self.parse_match_statement(),
             TokenKind::For => self.parse_for_loop(),
             TokenKind::While => self.parse_while_statement(),
+            TokenKind::Loop => self.parse_loop_statement(),
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
             _ => self.parse_expression_statement(),
         }
+    }
+
+    fn parse_loop_statement(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'loop'
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after 'loop'".to_string(),
+                self.current_token().span,
+            ));
+        }
+
+        self.advance(); // Consume '{'
+        let body = self.parse_block()?;
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+
+        Ok(Stmt::Loop(body, Span::new(start_span, end_span)))
     }
 
     fn parse_break(&mut self) -> Result<Stmt> {
@@ -2192,6 +2214,29 @@ mod tests {
                     )),
                 ],
                 Span::new(13, 91),
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_loop() {
+        let code = r#"
+            loop {
+                print("Hello");
+            }
+        "#;
+
+        let ast = parse(code);
+
+        assert_eq!(
+            ast[0],
+            Stmt::Loop(
+                vec![Stmt::Expression(Expr::FunctionCall(
+                    "print".to_string(),
+                    vec![Expr::String("Hello".to_string(), Span::new(29, 36))],
+                    Span::new(23, 37),
+                ))],
+                Span::new(13, 43),
             )
         );
     }

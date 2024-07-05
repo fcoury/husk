@@ -19,3 +19,13 @@ for i in 1..=10 {
   }
   println(i)
 }
+
+let i = 0;
+loop {
+  println(i);
+  i += 3;
+
+  if i > 20 {
+    break;
+  } 
+}

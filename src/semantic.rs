@@ -223,6 +223,15 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
+            Stmt::Loop(body, _span) => {
+                self.loop_depth += 1;
+                for stmt in body {
+                    self.analyze_stmt(stmt)?;
+                }
+                self.loop_depth -= 1;
+
+                Ok(())
+            }
             Stmt::Break(span) => {
                 if self.loop_depth == 0 {
                     return Err(Error::new_semantic(

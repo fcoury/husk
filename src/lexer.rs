@@ -30,6 +30,7 @@ pub enum TokenKind {
     If,
     Else,
     Match,
+    Loop,
     While,
     For,
     In,
@@ -314,6 +315,7 @@ impl Lexer {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "match" => TokenKind::Match,
+            "loop" => TokenKind::Loop,
             "while" => TokenKind::While,
             "for" => TokenKind::For,
             "in" => TokenKind::In,
@@ -1146,6 +1148,32 @@ mod tests {
             TokenKind::Identifier("x".to_string()),
             TokenKind::LessThan,
             TokenKind::Int(10),
+            TokenKind::LBrace,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::PlusEquals,
+            TokenKind::Int(1),
+            TokenKind::Semicolon,
+            TokenKind::RBrace,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let kind = lexer.next_token().kind;
+            assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_loop() {
+        let code = r#"
+            loop {
+                x += 1;
+            }
+        "#;
+
+        let mut lexer = Lexer::new(code);
+        let expected_tokens = vec![
+            TokenKind::Loop,
             TokenKind::LBrace,
             TokenKind::Identifier("x".to_string()),
             TokenKind::PlusEquals,

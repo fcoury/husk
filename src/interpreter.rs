@@ -187,6 +187,16 @@ impl Interpreter {
                     }
                 }
             },
+            Stmt::Loop(body, _span) => loop {
+                for stmt in body {
+                    let (_, control_flow) = self.execute_stmt(stmt)?;
+                    match control_flow {
+                        ControlFlow::Break => return Ok((Value::Unit, ControlFlow::Normal)),
+                        ControlFlow::Continue => break,
+                        ControlFlow::Normal => {}
+                    }
+                }
+            },
             Stmt::Break(_) => return Ok((Value::Unit, ControlFlow::Break)),
             Stmt::Continue(_) => return Ok((Value::Unit, ControlFlow::Continue)),
         }
@@ -1142,6 +1152,25 @@ mod tests {
             let x = 0;
             while x < 5 {
                 x += 1;
+            }
+            x
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(5)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_loop() {
+        let code = r#"
+            let x = 0;
+            loop {
+                x += 1;
+                if x == 5 {
+                    break;
+                }
             }
             x
         "#;
