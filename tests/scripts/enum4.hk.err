@@ -1,3 +1,3 @@
-error: 8:5 - Invalid match pattern
-    None => println("None"),
-    ^^^^
+error: 9:9 - expected `=>` after pattern, found `(`
+    Some(value) => println(value),
+        ^

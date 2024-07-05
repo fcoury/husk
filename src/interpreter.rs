@@ -88,16 +88,9 @@ impl Interpreter {
                 }
                 return Ok(result);
             }
-            Stmt::Match(expr, arms, _) => {
-                let expr_value = self.evaluate_expr(expr)?;
-                match expr_value {
-                    Value::EnumVariant(ref name, ref variant, ref value) => {
-                        return self
-                            .execute_enum_match(&arms, name, variant, value)
-                            .map(|v| (v, ControlFlow::Normal));
-                    }
-                    _ => {}
-                }
+            Stmt::Match(expr, arms, span) => {
+                let value = self.evaluate_expr(expr)?;
+                return self.execute_match(&value, arms, *span);
             }
             Stmt::Expression(expr) => {
                 let value = self.evaluate_expr(expr)?;
@@ -203,65 +196,73 @@ impl Interpreter {
         Ok((Value::Unit, ControlFlow::Normal))
     }
 
-    fn execute_enum_match(
+    fn execute_match(
         &mut self,
+        value: &Value,
         arms: &[(Expr, Vec<Stmt>)],
-        name: &str,
-        variant: &str,
-        value: &Option<Box<Value>>,
-    ) -> Result<Value> {
-        let mut res = Value::Unit;
+        span: Span,
+    ) -> Result<(Value, ControlFlow)> {
+        for (pattern, body) in arms {
+            match pattern {
+                Expr::EnumVariant {
+                    name,
+                    variant,
+                    value: pattern_value,
+                    ..
+                } => {
+                    if let Value::EnumVariant(enum_name, enum_variant, enum_value) = value {
+                        if name == enum_name && variant == enum_variant {
+                            // Create a new scope for the match arm
+                            let mut new_env = self.environment.clone();
 
-        for (expr, body) in arms {
-            let Expr::EnumVariant {
-                name: arm_name,
-                variant: arm_variant,
-                value: arm_value,
-                span: _,
-            } = expr
-            else {
-                // FIXME: not expected?
-                return Err(Error::new_runtime(
-                    format!("Undefined variant '{}'", expr),
-                    expr.span(),
-                ));
-            };
+                            // Bind the associated value if present
+                            if let Some(pattern_value) = pattern_value {
+                                if let Expr::Identifier(var_name, _) = pattern_value.as_ref() {
+                                    if let Some(enum_value) = enum_value {
+                                        new_env.insert(var_name.clone(), *enum_value.clone());
+                                    }
+                                }
+                            }
 
-            if arm_name != name {
-                unreachable!("Enum match with wrong enum name");
-            }
-
-            if arm_variant != variant {
-                continue;
-            }
-
-            let mut local_env = self.environment.clone();
-
-            let Some(arm_value) = arm_value else {
-                for stmt in body {
-                    (res, _) = self.execute_stmt(stmt).unwrap();
+                            // Execute the matched arm with the new environment
+                            let mut arm_interpreter = Interpreter {
+                                environment: new_env,
+                            };
+                            return arm_interpreter.execute_statements(body);
+                        }
+                    }
                 }
-                return Ok(res);
-            };
-
-            let Expr::Identifier(param_name, _) = arm_value.as_ref() else {
-                unimplemented!("Enum match without binding");
-            };
-
-            if let Some(value) = value {
-                local_env.insert(param_name.to_string(), *value.clone());
-            }
-
-            let mut interpreter = Interpreter {
-                environment: local_env,
-            };
-
-            for stmt in body {
-                (res, _) = interpreter.execute_stmt(stmt).unwrap();
+                Expr::Identifier(name, _) if name == "_" => {
+                    // Wildcard case: always matches
+                    return self.execute_statements(body);
+                }
+                _ => {
+                    // For non-enum matches, compare the values directly
+                    let pattern_value = self.evaluate_expr(pattern)?;
+                    if *value == pattern_value {
+                        return self.execute_statements(body);
+                    }
+                }
             }
         }
 
-        Ok(res)
+        // If we've reached here, no arm matched
+        Err(Error::new_runtime(
+            "No matching arm found in match expression".to_string(),
+            span,
+        ))
+    }
+
+    fn execute_statements(&mut self, statements: &[Stmt]) -> Result<(Value, ControlFlow)> {
+        let mut last_value = Value::Unit;
+        for stmt in statements {
+            let (value, control_flow) = self.execute_stmt(stmt)?;
+            last_value = value;
+            if control_flow != ControlFlow::Normal {
+                return Ok((last_value, control_flow));
+            }
+        }
+        Ok((last_value, ControlFlow::Normal))
     }
 
     fn evaluate_parts(&mut self, name: &str, span: Span) -> Result<Value> {
@@ -735,15 +736,28 @@ fn stdlib_print(args: &[Value]) -> Result<Value> {
     Ok(Value::Int(0)) // print returns 0 on success
 }
 
+// fn stdlib_println(args: &[Value]) -> Result<Value> {
+//     for arg in args {
+//         print!("{}", arg);
+//     }
+//     println!();
+//     Ok(Value::Unit)
+// }
+
 fn stdlib_println(args: &[Value]) -> Result<Value> {
-    stdlib_print(args)?;
+    for arg in args {
+        match arg {
+            Value::EnumVariant(_, _, Some(value)) => print!("{}", value),
+            _ => print!("{}", arg),
+        }
+    }
     println!();
-    Ok(Value::Int(0)) // println returns 0 on success
+    Ok(Value::Unit)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Lexer, Parser};
+    use crate::{Lexer, Parser, SemanticAnalyzer};
 
     use super::*;
 
@@ -754,14 +768,29 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let ast = match parser.parse() {
             Ok(ast) => ast,
-            Err(e) => panic!("{}", e.pretty_print(code)),
+            Err(e) => return Err(e),
         };
+
+        let mut analyzer = SemanticAnalyzer::new();
+        let _ = analyzer.analyze(&ast)?;
 
         let interpreter = match interpreter {
             Some(interpreter) => interpreter,
             None => &mut Interpreter::new(),
         };
         interpreter.interpret(&ast)
+    }
+
+    macro_rules! assert_code_contains_error {
+        ($code:expr, $expected_part:expr) => {
+            match run_code($code, None) {
+                Ok(_) => panic!("Expected error"),
+                Err(e) => {
+                    let actual = e.pretty_print($code);
+                    assert!(actual.contains($expected_part), "{}", actual);
+                }
+            }
+        };
     }
 
     #[test]
@@ -837,7 +866,7 @@ mod tests {
     fn test_enum_with_associated_value() {
         let code = r#"
             enum Name {
-                Existing(String),
+                Existing(string),
                 NotExisting,
             }
 
@@ -862,13 +891,18 @@ mod tests {
 
         let code = r#"
             enum Name {
-                Existing(String),
+                Existing(string),
                 NotExisting,
             }
         "#;
         run_code(code, Some(&mut int)).unwrap();
 
         let code = r#"
+            enum Name {
+                Existing(string),
+                NotExisting,
+            }
+
             let n = Name::Existing("Alice");
             match n {
                 Name::Existing(name) => name,
@@ -880,23 +914,43 @@ mod tests {
             Ok(val) => assert_eq!(val, Value::String("Alice".to_string())),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
+        //
+        // let code = r#"
+        //     let n = Name::NotExisting;
+        //     match n {
+        //         Name::Existing(name) => name,
+        //         Name::NotExisting => "Not existing",
+        //     }
+        // "#;
+        //
+        // match run_code(code, Some(&mut int)) {
+        //     Ok(val) => assert_eq!(val, Value::String("Not existing".to_string())),
+        //     Err(e) => panic!("{}", e.pretty_print(code)),
+        // }
+    }
 
+    #[test]
+    fn test_enum_valid_match() {
         let code = r#"
-            let n = Name::NotExisting;
-            match n {
-                Name::Existing(name) => name,
-                Name::NotExisting => "Not existing",
-            }
+        enum Option {
+          None,
+          Some(string),
+        }
+                  
+        let option = Option::Some("Hello");
+        match option {
+          Option::None => "None",
+          Option::Some(value) => value,
+        }
         "#;
-
-        match run_code(code, Some(&mut int)) {
-            Ok(val) => assert_eq!(val, Value::String("Not existing".to_string())),
-            Err(e) => panic!("{}", e.pretty_print(code)),
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::String("Hello".to_string())),
+            Err(e) => panic!("Unexpected error: {}", e.pretty_print(code)),
         }
     }
 
     #[test]
-    fn test_enum_invalid_member() {
+    fn test_enum_invalid_variant() {
         let code = r#"
             enum Option {
               None,
@@ -905,18 +959,30 @@ mod tests {
                       
             let option = Option::Some("Hello");
             match option {
-              None => println("None"),
-              Some(value) => println(value),
+              Option::None => println("None"),
+              Option::Invalid => println("Invalid"),
             }
         "#;
 
-        match run_code(code, None) {
-            Ok(_) => panic!("Expected error"),
-            Err(e) => assert_eq!(
-                e.pretty_print(code),
-                "error: 8:15 - Undefined variant 'None'\n              None => println(\"None\"),\n              ^^^^"
-            ),
-        }
+        assert_code_contains_error!(code, "Unknown variant `Invalid` for enum `Option`");
+    }
+
+    #[test]
+    fn test_enum_invalid_member() {
+        let code = r#"
+            enum Exists {
+                Nein,
+                Yay(string),
+            }
+
+            let option = Exists::Yay("Hello");
+            match option {
+                Nein => println("Nein"), 
+                Yay(s) => println!("Yes ", s), 
+            }
+        "#;
+
+        assert_code_contains_error!(code, "expected `=>` after pattern, found `(`");
     }
 
     #[test]
@@ -1177,6 +1243,53 @@ mod tests {
 
         match run_code(code, None) {
             Ok(val) => assert_eq!(val, Value::Int(5)),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_match_enum_wildcard() {
+        let mut int = Interpreter::new();
+
+        let code = r#"
+            enum Name {
+                Existing(string),
+                NotExisting,
+            }
+        "#;
+        run_code(code, Some(&mut int)).unwrap();
+
+        let code = r#"
+            enum Name {
+                Existing(string),
+                NotExisting,
+            }
+            let n = Name::Existing("Alice");
+            match n {
+                Name::Existing(name) => name,
+                _ => "Not existing",
+            }
+        "#;
+
+        match run_code(code, Some(&mut int)) {
+            Ok(val) => assert_eq!(val, Value::String("Alice".to_string())),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+
+        let code = r#"
+            enum Name {
+                Existing(string),
+                NotExisting,
+            }
+            let n = Name::NotExisting;
+            match n {
+                Name::Existing(name) => name,
+                _ => "Not existing",
+            }
+        "#;
+
+        match run_code(code, Some(&mut int)) {
+            Ok(val) => assert_eq!(val, Value::String("Not existing".to_string())),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

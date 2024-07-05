@@ -694,26 +694,27 @@ impl Parser {
 
         let mut arms = Vec::new();
         while self.current_token().kind != TokenKind::RBrace {
-            let pattern = self.parse_expression()?;
+            let pattern = self.parse_match_pattern()?;
 
             if self.current_token().kind != TokenKind::FatArrow {
                 return Err(Error::new_parse(
-                    "Expected '=>' after pattern".to_string(),
+                    format!(
+                        "expected `=>` after pattern, found `{}`",
+                        self.current_token().kind
+                    ),
                     self.current_token().span,
                 ));
             }
             self.advance(); // Consume '=>'
 
-            if self.current_token().kind == TokenKind::LBrace {
-                self.advance(); // Consume '{'
-                let body = self.parse_block()?;
-                arms.push((pattern, body));
+            let body = if self.current_token().kind == TokenKind::LBrace {
+                self.parse_block()?
             } else {
-                let stmt = self.parse_expression()?;
-                arms.push((pattern, vec![Stmt::Expression(stmt)]));
-            }
+                vec![Stmt::Expression(self.parse_expression()?)]
+            };
 
-            // TODO: refine need for comma after match arm
+            arms.push((pattern, body));
+
             if self.current_token().kind == TokenKind::Comma {
                 self.advance(); // Consume ','
             }
@@ -723,6 +724,60 @@ impl Parser {
         self.advance(); // Consume '}'
 
         Ok(Stmt::Match(expr, arms, Span::new(start_span, end_span)))
+    }
+
+    fn parse_match_pattern(&mut self) -> Result<Expr> {
+        match &self.current_token().kind {
+            TokenKind::Underscore => {
+                let span = self.current_token().span;
+                self.advance(); // Consume '_'
+                Ok(Expr::Identifier("_".to_string(), span))
+            }
+            TokenKind::Identifier(_) => {
+                let start_span = self.current_token().span;
+                let name = self.consume_identifier()?.unwrap();
+
+                if self.current_token().kind == TokenKind::Colon {
+                    self.advance(); // Consume ':'
+                    if self.current_token().kind != TokenKind::Colon {
+                        return Err(Error::new_parse(
+                            "Expected '::' for enum variant".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    self.advance(); // Consume second ':'
+
+                    let variant = self.consume_identifier()?.unwrap();
+                    if self.current_token().kind == TokenKind::LParen {
+                        self.advance(); // Consume '('
+                        let value = self.parse_expression()?;
+                        if self.current_token().kind != TokenKind::RParen {
+                            return Err(Error::new_parse(
+                                "Expected ')' after enum variant value".to_string(),
+                                self.current_token().span,
+                            ));
+                        }
+                        self.advance(); // Consume ')'
+                        Ok(Expr::EnumVariant {
+                            name,
+                            variant,
+                            value: Some(Box::new(value)),
+                            span: Span::new(start_span.start, self.current_token().span.end),
+                        })
+                    } else {
+                        Ok(Expr::EnumVariant {
+                            name,
+                            variant,
+                            value: None,
+                            span: Span::new(start_span.start, self.current_token().span.end),
+                        })
+                    }
+                } else {
+                    Ok(Expr::Identifier(name, start_span))
+                }
+            }
+            _ => self.parse_expression(),
+        }
     }
 
     fn consume_identifier(&mut self) -> Result<Option<String>> {
@@ -2239,5 +2294,17 @@ mod tests {
                 Span::new(13, 65),
             )
         );
+    }
+
+    #[test]
+    fn test_match_wildcard_enum() {
+        let code = r#"
+            match n {
+                Name::Existing => "Existing",
+                _ => "New",
+            }
+        "#;
+
+        let _ = parse(code);
     }
 }

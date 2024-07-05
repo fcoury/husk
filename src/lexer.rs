@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::span::Span;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -72,6 +74,7 @@ pub enum TokenKind {
     Dot,
     DblDot,
     DblDotEquals,
+    Underscore,
     Error(String),
     Eof,
 }
@@ -79,6 +82,66 @@ pub enum TokenKind {
 impl TokenKind {
     pub fn is_identifier(&self) -> bool {
         matches!(self, TokenKind::Identifier(_))
+    }
+}
+
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            TokenKind::Function => "Function",
+            TokenKind::Struct => "Struct",
+            TokenKind::Enum => "Enum",
+            TokenKind::Let => "Let",
+            TokenKind::If => "If",
+            TokenKind::Else => "Else",
+            TokenKind::Match => "Match",
+            TokenKind::Loop => "Loop",
+            TokenKind::While => "While",
+            TokenKind::For => "For",
+            TokenKind::In => "In",
+            TokenKind::Break => "Break",
+            TokenKind::Continue => "Continue",
+            TokenKind::Identifier(s) => s,
+            TokenKind::Int(i) => return write!(f, "{}", i),
+            TokenKind::Float(fl) => return write!(f, "{}", fl),
+            TokenKind::String(s) => s,
+            TokenKind::Bool(b) => return write!(f, "{}", b),
+            TokenKind::Equals => "=",
+            TokenKind::DblEquals => "==",
+            TokenKind::Semicolon => ";",
+            TokenKind::LParen => "(",
+            TokenKind::RParen => ")",
+            TokenKind::LBrace => "{",
+            TokenKind::RBrace => "}",
+            TokenKind::LSquare => "[",
+            TokenKind::RSquare => "]",
+            TokenKind::Comma => ",",
+            TokenKind::Arrow => "->",
+            TokenKind::FatArrow => "=>",
+            TokenKind::Type(s) => s,
+            TokenKind::Plus => "+",
+            TokenKind::Minus => "-",
+            TokenKind::Asterisk => "*",
+            TokenKind::Slash => "/",
+            TokenKind::Percent => "%",
+            TokenKind::PlusEquals => "+=",
+            TokenKind::MinusEquals => "-=",
+            TokenKind::StarEquals => "*=",
+            TokenKind::SlashEquals => "/=",
+            TokenKind::PercentEquals => "%=",
+            TokenKind::LessThan => "<",
+            TokenKind::LessThanEquals => "<=",
+            TokenKind::GreaterThan => ">",
+            TokenKind::GreaterThanEquals => ">=",
+            TokenKind::Colon => ":",
+            TokenKind::Dot => ".",
+            TokenKind::DblDot => "..",
+            TokenKind::DblDotEquals => "..=",
+            TokenKind::Underscore => "_",
+            TokenKind::Error(s) => s,
+            TokenKind::Eof => "EOF",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -265,6 +328,13 @@ impl Lexer {
                 }
             }
             Some('"') => self.read_string(),
+            Some('_') => {
+                if self.is_identifier_start(self.peek_char()) {
+                    self.read_identifier_or_type()
+                } else {
+                    self.create_token(TokenKind::Underscore)
+                }
+            }
             Some(c) => {
                 if c.is_alphabetic() {
                     let token = self.read_identifier_or_type();
@@ -279,6 +349,14 @@ impl Lexer {
         };
         self.read_char();
         token
+    }
+
+    fn is_identifier_start(&self, c: Option<char>) -> bool {
+        c.map_or(false, |c| c.is_alphabetic() || c == '_')
+    }
+
+    fn is_identifier_char(&self, c: char) -> bool {
+        c.is_alphanumeric() || c == '_'
     }
 
     fn create_token(&self, kind: TokenKind) -> Token {
@@ -298,7 +376,7 @@ impl Lexer {
     fn read_identifier_or_type(&mut self) -> Token {
         let start_position = self.position;
         while let Some(c) = self.ch {
-            if c.is_alphanumeric() || c == '_' {
+            if self.is_identifier_char(c) {
                 self.read_char();
             } else {
                 break;
@@ -322,6 +400,7 @@ impl Lexer {
             "break" => TokenKind::Break,
             "continue" => TokenKind::Continue,
             "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
+            "_" => TokenKind::Underscore,
             _ => TokenKind::Identifier(identifier),
         };
 

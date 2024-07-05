@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     error::{Error, Result},
@@ -11,6 +11,7 @@ pub struct SemanticAnalyzer {
     structs: HashMap<String, HashMap<String, String>>, // Struct name to field name to type mapping
     functions: HashMap<String, (Vec<(String, String)>, String, Span)>, // Function name to parameter types mapping
     enums: HashMap<String, HashMap<String, String>>, // Enum name to variant name to type mapping
+    match_bound_vars: HashMap<String, String>,       // Variable name to type mapping for match arms
     loop_depth: u32,
 }
 
@@ -21,6 +22,7 @@ impl SemanticAnalyzer {
             structs: HashMap::new(),
             functions: HashMap::new(),
             enums: HashMap::new(),
+            match_bound_vars: HashMap::new(),
             loop_depth: 0,
         };
         analyzer.init_standard_library();
@@ -122,48 +124,7 @@ impl SemanticAnalyzer {
                 }
                 Ok(())
             }
-            Stmt::Match(expr, arms, _span) => {
-                let _expr_type = self.analyze_expr(expr)?;
-                for (pattern, stmts) in arms {
-                    match pattern {
-                        Expr::EnumVariant {
-                            name,
-                            variant,
-                            value,
-                            span,
-                        } => {
-                            let enum_variants = self.enums.get(name).ok_or_else(|| {
-                                Error::new_semantic(format!("Undefined enum: {}", name), *span)
-                            })?;
-                            if let Some(expected_type) = enum_variants.get(variant) {
-                                if let Some(value) = value {
-                                    if let Expr::Identifier(var_name, _) = value.as_ref() {
-                                        // Add the bound variable to the symbol table
-                                        self.symbol_table
-                                            .insert(var_name.clone(), expected_type.clone());
-                                    }
-                                }
-                            } else {
-                                return Err(Error::new_semantic(
-                                    format!("Undefined variant: {}", variant),
-                                    *span,
-                                ));
-                            }
-                        }
-                        _ => {
-                            return Err(Error::new_semantic(
-                                "Invalid match pattern".to_string(),
-                                pattern.span(),
-                            ))
-                        }
-                    }
-
-                    for stmt in stmts {
-                        self.analyze_stmt(stmt)?;
-                    }
-                }
-                Ok(())
-            }
+            Stmt::Match(expr, arms, span) => self.analyze_match(expr, arms, *span),
             Stmt::Expression(expr) => {
                 self.analyze_expr(expr)?;
                 Ok(())
@@ -253,6 +214,137 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn analyze_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: Span) -> Result<()> {
+        let expr_type = self.analyze_expr(expr)?;
+
+        if let Some(variants) = self.enums.get(&expr_type).cloned() {
+            let mut covered_variants = HashSet::new();
+            let mut has_wildcard = false;
+
+            for (pattern, body) in arms {
+                match pattern {
+                    Expr::EnumVariant {
+                        name,
+                        variant,
+                        value,
+                        span: pattern_span,
+                    } => {
+                        if name != &expr_type {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "Mismatched enum type in match arm. Expected {}, found {}",
+                                    expr_type, name
+                                ),
+                                *pattern_span,
+                            ));
+                        }
+
+                        if !variants.contains_key(variant) {
+                            return Err(Error::new_semantic(
+                                format!("Unknown variant `{}` for enum `{}`", variant, name),
+                                *pattern_span,
+                            ));
+                        }
+
+                        if covered_variants.contains(variant) {
+                            return Err(Error::new_semantic(
+                                format!("Duplicate match arm for variant {}", variant),
+                                *pattern_span,
+                            ));
+                        }
+
+                        covered_variants.insert(variant);
+
+                        if let Some(expected_type) = variants.get(variant) {
+                            match (expected_type.as_str(), value) {
+                                ("unit", None) => {} // Unit variant, no value expected
+                                (_, Some(value_expr)) => {
+                                    if let Expr::Identifier(var_name, _) = value_expr.as_ref() {
+                                        self.match_bound_vars
+                                            .insert(var_name.clone(), expected_type.clone());
+                                    } else {
+                                        return Err(Error::new_semantic(
+                                            "Invalid pattern for enum variant value".to_string(),
+                                            *pattern_span,
+                                        ));
+                                    }
+                                }
+                                (_, None) => {
+                                    return Err(Error::new_semantic(
+                                        format!(
+                                            "Missing value for variant {}. Expected type {}",
+                                            variant, expected_type
+                                        ),
+                                        *pattern_span,
+                                    ));
+                                }
+                            }
+                        }
+
+                        for stmt in body {
+                            self.analyze_stmt(stmt)?;
+                        }
+
+                        // Remove the bound variable after analyzing the body
+                        if let Some(value_expr) = value {
+                            if let Expr::Identifier(var_name, _) = value_expr.as_ref() {
+                                self.match_bound_vars.remove(var_name);
+                            }
+                        }
+                    }
+                    Expr::Identifier(name, _) if name == "_" => {
+                        has_wildcard = true;
+
+                        for stmt in body {
+                            self.analyze_stmt(stmt)?;
+                        }
+                    }
+                    _ => {
+                        return Err(Error::new_semantic(
+                            "Invalid match pattern".to_string(),
+                            span,
+                        ))
+                    }
+                }
+            }
+
+            if !has_wildcard && covered_variants.len() != variants.len() {
+                let missing_variants: Vec<_> = variants
+                    .keys()
+                    .filter(|v| !covered_variants.contains(*v))
+                    .collect();
+                return Err(Error::new_semantic(
+                    format!(
+                        "Non-exhaustive match. Missing variants: {:?}",
+                        missing_variants
+                    ),
+                    span,
+                ));
+            }
+        } else {
+            // Handle non-enum matches
+            let has_wildcard = arms
+                .iter()
+                .any(|(pattern, _)| matches!(pattern, Expr::Identifier(name, _) if name == "_"));
+
+            if !has_wildcard {
+                return Err(Error::new_semantic(
+                    "Non-exhaustive match. Missing wildcard arm (_) for non-enum match".to_string(),
+                    span,
+                ));
+            }
+
+            for (pattern, body) in arms {
+                self.analyze_expr(pattern)?;
+                for stmt in body {
+                    self.analyze_stmt(stmt)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn analyze_expr(&self, expr: &Expr) -> Result<String> {
         match expr {
             Expr::Int(_, _) => Ok("int".to_string()),
@@ -260,11 +352,49 @@ impl SemanticAnalyzer {
             Expr::Bool(_, _) => Ok("bool".to_string()),
             Expr::String(_, _) => Ok("string".to_string()),
             Expr::Identifier(name, span) => {
-                if let Some(var_type) = self.symbol_table.get(name) {
+                if let Some(var_type) = self.match_bound_vars.get(name) {
+                    Ok(var_type.clone())
+                } else if let Some(var_type) = self.symbol_table.get(name) {
                     Ok(var_type.clone())
                 } else {
                     Err(Error::new_semantic(
                         format!("Undefined variable: {}", name),
+                        *span,
+                    ))
+                }
+            }
+            Expr::EnumVariant {
+                name,
+                variant,
+                value,
+                span,
+            } => {
+                // Check if the enum and variant exist
+                if let Some(variants) = self.enums.get(name) {
+                    if let Some(variant_type) = variants.get(variant) {
+                        // If there's an associated value, analyze it
+                        if let Some(value_expr) = value {
+                            let value_type = self.analyze_expr(value_expr)?;
+                            if value_type != *variant_type {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "Type mismatch for enum variant: expected {}, found {}",
+                                        variant_type, value_type
+                                    ),
+                                    *span,
+                                ));
+                            }
+                        }
+                        Ok(name.clone())
+                    } else {
+                        Err(Error::new_semantic(
+                            format!("Undefined variant {} for enum {}", variant, name),
+                            *span,
+                        ))
+                    }
+                } else {
+                    Err(Error::new_semantic(
+                        format!("Undefined enum: {}", name),
                         *span,
                     ))
                 }
@@ -438,12 +568,6 @@ impl SemanticAnalyzer {
                     ));
                 }
             }
-            Expr::EnumVariant {
-                name: _,
-                variant,
-                value: _,
-                span: _,
-            } => Ok(variant.to_string()),
             Expr::Array(elements, span) => {
                 if elements.is_empty() {
                     return Ok("array".to_string());
@@ -477,7 +601,7 @@ impl SemanticAnalyzer {
                     ));
                 }
 
-                if index_type != "int" {
+                if index_type != "int" && index_type != "range" {
                     return Err(Error::new_semantic(
                         format!("Array index must be of type int, found: {}", index_type),
                         *span,
