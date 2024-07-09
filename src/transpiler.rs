@@ -82,6 +82,15 @@ impl JsTranspiler {
                     .join("\n");
                 format!("while (true) {{\n{}\n}}", body_str)
             }
+            Stmt::While(condition, body, _) => {
+                let condition_str = self.generate_expr(condition);
+                let body_str = body
+                    .iter()
+                    .map(|s| self.generate_stmt(s))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("while ({}) {{\n{}\n}}", condition_str, body_str)
+            }
             Stmt::Continue(_) => "continue;".to_string(),
             Stmt::Break(_) => "break;".to_string(),
             Stmt::Struct(_name, _fields, _) => {
@@ -96,8 +105,6 @@ impl JsTranspiler {
 
                 String::new()
             }
-            // Add more statement types here...
-            s => format!("/* Unsupported statement:\n{:#?} */", s),
         }
     }
 
@@ -196,7 +203,8 @@ impl JsTranspiler {
                     self.generate_expr(index)
                 ),
             },
-            Expr::StructInit(name, fields, _) => {
+            Expr::StructInit(_name, fields, _) => {
+                // FIXME: this generates anonymous objects, maybe not be what we want?
                 let fields_str = fields
                     .iter()
                     .map(|(name, value)| format!("{}: {}", name, self.generate_expr(value)))
