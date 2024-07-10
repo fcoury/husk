@@ -563,7 +563,7 @@ impl Parser {
                 let variant_type = self.consume_type().unwrap();
                 if self.current_token().kind != TokenKind::RParen {
                     return Err(Error::new_parse(
-                        "Expected ')' after variant type".to_string(),
+                        "Expected ')' after associated value".to_string(),
                         self.current_token().span,
                     ));
                 }

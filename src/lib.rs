@@ -42,5 +42,5 @@ pub fn transpile_to_js(code: impl Into<String>) -> Result<String> {
     analyzer.analyze(&ast)?;
 
     let js_generator = JsTranspiler::new();
-    Ok(js_generator.generate(&ast))
+    Ok(js_generator.generate(&ast)?)
 }

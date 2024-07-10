@@ -9,6 +9,7 @@ pub enum Error {
     Semantic(String, Span),
     Parse(String, Span),
     Runtime(String, Span),
+    Transpiler(String, Span),
 }
 
 #[allow(dead_code)]
@@ -25,11 +26,16 @@ impl Error {
         Error::Runtime(message.into(), span)
     }
 
+    pub fn new_transpile(message: impl Into<String>, span: Span) -> Self {
+        Error::Transpiler(message.into(), span)
+    }
+
     pub fn pretty_print(&self, code: impl Into<String>) -> String {
         match self {
             Error::Semantic(message, span) => pretty_print(code, message, span),
             Error::Parse(message, span) => pretty_print(code, message, span),
             Error::Runtime(message, span) => pretty_print(code, message, span),
+            Error::Transpiler(message, span) => pretty_print(code, message, span),
         }
     }
 
@@ -38,6 +44,7 @@ impl Error {
             Error::Semantic(_, span) => span,
             Error::Parse(_, span) => span,
             Error::Runtime(_, span) => span,
+            Error::Transpiler(_, span) => span,
         }
     }
 
@@ -46,6 +53,7 @@ impl Error {
             Error::Semantic(message, _) => message,
             Error::Parse(message, _) => message,
             Error::Runtime(message, _) => message,
+            Error::Transpiler(message, _) => message,
         }
     }
 }
@@ -60,6 +68,9 @@ impl fmt::Display for Error {
             }
             Error::Parse(message, span) => write!(f, "Parse error: {} at {:?}", message, span),
             Error::Runtime(message, span) => write!(f, "Runtime error: {} at {:?}", message, span),
+            Error::Transpiler(message, span) => {
+                write!(f, "Transpiler error: {} at {:?}", message, span)
+            }
         }
     }
 }

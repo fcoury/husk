@@ -544,46 +544,43 @@ impl Interpreter {
             //         value,
             //     ))
             // }
-            Expr::Assign(left, right, span) => {
-                match left.as_ref() {
-                    Expr::Identifier(name, _) => {
-                        // TODO: mutability
-                        let value = self.evaluate_expr(right)?;
-                        self.environment.insert(name.clone(), value);
+            Expr::Assign(left, right, span) => match left.as_ref() {
+                Expr::Identifier(name, _) => {
+                    let value = self.evaluate_expr(right)?;
+                    self.environment.insert(name.clone(), value);
+                    Ok(Value::Unit)
+                }
+                Expr::MemberAccess(access_expr, field_name, _) => match access_expr.as_ref() {
+                    Expr::Identifier(name, span) => {
+                        let new_value = self.evaluate_expr(right)?;
+
+                        let Some(value) = self.environment.get_mut(name) else {
+                            return Err(Error::new_runtime(
+                                format!("Undefined struct instance: {}", name),
+                                *span,
+                            ));
+                        };
+
+                        let Some(instance) = value.as_mut_instance() else {
+                            return Err(Error::new_runtime(
+                                format!("{} is not a struct instance", name),
+                                *span,
+                            ));
+                        };
+
+                        instance.get_mut(field_name).map(|field| *field = new_value);
                         Ok(Value::Unit)
                     }
-                    Expr::MemberAccess(access_expr, field_name, _) => match access_expr.as_ref() {
-                        Expr::Identifier(name, span) => {
-                            let new_value = self.evaluate_expr(right)?;
-
-                            let Some(value) = self.environment.get_mut(name) else {
-                                return Err(Error::new_runtime(
-                                    format!("Undefined struct instance: {}", name),
-                                    *span,
-                                ));
-                            };
-
-                            let Some(instance) = value.as_mut_instance() else {
-                                return Err(Error::new_runtime(
-                                    format!("{} is not a struct instance", name),
-                                    *span,
-                                ));
-                            };
-
-                            instance.get_mut(field_name).map(|field| *field = new_value);
-                            Ok(Value::Unit)
-                        }
-                        _ => Err(Error::new_runtime(
-                            "Invalid assignment target".to_string(),
-                            *span,
-                        )),
-                    },
                     _ => Err(Error::new_runtime(
                         "Invalid assignment target".to_string(),
                         *span,
                     )),
-                }
-            }
+                },
+                _ => Err(Error::new_runtime(
+                    "Invalid assignment target".to_string(),
+                    *span,
+                )),
+            },
             Expr::CompoundAssign(left, op, right, span) => match left.as_ref() {
                 Expr::Identifier(name, _) => {
                     let left_value = self.environment.get(name).cloned().ok_or_else(|| {
@@ -949,7 +946,6 @@ mod tests {
             }
         "#;
 
-        // FIXME: identify why this is returning void
         assert_eq!(run_code(code, None).unwrap(), Value::Int(0));
     }
 
