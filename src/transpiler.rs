@@ -105,7 +105,9 @@ impl JsTranspiler {
 
                 String::new()
             }
-            Stmt::Impl(_, _, _) => todo!(),
+            // Stmt::Impl(_, _, _) => todo!(),
+            // Add more expression types here...
+            e => format!("/* Unsupported statement {:?} */", e),
         }
     }
 
