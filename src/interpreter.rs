@@ -58,6 +58,45 @@ impl Interpreter {
                 self.environment
                     .insert(name.clone(), Value::Struct(name.clone(), field_map));
             }
+            Stmt::Impl(struct_name, methods, span) => {
+                let Value::Struct(struct_name, _) = self
+                    .environment
+                    .get_mut(struct_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::new_runtime(format!("Undefined struct: {}", struct_name), *span)
+                    })?
+                else {
+                    return Err(Error::new_runtime(
+                        format!("{} is not a struct", struct_name),
+                        *span,
+                    ));
+                };
+
+                for method in methods {
+                    if let Stmt::Function(name, params, _, body, _) = method {
+                        let func = Value::Function(Function::UserDefined(
+                            params.clone(),
+                            body.clone(),
+                            self.environment.clone(),
+                        ));
+
+                        // if let Some(param) = params.get(0) {
+                        //     if param.1 == "self" {
+                        //     }
+                        // }
+
+                        let name = format!("{}::{}", struct_name, name);
+                        self.environment.insert(name, func);
+                        continue;
+                    } else {
+                        return Err(Error::new_runtime(
+                            "Impl block can only contain function definitions".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+            }
             Stmt::Enum(name, variants, _) => {
                 let mut variant_map = IndexMap::new();
                 for (variant_name, variant_type) in variants {
@@ -204,34 +243,68 @@ impl Interpreter {
     ) -> Result<(Value, ControlFlow)> {
         for (pattern, body) in arms {
             match pattern {
-                Expr::EnumVariant {
-                    name,
-                    variant,
-                    value: pattern_value,
-                    ..
-                } => {
-                    if let Value::EnumVariant(enum_name, enum_variant, enum_value) = value {
-                        if name == enum_name && variant == enum_variant {
-                            // Create a new scope for the match arm
-                            let mut new_env = self.environment.clone();
+                Expr::EnumVariantOrMethodCall {
+                    target, call, args, ..
+                } => match self.evaluate_expr(target)? {
+                    Value::Enum(name, _) => {
+                        if let Value::EnumVariant(enum_name, enum_variant, enum_value) = value {
+                            if name == *enum_name && call == enum_variant {
+                                // Create a new scope for the match arm
+                                let mut new_env = self.environment.clone();
 
-                            // Bind the associated value if present
-                            if let Some(pattern_value) = pattern_value {
-                                if let Expr::Identifier(var_name, _) = pattern_value.as_ref() {
-                                    if let Some(enum_value) = enum_value {
-                                        new_env.insert(var_name.clone(), *enum_value.clone());
+                                // Bind the associated value if present
+                                if let Some(pattern_value) = args.get(0) {
+                                    if let Expr::Identifier(var_name, _) = pattern_value {
+                                        if let Some(enum_value) = enum_value {
+                                            new_env.insert(var_name.clone(), *enum_value.clone());
+                                        }
                                     }
                                 }
-                            }
 
-                            // Execute the matched arm with the new environment
-                            let mut arm_interpreter = Interpreter {
-                                environment: new_env,
-                            };
-                            return arm_interpreter.execute_statements(body);
+                                // Execute the matched arm with the new environment
+                                let mut arm_interpreter = Interpreter {
+                                    environment: new_env,
+                                };
+                                return arm_interpreter.execute_statements(body);
+                            }
                         }
                     }
-                }
+                    // TODO: Verify if method calls are valid here, I think not
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "Match on non-enum value".to_string(),
+                            span,
+                        ))
+                    }
+                },
+                // Expr::EnumVariant {
+                //     name,
+                //     variant,
+                //     value: pattern_value,
+                //     ..
+                // } => {
+                //     if let Value::EnumVariant(enum_name, enum_variant, enum_value) = value {
+                //         if name == enum_name && variant == enum_variant {
+                //             // Create a new scope for the match arm
+                //             let mut new_env = self.environment.clone();
+                //
+                //             // Bind the associated value if present
+                //             if let Some(pattern_value) = pattern_value {
+                //                 if let Expr::Identifier(var_name, _) = pattern_value.as_ref() {
+                //                     if let Some(enum_value) = enum_value {
+                //                         new_env.insert(var_name.clone(), *enum_value.clone());
+                //                     }
+                //                 }
+                //             }
+                //
+                //             // Execute the matched arm with the new environment
+                //             let mut arm_interpreter = Interpreter {
+                //                 environment: new_env,
+                //             };
+                //             return arm_interpreter.execute_statements(body);
+                //         }
+                //     }
+                // }
                 Expr::Identifier(name, _) if name == "_" => {
                     // Wildcard case: always matches
                     return self.execute_statements(body);
@@ -317,7 +390,26 @@ impl Interpreter {
                 self.evaluate_binary_op(left_val, op, right_val, *span)
             }
             Expr::FunctionCall(name, args, span) => {
-                let func = self.environment.get(name).cloned().ok_or_else(|| {
+                let mut args = args.clone();
+
+                let name = if name.contains('.') {
+                    let (target_struct, name) = name.split_once('.').unwrap();
+                    let Some(Value::StructInstance(target, _)) =
+                        self.environment.get(target_struct)
+                    else {
+                        return Err(Error::new_runtime(
+                            format!("Undefined variable: {}", target_struct),
+                            *span,
+                        ));
+                    };
+
+                    args.insert(0, Expr::Identifier(target_struct.to_string(), *span));
+                    format!("{}::{}", target, name)
+                } else {
+                    name.to_string()
+                };
+
+                let func = self.environment.get(&name).cloned().ok_or_else(|| {
                     Error::new_runtime(format!("Undefined function: {}", name), *span)
                 })?;
 
@@ -413,23 +505,45 @@ impl Interpreter {
                     )),
                 }
             }
-            Expr::EnumVariant {
-                name,
-                variant,
-                value,
-                span: _,
-            } => {
-                let value = value
-                    .as_ref()
-                    .map(|expr| self.evaluate_expr(expr))
-                    .transpose()?
-                    .map(Box::new);
-                Ok(Value::EnumVariant(
-                    name.to_string(),
-                    variant.to_string(),
-                    value,
-                ))
-            }
+            Expr::EnumVariantOrMethodCall {
+                target,
+                call,
+                args,
+                span,
+            } => match self.evaluate_expr(target)? {
+                Value::Enum(name, _) => {
+                    let value = match args.get(0) {
+                        Some(expr) => Some(Box::new(self.evaluate_expr(expr)?)),
+                        None => None,
+                    };
+                    Ok(Value::EnumVariant(name, call.to_string(), value))
+                }
+                Value::Struct(name, _) => {
+                    let method_name = format!("{}::{}", name, call);
+                    self.evaluate_expr(&Expr::FunctionCall(method_name, args.clone(), *span))
+                }
+                v => Err(Error::new_runtime(
+                    format!("Method call on non-enum value: {:?}", v),
+                    *span,
+                )),
+            },
+            // Expr::EnumVariant {
+            //     name,
+            //     variant,
+            //     value,
+            //     span: _,
+            // } => {
+            //     let value = value
+            //         .as_ref()
+            //         .map(|expr| self.evaluate_expr(expr))
+            //         .transpose()?
+            //         .map(Box::new);
+            //     Ok(Value::EnumVariant(
+            //         name.to_string(),
+            //         variant.to_string(),
+            //         value,
+            //     ))
+            // }
             Expr::Assign(left, right, span) => {
                 match left.as_ref() {
                     Expr::Identifier(name, _) => {
@@ -1290,6 +1404,34 @@ mod tests {
 
         match run_code(code, Some(&mut int)) {
             Ok(val) => assert_eq!(val, Value::String("Not existing".to_string())),
+            Err(e) => panic!("{}", e.pretty_print(code)),
+        }
+    }
+
+    #[test]
+    fn test_struct_method_definition() {
+        let code = r#"
+            struct Point {
+                x: int,
+                y: int,
+            }
+
+            impl Point {
+                fn new(x: int, y: int) -> Point {
+                    Point { x: x, y: y }
+                }
+
+                fn distance_from_origin(self) -> int {
+                    self.x + self.y
+                }
+            }
+
+            let p = Point::new(3, 4);
+            p.distance_from_origin()
+        "#;
+
+        match run_code(code, None) {
+            Ok(val) => assert_eq!(val, Value::Int(7)),
             Err(e) => panic!("{}", e.pretty_print(code)),
         }
     }

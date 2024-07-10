@@ -27,6 +27,7 @@ pub const EOF: Token = Token {
 pub enum TokenKind {
     Function,
     Struct,
+    Impl,
     Enum,
     Let,
     If,
@@ -71,6 +72,7 @@ pub enum TokenKind {
     GreaterThan,
     GreaterThanEquals,
     Colon,
+    DblColon,
     Dot,
     DblDot,
     DblDotEquals,
@@ -90,6 +92,7 @@ impl fmt::Display for TokenKind {
         let s = match self {
             TokenKind::Function => "Function",
             TokenKind::Struct => "Struct",
+            TokenKind::Impl => "Impl",
             TokenKind::Enum => "Enum",
             TokenKind::Let => "Let",
             TokenKind::If => "If",
@@ -134,6 +137,7 @@ impl fmt::Display for TokenKind {
             TokenKind::GreaterThan => ">",
             TokenKind::GreaterThanEquals => ">=",
             TokenKind::Colon => ":",
+            TokenKind::DblColon => "::",
             TokenKind::Dot => ".",
             TokenKind::DblDot => "..",
             TokenKind::DblDotEquals => "..=",
@@ -275,7 +279,14 @@ impl Lexer {
                     self.create_token(TokenKind::Asterisk)
                 }
             }
-            Some(':') => self.create_token(TokenKind::Colon),
+            Some(':') => {
+                if self.peek_char() == Some(':') {
+                    self.read_char();
+                    self.create_token(TokenKind::DblColon)
+                } else {
+                    self.create_token(TokenKind::Colon)
+                }
+            }
             Some('/') => {
                 if self.peek_char() == Some('/') {
                     while let Some(c) = self.ch {
@@ -385,6 +396,7 @@ impl Lexer {
         let identifier: String = self.input[start_position..self.position].to_string();
         let kind = match identifier.as_str() {
             "struct" => TokenKind::Struct,
+            "impl" => TokenKind::Impl,
             "enum" => TokenKind::Enum,
             "false" => TokenKind::Bool(false),
             "true" => TokenKind::Bool(true),
@@ -832,8 +844,7 @@ mod tests {
             TokenKind::Identifier("c".to_string()),
             TokenKind::Equals,
             TokenKind::Identifier("Color".to_string()),
-            TokenKind::Colon,
-            TokenKind::Colon,
+            TokenKind::DblColon,
             TokenKind::Identifier("Red".to_string()),
             TokenKind::Semicolon,
             TokenKind::Eof,
@@ -860,8 +871,7 @@ mod tests {
             TokenKind::Identifier("n".to_string()),
             TokenKind::LBrace,
             TokenKind::Identifier("Name".to_string()),
-            TokenKind::Colon,
-            TokenKind::Colon,
+            TokenKind::DblColon,
             TokenKind::Identifier("Existing".to_string()),
             TokenKind::LParen,
             TokenKind::Identifier("name".to_string()),
@@ -870,8 +880,7 @@ mod tests {
             TokenKind::Identifier("name".to_string()),
             TokenKind::Comma,
             TokenKind::Identifier("Name".to_string()),
-            TokenKind::Colon,
-            TokenKind::Colon,
+            TokenKind::DblColon,
             TokenKind::Identifier("NotExisting".to_string()),
             TokenKind::FatArrow,
             TokenKind::String("Not existing".to_string()),
@@ -1265,6 +1274,78 @@ mod tests {
         for expected in expected_tokens {
             let kind = lexer.next_token().kind;
             assert_eq!(kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_lex_impl() {
+        let input = r#"
+            impl Point {
+                fn new(x: int, y: int) -> Point {
+                    Point { x: x, y: y }
+                }
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let expected_tokens = vec![
+            TokenKind::Impl,
+            TokenKind::Identifier("Point".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Function,
+            TokenKind::Identifier("new".to_string()),
+            TokenKind::LParen,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::Colon,
+            TokenKind::Type("int".to_string()),
+            TokenKind::Comma,
+            TokenKind::Identifier("y".to_string()),
+            TokenKind::Colon,
+            TokenKind::Type("int".to_string()),
+            TokenKind::RParen,
+            TokenKind::Arrow,
+            TokenKind::Identifier("Point".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Identifier("Point".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::Colon,
+            TokenKind::Identifier("x".to_string()),
+            TokenKind::Comma,
+            TokenKind::Identifier("y".to_string()),
+            TokenKind::Colon,
+            TokenKind::Identifier("y".to_string()),
+            TokenKind::RBrace,
+            TokenKind::RBrace,
+            TokenKind::RBrace,
+            TokenKind::Eof,
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token.kind, expected);
+        }
+    }
+
+    #[test]
+    fn lex_method_call() {
+        let code = "Point::new(3, 4)";
+        let mut lexer = Lexer::new(code.to_string());
+
+        let expected_tokens = vec![
+            TokenKind::Identifier("Point".to_string()),
+            TokenKind::DblColon,
+            TokenKind::Identifier("new".to_string()),
+            TokenKind::LParen,
+            TokenKind::Int(3),
+            TokenKind::Comma,
+            TokenKind::Int(4),
+            TokenKind::RParen,
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token.kind, expected);
         }
     }
 }

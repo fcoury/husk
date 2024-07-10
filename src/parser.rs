@@ -12,12 +12,6 @@ pub enum Expr {
     Float(f64, Span),
     String(String, Span),
     Bool(bool, Span),
-    EnumVariant {
-        name: String,
-        variant: String,
-        value: Option<Box<Expr>>,
-        span: Span,
-    },
     Array(Vec<Expr>, Span),
     ArrayIndex(Box<Expr>, Box<Expr>, Span),
     Identifier(String, Span),
@@ -28,6 +22,12 @@ pub enum Expr {
     Assign(Box<Expr>, Box<Expr>, Span),
     CompoundAssign(Box<Expr>, Operator, Box<Expr>, Span),
     Range(Option<Box<Expr>>, Option<Box<Expr>>, bool, Span),
+    EnumVariantOrMethodCall {
+        target: Box<Expr>,
+        call: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
 }
 
 impl PartialEq for Expr {
@@ -57,24 +57,6 @@ impl PartialEq for Expr {
             Expr::Bool(value, _) => {
                 if let Expr::Bool(other_value, _) = other {
                     value == other_value
-                } else {
-                    false
-                }
-            }
-            Expr::EnumVariant {
-                name,
-                variant,
-                value,
-                ..
-            } => {
-                if let Expr::EnumVariant {
-                    name: other_name,
-                    variant: other_variant,
-                    value: other_value,
-                    ..
-                } = other
-                {
-                    name == other_name && variant == other_variant && value == other_value
                 } else {
                     false
                 }
@@ -149,6 +131,24 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::EnumVariantOrMethodCall {
+                target,
+                call,
+                args,
+                span: _,
+            } => {
+                if let Expr::EnumVariantOrMethodCall {
+                    target: other_target,
+                    call: other_call,
+                    args: other_args,
+                    span: _,
+                } = other
+                {
+                    target == other_target && call == other_call && args == other_args
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -174,12 +174,6 @@ impl Expr {
             Expr::Float(_, span) => span.clone(),
             Expr::String(_, span) => span.clone(),
             Expr::Bool(_, span) => span.clone(),
-            Expr::EnumVariant {
-                name: _,
-                variant: _,
-                value: _,
-                span,
-            } => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
             Expr::FunctionCall(_, _, span) => span.clone(),
@@ -190,6 +184,7 @@ impl Expr {
             Expr::Array(_, span) => span.clone(),
             Expr::ArrayIndex(_, _, span) => span.clone(),
             Expr::Range(_, _, _, span) => span.clone(),
+            Expr::EnumVariantOrMethodCall { span, .. } => span.clone(),
         }
     }
 }
@@ -201,18 +196,24 @@ impl fmt::Display for Expr {
             Expr::Float(value, _) => write!(f, "{}", value),
             Expr::String(value, _) => write!(f, "\"{}\"", value),
             Expr::Bool(value, _) => write!(f, "{}", value),
-            Expr::EnumVariant {
-                name,
-                variant,
-                value: Some(expr),
-                ..
-            } => write!(f, "{}::{}({})", name, variant, expr),
-            Expr::EnumVariant {
-                name,
-                variant,
-                value: None,
-                ..
-            } => write!(f, "{}::{}", name, variant),
+            Expr::EnumVariantOrMethodCall {
+                target, call, args, ..
+            } => {
+                if args.is_empty() {
+                    write!(f, "{}::{}", target, call)
+                } else {
+                    write!(
+                        f,
+                        "{}::{}({})",
+                        target,
+                        call,
+                        args.iter()
+                            .map(|arg| arg.to_string())
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    )
+                }
+            }
             Expr::Identifier(name, _) => write!(f, "{}", name),
             Expr::BinaryOp(left, op, right, _) => write!(f, "({} {:?} {})", left, op, right),
             Expr::FunctionCall(name, args, _) => {
@@ -273,6 +274,7 @@ pub enum Stmt {
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
     Expression(Expr),
     Struct(String, Vec<(String, String)>, Span),
+    Impl(String, Vec<Stmt>, Span),
     Enum(String, Vec<(String, String)>, Span),
     ForLoop(String, Expr, Vec<Stmt>, Span),
     While(Expr, Vec<Stmt>, Span),
@@ -332,6 +334,7 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Stmt> {
         match self.current_token().kind {
             TokenKind::Struct => self.parse_struct(),
+            TokenKind::Impl => self.parse_impl(),
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Function => self.parse_function(),
@@ -396,7 +399,7 @@ impl Parser {
         let start_span = self.current_token().span;
         self.advance(); // Consume 'for'
 
-        let variable = self.consume_identifier()?.ok_or_else(|| {
+        let variable = self.consume_identifier("parse_for_loop")?.ok_or_else(|| {
             Error::new_parse(
                 "Expected identifier after 'for'".to_string(),
                 self.current_token().span,
@@ -472,7 +475,7 @@ impl Parser {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'struct'
 
-        let Some(name) = self.consume_identifier()? else {
+        let Some(name) = self.consume_identifier("parse_struct")? else {
             return Err(Error::new_parse(
                 "Expected struct name".to_string(),
                 self.current_token().span,
@@ -492,9 +495,11 @@ impl Parser {
 
         let mut fields = Vec::new();
         while self.current_token().kind != TokenKind::RBrace {
-            let field_name = self.consume_identifier()?.ok_or_else(|| {
-                Error::new_parse("Expected field name".to_string(), self.current_token().span)
-            })?;
+            let field_name = self
+                .consume_identifier("parse_struct_after")?
+                .ok_or_else(|| {
+                    Error::new_parse("Expected field name".to_string(), self.current_token().span)
+                })?;
             if self.current_token().kind != TokenKind::Colon {
                 return Err(Error::new_parse(
                     "Expected ':' after field name".to_string(),
@@ -524,7 +529,7 @@ impl Parser {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'enum'
 
-        let Some(name) = self.consume_identifier()? else {
+        let Some(name) = self.consume_identifier("parse_enum")? else {
             return Err(Error::new_parse(
                 "Expected enum name".to_string(),
                 self.current_token().span,
@@ -544,12 +549,14 @@ impl Parser {
 
         let mut variants = Vec::new();
         while self.current_token().kind != TokenKind::RBrace {
-            let variant_name = self.consume_identifier()?.ok_or_else(|| {
-                Error::new_parse(
-                    "Expected variant name".to_string(),
-                    self.current_token().span,
-                )
-            })?;
+            let variant_name = self
+                .consume_identifier("parse_enum_after")?
+                .ok_or_else(|| {
+                    Error::new_parse(
+                        "Expected variant name".to_string(),
+                        self.current_token().span,
+                    )
+                })?;
 
             let variant_type = if self.current_token().kind == TokenKind::LParen {
                 self.advance(); // Consume '('
@@ -586,7 +593,7 @@ impl Parser {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'let'
 
-        let Some(name) = self.consume_identifier()? else {
+        let Some(name) = self.consume_identifier("parse_let_statement")? else {
             return Err(Error::new_parse(
                 "Expected identifier after 'let'".to_string(),
                 self.current_token().span,
@@ -620,6 +627,40 @@ impl Parser {
         self.advance(); // Consume ';'
 
         Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)))
+    }
+
+    fn parse_impl(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'impl'
+
+        let struct_name = self.consume_identifier("parse_impl")?.ok_or_else(|| {
+            Error::new_parse(
+                "Expected struct name after 'impl'".to_string(),
+                self.current_token().span,
+            )
+        })?;
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after struct name in impl block".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume '{'
+
+        let mut methods = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            methods.push(self.parse_statement()?);
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+
+        Ok(Stmt::Impl(
+            struct_name,
+            methods,
+            Span::new(start_span, end_span),
+        ))
     }
 
     fn parse_if_statement(&mut self) -> Result<Stmt> {
@@ -735,21 +776,19 @@ impl Parser {
             }
             TokenKind::Identifier(_) => {
                 let start_span = self.current_token().span;
-                let name = self.consume_identifier()?.unwrap();
+                let name = self.consume_identifier("parse_match_pattern")?.unwrap();
+                let target = Expr::Identifier(name, start_span);
 
-                if self.current_token().kind == TokenKind::Colon {
-                    self.advance(); // Consume ':'
-                    if self.current_token().kind != TokenKind::Colon {
-                        return Err(Error::new_parse(
-                            "Expected '::' for enum variant".to_string(),
-                            self.current_token().span,
-                        ));
-                    }
-                    self.advance(); // Consume second ':'
+                if self.current_token().kind == TokenKind::DblColon {
+                    self.advance(); // Consume '::'
+                    let call = self
+                        .consume_identifier("parse_match_pattern DblColon")?
+                        .unwrap();
+                    let target = Box::new(target);
 
-                    let variant = self.consume_identifier()?.unwrap();
                     if self.current_token().kind == TokenKind::LParen {
                         self.advance(); // Consume '('
+
                         let value = self.parse_expression()?;
                         if self.current_token().kind != TokenKind::RParen {
                             return Err(Error::new_parse(
@@ -758,38 +797,48 @@ impl Parser {
                             ));
                         }
                         self.advance(); // Consume ')'
-                        Ok(Expr::EnumVariant {
-                            name,
-                            variant,
-                            value: Some(Box::new(value)),
+
+                        Ok(Expr::EnumVariantOrMethodCall {
+                            target,
+                            call,
+                            args: vec![value],
                             span: Span::new(start_span.start, self.current_token().span.end),
                         })
                     } else {
-                        Ok(Expr::EnumVariant {
-                            name,
-                            variant,
-                            value: None,
+                        Ok(Expr::EnumVariantOrMethodCall {
+                            target,
+                            call,
+                            args: vec![],
                             span: Span::new(start_span.start, self.current_token().span.end),
                         })
                     }
                 } else {
-                    Ok(Expr::Identifier(name, start_span))
+                    Ok(target)
                 }
             }
             _ => self.parse_expression(),
         }
     }
 
-    fn consume_identifier(&mut self) -> Result<Option<String>> {
+    fn consume_identifier(&mut self, from: &str) -> Result<Option<String>> {
         if let TokenKind::Identifier(name) = &self.current_token().kind {
             let name = name.clone();
             self.advance(); // Consume identifier
             Ok(Some(name))
         } else {
-            Err(Error::new_parse(
-                "Expected identifier".to_string(),
-                self.current_token().span,
-            ))
+            if let TokenKind::Error(err) = &self.current_token().kind {
+                println!("{}", err);
+                Err(Error::new_parse(err, self.current_token().span))
+            } else {
+                Err(Error::new_parse(
+                    format!(
+                        "Expected identifier, got {:?} from {}",
+                        self.current_token().kind,
+                        from,
+                    ),
+                    self.current_token().span,
+                ))
+            }
         }
     }
 
@@ -827,12 +876,16 @@ impl Parser {
 
         let mut params = Vec::new();
         while self.current_token().kind != TokenKind::RParen {
-            let param_name = self.consume_identifier()?.ok_or_else(|| {
+            let param_name = self.consume_identifier("parse_function")?.ok_or_else(|| {
                 Error::new_parse(
                     "Expected parameter name".to_string(),
                     self.current_token().span,
                 )
             })?;
+            if param_name == "self" {
+                params.push(("self".to_string(), "self".to_string()));
+                continue;
+            }
             if self.current_token().kind != TokenKind::Colon {
                 return Err(Error::new_parse(
                     "Expected ':' after parameter name".to_string(),
@@ -927,7 +980,7 @@ impl Parser {
         }
 
         Err(Error::new_parse(
-            "Invalid expression statement".to_string(),
+            format!("Invalid expression statement: {:?}", self.current_token()),
             self.current_token().span,
         ))
     }
@@ -1045,26 +1098,34 @@ impl Parser {
                 let start_pos = self.position;
                 self.advance(); // Consume identifier
 
+                // TODO: this will appear after expressions too
                 match self.current_token().kind {
                     TokenKind::Dot => {
                         self.advance(); // Consume '.'
-                        let field_name = self.consume_identifier()?.ok_or_else(|| {
-                            Error::new_parse(
-                                "Expected field name after '.'".to_string(),
-                                self.current_token().span,
-                            )
-                        })?;
-                        Ok(Expr::MemberAccess(
-                            Box::new(Expr::Identifier(name, span)),
-                            field_name,
-                            Span::new(span.start, self.current_token().span.end),
-                        ))
+                        let field_name = self
+                            .consume_identifier("parse_primary_expression")?
+                            .ok_or_else(|| {
+                                Error::new_parse(
+                                    "Expected field name after '.'".to_string(),
+                                    self.current_token().span,
+                                )
+                            })?;
+
+                        if self.current_token().kind == TokenKind::LParen {
+                            self.parse_function_call(format!("{}.{}", name, field_name), span)
+                        } else {
+                            Ok(Expr::MemberAccess(
+                                Box::new(Expr::Identifier(name, span)),
+                                field_name,
+                                Span::new(span.start, self.current_token().span.end),
+                            ))
+                        }
                     }
                     TokenKind::LParen => self.parse_function_call(name, span),
                     TokenKind::LBrace if self.lookahead_for_struct_initialization(start_pos) => {
                         self.parse_struct_init(name, span)
                     }
-                    TokenKind::Colon => self.parse_enum_expression(name, span),
+                    TokenKind::DblColon => self.parse_enum_or_method_call_expression(name, span),
                     _ => Ok(Expr::Identifier(name, span)),
                 }
             }
@@ -1098,55 +1159,52 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_enum_expression(&mut self, name: String, span: Span) -> Result<Expr> {
-        self.advance(); // Consume first ':'
+    fn parse_enum_or_method_call_expression(&mut self, name: String, span: Span) -> Result<Expr> {
+        let start = span.start;
+        self.advance(); // Consume '::'
 
-        if self.current_token().kind != TokenKind::Colon {
-            return Err(Error::new_parse(
-                format!(
-                    "Expected '::' after enum name, got {:?}",
-                    self.current_token()
-                ),
-                self.current_token().span,
-            ));
-        }
-        self.advance(); // Consume second ':'
-
-        let variant_name = self.consume_identifier()?.ok_or_else(|| {
-            Error::new_parse(
-                "Expected enum variant name".to_string(),
-                self.current_token().span,
-            )
-        })?;
+        let target_name = self
+            .consume_identifier("parse_enum_or_method_call_expression")?
+            .ok_or_else(|| {
+                Error::new_parse("Expected identifier".to_string(), self.current_token().span)
+            })?;
 
         // variant value
         if self.current_token().kind == TokenKind::LParen {
             self.advance(); // Consume '('
-            let expr = self.parse_expression()?;
-            let span = Span::new(span.start, self.current_token().span.end);
 
-            if self.current_token().kind != TokenKind::RParen {
-                return Err(Error::new_parse(
-                    "Expected ')' after enum variant value".to_string(),
-                    self.current_token().span,
-                ));
+            let mut exprs = Vec::new();
+            loop {
+                exprs.push(self.parse_expression()?);
+
+                match self.current_token().kind {
+                    TokenKind::RParen => break,
+                    TokenKind::Comma => self.advance(),
+                    _ => {
+                        return Err(Error::new_parse(
+                            "Expected ')' after arguments".to_string(),
+                            self.current_token().span,
+                        ))
+                    }
+                }
             }
 
+            let end = self.current_token().span.end;
             self.advance(); // Consume ')'
-            return Ok(Expr::EnumVariant {
-                name,
-                variant: variant_name,
-                value: Some(Box::new(expr)),
-                span,
+            return Ok(Expr::EnumVariantOrMethodCall {
+                target: Box::new(Expr::Identifier(name, span)),
+                call: target_name,
+                args: exprs,
+                span: Span::new(start, end),
             });
         }
 
-        let span = Span::new(span.start, self.current_token().span.end);
-        Ok(Expr::EnumVariant {
-            name,
-            variant: variant_name,
-            value: None,
-            span,
+        let new_span = Span::new(start, self.current_token().span.end);
+        Ok(Expr::EnumVariantOrMethodCall {
+            target: Box::new(Expr::Identifier(name, span)),
+            call: target_name,
+            args: vec![],
+            span: new_span,
         })
     }
 
@@ -1198,9 +1256,11 @@ impl Parser {
         self.advance(); // Consume '{'
 
         while self.current_token().kind != TokenKind::RBrace {
-            let field_name = self.consume_identifier()?.ok_or_else(|| {
-                Error::new_parse("Expected field name".to_string(), self.current_token().span)
-            })?;
+            let field_name = self
+                .consume_identifier("parse_struct_init")?
+                .ok_or_else(|| {
+                    Error::new_parse("Expected field name".to_string(), self.current_token().span)
+                })?;
             if self.current_token().kind != TokenKind::Colon {
                 return Err(Error::new_parse(
                     "Expected ':' after field name".to_string(),
@@ -1761,10 +1821,13 @@ mod tests {
                     ast[0],
                     Stmt::Let(
                         "c".to_string(),
-                        Expr::EnumVariant {
-                            name: "Color".to_string(),
-                            variant: "Red".to_string(),
-                            value: None,
+                        Expr::EnumVariantOrMethodCall {
+                            target: Box::new(Expr::Identifier(
+                                "Color".to_string(),
+                                Span::default()
+                            )),
+                            call: "Red".to_string(),
+                            args: vec![],
                             span: Span::new(8, 19)
                         },
                         Span::new(0, 19),
@@ -1786,13 +1849,10 @@ mod tests {
             ast[0],
             Stmt::Let(
                 "n".to_string(),
-                Expr::EnumVariant {
-                    name: "Name".to_string(),
-                    variant: "Existing".to_string(),
-                    value: Some(Box::new(Expr::String(
-                        "Alice".to_string(),
-                        Span::new(23, 30)
-                    ))),
+                Expr::EnumVariantOrMethodCall {
+                    target: Box::new(Expr::Identifier("Name".to_string(), Span::default())),
+                    call: "Existing".to_string(),
+                    args: vec![Expr::String("Alice".to_string(), Span::new(23, 30))],
                     span: Span::new(8, 31),
                 },
                 Span::new(0, 32),
@@ -1830,13 +1890,10 @@ mod tests {
 
         assert_eq!(
             ast[0],
-            Stmt::Expression(Expr::EnumVariant {
-                name: "Name".to_string(),
-                variant: "Existing".to_string(),
-                value: Some(Box::new(Expr::Identifier(
-                    "name".to_string(),
-                    Span::new(15, 19)
-                ))),
+            Stmt::Expression(Expr::EnumVariantOrMethodCall {
+                target: Box::new(Expr::Identifier("Name".to_string(), Span::default())),
+                call: "Existing".to_string(),
+                args: vec![Expr::Identifier("name".to_string(), Span::new(15, 19))],
                 span: Span::new(0, 20),
             })
         );
@@ -2306,5 +2363,24 @@ mod tests {
         "#;
 
         let _ = parse(code);
+    }
+
+    #[test]
+    fn parse_struct_method() {
+        let code = r#"
+            impl Point {
+                fn new(x: int, y: int) -> Point {
+                    Point { x: x, y: y }
+                }
+            }
+        "#;
+        let x = parse(code);
+        println!("{:?}", x);
+    }
+
+    #[test]
+    fn parse_method_call() {
+        let code = "Point::new(3, 4)";
+        println!("{:?}", parse(code));
     }
 }
