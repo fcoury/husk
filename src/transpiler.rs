@@ -105,6 +105,7 @@ impl JsTranspiler {
 
                 String::new()
             }
+            Stmt::Impl(_, _, _) => todo!(),
         }
     }
 
@@ -123,16 +124,16 @@ impl JsTranspiler {
                     self.generate_expr(right)
                 )
             }
-            Expr::EnumVariant {
-                name,
-                variant,
-                value,
+            Expr::EnumVariantOrMethodCall {
+                target,
+                call,
+                args,
                 span: _,
             } => {
-                if let Some(value) = value {
-                    format!("new {}.{}({})", name, variant, self.generate_expr(value))
+                if let Some(value) = args.get(0) {
+                    format!("new {}.{}({})", target, call, self.generate_expr(value))
                 } else {
-                    format!("{}.{}", name, variant)
+                    format!("{}.{}", target, call)
                 }
             }
             Expr::FunctionCall(name, args, _) => {
@@ -277,26 +278,23 @@ impl JsTranspiler {
 
     fn generate_match_condition(&self, _expr: &Expr, pattern: &Expr) -> (String, String) {
         match pattern {
-            Expr::EnumVariant {
-                name,
-                variant,
-                value,
-                ..
+            Expr::EnumVariantOrMethodCall {
+                target, call, args, ..
             } => {
-                if let Some(value) = value {
-                    if let Expr::Identifier(bind_name, _) = value.as_ref() {
+                if let Some(value) = args.get(0) {
+                    if let Expr::Identifier(bind_name, _) = value {
                         (
-                            format!("_matched instanceof {}.{}", name, variant),
+                            format!("_matched instanceof {}.{}", target, call),
                             format!("const {} = _matched.value;\n", bind_name),
                         )
                     } else {
                         (
-                            format!("_matched instanceof {}.{}", name, variant),
+                            format!("_matched instanceof {}.{}", target, call),
                             String::new(),
                         )
                     }
                 } else {
-                    (format!("_matched === {}.{}", name, variant), String::new())
+                    (format!("_matched === {}.{}", target, call), String::new())
                 }
             }
             _ => (

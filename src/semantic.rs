@@ -76,6 +76,43 @@ impl SemanticAnalyzer {
                 self.enums.insert(name.clone(), enum_variants);
                 Ok(())
             }
+            Stmt::Impl(struct_name, methods, span) => {
+                for method in methods {
+                    let Stmt::Function(name, params, return_type, _body, span) = method else {
+                        return Err(Error::new_semantic(
+                            "Invalid method definition inside impl block".to_string(),
+                            *span,
+                        ));
+                    };
+
+                    if let Some(first_param) = params.get(0) {
+                        if &first_param.1 != "self" {
+                            // static method
+                            self.functions.insert(
+                                format!("{}::{}", struct_name, name.clone()),
+                                (params.clone(), return_type.clone(), *span),
+                            );
+                            continue;
+                        }
+                    }
+
+                    let signature = format!(
+                        "Fn({}) -> {}",
+                        params
+                            .iter()
+                            .map(|(_, t)| t.clone())
+                            .collect::<Vec<String>>()
+                            .join(", "),
+                        return_type.clone()
+                    );
+                    self.structs.get_mut(struct_name).expect(
+                            "struct exists in symbol table with type struct but not in structs hashmap",
+                        )
+                            .insert(name.clone(), signature);
+                }
+
+                Ok(())
+            }
             Stmt::Function(name, params, return_type, body, span) => {
                 let param_types: Vec<(String, String)> = params.clone();
                 self.functions.insert(
@@ -223,72 +260,79 @@ impl SemanticAnalyzer {
 
             for (pattern, body) in arms {
                 match pattern {
-                    Expr::EnumVariant {
-                        name,
-                        variant,
-                        value,
+                    Expr::EnumVariantOrMethodCall {
+                        target,
+                        call,
+                        args,
                         span: pattern_span,
                     } => {
-                        if name != &expr_type {
+                        let actual_type = self.analyze_expr(target)?;
+                        if actual_type != expr_type {
                             return Err(Error::new_semantic(
                                 format!(
-                                    "Mismatched enum type in match arm. Expected {}, found {}",
-                                    expr_type, name
+                                    "Mismatched type in match arm. Expected {}, found {}",
+                                    expr_type, actual_type
                                 ),
                                 *pattern_span,
                             ));
                         }
 
-                        if !variants.contains_key(variant) {
-                            return Err(Error::new_semantic(
-                                format!("Unknown variant `{}` for enum `{}`", variant, name),
-                                *pattern_span,
-                            ));
-                        }
+                        if let Some((_, variants)) = self.enum_info(&target)? {
+                            if !variants.contains_key(call) {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "Unknown variant `{}` for enum `{}`",
+                                        call, actual_type
+                                    ),
+                                    *pattern_span,
+                                ));
+                            }
 
-                        if covered_variants.contains(variant) {
-                            return Err(Error::new_semantic(
-                                format!("Duplicate match arm for variant {}", variant),
-                                *pattern_span,
-                            ));
-                        }
+                            if covered_variants.contains(call) {
+                                return Err(Error::new_semantic(
+                                    format!("Duplicate match arm for variant {}", call),
+                                    *pattern_span,
+                                ));
+                            }
 
-                        covered_variants.insert(variant);
+                            covered_variants.insert(call);
 
-                        if let Some(expected_type) = variants.get(variant) {
-                            match (expected_type.as_str(), value) {
-                                ("unit", None) => {} // Unit variant, no value expected
-                                (_, Some(value_expr)) => {
-                                    if let Expr::Identifier(var_name, _) = value_expr.as_ref() {
-                                        self.match_bound_vars
-                                            .insert(var_name.clone(), expected_type.clone());
-                                    } else {
+                            if let Some(expected_type) = variants.get(call) {
+                                match (expected_type.as_str(), args.get(0)) {
+                                    ("unit", None) => {} // Unit variant, no value expected
+                                    (_, Some(value_expr)) => {
+                                        if let Expr::Identifier(var_name, _) = value_expr {
+                                            self.match_bound_vars
+                                                .insert(var_name.clone(), expected_type.clone());
+                                        } else {
+                                            return Err(Error::new_semantic(
+                                                "Invalid pattern for enum variant value"
+                                                    .to_string(),
+                                                *pattern_span,
+                                            ));
+                                        }
+                                    }
+                                    (_, None) => {
                                         return Err(Error::new_semantic(
-                                            "Invalid pattern for enum variant value".to_string(),
+                                            format!(
+                                                "Missing value for variant {}. Expected type {}",
+                                                call, expected_type
+                                            ),
                                             *pattern_span,
                                         ));
                                     }
                                 }
-                                (_, None) => {
-                                    return Err(Error::new_semantic(
-                                        format!(
-                                            "Missing value for variant {}. Expected type {}",
-                                            variant, expected_type
-                                        ),
-                                        *pattern_span,
-                                    ));
-                                }
                             }
-                        }
 
-                        for stmt in body {
-                            self.analyze_stmt(stmt)?;
-                        }
+                            for stmt in body {
+                                self.analyze_stmt(stmt)?;
+                            }
 
-                        // Remove the bound variable after analyzing the body
-                        if let Some(value_expr) = value {
-                            if let Expr::Identifier(var_name, _) = value_expr.as_ref() {
-                                self.match_bound_vars.remove(var_name);
+                            // Remove the bound variable after analyzing the body
+                            if let Some(value_expr) = args.get(0) {
+                                if let Expr::Identifier(var_name, _) = value_expr {
+                                    self.match_bound_vars.remove(var_name);
+                                }
                             }
                         }
                     }
@@ -345,6 +389,17 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
+    // returns enum name, enum variant, expr
+    fn enum_info(&self, expr: &Expr) -> Result<Option<(String, &HashMap<String, String>)>> {
+        let name = self.analyze_expr(expr)?;
+
+        if let Some(variants) = self.enums.get(&name) {
+            return Ok(Some((name, variants)));
+        }
+
+        Ok(None)
+    }
+
     fn analyze_expr(&self, expr: &Expr) -> Result<String> {
         match expr {
             Expr::Int(_, _) => Ok("int".to_string()),
@@ -352,7 +407,9 @@ impl SemanticAnalyzer {
             Expr::Bool(_, _) => Ok("bool".to_string()),
             Expr::String(_, _) => Ok("string".to_string()),
             Expr::Identifier(name, span) => {
-                if let Some(var_type) = self.match_bound_vars.get(name) {
+                if let Some(_) = self.enums.get(name) {
+                    Ok(name.clone())
+                } else if let Some(var_type) = self.match_bound_vars.get(name) {
                     Ok(var_type.clone())
                 } else if let Some(var_type) = self.symbol_table.get(name) {
                     Ok(var_type.clone())
@@ -363,17 +420,17 @@ impl SemanticAnalyzer {
                     ))
                 }
             }
-            Expr::EnumVariant {
-                name,
-                variant,
-                value,
+            Expr::EnumVariantOrMethodCall {
+                target,
+                call,
+                args,
                 span,
             } => {
-                // Check if the enum and variant exist
-                if let Some(variants) = self.enums.get(name) {
-                    if let Some(variant_type) = variants.get(variant) {
+                if let Some((name, variants)) = self.enum_info(&target)? {
+                    return if let Some(variant_type) = variants.get(call) {
                         // If there's an associated value, analyze it
-                        if let Some(value_expr) = value {
+                        // TODO: handle > 1 associated values
+                        if let Some(value_expr) = args.get(0) {
                             let value_type = self.analyze_expr(value_expr)?;
                             if value_type != *variant_type {
                                 return Err(Error::new_semantic(
@@ -388,16 +445,43 @@ impl SemanticAnalyzer {
                         Ok(name.clone())
                     } else {
                         Err(Error::new_semantic(
-                            format!("Undefined variant {} for enum {}", variant, name),
+                            format!("Undefined variant {} for enum {}", call, name),
                             *span,
                         ))
-                    }
-                } else {
-                    Err(Error::new_semantic(
-                        format!("Undefined enum: {}", name),
-                        *span,
-                    ))
+                    };
                 }
+
+                let function_name = format!("{}::{}", target, call);
+                if let Some(f) = self.functions.get(&function_name) {
+                    if args.len() != f.0.len() {
+                        return Err(Error::new_semantic(
+                            format!(
+                                "Function {} called with wrong number of arguments",
+                                function_name
+                            ),
+                            *span,
+                        ));
+                    }
+                    for (arg, (param_name, param_type)) in args.iter().zip(f.0.iter()) {
+                        let arg_type = self.analyze_expr(arg)?;
+                        if arg_type != *param_type {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "Type mismatch in function call {}: expected {} for parameter {}, found {}",
+                                    function_name, param_type, param_name, arg_type
+                                ),
+                                *span,
+                            ));
+                        }
+                    }
+                    return Ok(f.1.clone());
+                    // } else {
+                    //     Err(Error::new_semantic(
+                    //         format!("Undefined function: {}", function_name),
+                    //         *span,
+                    //     ))
+                }
+                Ok("".to_string())
             }
             Expr::BinaryOp(left, op, right, span) => {
                 let left_type = self.analyze_expr(left)?;
@@ -494,6 +578,24 @@ impl SemanticAnalyzer {
                         Ok(return_type.clone())
                     }
                 } else {
+                    if name.contains(".") {
+                        let (target, method_name) = name.split_at(name.find('.').unwrap());
+                        if let Some(target_type) = self.symbol_table.get(target) {
+                            let target_struct = self.structs.get(target_type).expect(
+                                "struct exists in symbol table with type struct but not in structs hashmap",
+                            );
+
+                            if let Some(method_type) = target_struct.get(&method_name[1..]) {
+                                return Ok(method_type.clone());
+                            } else {
+                                return Err(Error::new_semantic(
+                                    format!("Undefined method: {}", method_name),
+                                    *span,
+                                ));
+                            }
+                        }
+                    }
+
                     Err(Error::new_semantic(
                         format!("Undefined function: {}", name),
                         *span,
@@ -634,7 +736,38 @@ impl SemanticAnalyzer {
                     }
                 }
                 Ok("range".to_string())
-            }
+            } // Expr::EnumVariantOrMethodCall {
+              //     target,
+              //     call,
+              //     args,
+              //     span,
+              // } => {
+              //     if let Some((name, variants)) = self.enum_info(target)? {
+              //         return if let Some(variant_type) = variants.get(call) {
+              //             // If there's an associated value, analyze it
+              //             if let Some(value_expr) = args.get(0) {
+              //                 let value_type = self.analyze_expr(value_expr)?;
+              //                 if value_type != *variant_type {
+              //                     return Err(Error::new_semantic(
+              //                         format!(
+              //                             "Type mismatch for enum variant: expected {}, found {}",
+              //                             variant_type, value_type
+              //                         ),
+              //                         *span,
+              //                     ));
+              //                 }
+              //             }
+              //             Ok(name.clone())
+              //         } else {
+              //             Err(Error::new_semantic(
+              //                 format!("Undefined variant {} for enum {}", call, name),
+              //                 *span,
+              //             ))
+              //         };
+              //     }
+              //
+              //     unimplemented!("missing analysis for method call");
+              // }
         }
     }
 }
