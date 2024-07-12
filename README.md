@@ -20,10 +20,14 @@ Husk is a lightweight scripting language inspired by Rust, designed for simplici
 - Support for basic data types: integers, floats, booleans, and strings
 - Struct definitions and instantiation
 - Function definitions and calls
-- Control flow with if-else statements
+- Control flow with if-else statements and match expressions
+- Enums with associated values
+- Arrays and ranges
+- Loop constructs: for, while, and loop
 - Basic arithmetic and comparison operations
 - Interactive REPL (Read-Eval-Print Loop)
 - Script execution from files
+- Transpilation to JavaScript
 
 ## Installation
 
@@ -48,7 +52,21 @@ husk repl
 To execute a Husk script file, use:
 
 ```bash
-husk run path/to/your/script.husk
+husk run path/to/your/script.hk
+```
+
+### Transpilation to JavaScript
+
+To transpile a Husk script to JavaScript, use:
+
+```bash
+husk compile path/to/your/script.hk
+```
+
+This will output the transpiled JavaScript code to stdout. If you have node installed you can do:
+
+```bash
+husk compile path/to/your/script.hk | node
 ```
 
 ## Language Syntax
@@ -85,13 +103,54 @@ let p = Person {
 };
 ```
 
-### If-Else Statement
+### Enum Definition and Pattern Matching
 
 ```rust
-if x == 10 {
-    println("x is ten");
-} else {
-    println("x is not ten");
+enum Option {
+    Some(int),
+    None,
+}
+
+let opt = Option::Some(5);
+
+match opt {
+    Option::Some(value) => println(value),
+    Option::None => println("No value"),
+}
+```
+
+### Arrays and Ranges
+
+```rust
+let arr = [1, 2, 3, 4, 5];
+let slice = arr[1..3];
+
+for i in 0..5 {
+    println(i);
+}
+```
+
+### Loops
+
+```rust
+// For loop
+for x in [1, 2, 3, 4, 5] {
+    println(x);
+}
+
+// While loop
+let mut i = 0;
+while i < 5 {
+    println(i);
+    i += 1;
+}
+
+// Infinite loop with break
+loop {
+    println("Hello");
+    if some_condition {
+        break;
+    }
 }
 ```
 
