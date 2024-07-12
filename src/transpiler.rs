@@ -180,7 +180,7 @@ impl JsTranspiler {
                         .join(", ");
                     format!("new {}.{}({})", target, call, args_str)
                 } else {
-                    format!("new {}.{}", target, call)
+                    format!("{}.{}", target, call)
                 }
             }
             Expr::FunctionCall(name, args, _) => {
