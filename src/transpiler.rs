@@ -300,7 +300,8 @@ impl JsTranspiler {
         let mut res = String::new();
         for (i, stmt) in stmts.iter().enumerate() {
             let stmt_str = self.generate_stmt(stmt)?;
-            if i < stmts.len() - 1 {
+            // TODO: improve break and continue detection
+            if i < stmts.len() - 1 || stmt_str.contains("break") || stmt_str.contains("continue") {
                 res.push_str(&format!("{};", stmt_str));
             } else {
                 res.push_str(&format!("return {};", stmt_str));
