@@ -10,23 +10,25 @@ use crate::{
 
 pub struct Interpreter {
     environment: IndexMap<String, Value>,
+    global_environment: IndexMap<String, Value>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         let mut interpreter = Interpreter {
             environment: IndexMap::new(),
+            global_environment: IndexMap::new(),
         };
         interpreter.init_standard_library();
         interpreter
     }
 
     fn init_standard_library(&mut self) {
-        self.environment.insert(
+        self.global_environment.insert(
             "print".to_string(),
             Value::Function(Function::BuiltIn(stdlib_print)),
         );
-        self.environment.insert(
+        self.global_environment.insert(
             "println".to_string(),
             Value::Function(Function::BuiltIn(stdlib_println)),
         );
@@ -76,6 +78,7 @@ impl Interpreter {
                 for method in methods {
                     if let Stmt::Function(name, params, _, body, _) = method {
                         let func = Value::Function(Function::UserDefined(
+                            name.clone(),
                             params.clone(),
                             body.clone(),
                             self.environment.clone(),
@@ -107,6 +110,7 @@ impl Interpreter {
             }
             Stmt::Function(name, params, _, body, _) => {
                 let func = Value::Function(Function::UserDefined(
+                    name.clone(),
                     params.clone(),
                     body.clone(),
                     self.environment.clone(),
@@ -264,6 +268,7 @@ impl Interpreter {
                                 // Execute the matched arm with the new environment
                                 let mut arm_interpreter = Interpreter {
                                     environment: new_env,
+                                    global_environment: self.global_environment.clone(),
                                 };
                                 return arm_interpreter.execute_statements(body);
                             }
@@ -409,17 +414,22 @@ impl Interpreter {
                     name.to_string()
                 };
 
-                let func = self.environment.get(&name).cloned().ok_or_else(|| {
-                    Error::new_runtime(format!("Undefined function: {}", name), *span)
-                })?;
+                let func = self
+                    .environment
+                    .get(&name)
+                    .cloned()
+                    .or_else(|| self.global_environment.get(&name).cloned())
+                    .ok_or_else(|| {
+                        Error::new_runtime(format!("Undefined function: {}", name), *span)
+                    })?;
 
-                match func {
+                match &func {
                     Value::Function(Function::BuiltIn(func)) => {
                         let evaluated_args: Result<Vec<Value>> =
                             args.iter().map(|arg| self.evaluate_expr(arg)).collect();
                         func(&evaluated_args?)
                     }
-                    Value::Function(Function::UserDefined(params, body, func_env)) => {
+                    Value::Function(Function::UserDefined(func_name, params, body, func_env)) => {
                         if args.len() != params.len() {
                             return Err(Error::new_runtime(
                                 format!("Function {} called with wrong number of arguments", name),
@@ -427,7 +437,9 @@ impl Interpreter {
                             ));
                         }
 
-                        let mut local_env = func_env;
+                        let mut local_env = func_env.clone();
+                        local_env.insert(func_name.clone(), func.clone());
+
                         for ((param_name, _), arg_expr) in params.iter().zip(args.iter()) {
                             let arg_value = self.evaluate_expr(arg_expr)?;
                             local_env.insert(param_name.clone(), arg_value);
@@ -435,6 +447,7 @@ impl Interpreter {
 
                         let mut interpreter = Interpreter {
                             environment: local_env,
+                            global_environment: self.global_environment.clone(),
                         };
 
                         let mut result = Value::Unit;
@@ -833,7 +846,12 @@ impl PartialEq for Value {
 
 #[derive(Clone, Debug)]
 pub enum Function {
-    UserDefined(Vec<(String, String)>, Vec<Stmt>, IndexMap<String, Value>),
+    UserDefined(
+        String,
+        Vec<(String, String)>,
+        Vec<Stmt>,
+        IndexMap<String, Value>,
+    ),
     BuiltIn(fn(&[Value]) -> Result<Value>),
 }
 
