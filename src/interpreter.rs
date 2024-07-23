@@ -477,6 +477,13 @@ impl Interpreter {
 
                 let mut instance_fields = IndexMap::new();
                 for (field_name, field_expr) in fields.iter() {
+                    let field_value = match field_expr {
+                        Expr::Identifier(var_name, _) if var_name == field_name => {
+                            self.evaluate_expr(field_expr)?
+                        }
+                        _ => self.evaluate_expr(field_expr)?,
+                    };
+
                     let Some(expected_type) = struct_fields.get(field_name) else {
                         return Err(Error::new_runtime(
                             format!("Missing field {} in struct {}", field_name, name),
@@ -484,7 +491,6 @@ impl Interpreter {
                         ));
                     };
 
-                    let field_value = self.evaluate_expr(field_expr)?;
                     let field_type = field_value.type_str();
 
                     if field_type != *expected_type {
