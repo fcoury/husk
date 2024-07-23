@@ -1261,14 +1261,14 @@ impl Parser {
                 .ok_or_else(|| {
                     Error::new_parse("Expected field name".to_string(), self.current_token().span)
                 })?;
-            if self.current_token().kind != TokenKind::Colon {
-                return Err(Error::new_parse(
-                    "Expected ':' after field name".to_string(),
-                    self.current_token().span,
-                ));
-            }
-            self.advance(); // Consume ':'
-            let field_value = self.parse_expression()?;
+
+            let field_value = if self.current_token().kind == TokenKind::Colon {
+                self.advance(); // Consume ':'
+                self.parse_expression()?
+            } else {
+                Expr::Identifier(field_name.clone(), self.current_token().span)
+            };
+
             fields.push((field_name, field_value));
 
             if self.current_token().kind == TokenKind::Comma {

@@ -5,7 +5,7 @@ struct Point {
 
 impl Point {
     fn new(x: int, y: int) -> Point {
-        Point { x: x, y: y }
+        Point { x, y }
     }
 
     fn distance_from_origin(self) -> int {
