@@ -15,7 +15,10 @@
       "Bash(cargo run:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(cp:*)",
+      "Bash(./test.sh)",
+      "Bash(./tests/scripts/test.sh:*)"
     ],
     "deny": []
   }
