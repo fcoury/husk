@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     error::{Error, Result},
     parser::{Expr, Operator, Stmt},
+    semantic_visitor::SemanticVisitor,
     span::Span,
     types::{Type, TypeEnvironment},
 };
@@ -42,6 +43,13 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, stmts: &Vec<Stmt>) -> Result<()> {
+        // Use visitor pattern implementation
+        let mut visitor = SemanticVisitor::new();
+        visitor.analyze(stmts)
+    }
+
+    #[allow(dead_code)]
+    fn analyze_old(&mut self, stmts: &Vec<Stmt>) -> Result<()> {
         for stmt in stmts {
             self.analyze_stmt(stmt)?;
         }
