@@ -4,6 +4,7 @@ use indexmap::IndexMap;
 
 use crate::{
     error::{Error, Result},
+    interpreter_visitor::InterpreterVisitor,
     parser::{Expr, Operator, Stmt},
     span::Span,
 };
@@ -35,17 +36,18 @@ impl Interpreter {
     }
 
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
-        let mut value = Value::Unit;
-        for stmt in stmts {
-            (value, _) = self.execute_stmt(stmt)?;
-        }
-        Ok(value)
+        // Use visitor pattern implementation
+        let mut visitor = InterpreterVisitor::new();
+        visitor.interpret(stmts)
     }
 
+    // Old implementation methods - kept for reference but no longer used
+    #[allow(dead_code)]
     pub fn get_var(&self, name: &str) -> Option<Value> {
         self.environment.get(name).cloned()
     }
 
+    #[allow(dead_code)]
     fn execute_stmt(&mut self, stmt: &Stmt) -> Result<(Value, ControlFlow)> {
         match stmt {
             Stmt::Let(name, expr, _) => {
@@ -152,6 +154,7 @@ impl Interpreter {
                                         return Ok((Value::Unit, ControlFlow::Normal))
                                     }
                                     ControlFlow::Continue => break,
+                                    ControlFlow::Return(val) => return Ok((val, ControlFlow::Normal)),
                                     ControlFlow::Normal => {}
                                 }
                             }
@@ -171,6 +174,7 @@ impl Interpreter {
                                             return Ok((Value::Unit, ControlFlow::Normal))
                                         }
                                         ControlFlow::Continue => break,
+                                        ControlFlow::Return(val) => return Ok((val, ControlFlow::Normal)),
                                         ControlFlow::Normal => {}
                                     }
                                 }
@@ -185,6 +189,7 @@ impl Interpreter {
                                             return Ok((Value::Unit, ControlFlow::Normal))
                                         }
                                         ControlFlow::Continue => break,
+                                        ControlFlow::Return(val) => return Ok((val, ControlFlow::Normal)),
                                         ControlFlow::Normal => {}
                                     }
                                 }
@@ -210,6 +215,7 @@ impl Interpreter {
                                     return Ok((Value::Unit, ControlFlow::Normal))
                                 }
                                 ControlFlow::Continue => break,
+                                ControlFlow::Return(val) => return Ok((val, ControlFlow::Normal)),
                                 ControlFlow::Normal => {}
                             }
                         }
@@ -229,6 +235,7 @@ impl Interpreter {
                     match control_flow {
                         ControlFlow::Break => return Ok((Value::Unit, ControlFlow::Normal)),
                         ControlFlow::Continue => break,
+                        ControlFlow::Return(val) => return Ok((val, ControlFlow::Normal)),
                         ControlFlow::Normal => {}
                     }
                 }
@@ -374,6 +381,7 @@ impl Interpreter {
         }
     }
 
+    #[allow(dead_code)]
     fn evaluate_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
             Expr::Int(n, _) => Ok(Value::Int(*n)),
@@ -720,10 +728,11 @@ impl Interpreter {
 }
 
 #[derive(Debug, PartialEq)]
-enum ControlFlow {
+pub enum ControlFlow {
     Normal,
     Break,
     Continue,
+    Return(Value),
 }
 
 #[derive(Clone, Debug)]
@@ -855,7 +864,7 @@ pub enum Function {
     BuiltIn(fn(&[Value]) -> Result<Value>),
 }
 
-fn stdlib_print(args: &[Value]) -> Result<Value> {
+pub fn stdlib_print(args: &[Value]) -> Result<Value> {
     for arg in args {
         print!("{}", arg);
     }
@@ -873,7 +882,7 @@ fn stdlib_print(args: &[Value]) -> Result<Value> {
 //     Ok(Value::Unit)
 // }
 
-fn stdlib_println(args: &[Value]) -> Result<Value> {
+pub fn stdlib_println(args: &[Value]) -> Result<Value> {
     for arg in args {
         match arg {
             Value::EnumVariant(_, _, Some(value)) => print!("{}", value),
