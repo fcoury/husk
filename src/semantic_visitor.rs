@@ -254,45 +254,74 @@ impl AstVisitor<Type> for SemanticVisitor {
     }
 
     fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<Type> {
+        // Handle method calls with dot notation
+        let (func_name, adjusted_args) = if name.contains('.') {
+            let (target_var, method_name) = name.split_once('.').unwrap();
+            
+            // Get the type of the target variable
+            let target_type = self.type_env.lookup(target_var)
+                .ok_or_else(|| Error::new_semantic(
+                    format!("Undefined variable: {}", target_var),
+                    *span,
+                ))?;
+            
+            // Extract struct name from the type
+            let struct_name = match target_type {
+                Type::Struct { name, .. } => name.clone(),
+                _ => return Err(Error::new_semantic(
+                    format!("{} is not a struct instance", target_var),
+                    *span,
+                )),
+            };
+            
+            // Build the full method name
+            let full_method_name = format!("{}::{}", struct_name, method_name);
+            
+            // For type checking, we don't need to evaluate the target, just check types
+            (full_method_name, args)
+        } else {
+            (name.to_string(), args)
+        };
+        
         // Check if it's a method call or regular function
-        let (param_types, return_type) = if let Some((params, ret_type, _)) = self.functions.get(name) {
+        let (param_types, return_type) = if let Some((params, ret_type, _)) = self.functions.get(&func_name) {
             (params.clone(), ret_type.clone())
         } else {
             return Err(Error::new_semantic(
-                format!("Function '{}' not found", name),
+                format!("Function '{}' not found", func_name),
                 *span,
             ));
         };
 
         // Special handling for print/println - they accept any arguments
-        if name == "print" || name == "println" {
-            for arg in args {
+        if func_name == "print" || func_name == "println" {
+            for arg in adjusted_args {
                 self.visit_expr(arg)?;
             }
             return Ok(Type::Unit);
         }
 
         // Check argument count
-        if args.len() != param_types.len() {
+        if adjusted_args.len() != param_types.len() {
             return Err(Error::new_semantic(
                 format!(
                     "Function '{}' expects {} arguments, but {} were provided",
-                    name,
+                    func_name,
                     param_types.len(),
-                    args.len()
+                    adjusted_args.len()
                 ),
                 *span,
             ));
         }
 
         // Check argument types
-        for (i, (arg, (_, expected_type))) in args.iter().zip(param_types.iter()).enumerate() {
+        for (i, (arg, (_, expected_type))) in adjusted_args.iter().zip(param_types.iter()).enumerate() {
             let arg_type = self.visit_expr(arg)?;
             if arg_type != *expected_type {
                 return Err(Error::new_semantic(
                     format!(
                         "Function '{}' argument {} type mismatch: expected {}, found {}",
-                        name,
+                        func_name,
                         i + 1,
                         expected_type.to_string(),
                         arg_type.to_string()

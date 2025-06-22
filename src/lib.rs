@@ -1,6 +1,7 @@
 mod ast;
 mod error;
 mod interpreter;
+mod interpreter_visitor;
 mod lexer;
 mod parser;
 mod repl;

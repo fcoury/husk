@@ -5,7 +5,13 @@
       "Bash(cargo test:*)",
       "Bash(mv:*)",
       "Bash(mkdir:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(timeout 5 cargo run -- test_method_call.husk)",
+      "Bash(true)",
+      "Bash(cargo build:*)",
+      "Bash(./target/release/husk:*)",
+      "Bash(./target/debug/husk test_method.husk:*)",
+      "Bash(./target/debug/husk test:*)"
     ],
     "deny": []
   }
