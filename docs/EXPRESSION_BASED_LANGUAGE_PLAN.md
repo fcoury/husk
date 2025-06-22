@@ -138,19 +138,19 @@ The visitor pattern is now complete, providing a clean foundation for expression
 - [x] Handle semicolon type conversion (expr → unit) ✅
 - [ ] Update function return type inference
 
-#### 1.3 Update Semantic Analyzer (40% Complete)
+#### 1.3 Update Semantic Analyzer (80% Complete)
 - [x] Refactor `analyze_stmt` to return `Type` ✅
 - [x] Implement proper block typing ✅
-- [ ] Check if/else branch type compatibility
-- [ ] Validate match arm type consistency
+- [x] Check if/else branch type compatibility ✅
+- [x] Validate match arm type consistency ✅
 - [ ] Handle loop break values
 
-#### 1.4 Update Interpreter (75% Complete)
-- [ ] Make all statement evaluation return `Value`
+#### 1.4 Update Interpreter (90% Complete)
+- [x] Make all statement evaluation return `Value` ✅
 - [x] Implement block value returns ✅
 - [x] Implement proper block scoping ✅
+- [x] Handle semicolon expression semantics ✅
 - [ ] Handle break with values
-- [ ] Update Value enum if needed
 
 #### 1.5 Update Transpiler (33% Complete)
 - [x] Generate JS code that preserves semantics (for blocks) ✅

@@ -70,13 +70,13 @@ This is a major architectural change to make Husk a fully expression-based langu
 
 **Implementation Order Change**: We've decided to complete the visitor pattern implementation first (Phase 1.2) before continuing with expression-based features. This will provide a cleaner foundation for the complex AST transformations required.
 
-### Core Expression Semantics (57% Complete - 4/7 tasks)
+### Core Expression Semantics (86% Complete - 6/7 tasks)
 - [x] Add semicolon tracking to AST and Parser ✅
 - [x] Update parser for expression blocks ✅
 - [x] Make all Stmt analysis return Type ✅
 - [x] Implement block type inference ✅
-- [ ] Update semantic analyzer for expression semantics
-- [ ] Make all statement evaluation return Value
+- [x] Update semantic analyzer for expression semantics ✅
+- [x] Make all statement evaluation return Value ✅
 - [ ] Update transpiler for JS compatibility (partially done)
 
 ### Language Refinements (0% Complete)
@@ -176,6 +176,12 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Updated semantic analyzer and interpreter for expression semantics
+  - Enhanced if/else expression type compatibility checking in semantic analyzer
+  - Added match arm type consistency validation across all arms
+  - Updated interpreter to handle semicolon semantics (semicolon converts expression to Unit)
+  - Modified if/match statements to use block evaluation for proper expression returns
+  - Expression-based language transformation now 86% complete (6/7 core tasks done)
 - **2025-01-22**: Organized test files and integrated with test system
   - Moved all test_*.husk files to tests/scripts/ directory with .hk extension
   - Generated proper .out and .err files for all new test files

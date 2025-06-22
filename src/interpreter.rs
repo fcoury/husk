@@ -744,29 +744,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<Value> {
+    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> Result<Value> {
         let condition_val = self.visit_expr(condition)?;
         
         match condition_val {
             Value::Bool(true) => {
-                let mut result = Value::Unit;
-                for stmt in then_block {
-                    result = self.visit_stmt(stmt)?;
-                    if self.control_flow != ControlFlow::Normal {
-                        return Ok(result);
-                    }
-                }
-                Ok(result)
+                self.visit_block(then_block, span)
             }
             Value::Bool(false) => {
-                let mut result = Value::Unit;
-                for stmt in else_block {
-                    result = self.visit_stmt(stmt)?;
-                    if self.control_flow != ControlFlow::Normal {
-                        return Ok(result);
-                    }
-                }
-                Ok(result)
+                self.visit_block(else_block, span)
             }
             _ => Err(Error::new_runtime(
                 "If condition must be a boolean".to_string(),
@@ -813,14 +799,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             };
 
             if matches {
-                let mut result = Value::Unit;
-                for stmt in body {
-                    result = self.visit_stmt(stmt)?;
-                    if self.control_flow != ControlFlow::Normal {
-                        return Ok(result);
-                    }
-                }
-                return Ok(result);
+                return self.visit_block(body, span);
             }
         }
 
@@ -964,10 +943,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_expression_stmt(&mut self, expr: &Expr, _has_semicolon: bool) -> Result<Value> {
-        // For now, just evaluate the expression
-        // Later, when implementing expression-based semantics, we'll use has_semicolon
-        self.visit_expr(expr)
+    fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<Value> {
+        let expr_value = self.visit_expr(expr)?;
+        
+        // If the expression has a semicolon, it's converted to a statement that returns Unit
+        // If no semicolon, it returns the expression's value (for block expressions)
+        if has_semicolon {
+            Ok(Value::Unit)
+        } else {
+            Ok(expr_value)
+        }
     }
 
     fn visit_block(&mut self, stmts: &[Stmt], _span: &Span) -> Result<Value> {
