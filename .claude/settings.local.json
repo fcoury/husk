@@ -18,7 +18,8 @@
       "Bash(rg:*)",
       "Bash(cp:*)",
       "Bash(./test.sh)",
-      "Bash(./tests/scripts/test.sh:*)"
+      "Bash(./tests/scripts/test.sh:*)",
+      "Bash(./target/debug/husk compile:*)"
     ],
     "deny": []
   }
