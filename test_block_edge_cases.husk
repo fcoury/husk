@@ -1,0 +1,16 @@
+let unit_result = {
+    let x = 5;
+    let y = 10;
+    x + y;
+};
+println("Unit result: ", unit_result);
+
+let nested_result = {
+    let inner = {
+        let a = 3;
+        let b = 4;
+        a * b
+    };
+    inner + 5
+};
+println("Nested result: ", nested_result);

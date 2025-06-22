@@ -1,0 +1,7 @@
+let x = 1;
+let result = {
+    let x = 10;  // Should shadow outer x
+    x + 5
+};
+println("x outside block: ", x);
+println("result: ", result);
