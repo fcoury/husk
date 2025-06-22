@@ -1,0 +1,113 @@
+use crate::{
+    parser::{Expr, Stmt, Operator},
+    span::Span,
+};
+
+/// Combined visitor trait for expressions and statements
+pub trait AstVisitor<T> {
+    type Error;
+
+    // ===== Expression visiting methods =====
+    
+    /// Visit an expression and dispatch to the appropriate method
+    fn visit_expr(&mut self, expr: &Expr) -> std::result::Result<T, Self::Error> {
+        match expr {
+            Expr::Int(value, span) => self.visit_int(*value, span),
+            Expr::Float(value, span) => self.visit_float(*value, span),
+            Expr::Bool(value, span) => self.visit_bool(*value, span),
+            Expr::String(value, span) => self.visit_string(value, span),
+            Expr::Identifier(name, span) => self.visit_identifier(name, span),
+            Expr::Array(elements, span) => self.visit_array(elements, span),
+            Expr::ArrayIndex(array, index, span) => self.visit_array_index(array, index, span),
+            Expr::Range(start, end, inclusive, span) => self.visit_range(start.as_deref(), end.as_deref(), *inclusive, span),
+            Expr::BinaryOp(left, op, right, span) => self.visit_binary_op(left, op, right, span),
+            Expr::Assign(left, right, span) => self.visit_assign(left, right, span),
+            Expr::CompoundAssign(left, op, right, span) => self.visit_compound_assign(left, op, right, span),
+            Expr::FunctionCall(name, args, span) => self.visit_function_call(name, args, span),
+            Expr::StructInit(name, fields, span) => self.visit_struct_init(name, fields, span),
+            Expr::MemberAccess(object, field, span) => self.visit_member_access(object, field, span),
+            Expr::EnumVariantOrMethodCall { target, call, args, span } => {
+                self.visit_enum_variant_or_method_call(target, call, args, span)
+            }
+        }
+    }
+
+    // Expression visit methods
+    fn visit_int(&mut self, value: i64, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_float(&mut self, value: f64, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_bool(&mut self, value: bool, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_string(&mut self, value: &str, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_identifier(&mut self, name: &str, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_array(&mut self, elements: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_array_index(&mut self, array: &Expr, index: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_range(&mut self, start: Option<&Expr>, end: Option<&Expr>, inclusive: bool, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_assign(&mut self, left: &Expr, right: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_compound_assign(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
+
+    // ===== Statement visiting methods =====
+    
+    /// Visit a statement and dispatch to the appropriate method
+    fn visit_stmt(&mut self, stmt: &Stmt) -> std::result::Result<T, Self::Error> {
+        match stmt {
+            Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
+            Stmt::Function(name, params, return_type, body, span) => {
+                self.visit_function(name, params, return_type, body, span)
+            }
+            Stmt::Struct(name, fields, span) => self.visit_struct(name, fields, span),
+            Stmt::Enum(name, variants, span) => self.visit_enum(name, variants, span),
+            Stmt::Impl(struct_name, methods, span) => self.visit_impl(struct_name, methods, span),
+            Stmt::If(condition, then_block, else_block, span) => {
+                self.visit_if(condition, then_block, else_block, span)
+            }
+            Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
+            Stmt::ForLoop(variable, iterable, body, span) => {
+                self.visit_for_loop(variable, iterable, body, span)
+            }
+            Stmt::While(condition, body, span) => self.visit_while(condition, body, span),
+            Stmt::Loop(body, span) => self.visit_loop(body, span),
+            Stmt::Break(span) => self.visit_break(span),
+            Stmt::Continue(span) => self.visit_continue(span),
+            Stmt::Expression(expr) => self.visit_expression_stmt(expr),
+        }
+    }
+
+    // Statement visit methods
+    fn visit_let(&mut self, name: &str, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_struct(&mut self, name: &str, fields: &[(String, String)], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_enum(&mut self, name: &str, variants: &[(String, String)], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_while(&mut self, condition: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_loop(&mut self, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_break(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_continue(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_expression_stmt(&mut self, expr: &Expr) -> std::result::Result<T, Self::Error>;
+
+    // ===== Helper methods =====
+    
+    /// Visit a list of statements
+    fn visit_statements(&mut self, stmts: &[Stmt]) -> std::result::Result<Vec<T>, Self::Error> {
+        let mut results = Vec::new();
+        for stmt in stmts {
+            results.push(self.visit_stmt(stmt)?);
+        }
+        Ok(results)
+    }
+
+    /// Visit a list of expressions
+    fn visit_expressions(&mut self, exprs: &[Expr]) -> std::result::Result<Vec<T>, Self::Error> {
+        let mut results = Vec::new();
+        for expr in exprs {
+            results.push(self.visit_expr(expr)?);
+        }
+        Ok(results)
+    }
+}
