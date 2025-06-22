@@ -176,6 +176,16 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Enhanced non-exhaustive match detection for enums
+  - Added duplicate pattern detection to prevent same enum variant matched multiple times
+  - Added unreachable pattern detection to catch patterns after wildcards
+  - Improved wildcard tracking for more efficient exhaustiveness checking
+  - Core exhaustiveness checking was already working correctly for missing enum variants
+- **2025-01-22**: Analyzed and decided against unifying statements and expressions
+  - Comprehensive analysis showed current separation provides better maintainability
+  - Expression-based semantics already achieved with current architecture
+  - Rust's approach validates keeping Stmt/Expr separation despite being expression-based
+  - High implementation cost with marginal benefits, decided to keep current design
 - **2025-01-22**: Completed transpiler JavaScript compatibility for expression semantics
   - Updated transpiler to handle semicolon semantics (void operator for semicolon expressions)
   - Fixed match statement return values by using generate_body for proper return handling

@@ -742,6 +742,8 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // For enum matching, track which variants have been matched
         let mut matched_variants = std::collections::HashSet::new();
+        let mut has_wildcard = false;
+        let mut wildcard_position = None;
         let enum_name = match &expr_type {
             Type::Enum { name, .. } => Some(name.clone()),
             _ => None,
@@ -750,16 +752,32 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Track the type of each arm for consistency checking
         let mut arm_types = Vec::new();
 
-        for (pattern, body) in arms {
+        for (i, (pattern, body)) in arms.iter().enumerate() {
             // Save current match-bound variables
             let saved_vars = self.match_bound_vars.clone();
 
             // Analyze pattern and bind variables
             match pattern {
                 Expr::Identifier(name, _) if name == "_" => {
-                    // Wildcard pattern matches anything
+                    // Check for unreachable patterns after wildcard
+                    if has_wildcard {
+                        return Err(Error::new_semantic(
+                            format!("Unreachable pattern: wildcard already exists at arm {}", wildcard_position.unwrap()),
+                            pattern.span(),
+                        ));
+                    }
+                    has_wildcard = true;
+                    wildcard_position = Some(i);
                 }
                 Expr::EnumVariantOrMethodCall { target, call, args, .. } => {
+                    // Check for unreachable patterns after wildcard
+                    if has_wildcard {
+                        return Err(Error::new_semantic(
+                            format!("Unreachable pattern: wildcard already covers this case at arm {}", wildcard_position.unwrap()),
+                            pattern.span(),
+                        ));
+                    }
+
                     if let Expr::Identifier(enum_type, _) = &**target {
                         if let Some(ref expected_enum) = enum_name {
                             if enum_type != expected_enum {
@@ -768,6 +786,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     pattern.span(),
                                 ));
                             }
+                        }
+
+                        // Check for duplicate patterns
+                        if matched_variants.contains(call) {
+                            return Err(Error::new_semantic(
+                                format!("Duplicate pattern: enum variant '{}::{}' already matched", enum_type, call),
+                                pattern.span(),
+                            ));
                         }
 
                         // Track this variant as matched
@@ -809,10 +835,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Check for exhaustiveness (only for enums for now)
         if let Some(enum_name) = enum_name {
             if let Some(enum_variants) = self.enums.get(&enum_name) {
-                let has_wildcard = arms.iter().any(|(pattern, _)| {
-                    matches!(pattern, Expr::Identifier(name, _) if name == "_")
-                });
-
+                // Use the tracked wildcard instead of re-scanning
                 if !has_wildcard {
                     for variant_name in enum_variants.keys() {
                         if !matched_variants.contains(variant_name) {
