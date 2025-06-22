@@ -48,6 +48,31 @@ impl SemanticVisitor {
         self.visit_statements(stmts)?;
         Ok(())
     }
+
+    /// Visit a list of statements without creating a new scope
+    /// Used for if-else blocks that should share the same scope as their parent
+    fn visit_statements_no_scope(&mut self, stmts: &[Stmt]) -> Result<Type> {
+        let mut result_type = Type::Unit;
+        
+        // Visit all statements
+        for (i, stmt) in stmts.iter().enumerate() {
+            let is_last = i == stmts.len() - 1;
+            
+            match stmt {
+                // If the last statement is an expression without semicolon,
+                // return that expression's type
+                Stmt::Expression(expr, false) if is_last => {
+                    result_type = self.visit_expr(expr)?;
+                }
+                // Otherwise, just visit the statement normally
+                _ => {
+                    self.visit_stmt(stmt)?;
+                }
+            }
+        }
+        
+        Ok(result_type)
+    }
     
     /// Get the collected type information for AST transformation
     pub fn get_type_info(&self) -> (
@@ -715,8 +740,8 @@ impl AstVisitor<Type> for SemanticVisitor {
             ));
         }
 
-        // Analyze then block and get its type
-        let then_type = self.visit_block(then_block, _span)?;
+        // Analyze then block and get its type (without creating new scope)
+        let then_type = self.visit_statements_no_scope(then_block)?;
 
         // If there's no else block, the if expression can only return Unit
         if else_block.is_empty() {
@@ -730,8 +755,8 @@ impl AstVisitor<Type> for SemanticVisitor {
             return Ok(Type::Unit);
         }
 
-        // Analyze else block and get its type
-        let else_type = self.visit_block(else_block, _span)?;
+        // Analyze else block and get its type (without creating new scope)
+        let else_type = self.visit_statements_no_scope(else_block)?;
 
         // Both branches must return the same type for if expression
         if then_type != else_type {

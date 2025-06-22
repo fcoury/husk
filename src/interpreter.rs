@@ -217,6 +217,39 @@ impl InterpreterVisitor {
         Ok(last_value)
     }
 
+    /// Visit a list of statements without creating a new scope
+    /// Used for if-else blocks that should share the same scope as their parent
+    fn visit_statements_no_scope(&mut self, stmts: &[Stmt]) -> Result<Value> {
+        let mut result_value = Value::Unit;
+        
+        // Visit all statements
+        for (i, stmt) in stmts.iter().enumerate() {
+            let is_last = i == stmts.len() - 1;
+            
+            match stmt {
+                // If the last statement is an expression without semicolon,
+                // return that expression's value
+                Stmt::Expression(expr, false) if is_last => {
+                    result_value = self.visit_expr(expr)?;
+                }
+                // Otherwise, just visit the statement normally
+                _ => {
+                    self.visit_stmt(stmt)?;
+                }
+            }
+            
+            // Check for control flow changes
+            match self.control_flow {
+                ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => {
+                    return Ok(Value::Unit);
+                }
+                ControlFlow::Normal => {}
+            }
+        }
+        
+        Ok(result_value)
+    }
+
     /// Get a variable from the environment
     fn get_var(&self, name: &str) -> Option<Value> {
         self.environment.get(name)
@@ -771,15 +804,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> Result<Value> {
+    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<Value> {
         let condition_val = self.visit_expr(condition)?;
         
         match condition_val {
             Value::Bool(true) => {
-                self.visit_block(then_block, span)
+                self.visit_statements_no_scope(then_block)
             }
             Value::Bool(false) => {
-                self.visit_block(else_block, span)
+                self.visit_statements_no_scope(else_block)
             }
             _ => Err(Error::new_runtime(
                 "If condition must be a boolean".to_string(),
