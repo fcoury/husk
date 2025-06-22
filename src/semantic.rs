@@ -4,21 +4,22 @@ use crate::{
     error::{Error, Result},
     parser::{Expr, Operator, Stmt},
     span::Span,
+    types::{Type, TypeEnvironment},
 };
 
 pub struct SemanticAnalyzer {
-    symbol_table: HashMap<String, String>, // Variable name to type mapping
-    structs: HashMap<String, HashMap<String, String>>, // Struct name to field name to type mapping
-    functions: HashMap<String, (Vec<(String, String)>, String, Span)>, // Function name to parameter types mapping
-    enums: HashMap<String, HashMap<String, String>>, // Enum name to variant name to type mapping
-    match_bound_vars: HashMap<String, String>,       // Variable name to type mapping for match arms
+    type_env: TypeEnvironment,
+    structs: HashMap<String, HashMap<String, Type>>, // Struct name to field name to type mapping
+    functions: HashMap<String, (Vec<(String, Type)>, Type, Span)>, // Function name to parameter types mapping
+    enums: HashMap<String, HashMap<String, Option<Type>>>, // Enum name to variant name to type mapping
+    match_bound_vars: HashMap<String, Type>, // Variable name to type mapping for match arms
     loop_depth: u32,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         let mut analyzer = SemanticAnalyzer {
-            symbol_table: HashMap::new(),
+            type_env: TypeEnvironment::new(),
             structs: HashMap::new(),
             functions: HashMap::new(),
             enums: HashMap::new(),
@@ -32,11 +33,11 @@ impl SemanticAnalyzer {
     fn init_standard_library(&mut self) {
         self.functions.insert(
             "print".to_string(),
-            (vec![], "void".to_string(), Span { start: 0, end: 0 }),
+            (vec![], Type::Unit, Span { start: 0, end: 0 }),
         );
         self.functions.insert(
             "println".to_string(),
-            (vec![], "void".to_string(), Span { start: 0, end: 0 }),
+            (vec![], Type::Unit, Span { start: 0, end: 0 }),
         );
     }
 
@@ -51,26 +52,44 @@ impl SemanticAnalyzer {
         match stmt {
             Stmt::Let(name, expr, _span) => {
                 let expr_type = self.analyze_expr(expr)?;
-                self.symbol_table.insert(name.clone(), expr_type);
+                self.type_env.define(name.clone(), expr_type);
                 Ok(())
             }
             Stmt::Struct(name, fields, _span) => {
-                self.symbol_table.insert(name.clone(), "struct".to_string());
+                self.type_env.define(
+                    name.clone(),
+                    Type::Struct {
+                        name: name.clone(),
+                        fields: vec![], // Fields stored separately for now
+                    },
+                );
 
                 let mut struct_fields = HashMap::new();
-                for (field_name, field_type) in fields {
-                    struct_fields.insert(field_name.clone(), field_type.clone());
+                for (field_name, field_type_str) in fields {
+                    let field_type = Type::from_string(field_type_str).unwrap_or(Type::Unknown);
+                    struct_fields.insert(field_name.clone(), field_type);
                 }
 
                 self.structs.insert(name.clone(), struct_fields);
                 Ok(())
             }
             Stmt::Enum(name, variants, _span) => {
-                self.symbol_table.insert(name.clone(), "enum".to_string());
+                self.type_env.define(
+                    name.clone(),
+                    Type::Enum {
+                        name: name.clone(),
+                        variants: HashMap::new(), // Variants stored separately for now
+                    },
+                );
 
                 let mut enum_variants = HashMap::new();
-                for (name, typ) in variants {
-                    enum_variants.insert(name.to_string(), typ.to_string());
+                for (variant_name, variant_type_str) in variants {
+                    let variant_type = if variant_type_str == "unit" {
+                        None
+                    } else {
+                        Some(Type::from_string(variant_type_str).unwrap_or(Type::Unknown))
+                    };
+                    enum_variants.insert(variant_name.to_string(), variant_type);
                 }
 
                 self.enums.insert(name.clone(), enum_variants);
@@ -88,23 +107,33 @@ impl SemanticAnalyzer {
                     if let Some(first_param) = params.get(0) {
                         if &first_param.1 != "self" {
                             // static method
+                            let param_types: Vec<(String, Type)> = params
+                                .iter()
+                                .map(|(name, type_str)| {
+                                    (
+                                        name.clone(),
+                                        Type::from_string(type_str).unwrap_or(Type::Unknown),
+                                    )
+                                })
+                                .collect();
+                            let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
                             self.functions.insert(
                                 format!("{}::{}", struct_name, name.clone()),
-                                (params.clone(), return_type.clone(), *span),
+                                (param_types, ret_type, *span),
                             );
                             continue;
                         }
                     }
 
-                    let signature = format!(
-                        "Fn({}) -> {}",
-                        params
-                            .iter()
-                            .map(|(_, t)| t.clone())
-                            .collect::<Vec<String>>()
-                            .join(", "),
-                        return_type.clone()
-                    );
+                    let param_types: Vec<Type> = params
+                        .iter()
+                        .map(|(_, type_str)| Type::from_string(type_str).unwrap_or(Type::Unknown))
+                        .collect();
+                    let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                    let signature = Type::Function {
+                        params: param_types,
+                        return_type: Box::new(ret_type),
+                    };
                     self.structs.get_mut(struct_name).expect(
                             "struct exists in symbol table with type struct but not in structs hashmap",
                         )
@@ -114,15 +143,25 @@ impl SemanticAnalyzer {
                 Ok(())
             }
             Stmt::Function(name, params, return_type, body, span) => {
-                let param_types: Vec<(String, String)> = params.clone();
-                self.functions.insert(
-                    name.clone(),
-                    (param_types.clone(), return_type.clone(), *span),
-                );
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|(name, type_str)| {
+                        (
+                            name.clone(),
+                            Type::from_string(type_str).unwrap_or(Type::Unknown),
+                        )
+                    })
+                    .collect();
+                let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                self.functions
+                    .insert(name.clone(), (param_types.clone(), ret_type.clone(), *span));
 
-                // Add parameters to the symbol table
-                for (param, param_type) in params {
-                    self.symbol_table.insert(param.clone(), param_type.clone());
+                // Create new scope for function body
+                self.type_env.push_scope();
+
+                // Add parameters to the type environment
+                for (param_name, param_type) in &param_types {
+                    self.type_env.define(param_name.clone(), param_type.clone());
                 }
 
                 // Analyze function body
@@ -133,21 +172,22 @@ impl SemanticAnalyzer {
                 // Check if return type matches the last expression in the body (if any)
                 if let Some(Stmt::Expression(expr)) = body.last() {
                     let expr_type = self.analyze_expr(expr)?;
-                    if &expr_type != return_type {
+                    if expr_type != ret_type {
+                        self.type_env.pop_scope(); // Clean up before returning error
                         return Err(Error::new_semantic(
                             format!(
                                 "Function {} return type mismatch: expected {}, found {}",
-                                name, return_type, expr_type
+                                name,
+                                ret_type.to_string(),
+                                expr_type.to_string()
                             ),
                             *span,
                         ));
                     }
                 }
 
-                // Remove parameters from the symbol table after analysis
-                for (param, _) in params {
-                    self.symbol_table.remove(param);
-                }
+                // Clean up scope
+                self.type_env.pop_scope();
 
                 Ok(())
             }
@@ -168,27 +208,24 @@ impl SemanticAnalyzer {
             }
             Stmt::ForLoop(variable, iterable, body, span) => {
                 let iterable_type = self.analyze_expr(iterable)?;
-                if !iterable_type.starts_with("array<") && iterable_type != "range" {
-                    return Err(Error::new_semantic(
-                        format!(
-                            "For loop iterable must be an array or range, found: {}",
-                            iterable_type
-                        ),
-                        *span,
-                    ));
-                }
 
-                let element_type = if iterable_type.starts_with("array<") {
-                    iterable_type
-                        .trim_start_matches("array<")
-                        .trim_end_matches('>')
-                        .to_string()
-                } else {
-                    "int".to_string() // Range elements are always integers
+                let element_type = match &iterable_type {
+                    Type::Array(inner) => (**inner).clone(),
+                    Type::Range => Type::Int,
+                    _ => {
+                        return Err(Error::new_semantic(
+                            format!(
+                                "For loop iterable must be an array or range, found: {}",
+                                iterable_type.to_string()
+                            ),
+                            *span,
+                        ));
+                    }
                 };
 
                 // Create a new scope for the loop body
-                self.symbol_table.insert(variable.clone(), element_type);
+                self.type_env.push_scope();
+                self.type_env.define(variable.clone(), element_type);
 
                 self.loop_depth += 1;
                 for stmt in body {
@@ -196,18 +233,18 @@ impl SemanticAnalyzer {
                 }
                 self.loop_depth -= 1;
 
-                // Remove the loop variable from the symbol table after analyzing the body
-                self.symbol_table.remove(variable);
+                // Clean up scope
+                self.type_env.pop_scope();
 
                 Ok(())
             }
             Stmt::While(condition, body, span) => {
                 let condition_type = self.analyze_expr(condition)?;
-                if condition_type != "bool" {
+                if condition_type != Type::Bool {
                     return Err(Error::new_semantic(
                         format!(
                             "While condition must be a boolean, found {}",
-                            condition_type
+                            condition_type.to_string()
                         ),
                         *span,
                     ));
@@ -254,7 +291,8 @@ impl SemanticAnalyzer {
     fn analyze_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: Span) -> Result<()> {
         let expr_type = self.analyze_expr(expr)?;
 
-        if let Some(variants) = self.enums.get(&expr_type).cloned() {
+        if let Type::Enum { name: enum_name, .. } = &expr_type {
+            if let Some(variants) = self.enums.get(enum_name).cloned() {
             let mut covered_variants = HashSet::new();
             let mut has_wildcard = false;
 
@@ -271,7 +309,7 @@ impl SemanticAnalyzer {
                             return Err(Error::new_semantic(
                                 format!(
                                     "Mismatched type in match arm. Expected {}, found {}",
-                                    expr_type, actual_type
+                                    expr_type.to_string(), actual_type.to_string()
                                 ),
                                 *pattern_span,
                             ));
@@ -282,7 +320,7 @@ impl SemanticAnalyzer {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Unknown variant `{}` for enum `{}`",
-                                        call, actual_type
+                                        call, actual_type.to_string()
                                     ),
                                     *pattern_span,
                                 ));
@@ -298,9 +336,9 @@ impl SemanticAnalyzer {
                             covered_variants.insert(call);
 
                             if let Some(expected_type) = variants.get(call) {
-                                match (expected_type.as_str(), args.get(0)) {
-                                    ("unit", None) => {} // Unit variant, no value expected
-                                    (_, Some(value_expr)) => {
+                                match (expected_type, args.get(0)) {
+                                    (None, None) => {} // Unit variant, no value expected
+                                    (Some(expected_type), Some(value_expr)) => {
                                         if let Expr::Identifier(var_name, _) = value_expr {
                                             self.match_bound_vars
                                                 .insert(var_name.clone(), expected_type.clone());
@@ -312,11 +350,20 @@ impl SemanticAnalyzer {
                                             ));
                                         }
                                     }
-                                    (_, None) => {
+                                    (Some(expected_type), None) => {
                                         return Err(Error::new_semantic(
                                             format!(
                                                 "Missing value for variant {}. Expected type {}",
-                                                call, expected_type
+                                                call, expected_type.to_string()
+                                            ),
+                                            *pattern_span,
+                                        ));
+                                    }
+                                    (None, Some(_)) => {
+                                        return Err(Error::new_semantic(
+                                            format!(
+                                                "Unexpected value for unit variant {}",
+                                                call
                                             ),
                                             *pattern_span,
                                         ));
@@ -365,6 +412,13 @@ impl SemanticAnalyzer {
                     span,
                 ));
             }
+            } else {
+                // Enum type but no variants found - shouldn't happen
+                return Err(Error::new_semantic(
+                    format!("Internal error: enum {} has no variants", enum_name),
+                    span,
+                ));
+            }
         } else {
             // Handle non-enum matches
             let has_wildcard = arms
@@ -390,28 +444,33 @@ impl SemanticAnalyzer {
     }
 
     // returns enum name, enum variant, expr
-    fn enum_info(&self, expr: &Expr) -> Result<Option<(String, &HashMap<String, String>)>> {
-        let name = self.analyze_expr(expr)?;
+    fn enum_info(&self, expr: &Expr) -> Result<Option<(String, &HashMap<String, Option<Type>>)>> {
+        let expr_type = self.analyze_expr(expr)?;
 
-        if let Some(variants) = self.enums.get(&name) {
-            return Ok(Some((name, variants)));
+        if let Type::Enum { name, .. } = expr_type {
+            if let Some(variants) = self.enums.get(&name) {
+                return Ok(Some((name, variants)));
+            }
         }
 
         Ok(None)
     }
 
-    fn analyze_expr(&self, expr: &Expr) -> Result<String> {
+    fn analyze_expr(&self, expr: &Expr) -> Result<Type> {
         match expr {
-            Expr::Int(_, _) => Ok("int".to_string()),
-            Expr::Float(_, _) => Ok("float".to_string()),
-            Expr::Bool(_, _) => Ok("bool".to_string()),
-            Expr::String(_, _) => Ok("string".to_string()),
+            Expr::Int(_, _) => Ok(Type::Int),
+            Expr::Float(_, _) => Ok(Type::Float),
+            Expr::Bool(_, _) => Ok(Type::Bool),
+            Expr::String(_, _) => Ok(Type::String),
             Expr::Identifier(name, span) => {
                 if let Some(_) = self.enums.get(name) {
-                    Ok(name.clone())
+                    Ok(Type::Enum {
+                        name: name.clone(),
+                        variants: HashMap::new(), // Variants stored separately
+                    })
                 } else if let Some(var_type) = self.match_bound_vars.get(name) {
                     Ok(var_type.clone())
-                } else if let Some(var_type) = self.symbol_table.get(name) {
+                } else if let Some(var_type) = self.type_env.lookup(name) {
                     Ok(var_type.clone())
                 } else {
                     Err(Error::new_semantic(
@@ -430,19 +489,40 @@ impl SemanticAnalyzer {
                     return if let Some(variant_type) = variants.get(call) {
                         // If there's an associated value, analyze it
                         // TODO: handle > 1 associated values
-                        if let Some(value_expr) = args.get(0) {
-                            let value_type = self.analyze_expr(value_expr)?;
-                            if value_type != *variant_type {
+                        match (variant_type, args.get(0)) {
+                            (Some(expected_type), Some(value_expr)) => {
+                                let value_type = self.analyze_expr(value_expr)?;
+                                if value_type != *expected_type {
+                                    return Err(Error::new_semantic(
+                                        format!(
+                                            "Type mismatch for enum variant: expected {}, found {}",
+                                            expected_type.to_string(), value_type.to_string()
+                                        ),
+                                        *span,
+                                    ));
+                                }
+                            }
+                            (None, None) => {} // Unit variant
+                            (Some(expected_type), None) => {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "Type mismatch for enum variant: expected {}, found {}",
-                                        variant_type, value_type
+                                        "Missing value for variant {}. Expected type {}",
+                                        call, expected_type.to_string()
                                     ),
                                     *span,
                                 ));
                             }
+                            (None, Some(_)) => {
+                                return Err(Error::new_semantic(
+                                    format!("Unexpected value for unit variant {}", call),
+                                    *span,
+                                ));
+                            }
                         }
-                        Ok(name.clone())
+                        Ok(Type::Enum {
+                            name: name.clone(),
+                            variants: HashMap::new(), // Variants stored separately
+                        })
                     } else {
                         Err(Error::new_semantic(
                             format!("Undefined variant {} for enum {}", call, name),
@@ -468,7 +548,7 @@ impl SemanticAnalyzer {
                             return Err(Error::new_semantic(
                                 format!(
                                     "Type mismatch in function call {}: expected {} for parameter {}, found {}",
-                                    function_name, param_type, param_name, arg_type
+                                    function_name, param_type.to_string(), param_name, arg_type.to_string()
                                 ),
                                 *span,
                             ));
@@ -481,7 +561,7 @@ impl SemanticAnalyzer {
                     //         *span,
                     //     ))
                 }
-                Ok("".to_string())
+                Ok(Type::Unknown) // No matching function or enum variant found
             }
             Expr::BinaryOp(left, op, right, span) => {
                 let left_type = self.analyze_expr(left)?;
@@ -492,13 +572,16 @@ impl SemanticAnalyzer {
                     | Operator::LessThanEquals
                     | Operator::GreaterThan
                     | Operator::GreaterThanEquals => {
-                        if (left_type == "int" || left_type == "float") && left_type == right_type {
-                            Ok("bool".to_string())
+                        if (left_type == Type::Int || left_type == Type::Float)
+                            && left_type == right_type
+                        {
+                            Ok(Type::Bool)
                         } else {
                             Err(Error::new_semantic(
                                 format!(
                                     "Invalid types for comparison: {} and {}",
-                                    left_type, right_type
+                                    left_type.to_string(),
+                                    right_type.to_string()
                                 ),
                                 *span,
                             ))
@@ -510,7 +593,11 @@ impl SemanticAnalyzer {
                             Ok(left_type)
                         } else {
                             Err(Error::new_semantic(
-                                format!("Type mismatch: {} and {}", left_type, right_type),
+                                format!(
+                                    "Type mismatch: {} and {}",
+                                    left_type.to_string(),
+                                    right_type.to_string()
+                                ),
                                 *span,
                             ))
                         }
@@ -527,7 +614,8 @@ impl SemanticAnalyzer {
                     Err(Error::new_semantic(
                         format!(
                             "Type mismatch in assignment: expected {}, found {}",
-                            expected_type, actual_type
+                            expected_type.to_string(),
+                            actual_type.to_string()
                         ),
                         *span,
                     ))
@@ -543,7 +631,8 @@ impl SemanticAnalyzer {
                     Err(Error::new_semantic(
                         format!(
                             "Type mismatch in compound assignment: expected {}, found {}",
-                            expected_type, actual_type
+                            expected_type.to_string(),
+                            actual_type.to_string()
                         ),
                         *span,
                     ))
@@ -569,7 +658,7 @@ impl SemanticAnalyzer {
                                 return Err(Error::new_semantic(
                                 format!(
                                     "Type mismatch in function call {}: expected {} for parameter {}, found {}",
-                                    name, param_type, param_name, arg_type
+                                    name, param_type.to_string(), param_name, arg_type.to_string()
                                 ),
                                 *span,
                             ));
@@ -580,18 +669,18 @@ impl SemanticAnalyzer {
                 } else {
                     if name.contains(".") {
                         let (target, method_name) = name.split_at(name.find('.').unwrap());
-                        if let Some(target_type) = self.symbol_table.get(target) {
-                            let target_struct = self.structs.get(target_type).expect(
-                                "struct exists in symbol table with type struct but not in structs hashmap",
-                            );
-
-                            if let Some(method_type) = target_struct.get(&method_name[1..]) {
-                                return Ok(method_type.clone());
-                            } else {
-                                return Err(Error::new_semantic(
-                                    format!("Undefined method: {}", method_name),
-                                    *span,
-                                ));
+                        if let Some(target_type) = self.type_env.lookup(target) {
+                            if let Type::Struct { name: struct_name, .. } = target_type {
+                                if let Some(target_struct) = self.structs.get(struct_name) {
+                                    if let Some(method_type) = target_struct.get(&method_name[1..]) {
+                                        return Ok(method_type.clone());
+                                    } else {
+                                        return Err(Error::new_semantic(
+                                            format!("Undefined method: {}", method_name),
+                                            *span,
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
@@ -603,18 +692,21 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::StructInit(name, fields, span) => {
-                let Some(symbol_type) = self.symbol_table.get(name) else {
+                let Some(symbol_type) = self.type_env.lookup(name) else {
                     return Err(Error::new_semantic(
                         format!("Undefined struct: {}", name),
                         *span,
                     ));
                 };
 
-                if symbol_type != "struct" {
-                    return Err(Error::new_semantic(
-                        format!("Type mismatch: expected struct, found {}", symbol_type),
-                        *span,
-                    ));
+                match symbol_type {
+                    Type::Struct { .. } => {},
+                    _ => {
+                        return Err(Error::new_semantic(
+                            format!("Type mismatch: expected struct, found {}", symbol_type.to_string()),
+                            *span,
+                        ));
+                    }
                 }
 
                 let struct_fields = self.structs.get(name).expect(
@@ -643,36 +735,50 @@ impl SemanticAnalyzer {
                     if found_type != *expected_type {
                         return Err(Error::new_semantic(
                             format!(
-                                "Type mismatch in {name}: field '{field_name}' should be {expected_type}, found {found_type}"
+                                "Type mismatch in {name}: field '{field_name}' should be {}, found {}",
+                                expected_type.to_string(), found_type.to_string()
                             ),
                             *span,
                         ));
                     }
                 }
-                Ok(name.clone())
+                Ok(Type::Struct {
+                    name: name.clone(),
+                    fields: vec![], // Fields stored separately
+                })
             }
             Expr::MemberAccess(struct_expr, field_name, span) => {
                 let struct_type = self.analyze_expr(struct_expr)?;
 
-                let Some(struct_fields) = self.structs.get(&struct_type) else {
-                    return Err(Error::new_semantic(
-                        format!("Undefined struct: {}", struct_type),
-                        *span,
-                    ));
-                };
+                match struct_type {
+                    Type::Struct { name: struct_name, .. } => {
+                        let Some(struct_fields) = self.structs.get(&struct_name) else {
+                            return Err(Error::new_semantic(
+                                format!("Undefined struct: {}", struct_name),
+                                *span,
+                            ));
+                        };
 
-                if let Some(field_type) = struct_fields.get(field_name) {
-                    Ok(field_type.clone())
-                } else {
-                    return Err(Error::new_semantic(
-                        format!("Undefined field: {}", field_name),
-                        *span,
-                    ));
+                        if let Some(field_type) = struct_fields.get(field_name) {
+                            Ok(field_type.clone())
+                        } else {
+                            return Err(Error::new_semantic(
+                                format!("Undefined field: {}", field_name),
+                                *span,
+                            ));
+                        }
+                    }
+                    _ => {
+                        Err(Error::new_semantic(
+                            format!("Cannot access field on non-struct type: {}", struct_type.to_string()),
+                            *span,
+                        ))
+                    }
                 }
             }
             Expr::Array(elements, span) => {
                 if elements.is_empty() {
-                    return Ok("array".to_string());
+                    return Ok(Type::Array(Box::new(Type::Unknown)));
                 }
                 let first_element_type = self.analyze_expr(&elements[0])?;
                 for element in elements.iter().skip(1) {
@@ -681,61 +787,67 @@ impl SemanticAnalyzer {
                         return Err(Error::new_semantic(
                             format!(
                                 "Inconsistent array element types: expected {}, found {}",
-                                first_element_type, element_type
+                                first_element_type.to_string(),
+                                element_type.to_string()
                             ),
                             *span,
                         ));
                     }
                 }
-                Ok(format!("array<{}>", first_element_type))
+                Ok(Type::Array(Box::new(first_element_type)))
             }
             Expr::ArrayIndex(array_expr, index_expr, span) => {
                 let array_type = self.analyze_expr(array_expr)?;
                 let index_type = self.analyze_expr(index_expr)?;
 
-                if !array_type.starts_with("array<") {
-                    return Err(Error::new_semantic(
+                match &array_type {
+                    Type::Array(element_type) => {
+                        if index_type != Type::Int && index_type != Type::Range {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "Array index must be of type int, found: {}",
+                                    index_type.to_string()
+                                ),
+                                *span,
+                            ));
+                        }
+                        Ok((**element_type).clone())
+                    }
+                    _ => Err(Error::new_semantic(
                         format!(
                             "Cannot perform array access on non-array type: {}",
-                            array_type
+                            array_type.to_string()
                         ),
                         *span,
-                    ));
+                    )),
                 }
-
-                if index_type != "int" && index_type != "range" {
-                    return Err(Error::new_semantic(
-                        format!("Array index must be of type int, found: {}", index_type),
-                        *span,
-                    ));
-                }
-
-                // Extract the element type from array<T>
-                let element_type = array_type
-                    .trim_start_matches("array<")
-                    .trim_end_matches('>');
-                Ok(element_type.to_string())
             }
             Expr::Range(start, end, _, span) => {
                 if let Some(start) = start {
                     let start_type = self.analyze_expr(start)?;
-                    if start_type != "int" {
+                    if start_type != Type::Int {
                         return Err(Error::new_semantic(
-                            format!("Range start must be of type int, found: {}", start_type),
+                            format!(
+                                "Range start must be of type int, found: {}",
+                                start_type.to_string()
+                            ),
                             *span,
                         ));
                     }
                 }
                 if let Some(end) = end {
                     let end_type = self.analyze_expr(end)?;
-                    if end_type != "int" {
+                    if end_type != Type::Int {
                         return Err(Error::new_semantic(
-                            format!("Range end must be of type int, found: {}", end_type),
+                            format!(
+                                "Range end must be of type int, found: {}",
+                                end_type.to_string()
+                            ),
                             *span,
                         ));
                     }
                 }
-                Ok("range".to_string())
+                Ok(Type::Range)
             } // Expr::EnumVariantOrMethodCall {
               //     target,
               //     call,

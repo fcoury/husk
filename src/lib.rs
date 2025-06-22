@@ -1,3 +1,4 @@
+mod ast;
 mod error;
 mod interpreter;
 mod lexer;
@@ -6,6 +7,7 @@ mod repl;
 mod semantic;
 mod span;
 mod transpiler;
+mod types;
 
 pub use error::{Error, Result};
 pub use interpreter::{Interpreter, Value};
