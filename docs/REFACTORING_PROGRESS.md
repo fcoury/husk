@@ -176,6 +176,11 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Implemented recursive function calls
+  - Fixed semantic analyzer to register functions before analyzing body (semantic.rs:549-553)
+  - Fixed interpreter to store functions in global environment for universal access
+  - Enhanced function execution to preserve function access during recursive calls
+  - All recursive function tests now pass: factorial(0-5), countdown functions
 - **2025-01-22**: Implemented expression blocks
   - Added Block variant to Expr enum
   - Updated parser to support blocks as expressions (`{ ... }`)

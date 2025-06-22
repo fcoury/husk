@@ -175,9 +175,12 @@ The visitor pattern is now complete, providing a clean foundation for expression
 ### Phase 3: AST Unification (Optional, 2-3 weeks)
 
 #### 3.1 Merge Stmt and Expr
+- [ ] Consider unifying statements and expressions into single AST node type
 - [ ] Create unified `Expr` type
 - [ ] Update all consumers
 - [ ] Simplify visitor pattern
+
+**Note**: This has been added to the todo list as medium priority for future consideration. Since everything now returns a type/value (even Unit), the distinction between statements and expressions is becoming artificial.
 
 ## Migration Strategy
 
@@ -264,6 +267,10 @@ The visitor pattern is now complete, providing a clean foundation for expression
   - Successfully modified AST and parser
   - All tests passing with new semicolon boolean
   - Ready to proceed with block expressions
+- **2025-01-22**: Completed recursive function implementation
+  - Fixed critical issue with function calls not finding themselves during recursion
+  - Functions now properly stored in global environment for universal access
+  - All recursive function tests pass (factorial, countdown, etc.)
 - **2024-12-29**: Changed implementation order - Visitor pattern first
   - Analyzed trade-offs of direct modification vs visitor pattern
   - Determined visitor pattern will make expression-based changes cleaner
