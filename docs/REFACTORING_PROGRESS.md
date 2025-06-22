@@ -56,12 +56,12 @@ This document tracks the progress of the Husk language refactoring effort based 
 
 ## 🆕 Phase 1.5: Expression-Based Language Transformation (Added)
 
-**Status**: Planning Complete (see `EXPRESSION_BASED_LANGUAGE_PLAN.md`)
+**Status**: In Progress (see `EXPRESSION_BASED_LANGUAGE_PLAN.md`)
 
 This is a major architectural change to make Husk a fully expression-based language like Rust. This wasn't in the original plan but is crucial for achieving Rust-like semantics.
 
-### Core Expression Semantics (0% Complete)
-- [ ] Add semicolon tracking to AST and Parser
+### Core Expression Semantics (14% Complete - 1/7 tasks)
+- [x] Add semicolon tracking to AST and Parser ✅
 - [ ] Update parser for expression blocks
 - [ ] Make all Stmt analysis return Type
 - [ ] Implement block type inference
@@ -166,6 +166,11 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2024-12-29**: Completed semicolon tracking implementation - first step of Expression-Based Language transformation
+  - Modified `Stmt::Expression` to include boolean for semicolon presence
+  - Updated parser to track semicolons in expression statements
+  - Updated all pattern matches across semantic analyzer, interpreter, transpiler, and visitor
+  - All tests updated and passing
 - **2024-12-29**: Added Phase 1.5 for Expression-Based Language transformation. This is a fundamental change to make Husk more Rust-like and takes priority over the visitor pattern completion.
 - **2024-12-29**: Visitor pattern implementation started but put on hold pending expression-based language changes.
 
