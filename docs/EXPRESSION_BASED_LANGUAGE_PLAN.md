@@ -109,6 +109,21 @@ This provides the foundation for implementing expression semantics where semicol
 
 ## Implementation Plan
 
+### Prerequisites: Complete Visitor Pattern First (NEW - 2024-12-29)
+
+After analyzing the complexity of expression-based transformations, we've decided to complete the visitor pattern implementation first. This will provide:
+- Centralized AST traversal logic
+- Easier implementation of consistent semantics
+- Better separation of concerns
+- Cleaner code for complex transformations
+
+**Visitor Pattern Tasks:**
+1. Refactor semantic analyzer to use visitor pattern
+2. Refactor interpreter to use visitor pattern  
+3. Refactor transpiler to use visitor pattern
+
+Once the visitor pattern is complete, we'll resume the expression-based language implementation with a much cleaner foundation.
+
 ### Phase 1: Core Expression Semantics (2-3 weeks)
 
 #### 1.1 Update AST and Parser ✅ (50% Complete)
@@ -249,3 +264,8 @@ This provides the foundation for implementing expression semantics where semicol
   - Successfully modified AST and parser
   - All tests passing with new semicolon boolean
   - Ready to proceed with block expressions
+- **2024-12-29**: Changed implementation order - Visitor pattern first
+  - Analyzed trade-offs of direct modification vs visitor pattern
+  - Determined visitor pattern will make expression-based changes cleaner
+  - Pausing expression-based work to complete visitor pattern
+  - This will provide better foundation for complex AST transformations
