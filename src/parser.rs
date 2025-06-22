@@ -297,6 +297,7 @@ pub enum Stmt {
     Loop(Vec<Stmt>, Span),
     Break(Span),
     Continue(Span),
+    Return(Option<Expr>, Span),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -361,6 +362,7 @@ impl Parser {
             TokenKind::Loop => self.parse_loop_statement(),
             TokenKind::Break => self.parse_break(),
             TokenKind::Continue => self.parse_continue(),
+            TokenKind::Return => self.parse_return(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -409,6 +411,33 @@ impl Parser {
         }
         self.advance(); // Consume ';'
         Ok(Stmt::Continue(span))
+    }
+
+    fn parse_return(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'return'
+        
+        // Check if this is `return;` (no expression)
+        if self.current_token().kind == TokenKind::Semicolon {
+            let end_span = self.current_token().span.end;
+            self.advance(); // Consume ';'
+            return Ok(Stmt::Return(None, Span::new(start_span, end_span)));
+        }
+        
+        // Parse return expression
+        let expr = self.parse_expression()?;
+        let end_span = self.current_token().span.end;
+        
+        // Expect semicolon after return expression
+        if self.current_token().kind != TokenKind::Semicolon {
+            return Err(Error::new_parse(
+                "Expected ';' after return expression".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume ';'
+        
+        Ok(Stmt::Return(Some(expr), Span::new(start_span, end_span)))
     }
 
     fn parse_for_loop(&mut self) -> Result<Stmt> {

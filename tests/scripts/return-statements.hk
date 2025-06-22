@@ -1,0 +1,55 @@
+// Test return statements
+
+// Basic return with value
+fn return_value() -> int {
+    return 42;
+}
+
+// Basic return without value
+fn return_unit() -> unit {
+    return;
+}
+
+// Early return in conditional
+fn early_return(x: int) -> string {
+    if x == 0 {
+        return "zero";
+    }
+    if x == 1 {
+        return "one";
+    }
+    "other"
+}
+
+// Mixed returns and expressions
+fn mixed_returns(x: int) -> string {
+    if x < 0 {
+        return "negative";
+    }
+    if x == 0 {
+        return "zero";
+    }
+    "positive"  // expression return
+}
+
+// Return in nested blocks
+fn nested_return(x: int) -> int {
+    if x > 0 {
+        if x > 10 {
+            return 100;
+        }
+        return 10;
+    }
+    0
+}
+
+// Test all functions
+println("return_value() =", return_value());
+return_unit();
+println("early_return(0) =", early_return(0));
+println("early_return(1) =", early_return(1));
+println("early_return(2) =", early_return(2));
+println("mixed_returns(0) =", mixed_returns(0));
+println("nested_return(15) =", nested_return(15));
+println("nested_return(5) =", nested_return(5));
+println("nested_return(0) =", nested_return(0));
