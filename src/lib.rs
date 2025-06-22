@@ -5,6 +5,7 @@ mod lexer;
 mod parser;
 mod repl;
 mod semantic;
+mod semantic_visitor;
 mod span;
 mod transpiler;
 mod types;
