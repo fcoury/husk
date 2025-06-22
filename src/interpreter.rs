@@ -971,8 +971,8 @@ impl AstVisitor<Value> for InterpreterVisitor {
     }
 
     fn visit_block(&mut self, stmts: &[Stmt], _span: &Span) -> Result<Value> {
-        // TODO: In the future, we should implement proper scoping for blocks
-        // For now, we'll execute statements in the current scope
+        // Implement proper scoping for blocks
+        let saved_env = self.push_scope();
         
         let mut block_value = Value::Unit;
         
@@ -994,6 +994,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     match self.control_flow {
                         ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => {
                             // If we hit a break/continue/return, stop executing and bubble up
+                            self.pop_scope(saved_env);
                             return Ok(Value::Unit);
                         }
                         ControlFlow::Normal => {}
@@ -1001,6 +1002,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
         }
+        
+        // Restore the previous scope
+        self.pop_scope(saved_env);
         
         Ok(block_value)
     }

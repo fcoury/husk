@@ -132,22 +132,23 @@ The visitor pattern is now complete, providing a clean foundation for expression
 - [x] Ensure blocks can be used as expressions ✅
 - [x] Update precedence rules for expression blocks ✅
 
-#### 1.2 Update Type System (25% Complete)
-- [ ] Make all `Stmt` analysis return `Type`
+#### 1.2 Update Type System (75% Complete)
+- [x] Make all `Stmt` analysis return `Type` ✅
 - [x] Implement block type inference (last expression type) ✅
-- [ ] Handle semicolon type conversion (expr → unit)
+- [x] Handle semicolon type conversion (expr → unit) ✅
 - [ ] Update function return type inference
 
-#### 1.3 Update Semantic Analyzer (20% Complete)
-- [ ] Refactor `analyze_stmt` to return `Type`
+#### 1.3 Update Semantic Analyzer (40% Complete)
+- [x] Refactor `analyze_stmt` to return `Type` ✅
 - [x] Implement proper block typing ✅
 - [ ] Check if/else branch type compatibility
 - [ ] Validate match arm type consistency
 - [ ] Handle loop break values
 
-#### 1.4 Update Interpreter (25% Complete)
+#### 1.4 Update Interpreter (75% Complete)
 - [ ] Make all statement evaluation return `Value`
 - [x] Implement block value returns ✅
+- [x] Implement proper block scoping ✅
 - [ ] Handle break with values
 - [ ] Update Value enum if needed
 
@@ -267,6 +268,11 @@ The visitor pattern is now complete, providing a clean foundation for expression
   - Successfully modified AST and parser
   - All tests passing with new semicolon boolean
   - Ready to proceed with block expressions
+- **2025-01-22**: Completed block type inference implementation
+  - Fixed block scoping in interpreter with proper push_scope/pop_scope
+  - Block type inference now works with proper variable shadowing
+  - All statement analysis methods confirmed to return Type correctly
+  - Comprehensive test coverage: basic blocks, nested blocks, semicolon handling, scoping
 - **2025-01-22**: Completed recursive function implementation
   - Fixed critical issue with function calls not finding themselves during recursion
   - Functions now properly stored in global environment for universal access

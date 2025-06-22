@@ -70,11 +70,11 @@ This is a major architectural change to make Husk a fully expression-based langu
 
 **Implementation Order Change**: We've decided to complete the visitor pattern implementation first (Phase 1.2) before continuing with expression-based features. This will provide a cleaner foundation for the complex AST transformations required.
 
-### Core Expression Semantics (28% Complete - 2/7 tasks)
+### Core Expression Semantics (57% Complete - 4/7 tasks)
 - [x] Add semicolon tracking to AST and Parser ✅
 - [x] Update parser for expression blocks ✅
-- [ ] Make all Stmt analysis return Type
-- [ ] Implement block type inference (partially done)
+- [x] Make all Stmt analysis return Type ✅
+- [x] Implement block type inference ✅
 - [ ] Update semantic analyzer for expression semantics
 - [ ] Make all statement evaluation return Value
 - [ ] Update transpiler for JS compatibility (partially done)
@@ -176,6 +176,11 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Implemented block type inference with proper scoping
+  - Fixed interpreter block scoping to use push_scope/pop_scope for variable shadowing
+  - Confirmed all statement analysis methods return Type (task was already complete)
+  - Added comprehensive test coverage for blocks, scoping, and type inference
+  - Block expressions now fully functional: return last expression value if no semicolon
 - **2025-01-22**: Implemented recursive function calls
   - Fixed semantic analyzer to register functions before analyzing body (semantic.rs:549-553)
   - Fixed interpreter to store functions in global environment for universal access
