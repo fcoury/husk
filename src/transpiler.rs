@@ -37,7 +37,7 @@ impl JsTranspiler {
                 format!("function {}({}) {{\n{}\n}}", name, params_str, body_str)
             }
             Stmt::Enum(name, variants, _) => self.generate_enum(name, variants),
-            Stmt::Expression(expr) => self.generate_expr(expr),
+            Stmt::Expression(expr, _) => self.generate_expr(expr),
             Stmt::Match(expr, cases, _) => self.generate_match(expr, cases)?,
             Stmt::If(condition, body, else_body, _) => {
                 let condition_str = self.generate_expr(condition);

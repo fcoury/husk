@@ -135,7 +135,7 @@ impl Interpreter {
                 let value = self.evaluate_expr(expr)?;
                 return self.execute_match(&value, arms, *span);
             }
-            Stmt::Expression(expr) => {
+            Stmt::Expression(expr, _) => {
                 let value = self.evaluate_expr(expr)?;
                 return Ok((value, ControlFlow::Normal));
             }

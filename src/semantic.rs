@@ -170,7 +170,7 @@ impl SemanticAnalyzer {
                 }
 
                 // Check if return type matches the last expression in the body (if any)
-                if let Some(Stmt::Expression(expr)) = body.last() {
+                if let Some(Stmt::Expression(expr, _)) = body.last() {
                     let expr_type = self.analyze_expr(expr)?;
                     if expr_type != ret_type {
                         self.type_env.pop_scope(); // Clean up before returning error
@@ -202,7 +202,7 @@ impl SemanticAnalyzer {
                 Ok(())
             }
             Stmt::Match(expr, arms, span) => self.analyze_match(expr, arms, *span),
-            Stmt::Expression(expr) => {
+            Stmt::Expression(expr, _) => {
                 self.analyze_expr(expr)?;
                 Ok(())
             }
