@@ -27,17 +27,24 @@ This document tracks the progress of the Husk language refactoring effort based 
 
 **Status**: 100% Complete (Documented in `TYPE_SYSTEM_DECISIONS.md`)
 
-### 🚧 In Progress Tasks
+### ✅ Completed Tasks in Phase 1
 
-#### 1.2 AST Visitor Pattern (80% Complete) - PRIORITY: HIGH
+#### 1.2 AST Visitor Pattern (100% Complete) ✅
 - [x] Create `src/ast/visitor.rs` with visitor traits
 - [x] Implement default traversal methods
 - [x] Update visitor trait for semicolon tracking
 - [x] Refactor semantic analyzer to use visitor pattern ✅
 - [x] Refactor interpreter to use visitor pattern ✅
-- [ ] Refactor transpiler to use visitor pattern (NEXT TASK)
+- [x] Refactor transpiler to use visitor pattern ✅
 
 **Updated Decision (2024-12-29)**: Visitor pattern implementation is now the highest priority. After analysis, we determined that completing the visitor pattern first will make the expression-based language transformation cleaner, more maintainable, and less error-prone. The visitor pattern will centralize all AST traversal logic, making it easier to implement consistent expression semantics across all components.
+
+#### 1.4 Typed AST Implementation (100% Complete) ✅ - NEW
+- [x] Design typed AST structure with distinct semantic nodes
+- [x] Implement AST transformer using semantic information
+- [x] Create typed transpiler for clean code generation
+- [x] Properly disambiguate EnumVariant vs StaticMethodCall
+- **Note**: This wasn't in the original plan but became necessary to properly handle semantic distinctions
 
 ### 📋 Remaining Tasks for Phase 1
 
@@ -169,6 +176,14 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Implemented typed AST for proper semantic disambiguation
+  - Created typed AST module with distinct nodes for EnumVariant vs StaticMethodCall
+  - Implemented AST transformer that uses semantic analysis information
+  - Created typed transpiler that works with typed AST
+  - This solves the ambiguity between constructs like `Option::Some(5)` and `Point::new(3, 4)`
+- **2025-01-22**: Completed visitor pattern implementation for transpiler
+  - All three components (semantic analyzer, interpreter, transpiler) now use visitor pattern
+  - Visitor pattern implementation is 100% complete
 - **2025-01-22**: Completed visitor pattern implementation for interpreter
   - Created `src/interpreter_visitor.rs` with full AstVisitor<Value> implementation
   - Fixed method call handling with dot notation (e.g., `p.distance_from_origin()`)
