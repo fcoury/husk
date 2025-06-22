@@ -77,6 +77,9 @@ pub enum TypedExpr {
     
     // Range
     Range(Option<Box<TypedExpr>>, Option<Box<TypedExpr>>, bool, Span),
+    
+    // Block expression
+    Block(Vec<TypedStmt>, Type, Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,6 +294,30 @@ impl AstTransformer {
                 }
             }
             
+            Expr::Block(stmts, span) => {
+                // Transform all statements in the block
+                let typed_stmts = stmts.iter()
+                    .map(|stmt| self.transform_stmt(stmt))
+                    .collect::<Result<Vec<_>, _>>()?;
+                
+                // Determine the type of the block
+                // The type is the type of the last expression (if no semicolon)
+                let block_type = if let Some(last_stmt) = stmts.last() {
+                    match last_stmt {
+                        crate::parser::Stmt::Expression(expr, false) => {
+                            // Last statement is an expression without semicolon
+                            let typed_expr = self.transform_expr(expr)?;
+                            self.infer_expr_type(&typed_expr)
+                        }
+                        _ => Type::Unit,
+                    }
+                } else {
+                    Type::Unit
+                };
+                
+                Ok(TypedExpr::Block(typed_stmts, block_type, *span))
+            }
+            
             // TODO: Implement other expression transformations
             _ => todo!("Transform other expression types"),
         }
@@ -308,6 +335,7 @@ impl AstTransformer {
                 variants: std::collections::HashMap::new(), // We don't need full variant info here
             },
             TypedExpr::StaticMethodCall { return_type, .. } => return_type.clone(),
+            TypedExpr::Block(_, block_type, _) => block_type.clone(),
             _ => Type::Unknown,
         }
     }

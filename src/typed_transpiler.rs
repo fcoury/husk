@@ -83,6 +83,32 @@ impl TypedTranspiler {
                 Ok(format!("{}({})", name, args_js))
             }
             
+            TypedExpr::Block(stmts, _, _) => {
+                // Use IIFE pattern for blocks that return values
+                let mut result = "(() => {\n".to_string();
+                
+                for (i, stmt) in stmts.iter().enumerate() {
+                    let is_last = i == stmts.len() - 1;
+                    
+                    match stmt {
+                        // If the last statement is an expression without semicolon,
+                        // we need to return its value
+                        TypedStmt::Expression(expr, false) if is_last => {
+                            let expr_js = self.transpile_expr(expr)?;
+                            result.push_str(&format!("  return {};\n", expr_js));
+                        }
+                        // Otherwise, generate the statement normally
+                        _ => {
+                            let stmt_js = self.transpile_stmt(stmt)?;
+                            result.push_str(&format!("  {};\n", stmt_js));
+                        }
+                    }
+                }
+                
+                result.push_str("})()");
+                Ok(result)
+            }
+            
             // TODO: Implement other expressions
             _ => todo!("Transpile other expression types"),
         }
