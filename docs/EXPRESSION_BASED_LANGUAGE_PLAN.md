@@ -152,10 +152,10 @@ The visitor pattern is now complete, providing a clean foundation for expression
 - [x] Handle semicolon expression semantics ✅
 - [ ] Handle break with values
 
-#### 1.5 Update Transpiler (33% Complete)
+#### 1.5 Update Transpiler (100% Complete)
 - [x] Generate JS code that preserves semantics (for blocks) ✅
-- [ ] Handle expression/statement differences between Husk and JS
-- [ ] Ensure proper return value handling
+- [x] Handle expression/statement differences between Husk and JS ✅
+- [x] Ensure proper return value handling ✅
 
 ### Phase 2: Language Refinements (1-2 weeks)
 

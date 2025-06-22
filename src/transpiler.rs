@@ -39,11 +39,18 @@ impl JsTranspiler {
         let mut result = String::new();
         for (i, stmt) in stmts.iter().enumerate() {
             let stmt_str = self.visit_stmt(stmt)?;
-            // TODO: improve break and continue detection
-            if i < stmts.len() - 1 || stmt_str.contains("break") || stmt_str.contains("continue") {
-                result.push_str(&format!("{};", stmt_str));
-            } else {
+            let is_last = i == stmts.len() - 1;
+            
+            // Check if this is a control flow statement that shouldn't be returned
+            let is_control_flow = stmt_str.contains("break") || stmt_str.contains("continue") || stmt_str.contains("return");
+            
+            // Check if this is an expression statement without semicolon (should be returned)
+            let should_return = is_last && !is_control_flow && matches!(stmt, Stmt::Expression(_, false));
+            
+            if should_return {
                 result.push_str(&format!("return {};", stmt_str));
+            } else {
+                result.push_str(&format!("{};", stmt_str));
             }
         }
         Ok(result)
@@ -434,8 +441,17 @@ impl AstVisitor<String> for JsTranspiler {
         Ok("continue".to_string())
     }
 
-    fn visit_expression_stmt(&mut self, expr: &Expr, _has_semicolon: bool) -> Result<String> {
-        self.visit_expr(expr)
+    fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<String> {
+        let expr_js = self.visit_expr(expr)?;
+        
+        // If the expression has a semicolon, it's a statement that shouldn't return a value
+        // If no semicolon, it can return its value (for block expressions)
+        if has_semicolon {
+            // Use void operator to ensure no return value in expression context
+            Ok(format!("void ({})", expr_js))
+        } else {
+            Ok(expr_js)
+        }
     }
 
     fn visit_struct(&mut self, name: &str, fields: &[(String, String)], _span: &Span) -> Result<String> {
@@ -521,16 +537,13 @@ impl AstVisitor<String> for JsTranspiler {
                 let (condition, binding) = self.generate_match_condition(expr, pattern);
                 
                 self.indent_level += 1;
-                let stmts_str = stmts
-                    .iter()
-                    .map(|stmt| self.visit_stmt(stmt))
-                    .collect::<Result<Vec<_>>>()?
-                    .join("\n");
+                // Use generate_body to ensure proper return handling
+                let body_str = self.generate_body(stmts)?;
                 self.indent_level -= 1;
                 
                 Ok(format!(
                     "if ({}) {{\n{}{}\n}}",
-                    condition, binding, stmts_str
+                    condition, binding, body_str
                 ))
             })
             .collect::<Result<Vec<_>>>()?
