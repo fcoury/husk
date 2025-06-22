@@ -272,7 +272,7 @@ pub enum Stmt {
     Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
     If(Expr, Vec<Stmt>, Vec<Stmt>, Span),
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
-    Expression(Expr),
+    Expression(Expr, bool), // Second bool indicates if there's a semicolon
     Struct(String, Vec<(String, String)>, Span),
     Impl(String, Vec<Stmt>, Span),
     Enum(String, Vec<(String, String)>, Span),
@@ -751,7 +751,7 @@ impl Parser {
             let body = if self.current_token().kind == TokenKind::LBrace {
                 self.parse_block()?
             } else {
-                vec![Stmt::Expression(self.parse_expression()?)]
+                vec![Stmt::Expression(self.parse_expression()?, false)]
             };
 
             arms.push((pattern, body));
@@ -958,25 +958,28 @@ impl Parser {
         if let Ok(expr) = self.parse_expression() {
             if self.current_token().kind == TokenKind::Semicolon {
                 self.advance(); // Consume ';'
-                return Ok(Stmt::Expression(expr));
+                return Ok(Stmt::Expression(expr, true)); // true = has semicolon
             } else if self.current_token().kind == TokenKind::Equals {
                 self.advance(); // Consume '='
                 let value = self.parse_expression()?;
 
                 if self.current_token().kind == TokenKind::Semicolon {
                     self.advance(); // Consume ';'
-                    return Ok(Stmt::Expression(Expr::Assign(
-                        Box::new(expr.clone()),
-                        Box::new(value.clone()),
-                        Span::new(expr.span().start, value.span().end),
-                    )));
+                    return Ok(Stmt::Expression(
+                        Expr::Assign(
+                            Box::new(expr.clone()),
+                            Box::new(value.clone()),
+                            Span::new(expr.span().start, value.span().end),
+                        ),
+                        true, // true = has semicolon
+                    ));
                 }
                 return Err(Error::new_parse(
                     "Expected ';' after assignment".to_string(),
                     self.current_token().span,
                 ));
             }
-            return Ok(Stmt::Expression(expr));
+            return Ok(Stmt::Expression(expr, false)); // false = no semicolon
         }
 
         Err(Error::new_parse(
@@ -1609,7 +1612,7 @@ mod tests {
                 )),
                 Box::new(Expr::Int(12, Span::new(13, 15))),
                 Span::new(0, 15),
-            ))
+            ), true)
         );
     }
 
@@ -1636,7 +1639,7 @@ mod tests {
                     Operator::Plus,
                     Box::new(Expr::Identifier("y".to_string(), Span::new(36, 37))),
                     Span::new(32, 35),
-                ))],
+                ), false)],
                 Span::new(0, 39),
             )
         );
@@ -1677,7 +1680,7 @@ mod tests {
                         ),
                     ],
                     Span::new(82, 170),
-                ))],
+                ), false)],
                 Span::new(13, 184),
             )
         );
@@ -1699,7 +1702,7 @@ mod tests {
                 Operator::Equals,
                 Box::new(Expr::Identifier("y".to_string(), Span::new(5, 6))),
                 Span::new(0, 4),
-            ))
+            ), true)
         );
     }
 
@@ -1727,8 +1730,8 @@ mod tests {
                     Box::new(Expr::Identifier("y".to_string(), Span::new(21, 22))),
                     Span::new(16, 20),
                 ),
-                vec![Stmt::Expression(Expr::Int(1, Span::new(41, 42)))],
-                vec![Stmt::Expression(Expr::Int(0, Span::new(80, 81)))],
+                vec![Stmt::Expression(Expr::Int(1, Span::new(41, 42)), false)],
+                vec![Stmt::Expression(Expr::Int(0, Span::new(80, 81)), false)],
                 Span::new(13, 95),
             )
         );
@@ -1895,7 +1898,7 @@ mod tests {
                 call: "Existing".to_string(),
                 args: vec![Expr::Identifier("name".to_string(), Span::new(15, 19))],
                 span: Span::new(0, 20),
-            })
+            }, false)
         );
     }
 
@@ -2162,7 +2165,7 @@ mod tests {
                 Operator::Plus,
                 Box::new(Expr::Int(1, Span::new(17, 18))),
                 Span::new(13, 22),
-            ))
+            ), true)
         );
     }
 
@@ -2179,7 +2182,7 @@ mod tests {
                 Operator::Minus,
                 Box::new(Expr::Int(1, Span::new(17, 18))),
                 Span::new(13, 22),
-            ))
+            ), true)
         );
     }
 
@@ -2288,7 +2291,7 @@ mod tests {
                 Operator::Plus,
                 Box::new(Expr::Int(2, Span { start: 18, end: 19 })),
                 Span { start: 13, end: 19 }
-            ))
+            ), true)
         );
     }
 
@@ -2317,13 +2320,13 @@ mod tests {
                         "print".to_string(),
                         vec![Expr::Identifier("x".to_string(), Span::new(50, 51))],
                         Span::new(44, 52),
-                    )),
+                    ), true),
                     Stmt::Expression(Expr::CompoundAssign(
                         Box::new(Expr::Identifier("x".to_string(), Span::new(70, 71))),
                         Operator::Plus,
                         Box::new(Expr::Int(1, Span::new(75, 76))),
                         Span::new(70, 76),
-                    )),
+                    ), true),
                 ],
                 Span::new(13, 91),
             )
@@ -2347,7 +2350,7 @@ mod tests {
                     "print".to_string(),
                     vec![Expr::String("Hello".to_string(), Span::new(42, 49))],
                     Span::new(36, 50),
-                ))],
+                ), true)],
                 Span::new(13, 65),
             )
         );

@@ -72,7 +72,7 @@ pub trait AstVisitor<T> {
             Stmt::Loop(body, span) => self.visit_loop(body, span),
             Stmt::Break(span) => self.visit_break(span),
             Stmt::Continue(span) => self.visit_continue(span),
-            Stmt::Expression(expr) => self.visit_expression_stmt(expr),
+            Stmt::Expression(expr, has_semicolon) => self.visit_expression_stmt(expr, *has_semicolon),
         }
     }
 
@@ -89,7 +89,7 @@ pub trait AstVisitor<T> {
     fn visit_loop(&mut self, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_break(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_continue(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;
-    fn visit_expression_stmt(&mut self, expr: &Expr) -> std::result::Result<T, Self::Error>;
+    fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
     
