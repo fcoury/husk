@@ -29,14 +29,15 @@ This document tracks the progress of the Husk language refactoring effort based 
 
 ### 🚧 In Progress Tasks
 
-#### 1.2 AST Visitor Pattern (40% Complete)
+#### 1.2 AST Visitor Pattern (40% Complete) - PRIORITY: HIGH
 - [x] Create `src/ast/visitor.rs` with visitor traits
 - [x] Implement default traversal methods
-- [ ] Refactor semantic analyzer to use visitor pattern (on hold - see Expression-Based Language)
-- [ ] Refactor interpreter to use visitor pattern (on hold - see Expression-Based Language)
-- [ ] Refactor transpiler to use visitor pattern (on hold - see Expression-Based Language)
+- [x] Update visitor trait for semicolon tracking
+- [ ] Refactor semantic analyzer to use visitor pattern (NEXT TASK)
+- [ ] Refactor interpreter to use visitor pattern
+- [ ] Refactor transpiler to use visitor pattern
 
-**Note**: Visitor pattern implementation is on hold pending Expression-Based Language changes which will significantly affect the implementation.
+**Updated Decision (2024-12-29)**: Visitor pattern implementation is now the highest priority. After analysis, we determined that completing the visitor pattern first will make the expression-based language transformation cleaner, more maintainable, and less error-prone. The visitor pattern will centralize all AST traversal logic, making it easier to implement consistent expression semantics across all components.
 
 ### 📋 Remaining Tasks for Phase 1
 
@@ -56,18 +57,20 @@ This document tracks the progress of the Husk language refactoring effort based 
 
 ## 🆕 Phase 1.5: Expression-Based Language Transformation (Added)
 
-**Status**: In Progress (see `EXPRESSION_BASED_LANGUAGE_PLAN.md`)
+**Status**: In Progress - Paused for Visitor Pattern Completion (see `EXPRESSION_BASED_LANGUAGE_PLAN.md`)
 
 This is a major architectural change to make Husk a fully expression-based language like Rust. This wasn't in the original plan but is crucial for achieving Rust-like semantics.
 
+**Implementation Order Change**: We've decided to complete the visitor pattern implementation first (Phase 1.2) before continuing with expression-based features. This will provide a cleaner foundation for the complex AST transformations required.
+
 ### Core Expression Semantics (14% Complete - 1/7 tasks)
 - [x] Add semicolon tracking to AST and Parser ✅
-- [ ] Update parser for expression blocks
-- [ ] Make all Stmt analysis return Type
-- [ ] Implement block type inference
-- [ ] Update semantic analyzer for expression semantics
-- [ ] Make all statement evaluation return Value
-- [ ] Update transpiler for JS compatibility
+- [ ] Update parser for expression blocks (waiting for visitor pattern)
+- [ ] Make all Stmt analysis return Type (waiting for visitor pattern)
+- [ ] Implement block type inference (waiting for visitor pattern)
+- [ ] Update semantic analyzer for expression semantics (waiting for visitor pattern)
+- [ ] Make all statement evaluation return Value (waiting for visitor pattern)
+- [ ] Update transpiler for JS compatibility (waiting for visitor pattern)
 
 ### Language Refinements (0% Complete)
 - [ ] Break with values in loops
@@ -132,9 +135,9 @@ The type system integration touched many files but was completed successfully:
 
 ### Next Recommended Steps
 
-1. **Expression-Based Language Transformation** - This is now the highest priority as it fundamentally changes the language semantics. The visitor pattern implementation should be postponed until after this transformation.
+1. **Complete Visitor Pattern** - This is now the highest priority. Completing the visitor pattern will provide a clean foundation for implementing expression-based semantics and all future language features.
 
-2. **Complete Visitor Pattern** - After expression-based semantics are implemented, complete the visitor pattern refactoring with the new expression model.
+2. **Expression-Based Language Transformation** - After visitor pattern is complete, resume the expression-based language transformation with a much cleaner implementation approach.
 
 3. **Lexer Optimization** - Current O(n) character access is a performance bottleneck that should be addressed.
 
@@ -166,6 +169,10 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2024-12-29**: Changed implementation strategy - Visitor pattern now takes priority
+  - Analyzed trade-offs between continuing with direct modifications vs completing visitor pattern first
+  - Decided visitor pattern will provide cleaner foundation for expression-based features
+  - Expression-based language transformation paused until visitor pattern is complete
 - **2024-12-29**: Completed semicolon tracking implementation - first step of Expression-Based Language transformation
   - Modified `Stmt::Expression` to include boolean for semicolon presence
   - Updated parser to track semicolons in expression statements
