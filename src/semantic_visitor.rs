@@ -48,6 +48,19 @@ impl SemanticVisitor {
         self.visit_statements(stmts)?;
         Ok(())
     }
+    
+    /// Get the collected type information for AST transformation
+    pub fn get_type_info(&self) -> (
+        HashMap<String, HashMap<String, Type>>,  // structs
+        HashMap<String, HashMap<String, Option<Type>>>,  // enums
+        HashMap<String, (Vec<(String, Type)>, Type, Span)>,  // functions
+    ) {
+        (
+            self.structs.clone(),
+            self.enums.clone(),
+            self.functions.clone(),
+        )
+    }
 
 
     /// Helper method to check if a type is numeric

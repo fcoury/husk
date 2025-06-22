@@ -42,10 +42,11 @@ impl SemanticAnalyzer {
         );
     }
 
-    pub fn analyze(&mut self, stmts: &Vec<Stmt>) -> Result<()> {
+    pub fn analyze(&mut self, stmts: &Vec<Stmt>) -> Result<SemanticVisitor> {
         // Use visitor pattern implementation
         let mut visitor = SemanticVisitor::new();
-        visitor.analyze(stmts)
+        visitor.analyze(stmts)?;
+        Ok(visitor)
     }
 
     #[allow(dead_code)]
@@ -311,6 +312,7 @@ impl SemanticAnalyzer {
                         call,
                         args,
                         span: pattern_span,
+                        ..
                     } => {
                         let actual_type = self.analyze_expr(target)?;
                         if actual_type != expr_type {
@@ -492,6 +494,7 @@ impl SemanticAnalyzer {
                 call,
                 args,
                 span,
+                ..
             } => {
                 if let Some((name, variants)) = self.enum_info(&target)? {
                     return if let Some(variant_type) = variants.get(call) {

@@ -11,7 +11,8 @@
       "Bash(cargo build:*)",
       "Bash(./target/release/husk:*)",
       "Bash(./target/debug/husk test_method.husk:*)",
-      "Bash(./target/debug/husk test:*)"
+      "Bash(./target/debug/husk test:*)",
+      "Bash(cargo run:*)"
     ],
     "deny": []
   }

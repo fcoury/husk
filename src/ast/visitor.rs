@@ -26,7 +26,7 @@ pub trait AstVisitor<T> {
             Expr::FunctionCall(name, args, span) => self.visit_function_call(name, args, span),
             Expr::StructInit(name, fields, span) => self.visit_struct_init(name, fields, span),
             Expr::MemberAccess(object, field, span) => self.visit_member_access(object, field, span),
-            Expr::EnumVariantOrMethodCall { target, call, args, span } => {
+            Expr::EnumVariantOrMethodCall { target, call, args, span, .. } => {
                 self.visit_enum_variant_or_method_call(target, call, args, span)
             }
         }

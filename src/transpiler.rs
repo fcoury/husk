@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::parser::{Expr, Operator, Stmt};
+use crate::transpiler_visitor::TranspilerVisitor;
 use crate::Error;
 
 pub struct JsTranspiler;
@@ -10,16 +11,12 @@ impl JsTranspiler {
     }
 
     pub fn generate(&self, stmts: &[Stmt]) -> Result<String> {
-        let mut output = String::new();
-        output.push_str("function println(...args) { console.log(...args); }\n");
-
-        for stmt in stmts {
-            output.push_str(&self.generate_stmt(stmt)?);
-            output.push_str(";\n");
-        }
-        Ok(output)
+        // Use visitor pattern implementation
+        let mut visitor = TranspilerVisitor::new();
+        visitor.transpile(stmts)
     }
 
+    #[allow(dead_code)]
     fn generate_stmt(&self, stmt: &Stmt) -> Result<String> {
         let res = match stmt {
             Stmt::Let(name, expr, _) => format!("let {} = {};", name, self.generate_expr(expr)),
@@ -151,6 +148,7 @@ impl JsTranspiler {
         Ok(res)
     }
 
+    #[allow(dead_code)]
     fn generate_expr(&self, expr: &Expr) -> String {
         match expr {
             Expr::Int(n, _) => n.to_string(),
@@ -171,6 +169,7 @@ impl JsTranspiler {
                 call,
                 args,
                 span: _,
+                ..
             } => {
                 if args.len() > 0 {
                     let args_str = args
@@ -281,6 +280,7 @@ impl JsTranspiler {
         }
     }
 
+    #[allow(dead_code)]
     fn generate_op(&self, op: &Operator) -> &'static str {
         match op {
             Operator::Plus => "+",
@@ -296,6 +296,7 @@ impl JsTranspiler {
         }
     }
 
+    #[allow(dead_code)]
     fn generate_body(&self, stmts: &[Stmt]) -> Result<String> {
         let mut res = String::new();
         for (i, stmt) in stmts.iter().enumerate() {
@@ -311,6 +312,7 @@ impl JsTranspiler {
         Ok(res)
     }
 
+    #[allow(dead_code)]
     fn generate_match(&self, expr: &Expr, cases: &[(Expr, Vec<Stmt>)]) -> Result<String> {
         let expr_str = self.generate_expr(expr);
         let cases_str = cases
@@ -337,6 +339,7 @@ impl JsTranspiler {
         ))
     }
 
+    #[allow(dead_code)]
     fn generate_match_condition(&self, _expr: &Expr, pattern: &Expr) -> (String, String) {
         match pattern {
             Expr::EnumVariantOrMethodCall {
@@ -365,6 +368,7 @@ impl JsTranspiler {
         }
     }
 
+    #[allow(dead_code)]
     fn generate_enum(&self, name: &str, variants: &[(String, String)]) -> String {
         let mut output = String::new();
         output.push_str(&format!("const {} = {{\n", name));

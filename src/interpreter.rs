@@ -531,6 +531,7 @@ impl Interpreter {
                 call,
                 args,
                 span,
+                ..
             } => match self.evaluate_expr(target)? {
                 Value::Enum(name, _) => {
                     let value = match args.get(0) {

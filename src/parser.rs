@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::{
+    ast::{TypeAnnotation, TypeAnnotationRef},
     error::{Error, Result},
     lexer::{Token, TokenKind, EOF},
     span::Span,
@@ -27,6 +28,7 @@ pub enum Expr {
         call: String,
         args: Vec<Expr>,
         span: Span,
+        type_annotation: TypeAnnotationRef,
     },
 }
 
@@ -136,12 +138,14 @@ impl PartialEq for Expr {
                 call,
                 args,
                 span: _,
+                type_annotation: _,
             } => {
                 if let Expr::EnumVariantOrMethodCall {
                     target: other_target,
                     call: other_call,
                     args: other_args,
                     span: _,
+                    type_annotation: _,
                 } = other
                 {
                     target == other_target && call == other_call && args == other_args
@@ -803,6 +807,7 @@ impl Parser {
                             call,
                             args: vec![value],
                             span: Span::new(start_span.start, self.current_token().span.end),
+                            type_annotation: TypeAnnotation::new(),
                         })
                     } else {
                         Ok(Expr::EnumVariantOrMethodCall {
@@ -810,6 +815,7 @@ impl Parser {
                             call,
                             args: vec![],
                             span: Span::new(start_span.start, self.current_token().span.end),
+                            type_annotation: TypeAnnotation::new(),
                         })
                     }
                 } else {
@@ -1199,6 +1205,7 @@ impl Parser {
                 call: target_name,
                 args: exprs,
                 span: Span::new(start, end),
+                type_annotation: TypeAnnotation::new(),
             });
         }
 
@@ -1208,6 +1215,7 @@ impl Parser {
             call: target_name,
             args: vec![],
             span: new_span,
+            type_annotation: TypeAnnotation::new(),
         })
     }
 
@@ -1831,7 +1839,8 @@ mod tests {
                             )),
                             call: "Red".to_string(),
                             args: vec![],
-                            span: Span::new(8, 19)
+                            span: Span::new(8, 19),
+                            type_annotation: TypeAnnotation::new(),
                         },
                         Span::new(0, 19),
                     )
@@ -1857,6 +1866,7 @@ mod tests {
                     call: "Existing".to_string(),
                     args: vec![Expr::String("Alice".to_string(), Span::new(23, 30))],
                     span: Span::new(8, 31),
+                    type_annotation: TypeAnnotation::new(),
                 },
                 Span::new(0, 32),
             )
@@ -1898,6 +1908,7 @@ mod tests {
                 call: "Existing".to_string(),
                 args: vec![Expr::Identifier("name".to_string(), Span::new(15, 19))],
                 span: Span::new(0, 20),
+                type_annotation: TypeAnnotation::new(),
             }, false)
         );
     }

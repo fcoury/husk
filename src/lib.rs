@@ -9,6 +9,9 @@ mod semantic;
 mod semantic_visitor;
 mod span;
 mod transpiler;
+mod transpiler_visitor;
+mod typed_ast;
+mod typed_transpiler;
 mod types;
 
 pub use error::{Error, Result};
