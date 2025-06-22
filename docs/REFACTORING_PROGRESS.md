@@ -176,6 +176,12 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Organized test files and integrated with test system
+  - Moved all test_*.husk files to tests/scripts/ directory with .hk extension
+  - Generated proper .out and .err files for all new test files
+  - Integrated test files with existing test.sh script for automated testing
+  - Removed old test files from root directory, maintaining clean project structure
+  - Test coverage now includes: block inference, block scoping, block edge cases, recursion tests
 - **2025-01-22**: Implemented block type inference with proper scoping
   - Fixed interpreter block scoping to use push_scope/pop_scope for variable shadowing
   - Confirmed all statement analysis methods return Type (task was already complete)
