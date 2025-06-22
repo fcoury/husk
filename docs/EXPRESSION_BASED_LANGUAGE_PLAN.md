@@ -126,33 +126,33 @@ The visitor pattern is now complete, providing a clean foundation for expression
 
 ### Phase 1: Core Expression Semantics (2-3 weeks)
 
-#### 1.1 Update AST and Parser ✅ (50% Complete)
+#### 1.1 Update AST and Parser ✅ (100% Complete)
 - [x] Add `semicolon: bool` field to `Stmt::Expression` ✅
 - [x] Update parser to track semicolons ✅
-- [ ] Ensure blocks can be used as expressions
-- [ ] Update precedence rules for expression blocks
+- [x] Ensure blocks can be used as expressions ✅
+- [x] Update precedence rules for expression blocks ✅
 
-#### 1.2 Update Type System
+#### 1.2 Update Type System (25% Complete)
 - [ ] Make all `Stmt` analysis return `Type`
-- [ ] Implement block type inference (last expression type)
+- [x] Implement block type inference (last expression type) ✅
 - [ ] Handle semicolon type conversion (expr → unit)
 - [ ] Update function return type inference
 
-#### 1.3 Update Semantic Analyzer
+#### 1.3 Update Semantic Analyzer (20% Complete)
 - [ ] Refactor `analyze_stmt` to return `Type`
-- [ ] Implement proper block typing
+- [x] Implement proper block typing ✅
 - [ ] Check if/else branch type compatibility
 - [ ] Validate match arm type consistency
 - [ ] Handle loop break values
 
-#### 1.4 Update Interpreter  
+#### 1.4 Update Interpreter (25% Complete)
 - [ ] Make all statement evaluation return `Value`
-- [ ] Implement block value returns
+- [x] Implement block value returns ✅
 - [ ] Handle break with values
 - [ ] Update Value enum if needed
 
-#### 1.5 Update Transpiler
-- [ ] Generate JS code that preserves semantics
+#### 1.5 Update Transpiler (33% Complete)
+- [x] Generate JS code that preserves semantics (for blocks) ✅
 - [ ] Handle expression/statement differences between Husk and JS
 - [ ] Ensure proper return value handling
 

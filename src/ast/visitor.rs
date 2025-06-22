@@ -29,6 +29,7 @@ pub trait AstVisitor<T> {
             Expr::EnumVariantOrMethodCall { target, call, args, span, .. } => {
                 self.visit_enum_variant_or_method_call(target, call, args, span)
             }
+            Expr::Block(stmts, span) => self.visit_block(stmts, span),
         }
     }
 
@@ -48,6 +49,7 @@ pub trait AstVisitor<T> {
     fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_block(&mut self, stmts: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Statement visiting methods =====
     

@@ -30,6 +30,7 @@ pub enum Expr {
         span: Span,
         type_annotation: TypeAnnotationRef,
     },
+    Block(Vec<Stmt>, Span),
 }
 
 impl PartialEq for Expr {
@@ -153,6 +154,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::Block(stmts, _) => {
+                if let Expr::Block(other_stmts, _) = other {
+                    stmts == other_stmts
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -189,6 +197,7 @@ impl Expr {
             Expr::ArrayIndex(_, _, span) => span.clone(),
             Expr::Range(_, _, _, span) => span.clone(),
             Expr::EnumVariantOrMethodCall { span, .. } => span.clone(),
+            Expr::Block(_, span) => span.clone(),
         }
     }
 }
@@ -265,6 +274,9 @@ impl fmt::Display for Expr {
                     write!(f, "{:?}..{:?}", start, end)?;
                 }
                 Ok(())
+            }
+            Expr::Block(_stmts, _) => {
+                write!(f, "{{ ... }}")  // Simple representation for now
             }
         }
     }
@@ -473,6 +485,24 @@ impl Parser {
             statements.push(self.parse_statement()?);
         }
         Ok(statements)
+    }
+
+    fn parse_block_expression(&mut self) -> Result<Expr> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume '{'
+        
+        let statements = self.parse_block()?;
+        
+        if self.current_token().kind != TokenKind::RBrace {
+            return Err(Error::new_parse(
+                "Expected '}' after block".to_string(),
+                self.current_token().span,
+            ));
+        }
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+        
+        Ok(Expr::Block(statements, Span::new(start_span, end_span)))
     }
 
     fn parse_struct(&mut self) -> Result<Stmt> {
@@ -1138,6 +1168,7 @@ impl Parser {
                     _ => Ok(Expr::Identifier(name, span)),
                 }
             }
+            TokenKind::LBrace => self.parse_block_expression(),
             _ => Err(Error::new_parse(
                 "Invalid primary expression".to_string(),
                 span,

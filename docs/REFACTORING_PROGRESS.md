@@ -70,14 +70,14 @@ This is a major architectural change to make Husk a fully expression-based langu
 
 **Implementation Order Change**: We've decided to complete the visitor pattern implementation first (Phase 1.2) before continuing with expression-based features. This will provide a cleaner foundation for the complex AST transformations required.
 
-### Core Expression Semantics (14% Complete - 1/7 tasks)
+### Core Expression Semantics (28% Complete - 2/7 tasks)
 - [x] Add semicolon tracking to AST and Parser ✅
-- [ ] Update parser for expression blocks (waiting for visitor pattern)
-- [ ] Make all Stmt analysis return Type (waiting for visitor pattern)
-- [ ] Implement block type inference (waiting for visitor pattern)
-- [ ] Update semantic analyzer for expression semantics (waiting for visitor pattern)
-- [ ] Make all statement evaluation return Value (waiting for visitor pattern)
-- [ ] Update transpiler for JS compatibility (waiting for visitor pattern)
+- [x] Update parser for expression blocks ✅
+- [ ] Make all Stmt analysis return Type
+- [ ] Implement block type inference (partially done)
+- [ ] Update semantic analyzer for expression semantics
+- [ ] Make all statement evaluation return Value
+- [ ] Update transpiler for JS compatibility (partially done)
 
 ### Language Refinements (0% Complete)
 - [ ] Break with values in loops
@@ -176,6 +176,13 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Implemented expression blocks
+  - Added Block variant to Expr enum
+  - Updated parser to support blocks as expressions (`{ ... }`)
+  - Implemented block type inference in semantic analyzer
+  - Added block evaluation in interpreter (returns value of last expression if no semicolon)
+  - Updated transpiler to generate JavaScript IIFEs for blocks
+  - Deleted old interpreter.rs and semantic.rs files, fully migrated to visitor pattern
 - **2025-01-22**: Implemented typed AST for proper semantic disambiguation
   - Created typed AST module with distinct nodes for EnumVariant vs StaticMethodCall
   - Implemented AST transformer that uses semantic analysis information

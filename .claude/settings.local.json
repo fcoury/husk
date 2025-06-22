@@ -14,7 +14,8 @@
       "Bash(./target/debug/husk test:*)",
       "Bash(cargo run:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }

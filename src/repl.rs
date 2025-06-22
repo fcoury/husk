@@ -1,7 +1,7 @@
 use rustyline::{error::ReadlineError, history::FileHistory, CompletionType, Config, Editor};
 use simple_home_dir::home_dir;
 
-use crate::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
+use crate::{interpreter::InterpreterVisitor, lexer::Lexer, parser::Parser};
 
 #[allow(dead_code)]
 pub fn repl() -> anyhow::Result<()> {
@@ -11,7 +11,7 @@ pub fn repl() -> anyhow::Result<()> {
         .build();
     let history_file = format!("{}/.husk_history", home_dir().unwrap().to_str().unwrap());
     let mut rl: Editor<(), FileHistory> = Editor::with_config(config)?;
-    let mut interpreter = Interpreter::new();
+    let mut interpreter = InterpreterVisitor::new();
     rl.load_history(&history_file).unwrap_or_default();
 
     loop {
