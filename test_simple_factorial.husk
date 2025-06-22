@@ -1,0 +1,11 @@
+fn factorial(n: int) -> int {
+    if n == 0 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+println("Done defining factorial");
+let result = factorial(3);
+println("factorial(3) = ", result);

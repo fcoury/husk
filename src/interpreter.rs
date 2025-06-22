@@ -218,7 +218,9 @@ impl InterpreterVisitor {
 
     /// Get a variable from the environment
     fn get_var(&self, name: &str) -> Option<Value> {
-        self.environment.get(name).or_else(|| self.global_environment.get(name)).cloned()
+        self.environment.get(name)
+            .or_else(|| self.global_environment.get(name))
+            .cloned()
     }
 
     /// Set a variable in the environment
@@ -331,7 +333,15 @@ impl InterpreterVisitor {
 
                 // Save current environment and use closure
                 let saved_env = self.push_scope();
-                self.environment = closure;
+                // Instead of completely replacing environment, merge closure with current functions
+                let mut new_env = closure.clone();
+                // Preserve function definitions from current environment
+                for (name, value) in &self.environment {
+                    if let Value::Function(_) = value {
+                        new_env.insert(name.clone(), value.clone());
+                    }
+                }
+                self.environment = new_env;
 
                 // Bind arguments
                 for ((name, _), value) in params.iter().zip(args.iter()) {
@@ -659,13 +669,32 @@ impl AstVisitor<Value> for InterpreterVisitor {
     }
 
     fn visit_function(&mut self, name: &str, params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<Value> {
-        let func = Value::Function(Function::UserDefined(
+        // For recursive functions, we need to create a closure that includes the function itself
+        // Step 1: Create closure that includes current environment
+        let mut closure = self.environment.clone();
+        
+        // Step 2: Create a temporary function with current closure
+        let temp_func = Value::Function(Function::UserDefined(
             name.to_string(),
             params.to_vec(),
             body.to_vec(),
-            self.environment.clone(),
+            closure.clone(),
         ));
-        self.set_var(name.to_string(), func);
+        
+        // Step 3: Add this function to the closure for recursion
+        closure.insert(name.to_string(), temp_func);
+        
+        // Step 4: Create the final function with closure that includes itself
+        let final_func = Value::Function(Function::UserDefined(
+            name.to_string(),
+            params.to_vec(),
+            body.to_vec(),
+            closure,
+        ));
+        
+        // Step 5: Register the function in the global environment so it's always accessible
+        self.global_environment.insert(name.to_string(), final_func);
+        
         Ok(Value::Unit)
     }
 

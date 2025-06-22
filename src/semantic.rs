@@ -545,13 +545,12 @@ impl AstVisitor<Type> for SemanticVisitor {
         
         let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
         
-        // Register function (if it's not already registered by impl)
-        if !self.functions.contains_key(name) {
-            self.functions.insert(
-                name.to_string(),
-                (param_types.clone(), ret_type.clone(), *span),
-            );
-        }
+        // Register function signature BEFORE analyzing body to support recursion
+        self.functions.insert(
+            name.to_string(),
+            (param_types.clone(), ret_type.clone(), *span),
+        );
+        
 
         // Create new scope for function body
         self.type_env.push_scope();
