@@ -1,0 +1,9 @@
+fn count_down(n: int) -> int {
+    if n <= 0 {
+        0
+    } else {
+        count_down(n - 1)
+    }
+}
+
+println("count_down(3) = ", count_down(3));
