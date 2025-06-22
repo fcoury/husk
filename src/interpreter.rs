@@ -970,6 +970,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
+    fn visit_return(&mut self, expr: Option<&Expr>, _span: &Span) -> Result<Value> {
+        let return_value = match expr {
+            Some(return_expr) => self.visit_expr(return_expr)?,
+            None => Value::Unit,
+        };
+        self.control_flow = ControlFlow::Return(return_value.clone());
+        Ok(return_value)
+    }
+
     fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<Value> {
         let expr_value = self.visit_expr(expr)?;
         

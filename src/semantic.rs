@@ -970,6 +970,24 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
+    fn visit_return(&mut self, expr: Option<&Expr>, _span: &Span) -> Result<Type> {
+        // TODO: Implement return statement semantic analysis
+        // - Check if we're inside a function
+        // - Type-check the return expression against function return type
+        // - Handle both `return;` and `return expr;` forms
+        match expr {
+            Some(return_expr) => {
+                let _return_type = self.visit_expr(return_expr)?;
+                // TODO: Validate against current function's return type
+                Ok(Type::Unit)
+            }
+            None => {
+                // `return;` - returns Unit
+                Ok(Type::Unit)
+            }
+        }
+    }
+
     fn visit_expression_stmt(&mut self, expr: &Expr, _has_semicolon: bool) -> Result<Type> {
         // For now, just analyze the expression
         // Later, when implementing expression-based semantics, we'll use has_semicolon

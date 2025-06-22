@@ -441,6 +441,16 @@ impl AstVisitor<String> for JsTranspiler {
         Ok("continue".to_string())
     }
 
+    fn visit_return(&mut self, expr: Option<&Expr>, _span: &Span) -> Result<String> {
+        match expr {
+            Some(return_expr) => {
+                let expr_js = self.visit_expr(return_expr)?;
+                Ok(format!("return {}", expr_js))
+            }
+            None => Ok("return".to_string()),
+        }
+    }
+
     fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<String> {
         let expr_js = self.visit_expr(expr)?;
         
