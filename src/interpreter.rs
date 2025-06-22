@@ -14,6 +14,7 @@ pub enum ControlFlow {
     Normal,
     Break,
     Continue,
+    #[allow(dead_code)]
     Return(Value),
 }
 
@@ -421,8 +422,34 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
                 Ok(elements[*i as usize].clone())
             }
+            (Value::Array(elements), Value::Range(start, end, inclusive)) => {
+                // Array slicing with range
+                let len = elements.len() as i64;
+                
+                // Calculate start index (default to 0 if None)
+                let start_idx = start.unwrap_or(0).max(0).min(len) as usize;
+                
+                // Calculate end index  
+                let end_idx = match end {
+                    Some(e) => {
+                        let mut end_val = *e;
+                        if *inclusive && end_val < len {
+                            end_val += 1;
+                        }
+                        end_val.max(0).min(len) as usize
+                    }
+                    None => len as usize,
+                };
+                
+                // Return slice (empty array if invalid range)
+                if start_idx <= end_idx {
+                    Ok(Value::Array(elements[start_idx..end_idx].to_vec()))
+                } else {
+                    Ok(Value::Array(vec![]))
+                }
+            }
             (Value::Array(_), _) => Err(Error::new_runtime(
-                format!("Array index must be an integer, found {:?}", index_value),
+                format!("Array index must be an integer or range, found {:?}", index_value),
                 *span,
             )),
             _ => Err(Error::new_runtime(
