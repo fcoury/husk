@@ -12,7 +12,9 @@
       "Bash(./target/release/husk:*)",
       "Bash(./target/debug/husk test_method.husk:*)",
       "Bash(./target/debug/husk test:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": []
   }
