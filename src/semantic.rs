@@ -1049,3 +1049,378 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(block_type)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::Parser;
+    use crate::lexer::Lexer;
+
+    fn analyze_code(code: &str) -> Result<()> {
+        let mut lexer = Lexer::new(code.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse()?;
+        let mut analyzer = SemanticVisitor::new();
+        analyzer.analyze(&ast)
+    }
+
+    #[test]
+    fn test_variable_scoping() {
+        // Test basic variable definition and lookup
+        let code = r#"
+            let x = 42;
+            let y = x;
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test undefined variable
+        let code = r#"
+            let y = x;
+        "#;
+        assert!(analyze_code(code).is_err());
+    }
+
+    #[test]
+    fn test_block_scoping() {
+        // Test variable shadowing in blocks
+        let code = r#"
+            let x = 42;
+            {
+                let x = "hello";
+                let y = x;
+            }
+            let z = x;
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_function_parameter_scoping() {
+        // Test function parameters are accessible
+        let code = r#"
+            fn add(a: int, b: int) -> int {
+                a + b
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test parameters in if-else blocks (regression test)
+        let code = r#"
+            fn test(n: int) -> int {
+                if n == 0 {
+                    n
+                } else {
+                    n + 1
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_binary_operation_type_checking() {
+        // Test int + int
+        let code = r#"
+            let x = 1 + 2;
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test float + int (mixed arithmetic)
+        let code = r#"
+            let x = 1.5 + 2;
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test string concatenation (should fail - not implemented)
+        let code = r#"
+            let x = "hello" + "world";
+        "#;
+        assert!(analyze_code(code).is_err());
+    }
+
+    #[test]
+    fn test_array_type_checking() {
+        // Test homogeneous array
+        let code = r#"
+            let arr = [1, 2, 3];
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test array indexing
+        let code = r#"
+            let arr = [1, 2, 3];
+            let x = arr[0];
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test array slicing with range
+        let code = r#"
+            let arr = [1, 2, 3, 4, 5];
+            let slice = arr[1..3];
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_if_expression_type_checking() {
+        // Test if statement (not expression) with consistent types
+        let code = r#"
+            fn test() -> int {
+                if true { 
+                    42 
+                } else { 
+                    0 
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test type mismatch in branches
+        let code = r#"
+            fn test() -> int {
+                if true { 
+                    42 
+                } else { 
+                    "hello" 
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_err());
+
+        // Test if without else returning non-unit
+        let code = r#"
+            fn test() -> int {
+                if true { 42 }
+            }
+        "#;
+        let result = analyze_code(code);
+        assert!(result.is_err(), "Expected error but got: {:?}", result);
+    }
+
+    #[test]
+    fn test_function_call_type_checking() {
+        // Test correct function call
+        let code = r#"
+            fn add(a: int, b: int) -> int {
+                a + b
+            }
+            let x = add(1, 2);
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test wrong argument count
+        let code = r#"
+            fn add(a: int, b: int) -> int {
+                a + b
+            }
+            let x = add(1);
+        "#;
+        assert!(analyze_code(code).is_err());
+
+        // Test undefined function
+        let code = r#"
+            let x = unknown_func();
+        "#;
+        assert!(analyze_code(code).is_err());
+    }
+
+    #[test]
+    fn test_return_statement_type_checking() {
+        // Test return with correct type
+        let code = r#"
+            fn get_number() -> int {
+                return 42;
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test return without value in unit function
+        let code = r#"
+            fn do_nothing() -> unit {
+                return;
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test early return in if
+        let code = r#"
+            fn abs(n: int) -> int {
+                if n < 0 {
+                    return 0 - n;
+                }
+                n
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_match_exhaustiveness() {
+        // Test exhaustive match
+        let code = r#"
+            enum Option {
+                Some(int),
+                None,
+            }
+            
+            let opt = Option::Some(42);
+            match opt {
+                Option::Some(x) => x,
+                Option::None => 0,
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // TODO: Non-exhaustive match detection for function parameters requires
+        // proper enum type resolution in Type::from_string
+        // Currently, custom types in function parameters are treated as structs
+        
+        // Test match with wildcard
+        let code = r#"
+            enum Option {
+                Some(int),
+                None,
+            }
+            
+            let opt = Option::None;
+            match opt {
+                Option::Some(x) => x,
+                _ => 0,
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_match_arm_type_consistency() {
+        // Test all arms return same type
+        let code = r#"
+            enum Option {
+                Some(int),
+                None,
+            }
+            
+            fn test(opt: Option) -> int {
+                match opt {
+                    Option::Some(x) => x,
+                    Option::None => 0,
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test arms with different types
+        let code = r#"
+            enum Option {
+                Some(int),
+                None,
+            }
+            
+            fn test(opt: Option) -> int {
+                match opt {
+                    Option::Some(x) => x,
+                    Option::None => "zero",
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_err());
+    }
+
+    #[test]
+    fn test_struct_field_access() {
+        // Test valid field access
+        let code = r#"
+            struct Point {
+                x: int,
+                y: int,
+            }
+            
+            let p = Point { x: 1, y: 2 };
+            let x = p.x;
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test invalid field access
+        let code = r#"
+            struct Point {
+                x: int,
+                y: int,
+            }
+            
+            let p = Point { x: 1, y: 2 };
+            let z = p.z;
+        "#;
+        assert!(analyze_code(code).is_err());
+    }
+
+    #[test]
+    fn test_loop_control_flow() {
+        // Test break/continue in loops
+        let code = r#"
+            fn test() -> unit {
+                for i in 0..10 {
+                    if i == 5 {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test break outside loop
+        let code = r#"
+            fn test() -> unit {
+                break;
+            }
+        "#;
+        assert!(analyze_code(code).is_err());
+
+        // Test continue outside loop
+        let code = r#"
+            fn test() -> unit {
+                continue;
+            }
+        "#;
+        assert!(analyze_code(code).is_err());
+    }
+
+    #[test]
+    fn test_block_type_inference() {
+        // Test block with expression
+        let code = r#"
+            let x = {
+                let y = 42;
+                y + 1
+            };
+        "#;
+        assert!(analyze_code(code).is_ok());
+
+        // Test block with semicolon (returns unit)
+        let code = r#"
+            fn test() -> unit {
+                {
+                    let y = 42;
+                    y + 1;
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_recursive_function() {
+        // Test recursive function definition
+        let code = r#"
+            fn factorial(n: int) -> int {
+                if n == 0 {
+                    1
+                } else {
+                    n * factorial(n - 1)
+                }
+            }
+        "#;
+        assert!(analyze_code(code).is_ok());
+    }
+}
