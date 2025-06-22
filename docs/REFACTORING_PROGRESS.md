@@ -29,13 +29,13 @@ This document tracks the progress of the Husk language refactoring effort based 
 
 ### 🚧 In Progress Tasks
 
-#### 1.2 AST Visitor Pattern (40% Complete) - PRIORITY: HIGH
+#### 1.2 AST Visitor Pattern (80% Complete) - PRIORITY: HIGH
 - [x] Create `src/ast/visitor.rs` with visitor traits
 - [x] Implement default traversal methods
 - [x] Update visitor trait for semicolon tracking
-- [ ] Refactor semantic analyzer to use visitor pattern (NEXT TASK)
-- [ ] Refactor interpreter to use visitor pattern
-- [ ] Refactor transpiler to use visitor pattern
+- [x] Refactor semantic analyzer to use visitor pattern ✅
+- [x] Refactor interpreter to use visitor pattern ✅
+- [ ] Refactor transpiler to use visitor pattern (NEXT TASK)
 
 **Updated Decision (2024-12-29)**: Visitor pattern implementation is now the highest priority. After analysis, we determined that completing the visitor pattern first will make the expression-based language transformation cleaner, more maintainable, and less error-prone. The visitor pattern will centralize all AST traversal logic, making it easier to implement consistent expression semantics across all components.
 
@@ -169,6 +169,16 @@ The type system integration touched many files but was completed successfully:
 
 ### Recent Major Changes
 
+- **2025-01-22**: Completed visitor pattern implementation for interpreter
+  - Created `src/interpreter_visitor.rs` with full AstVisitor<Value> implementation
+  - Fixed method call handling with dot notation (e.g., `p.distance_from_origin()`)
+  - Updated semantic visitor to handle method calls properly
+  - Added ControlFlow::Return variant for proper control flow handling
+  - 23 interpreter tests passing, 3 tests for advanced features postponed
+- **2025-01-22**: Completed visitor pattern implementation for semantic analyzer
+  - Created `src/semantic_visitor.rs` with full AstVisitor<Type> implementation
+  - Fixed numerous type checking issues and borrow checker problems
+  - All semantic analyzer tests passing
 - **2024-12-29**: Changed implementation strategy - Visitor pattern now takes priority
   - Analyzed trade-offs between continuing with direct modifications vs completing visitor pattern first
   - Decided visitor pattern will provide cleaner foundation for expression-based features
@@ -178,9 +188,7 @@ The type system integration touched many files but was completed successfully:
   - Updated parser to track semicolons in expression statements
   - Updated all pattern matches across semantic analyzer, interpreter, transpiler, and visitor
   - All tests updated and passing
-- **2024-12-29**: Added Phase 1.5 for Expression-Based Language transformation. This is a fundamental change to make Husk more Rust-like and takes priority over the visitor pattern completion.
-- **2024-12-29**: Visitor pattern implementation started but put on hold pending expression-based language changes.
 
 ---
 
-Last Updated: 2024-12-29
+Last Updated: 2025-01-22

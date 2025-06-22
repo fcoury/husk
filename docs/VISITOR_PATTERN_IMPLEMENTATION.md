@@ -21,11 +21,11 @@ The visitor pattern will centralize all AST traversal logic, making the codebase
 - ✅ Default traversal methods implemented
 - ✅ Visitor trait updated for semicolon tracking
 - ✅ All visit methods signatures defined
+- ✅ Semantic analyzer refactored to use visitor pattern (2025-01-22)
+- ✅ Interpreter refactored to use visitor pattern (2025-01-22)
 
 ### Remaining Work
-- 🔲 Refactor semantic analyzer to use visitor pattern
-- 🔲 Refactor interpreter to use visitor pattern
-- 🔲 Refactor transpiler to use visitor pattern
+- 🔲 Refactor transpiler to use visitor pattern (NEXT TASK)
 
 ## Implementation Plan
 
@@ -149,12 +149,37 @@ Once the visitor pattern is complete, implementing expression-based semantics be
 
 ## Timeline
 
-- **Week 1**: Semantic analyzer visitor (Days 1-3)
-- **Week 1**: Interpreter visitor (Days 3-5)
-- **Week 2**: Transpiler visitor (Days 1-2)
+- **Week 1**: Semantic analyzer visitor (Days 1-3) ✅ COMPLETED
+- **Week 1**: Interpreter visitor (Days 3-5) ✅ COMPLETED
+- **Week 2**: Transpiler visitor (Days 1-2) 🔲 IN PROGRESS
 - **Week 2**: Testing and cleanup (Days 2-3)
 
 Total estimated time: 5-7 working days
+
+## Implementation Notes
+
+### Semantic Analyzer (Completed)
+- Created `src/semantic_visitor.rs` with full implementation
+- Fixed TypeEnvironment API mismatches (get vs lookup)
+- Handled borrow checker issues with HashMap cloning
+- Updated error messages to match test expectations
+- Added support for both static and instance methods
+- All semantic analyzer tests passing
+
+### Interpreter (Completed)
+- Created `src/interpreter_visitor.rs` with full implementation
+- Added ControlFlow::Return variant for proper control flow
+- Fixed method call handling with dot notation (e.g., `p.distance_from_origin()`)
+- Updated semantic visitor to handle method calls in tandem
+- 23 interpreter tests passing, 3 tests postponed:
+  - Non-exhaustive match detection for enums
+  - Array slicing with ranges (2 tests)
+
+### Postponed Features
+During the visitor pattern implementation, we identified some advanced features that will be implemented after the core visitor pattern is complete:
+
+1. **Non-exhaustive match detection for enums**: The visitor pattern doesn't yet validate that all enum variants are covered in match expressions.
+2. **Array slicing with ranges**: Syntax like `arr[1..3]` is not yet supported in the visitor implementation.
 
 ## Future Benefits
 
