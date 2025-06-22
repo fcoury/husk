@@ -44,6 +44,7 @@ impl TypeEnvironment {
     }
     
     /// Check if a name is defined in the current scope only
+    #[allow(dead_code)]
     pub fn is_defined_in_current_scope(&self, name: &str) -> bool {
         self.scopes
             .last()
@@ -58,6 +59,7 @@ pub struct ScopeGuard<'a> {
 }
 
 impl<'a> ScopeGuard<'a> {
+    #[allow(dead_code)]
     pub fn new(env: &'a mut TypeEnvironment) -> Self {
         env.push_scope();
         Self { env }

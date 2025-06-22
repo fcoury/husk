@@ -7,8 +7,6 @@ mod repl;
 mod semantic;
 mod span;
 mod transpiler;
-mod typed_ast;
-mod typed_transpiler;
 mod types;
 
 pub use error::{Error, Result};

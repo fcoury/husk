@@ -133,19 +133,27 @@ impl AstVisitor<Type> for SemanticVisitor {
         let array_type = self.visit_expr(array)?;
         let index_type = self.visit_expr(index)?;
 
-        if index_type != Type::Int {
-            return Err(Error::new_semantic(
-                format!("Array index must be an integer, found {}", index_type.to_string()),
-                *span,
-            ));
-        }
-
-        match array_type {
-            Type::Array(element_type) => Ok(*element_type),
-            _ => Err(Error::new_semantic(
-                format!("Cannot index non-array type: {}", array_type.to_string()),
-                *span,
-            )),
+        match (&array_type, &index_type) {
+            (Type::Array(element_type), Type::Int) => {
+                // Single element access
+                Ok(*element_type.clone())
+            }
+            (Type::Array(element_type), Type::Range) => {
+                // Array slicing - returns array of same element type
+                Ok(Type::Array(element_type.clone()))
+            }
+            (Type::Array(_), _) => {
+                Err(Error::new_semantic(
+                    format!("Array index must be an integer or range, found {}", index_type.to_string()),
+                    *span,
+                ))
+            }
+            _ => {
+                Err(Error::new_semantic(
+                    format!("Cannot index non-array type: {}", array_type.to_string()),
+                    *span,
+                ))
+            }
         }
     }
 

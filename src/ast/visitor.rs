@@ -103,13 +103,4 @@ pub trait AstVisitor<T> {
         }
         Ok(results)
     }
-
-    /// Visit a list of expressions
-    fn visit_expressions(&mut self, exprs: &[Expr]) -> std::result::Result<Vec<T>, Self::Error> {
-        let mut results = Vec::new();
-        for expr in exprs {
-            results.push(self.visit_expr(expr)?);
-        }
-        Ok(results)
-    }
 }
