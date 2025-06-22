@@ -707,17 +707,34 @@ impl AstVisitor<Type> for SemanticVisitor {
             ));
         }
 
-        // Check then block
-        for stmt in then_block {
-            self.visit_stmt(stmt)?;
+        // Analyze then block and get its type
+        let then_type = self.visit_block(then_block, _span)?;
+
+        // If there's no else block, the if expression can only return Unit
+        if else_block.is_empty() {
+            // If then block returns non-Unit, this is an error for expression context
+            if then_type != Type::Unit {
+                return Err(Error::new_semantic(
+                    format!("If expression without else branch cannot return non-unit type {}", then_type.to_string()),
+                    *_span,
+                ));
+            }
+            return Ok(Type::Unit);
         }
 
-        // Check else block
-        for stmt in else_block {
-            self.visit_stmt(stmt)?;
+        // Analyze else block and get its type
+        let else_type = self.visit_block(else_block, _span)?;
+
+        // Both branches must return the same type for if expression
+        if then_type != else_type {
+            return Err(Error::new_semantic(
+                format!("If expression branches have incompatible types: then returns {}, else returns {}", 
+                        then_type.to_string(), else_type.to_string()),
+                *_span,
+            ));
         }
 
-        Ok(Type::Unit)
+        Ok(then_type)
     }
 
     fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Type> {
@@ -729,6 +746,9 @@ impl AstVisitor<Type> for SemanticVisitor {
             Type::Enum { name, .. } => Some(name.clone()),
             _ => None,
         };
+
+        // Track the type of each arm for consistency checking
+        let mut arm_types = Vec::new();
 
         for (pattern, body) in arms {
             // Save current match-bound variables
@@ -778,10 +798,9 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
             }
 
-            // Analyze body with bound variables
-            for stmt in body {
-                self.visit_stmt(stmt)?;
-            }
+            // Analyze body with bound variables and get its type
+            let arm_type = self.visit_block(body, span)?;
+            arm_types.push(arm_type);
 
             // Restore match-bound variables
             self.match_bound_vars = saved_vars;
@@ -808,7 +827,23 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
         }
 
-        Ok(Type::Unit)
+        // Check that all arms return the same type
+        if arm_types.is_empty() {
+            return Ok(Type::Unit);
+        }
+
+        let first_arm_type = &arm_types[0];
+        for (i, arm_type) in arm_types.iter().enumerate().skip(1) {
+            if arm_type != first_arm_type {
+                return Err(Error::new_semantic(
+                    format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}", 
+                            first_arm_type.to_string(), i, arm_type.to_string()),
+                    *span,
+                ));
+            }
+        }
+
+        Ok(first_arm_type.clone())
     }
 
     fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<Type> {
