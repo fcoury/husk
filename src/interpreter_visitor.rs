@@ -370,7 +370,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<Value> {
         // Handle method calls with dot notation
-        let (func_name, mut arg_values) = if name.contains('.') {
+        let (func_name, arg_values) = if name.contains('.') {
             let (target_var, method_name) = name.split_once('.').unwrap();
             
             // Get the target struct instance
