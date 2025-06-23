@@ -376,12 +376,12 @@ impl fmt::Display for Expr {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stmt {
     Let(String, Expr, Span),
-    Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
+    Function(String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added generic params
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
     Expression(Expr, bool), // Second bool indicates if there's a semicolon
-    Struct(String, Vec<(String, String)>, Span),
+    Struct(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
     Impl(String, Vec<Stmt>, Span),
-    Enum(String, Vec<(String, String)>, Span),
+    Enum(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
     ForLoop(String, Expr, Vec<Stmt>, Span),
     While(Expr, Vec<Stmt>, Span),
     Loop(Vec<Stmt>, Span),
@@ -389,15 +389,15 @@ pub enum Stmt {
     Continue(Span),
     Return(Option<Expr>, Span),
     Use(UsePath, UseItems, Span),
-    ExternFunction(String, Vec<(String, String)>, String, Span),
+    ExternFunction(String, Vec<String>, Vec<(String, String)>, String, Span), // Added generic params
     ExternMod(String, Vec<ExternItem>, Span),
-    AsyncFunction(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
+    AsyncFunction(String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added generic params
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ExternItem {
-    Function(String, Vec<(String, String)>, String),
-    Type(String),
+    Function(String, Vec<String>, Vec<(String, String)>, String), // Added generic params
+    Type(String, Vec<String>), // Added generic params for type aliases
     Mod(String, Vec<ExternItem>),
     Impl(String, Vec<ExternItem>),
 }
@@ -827,9 +827,10 @@ impl Parser {
         let func_stmt = self.parse_function()?;
         
         // Convert Function to AsyncFunction
-        if let Stmt::Function(name, params, return_type, body, func_span) = func_stmt {
+        if let Stmt::Function(name, generic_params, params, return_type, body, func_span) = func_stmt {
             Ok(Stmt::AsyncFunction(
                 name,
+                generic_params,
                 params,
                 return_type,
                 body,
@@ -854,31 +855,8 @@ impl Parser {
                         self.current_token().span,
                     ))?;
                 
-                // Check for generic type parameters <T, U>
-                let mut generic_params = Vec::new();
-                if self.current_token().kind == TokenKind::LessThan {
-                    self.advance(); // Consume '<'
-                    
-                    while self.current_token().kind != TokenKind::GreaterThan {
-                        let type_param = self.consume_identifier("type parameter")?
-                            .ok_or_else(|| Error::new_parse(
-                                "Expected type parameter name".to_string(),
-                                self.current_token().span,
-                            ))?;
-                        generic_params.push(type_param);
-                        
-                        if self.current_token().kind == TokenKind::Comma {
-                            self.advance(); // Consume ','
-                        } else if self.current_token().kind != TokenKind::GreaterThan {
-                            return Err(Error::new_parse(
-                                "Expected ',' or '>' in generic type parameters".to_string(),
-                                self.current_token().span,
-                            ));
-                        }
-                    }
-                    
-                    self.advance(); // Consume '>'
-                }
+                // Parse generic type parameters <T, U>
+                let generic_params = self.parse_generic_parameters()?;
                 
                 self.expect_token(TokenKind::LParen)?;
                 let params = self.parse_function_params()?;
@@ -897,7 +875,7 @@ impl Parser {
                 
                 self.expect_token(TokenKind::Semicolon)?;
                 
-                Ok(Stmt::ExternFunction(name, params, return_type, start_span))
+                Ok(Stmt::ExternFunction(name, generic_params, params, return_type, start_span))
             }
             TokenKind::Identifier(s) if s == "mod" => {
                 // extern mod name { ... }
@@ -936,31 +914,8 @@ impl Parser {
                         self.current_token().span,
                     ))?;
                 
-                // Check for generic type parameters <T, U>
-                let mut generic_params = Vec::new();
-                if self.current_token().kind == TokenKind::LessThan {
-                    self.advance(); // Consume '<'
-                    
-                    while self.current_token().kind != TokenKind::GreaterThan {
-                        let type_param = self.consume_identifier("type parameter")?
-                            .ok_or_else(|| Error::new_parse(
-                                "Expected type parameter name".to_string(),
-                                self.current_token().span,
-                            ))?;
-                        generic_params.push(type_param);
-                        
-                        if self.current_token().kind == TokenKind::Comma {
-                            self.advance(); // Consume ','
-                        } else if self.current_token().kind != TokenKind::GreaterThan {
-                            return Err(Error::new_parse(
-                                "Expected ',' or '>' in generic type parameters".to_string(),
-                                self.current_token().span,
-                            ));
-                        }
-                    }
-                    
-                    self.advance(); // Consume '>'
-                }
+                // Parse generic type parameters <T, U>
+                let generic_params = self.parse_generic_parameters()?;
                 
                 self.expect_token(TokenKind::LParen)?;
                 let params = self.parse_function_params()?;
@@ -978,52 +933,22 @@ impl Parser {
                 
                 self.expect_token(TokenKind::Semicolon)?;
                 
-                Ok(ExternItem::Function(name, params, return_type))
+                Ok(ExternItem::Function(name, generic_params, params, return_type))
             }
             TokenKind::Identifier(s) if s == "type" => {
                 // type Name<T, U>;
                 self.advance(); // Consume 'type'
-                let mut name = self.consume_identifier("extern type")?
+                let name = self.consume_identifier("extern type")?
                     .ok_or_else(|| Error::new_parse(
                         "Expected identifier after 'type'".to_string(),
                         self.current_token().span,
                     ))?;
                 
-                // Check for generic type parameters <T, U>
-                if self.current_token().kind == TokenKind::LessThan {
-                    name.push('<');
-                    self.advance(); // Consume '<'
-                    
-                    let mut first = true;
-                    while self.current_token().kind != TokenKind::GreaterThan {
-                        if !first {
-                            name.push_str(", ");
-                        }
-                        first = false;
-                        
-                        let type_param = self.consume_identifier("type parameter")?
-                            .ok_or_else(|| Error::new_parse(
-                                "Expected type parameter name".to_string(),
-                                self.current_token().span,
-                            ))?;
-                        name.push_str(&type_param);
-                        
-                        if self.current_token().kind == TokenKind::Comma {
-                            self.advance(); // Consume ','
-                        } else if self.current_token().kind != TokenKind::GreaterThan {
-                            return Err(Error::new_parse(
-                                "Expected ',' or '>' in generic type parameters".to_string(),
-                                self.current_token().span,
-                            ));
-                        }
-                    }
-                    
-                    name.push('>');
-                    self.advance(); // Consume '>'
-                }
+                // Parse generic type parameters <T, U>
+                let generic_params = self.parse_generic_parameters()?;
                 
                 self.expect_token(TokenKind::Semicolon)?;
-                Ok(ExternItem::Type(name))
+                Ok(ExternItem::Type(name, generic_params))
             }
             TokenKind::Identifier(s) if s == "mod" => {
                 // mod name { ... }
@@ -1081,6 +1006,9 @@ impl Parser {
             ));
         };
 
+        // Parse generic type parameters <T, U>
+        let generic_params = self.parse_generic_parameters()?;
+
         if self.current_token().kind != TokenKind::LBrace {
             return Err(Error::new_parse(
                 format!(
@@ -1121,7 +1049,7 @@ impl Parser {
 
         let end_span = self.current_token().span.end;
         self.advance(); // Consume '}'
-        Ok(Stmt::Struct(name, fields, Span::new(start_span, end_span)))
+        Ok(Stmt::Struct(name, generic_params, fields, Span::new(start_span, end_span)))
     }
 
     fn parse_enum(&mut self) -> Result<Stmt> {
@@ -1134,6 +1062,9 @@ impl Parser {
                 self.current_token().span,
             ));
         };
+
+        // Parse generic type parameters <T, U>
+        let generic_params = self.parse_generic_parameters()?;
 
         if self.current_token().kind != TokenKind::LBrace {
             return Err(Error::new_parse(
@@ -1185,7 +1116,7 @@ impl Parser {
 
         let end_span = self.current_token().span.end;
         self.advance(); // Consume '}'
-        Ok(Stmt::Enum(name, variants, Span::new(start_span, end_span)))
+        Ok(Stmt::Enum(name, generic_params, variants, Span::new(start_span, end_span)))
     }
 
     fn parse_let_statement(&mut self) -> Result<Stmt> {
@@ -1765,6 +1696,9 @@ impl Parser {
         .clone();
         self.advance(); // Consume identifier
 
+        // --- Parse generic parameters ---
+        let generic_params = self.parse_generic_parameters()?;
+
         // --- Parse function parameters ---
 
         // Consume '('
@@ -1845,6 +1779,7 @@ impl Parser {
         self.advance(); // Consume '}'
         Ok(Stmt::Function(
             name,
+            generic_params,
             params,
             return_type,
             body,
@@ -1954,6 +1889,44 @@ impl Parser {
             }
             _ => None,
         }
+    }
+
+    fn parse_generic_parameters(&mut self) -> Result<Vec<String>> {
+        let mut generic_params = Vec::new();
+        
+        if self.current_token().kind != TokenKind::LessThan {
+            return Ok(generic_params); // No generic parameters
+        }
+        
+        self.advance(); // Consume '<'
+        
+        while self.current_token().kind != TokenKind::GreaterThan {
+            let type_param = self.consume_identifier("type parameter")?
+                .ok_or_else(|| Error::new_parse(
+                    "Expected type parameter name".to_string(),
+                    self.current_token().span,
+                ))?;
+            generic_params.push(type_param);
+            
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            } else if self.current_token().kind != TokenKind::GreaterThan {
+                return Err(Error::new_parse(
+                    "Expected ',' or '>' in generic type parameters".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+        
+        if self.current_token().kind != TokenKind::GreaterThan {
+            return Err(Error::new_parse(
+                "Expected '>' to close generic type parameters".to_string(),
+                self.current_token().span,
+            ));
+        }
+        
+        self.advance(); // Consume '>'
+        Ok(generic_params)
     }
 
     fn parse_expression_statement(&mut self) -> Result<Stmt> {
@@ -2820,6 +2793,7 @@ mod tests {
             ast[0],
             Stmt::Struct(
                 "Person".to_string(),
+                vec![], // Generic params
                 vec![
                     ("name".to_string(), "string".to_string()),
                     ("age".to_string(), "int".to_string()),
@@ -2922,6 +2896,7 @@ mod tests {
             ast[0],
             Stmt::Function(
                 "add".to_string(),
+                vec![], // Generic params
                 vec![
                     ("x".to_string(), "int".to_string()),
                     ("y".to_string(), "int".to_string()),
@@ -2955,6 +2930,7 @@ mod tests {
             ast[0],
             Stmt::Function(
                 "create_person".to_string(),
+                vec![], // Generic params
                 vec![
                     ("name".to_string(), "string".to_string()),
                     ("age".to_string(), "int".to_string()),
@@ -3063,7 +3039,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().unwrap();
 
-        let Stmt::Enum(enum_name, variants, _) = &ast[0] else {
+        let Stmt::Enum(enum_name, _, variants, _) = &ast[0] else {
             panic!("Expected Enum statement");
         };
 
@@ -3092,7 +3068,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().unwrap();
 
-        let Stmt::Enum(enum_name, variants, _) = &ast[0] else {
+        let Stmt::Enum(enum_name, _, variants, _) = &ast[0] else {
             panic!("Expected Enum statement");
         };
 
@@ -3765,7 +3741,7 @@ mod tests {
         let ast = parse("pub fn hello() { println(\"Hello\"); }");
         assert_eq!(ast.len(), 1);
         // For now, pub is parsed but not stored in AST
-        if let Stmt::Function(name, params, ret_type, body, _) = &ast[0] {
+        if let Stmt::Function(name, _, params, ret_type, body, _) = &ast[0] {
             assert_eq!(name, "hello");
             assert_eq!(params.len(), 0);
             assert_eq!(ret_type, "void");
@@ -3777,7 +3753,7 @@ mod tests {
         // Test pub struct
         let ast = parse("pub struct User { name: string, age: int }");
         assert_eq!(ast.len(), 1);
-        if let Stmt::Struct(name, fields, _) = &ast[0] {
+        if let Stmt::Struct(name, _, fields, _) = &ast[0] {
             assert_eq!(name, "User");
             assert_eq!(fields.len(), 2);
         } else {
@@ -3787,7 +3763,7 @@ mod tests {
         // Test pub enum
         let ast = parse("pub enum Status { Ok, Error }");
         assert_eq!(ast.len(), 1);
-        if let Stmt::Enum(name, variants, _) = &ast[0] {
+        if let Stmt::Enum(name, _, variants, _) = &ast[0] {
             assert_eq!(name, "Status");
             assert_eq!(variants.len(), 2);
         } else {

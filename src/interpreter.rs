@@ -1151,7 +1151,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_function(&mut self, name: &str, params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<Value> {
+    fn visit_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<Value> {
         // For recursive functions, we need to create a closure that includes the function itself
         // Step 1: Create closure that includes current environment
         let mut closure = self.environment.clone();
@@ -1187,7 +1187,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_struct(&mut self, name: &str, fields: &[(String, String)], _span: &Span) -> Result<Value> {
+    fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<Value> {
         let mut field_map = IndexMap::new();
         for (field_name, field_type) in fields {
             field_map.insert(field_name.clone(), field_type.clone());
@@ -1204,7 +1204,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_enum(&mut self, name: &str, variants: &[(String, String)], _span: &Span) -> Result<Value> {
+    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[(String, String)], _span: &Span) -> Result<Value> {
         let mut variant_map = IndexMap::new();
         for (variant_name, variant_type) in variants {
             variant_map.insert(variant_name.clone(), variant_type.clone());
@@ -1233,7 +1233,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
         // Register methods
         for method in methods {
-            if let Stmt::Function(method_name, params, _, body, _) = method {
+            if let Stmt::Function(method_name, _, params, _, body, _) = method {
                 let func = Value::Function(Function::UserDefined(
                     method_name.clone(),
                     params.clone(),
@@ -1454,7 +1454,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_extern_function(&mut self, _name: &str, _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<Value> {
+    fn visit_extern_function(&mut self, _name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<Value> {
         // Extern declarations are no-op in interpreter mode
         // They're only used for type checking external APIs
         Ok(Value::Unit)
@@ -1466,10 +1466,10 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
     
-    fn visit_async_function(&mut self, _name: &str, _params: &[(String, String)], _return_type: &str, _body: &[Stmt], span: &Span) -> Result<Value> {
+    fn visit_async_function(&mut self, _name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _body: &[Stmt], _span: &Span) -> Result<Value> {
         Err(Error::new_runtime(
             "Async functions are not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
-            span.clone(),
+            _span.clone(),
         ))
     }
     

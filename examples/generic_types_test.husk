@@ -1,0 +1,34 @@
+// Test generic type parameters in different contexts
+
+// Generic function
+fn map<T, U>(item: T, mapper: fn(T) -> U) -> U {
+    mapper(item)
+}
+
+// Generic struct
+struct Container<T> {
+    value: T,
+}
+
+// Generic enum
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+// Generic async function
+async fn fetch_and_parse<T>(url: string) -> Result<T, string> {
+    let response = fetch(url).await?;
+    let data = parse(response).await?;
+    Result::Ok(data)
+}
+
+// Extern generic functions
+extern fn Array_map<T, U>(arr: array<T>, mapper: fn(T) -> U) -> array<U>;
+extern fn Promise_all<T>(promises: array<Promise<T>>) -> Promise<array<T>>;
+
+// Main function using generics
+fn main() {
+    let container = Container { value: 42 };
+    println("Container created with generic type");
+}

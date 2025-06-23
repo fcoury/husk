@@ -185,7 +185,7 @@ mod tests {
             Ok("visited_let".to_string())
         }
 
-        fn visit_function(&mut self, name: &str, _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_function(&mut self, name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("function_{}", name))?;
             for stmt in body {
                 self.visit_stmt(stmt)?;
@@ -193,11 +193,11 @@ mod tests {
             Ok("visited_function".to_string())
         }
 
-        fn visit_struct(&mut self, name: &str, _fields: &[(String, String)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_struct(&mut self, name: &str, _generic_params: &[String], _fields: &[(String, String)], _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("struct_{}", name))
         }
 
-        fn visit_enum(&mut self, name: &str, _variants: &[(String, String)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_enum(&mut self, name: &str, _generic_params: &[String], _variants: &[(String, String)], _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("enum_{}", name))
         }
 
@@ -274,7 +274,7 @@ mod tests {
             Ok("visited_use".to_string())
         }
         
-        fn visit_extern_function(&mut self, name: &str, _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_extern_function(&mut self, name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("extern_function_{}", name))
         }
         
@@ -282,7 +282,7 @@ mod tests {
             self.track(&format!("extern_mod_{}", name))
         }
         
-        fn visit_async_function(&mut self, name: &str, _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_async_function(&mut self, name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("async_function_{}", name))?;
             for stmt in body {
                 self.visit_stmt(stmt)?;
@@ -485,7 +485,7 @@ mod tests {
             ), false),
         ];
         
-        let stmt = Stmt::Function("add".to_string(), params, "int".to_string(), body, span);
+        let stmt = Stmt::Function("add".to_string(), vec![], params, "int".to_string(), body, span);
         let result = visitor.visit_stmt(&stmt);
         
         assert_eq!(result, Ok("visited_function".to_string()));
