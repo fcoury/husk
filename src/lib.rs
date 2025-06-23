@@ -71,6 +71,9 @@ mod interpreter_js_interop_tests;
 #[cfg(test)]
 mod transpiler_js_interop_tests;
 
+#[cfg(test)]
+mod transpiler_target_modes_test;
+
 pub use config::HuskConfig;
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
