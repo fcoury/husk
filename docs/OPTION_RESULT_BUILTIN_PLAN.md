@@ -352,7 +352,14 @@ match parsed {
    - **Error Mapping**: JavaScript error conversion to structured Result::Err format
    - **Syntax**: `fetch("url").await?` transpiles to `await __husk_await_bridge(fetch("url"))`
 
-**Next Phase**: Add error mapping helper for JS exceptions
+8. **Error Mapping Helper Functions**:
+   - **`__husk_map_error`**: Comprehensive error mapping for all JS error types
+   - **`__husk_safe_call`**: Safe wrapper for synchronous function calls
+   - **Error Type Support**: JavaScript Error, DOMException, string errors, generic values
+   - **Structured Payloads**: Consistent Result::Err format with name, message, stack/code
+   - **Already-Result Passthrough**: Avoids double-wrapping existing Result types
+
+**Phase Complete**: All core Option/Result functionality implemented with full JS interop
 
 ## Future Enhancements
 

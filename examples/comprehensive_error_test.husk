@@ -1,0 +1,18 @@
+extern fn fetch(url: string) -> Promise<any>;
+extern fn localStorage_getItem(key: string) -> any;
+
+async fn comprehensive_error_test() -> Result<string, any> {
+    // Test .await? with Promise error mapping
+    let fetch_result = fetch("invalid://url").await?;
+    
+    // Test synchronous function error mapping
+    let storage_result = localStorage_getItem("nonexistent");
+    
+    Result::Ok("All tests completed")
+}
+
+fn sync_error_test() {
+    // This would use the error mapping helpers
+    let result = localStorage_getItem("test");
+    println("Test completed");
+}
