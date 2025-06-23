@@ -669,12 +669,71 @@ impl AstVisitor<Value> for InterpreterVisitor {
     fn visit_compound_assign(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> Result<Value> {
         match left {
             Expr::Identifier(name, _) => {
+                // Simple variable compound assignment (existing logic)
                 let left_val = self.get_var(name)
                     .ok_or_else(|| Error::new_runtime(format!("Undefined variable: {}", name), *span))?;
                 let right_val = self.visit_expr(right)?;
                 let result = self.evaluate_binary_op(left_val, op, right_val, *span)?;
                 self.set_var(name.clone(), result);
                 Ok(Value::Unit)
+            }
+            Expr::MemberAccess(object, field, _) => {
+                // Struct field compound assignment: obj.field += value
+                let current_value = self.visit_expr(left)?;  // Get current field value
+                let right_val = self.visit_expr(right)?;
+                let result = self.evaluate_binary_op(current_value, op, right_val, *span)?;
+                
+                // Update the field using assignment logic
+                match self.visit_expr(object)? {
+                    Value::StructInstance(struct_name, mut fields) => {
+                        fields.insert(field.clone(), result);
+                        // Need to update the struct in the environment
+                        if let Expr::Identifier(var_name, _) = &**object {
+                            self.set_var(var_name.clone(), Value::StructInstance(struct_name, fields));
+                        }
+                        Ok(Value::Unit)
+                    }
+                    _ => Err(Error::new_runtime(
+                        "Cannot assign to field of non-struct value".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            Expr::ArrayIndex(array_expr, index_expr, _) => {
+                // Array element compound assignment: arr[i] += value
+                let current_value = self.visit_expr(left)?;  // Get current element value
+                let right_val = self.visit_expr(right)?;
+                let result = self.evaluate_binary_op(current_value, op, right_val, *span)?;
+                
+                // Update the array element using assignment logic
+                let index = match self.visit_expr(index_expr)? {
+                    Value::Int(i) => i as usize,
+                    _ => return Err(Error::new_runtime(
+                        "Array index must be an integer".to_string(),
+                        *span,
+                    )),
+                };
+                
+                match self.visit_expr(array_expr)? {
+                    Value::Array(mut elements) => {
+                        if index >= elements.len() {
+                            return Err(Error::new_runtime(
+                                format!("Array index out of bounds: {}", index),
+                                *span,
+                            ));
+                        }
+                        elements[index] = result;
+                        // Need to update the array in the environment
+                        if let Expr::Identifier(var_name, _) = &**array_expr {
+                            self.set_var(var_name.clone(), Value::Array(elements));
+                        }
+                        Ok(Value::Unit)
+                    }
+                    _ => Err(Error::new_runtime(
+                        "Cannot index non-array value".to_string(),
+                        *span,
+                    )),
+                }
             }
             _ => Err(Error::new_runtime(
                 "Invalid compound assignment target".to_string(),
@@ -1674,22 +1733,40 @@ mod tests {
     }
 
     #[test]
-    fn test_compound_assignment_limitations() {
-        // Array element compound assignment not supported
+    fn test_compound_assignment_complex_targets() {
+        // Array element compound assignment now supported
         let program = r#"
             let arr = [1, 2, 3];
             arr[0] += 5;
+            arr[0]  // Return the modified value
         "#;
-        let err = run_test(program).unwrap_err();
-        assert!(err.to_string().contains("Invalid compound assignment target"));
+        let result = run_test(program).unwrap();
+        assert_eq!(result, Value::Int(6)); // 1 + 5 = 6
         
-        // Struct field compound assignment not supported
+        // Struct field compound assignment now supported
         let program = r#"
             struct Point { x: int, y: int }
             let p = Point { x: 10, y: 20 };
             p.x += 5;
+            p.x  // Return the modified value
         "#;
-        let err = run_test(program).unwrap_err();
-        assert!(err.to_string().contains("Invalid compound assignment target"));
+        let result = run_test(program).unwrap();
+        assert_eq!(result, Value::Int(15)); // 10 + 5 = 15
+        
+        // Test that the operations actually work (no errors thrown)
+        let program = r#"
+            struct Point { x: int, y: int }
+            let arr = [5, 10];
+            let p = Point { x: 2, y: 4 };
+            
+            arr[0] *= 3;    // Should not error
+            arr[1] /= 2;    // Should not error
+            p.x += 8;       // Should not error
+            p.y -= 1;       // Should not error
+            
+            42  // Return something to indicate success
+        "#;
+        let result = run_test(program).unwrap();
+        assert_eq!(result, Value::Int(42)); // Just verify no errors occurred
     }
 }
