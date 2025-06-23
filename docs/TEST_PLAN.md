@@ -25,10 +25,12 @@ This document outlines a comprehensive testing strategy for the Husk programming
 - **Parser** (`src/parser.rs`): 42 unit tests - AST generation and syntax validation
 - **Type Environment** (`src/types/environment.rs`): 1 unit test - basic scoping
 
-#### ❌ Critical Gaps (Zero Coverage)
-- **Semantic Analyzer** (`src/semantic.rs`): 0 unit tests
-- **Interpreter** (`src/interpreter.rs`): 0 unit tests
-- **Transpiler** (`src/transpiler.rs`): 0 unit tests
+#### ✅ Recently Added Unit Tests
+- **Semantic Analyzer** (`src/semantic.rs`): 14 unit tests - type checking, scoping, control flow
+- **Interpreter** (`src/interpreter.rs`): 32 unit tests - execution, values, control flow
+- **Transpiler** (`src/transpiler.rs`): 35 unit tests - JavaScript code generation
+
+#### ❌ Remaining Gaps
 - **Error Handling** (`src/error.rs`): 0 unit tests
 - **AST Visitor Pattern** (`src/ast/visitor.rs`): 0 unit tests
 
