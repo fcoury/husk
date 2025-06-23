@@ -344,7 +344,15 @@ match parsed {
    - **Interpreter**: Result unwrapping with proper error handling
    - **Chaining**: Support for multiple `?` operators like `result??`
 
-**Next Phase**: JS Promise to Result conversion in async contexts
+7. **Await Try Operator (.await?)**:
+   - **Parser**: `Expr::AwaitTry` variant with compound postfix syntax parsing
+   - **Semantic**: Type checking enforcing async context and Promise types  
+   - **Transpiler**: `__husk_await_bridge` helper function for Promise-to-Result conversion
+   - **Bridge Function**: Intelligent handling of both Promise and Promise<Result> types
+   - **Error Mapping**: JavaScript error conversion to structured Result::Err format
+   - **Syntax**: `fetch("url").await?` transpiles to `await __husk_await_bridge(fetch("url"))`
+
+**Next Phase**: Add error mapping helper for JS exceptions
 
 ## Future Enhancements
 

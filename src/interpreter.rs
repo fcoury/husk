@@ -1511,6 +1511,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
     
+    fn visit_await_try(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
+        Err(Error::new_runtime(
+            ".await? is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
+            span.clone(),
+        ))
+    }
+    
     fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, span: &Span) -> Result<Value> {
         // Create a closure value that captures the current environment
         let closure_params = params.iter()

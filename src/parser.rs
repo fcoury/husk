@@ -36,6 +36,7 @@ pub enum Expr {
     Match(Box<Expr>, Vec<(Expr, Vec<Stmt>)>, Span),
     Await(Box<Expr>, Span),
     Try(Box<Expr>, Span),
+    AwaitTry(Box<Expr>, Span),
     Closure(Vec<(String, Option<String>)>, Option<String>, Box<Expr>, Span),
 }
 
@@ -195,6 +196,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::AwaitTry(expr, _) => {
+                if let Expr::AwaitTry(other_expr, _) = other {
+                    expr == other_expr
+                } else {
+                    false
+                }
+            }
             Expr::Match(expr, arms, _) => {
                 if let Expr::Match(other_expr, other_arms, _) = other {
                     expr == other_expr && arms == other_arms
@@ -250,6 +258,7 @@ impl Expr {
             Expr::If(_, _, _, span) => span.clone(),
             Expr::Await(_, span) => span.clone(),
             Expr::Try(_, span) => span.clone(),
+            Expr::AwaitTry(_, span) => span.clone(),
             Expr::Match(_, _, span) => span.clone(),
             Expr::Closure(_, _, _, span) => span.clone(),
         }
@@ -338,6 +347,7 @@ impl fmt::Display for Expr {
             }
             Expr::Await(expr, _) => write!(f, "{}.await", expr),
             Expr::Try(expr, _) => write!(f, "{}?", expr),
+            Expr::AwaitTry(expr, _) => write!(f, "{}.await?", expr),
             Expr::Match(_expr, _arms, _) => {
                 write!(f, "match ... {{ ... }}")  // Simple representation for now
             }
@@ -2186,8 +2196,16 @@ impl Parser {
                     if let TokenKind::Identifier(field) = &self.current_token().kind {
                         if field == "await" {
                             self.advance(); // Consume 'await'
-                            let end_span = self.current_token().span.start;
-                            left = Expr::Await(Box::new(left), Span::new(start_span, end_span));
+                            
+                            // Check if this is .await?
+                            if self.current_token().kind == TokenKind::Question {
+                                let question_span = self.current_token().span;
+                                self.advance(); // Consume '?'
+                                left = Expr::AwaitTry(Box::new(left), Span::new(start_span, question_span.end));
+                            } else {
+                                let end_span = self.current_token().span.start;
+                                left = Expr::Await(Box::new(left), Span::new(start_span, end_span));
+                            }
                             continue;
                         }
                     }

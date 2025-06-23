@@ -1,0 +1,8 @@
+extern fn fetch(url: string) -> Promise<string>;
+
+async fn test() -> Result<string, any> {
+    let result = fetch("test").await?;
+    Result::Ok(result)
+}
+
+test().await

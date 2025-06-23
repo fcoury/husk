@@ -1453,6 +1453,39 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
     }
     
+    fn visit_await_try(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
+        // Check that we're in an async function
+        if !self.in_async_function {
+            return Err(Error::new_semantic(
+                ".await? can only be used inside async functions",
+                span.clone(),
+            ));
+        }
+        
+        // Type check the expression
+        let expr_type = self.visit_expr(expr)?;
+        
+        // Check if the expression is a Promise and convert it to Result
+        match &expr_type {
+            Type::Promise(inner) => {
+                // .await? converts Promise<T> to Result<T, JsError>
+                // For now, we'll return Result<T, Unknown> to represent Result<T, JsError>
+                Ok(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: std::collections::HashMap::new(), // Will be filled by standard library
+                })
+            }
+            Type::Unknown => Ok(Type::Enum {
+                name: "Result".to_string(),
+                variants: std::collections::HashMap::new(),
+            }), // Allow unknown types for extern functions
+            _ => Err(Error::new_semantic(
+                format!(".await? can only be used on Promise types, found {}", expr_type.to_string()),
+                span.clone(),
+            )),
+        }
+    }
+    
     fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<Type> {
         // Enter a new scope for the closure
         self.type_env.push_scope();

@@ -1,0 +1,5 @@
+extern fn fetch(url: string) -> Promise<string>;
+
+async fn test() {
+    let x = fetch("test").await?;
+}

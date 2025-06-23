@@ -1,0 +1,29 @@
+// .await? operator for Promise to Result conversion
+
+// Mock external JS function that returns a Promise
+extern fn fetch(url: string) -> Promise<string>;
+
+// Function using .await? for safe Promise handling  
+async fn fetch_data(url: string) -> Result<string, any> {
+    let response = fetch(url).await?;  // Converts Promise<string> to Result<string, JsError>
+    Result::Ok(response)
+}
+
+// Function demonstrating error propagation
+async fn fetch_and_process(url: string) -> Result<string, any> {
+    let data = fetch_data(url).await?;  // This is Result<string, any> from fetch_data
+    let processed = format!("Processed: {}", data);  // Process the successful result
+    Result::Ok(processed)
+}
+
+// Test function (async context required for await)
+async fn test_demo() -> string {
+    let result = fetch_and_process("https://api.example.com/data").await;
+    match result {
+        Result::Ok(data) => format!("Success: {}", data)
+        Result::Err(error) => "Failed to fetch data"
+    }
+}
+
+// Call the test
+test_demo().await
