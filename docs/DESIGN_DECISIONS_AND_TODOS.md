@@ -24,17 +24,22 @@ This document tracks design decisions made during development and features that 
 
 ### High Priority
 
-#### 1. Logical Operators
+#### 1. Logical Operators (Implemented)
 - **Features**: `&&` (AND), `||` (OR), `!` (NOT)
-- **Current Status**: Not implemented
-- **Impact**: Basic boolean operations are not possible
+- **Current Status**: ✅ Implemented
+- **Impact**: Full boolean operations now available
 - **Example**: `if x > 5 && x < 10 { ... }`
+- **Notes**: 
+  - Includes short-circuit evaluation
+  - Proper operator precedence (AND higher than OR)
+  - Type-safe: requires boolean operands
 
-#### 2. Comparison Operators
+#### 2. Comparison Operators (Implemented)
 - **Features**: `!=` (not equals)
-- **Current Status**: Only `==` is supported
-- **Impact**: Common comparisons require workarounds
+- **Current Status**: ✅ Implemented
+- **Impact**: All standard comparisons now supported
 - **Example**: `if x != 0 { ... }`
+- **Notes**: Works with all comparable types (int, float, bool, string, enum)
 
 #### 3. Compound Assignment Operators (Partially Implemented)
 - **Features**: `+=`, `-=`, `*=`, `/=`, `%=`

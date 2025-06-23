@@ -231,8 +231,20 @@ impl AstVisitor<Type> for SemanticVisitor {
                     Ok(Type::Int)
                 }
             }
-            Operator::Equals | Operator::LessThan | Operator::GreaterThan | Operator::LessThanEquals | Operator::GreaterThanEquals => {
+            Operator::Equals | Operator::NotEquals | Operator::LessThan | Operator::GreaterThan | Operator::LessThanEquals | Operator::GreaterThanEquals => {
                 // For now, allow comparison of any types (will refine later)
+                Ok(Type::Bool)
+            }
+            Operator::And | Operator::Or => {
+                if left_type != Type::Bool || right_type != Type::Bool {
+                    return Err(Error::new_semantic(
+                        format!(
+                            "Logical operation {:?} requires bool types, found {} and {}",
+                            op, left_type.to_string(), right_type.to_string()
+                        ),
+                        *span,
+                    ));
+                }
                 Ok(Type::Bool)
             }
         }

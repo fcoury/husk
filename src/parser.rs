@@ -328,11 +328,14 @@ pub enum Operator {
     Multiply,
     Divide,
     Equals,
+    NotEquals,
     Modulo,
     LessThan,
     GreaterThan,
     LessThanEquals,
     GreaterThanEquals,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1082,9 +1085,138 @@ impl Parser {
     }
 
     fn parse_expression(&mut self) -> Result<Expr> {
+        self.parse_or_expression()
+    }
+
+    fn parse_or_expression(&mut self) -> Result<Expr> {
+        let mut left = self.parse_and_expression()?;
+
+        while self.current_token().kind == TokenKind::DblPipe {
+            let start_span = left.span().start;
+            self.advance(); // Consume '||'
+            let right = self.parse_and_expression()?;
+            let end_span = right.span().end;
+            left = Expr::BinaryOp(
+                Box::new(left),
+                Operator::Or,
+                Box::new(right),
+                Span::new(start_span, end_span),
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and_expression(&mut self) -> Result<Expr> {
+        let mut left = self.parse_comparison_expression()?;
+
+        while self.current_token().kind == TokenKind::DblAmpersand {
+            let start_span = left.span().start;
+            self.advance(); // Consume '&&'
+            let right = self.parse_comparison_expression()?;
+            let end_span = right.span().end;
+            left = Expr::BinaryOp(
+                Box::new(left),
+                Operator::And,
+                Box::new(right),
+                Span::new(start_span, end_span),
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn parse_comparison_expression(&mut self) -> Result<Expr> {
+        let mut left = self.parse_additive_expression()?;
+
+        while let Some(op) = self.parse_comparison_operator() {
+            let start_span = left.span().start;
+            self.advance(); // Consume operator
+            let right = self.parse_additive_expression()?;
+            let end_span = right.span().end;
+            left = Expr::BinaryOp(
+                Box::new(left),
+                op,
+                Box::new(right),
+                Span::new(start_span, end_span),
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn parse_comparison_operator(&mut self) -> Option<Operator> {
+        match self.current_token().kind {
+            TokenKind::DblEquals => Some(Operator::Equals),
+            TokenKind::BangEquals => Some(Operator::NotEquals),
+            TokenKind::LessThan => Some(Operator::LessThan),
+            TokenKind::GreaterThan => Some(Operator::GreaterThan),
+            TokenKind::LessThanEquals => Some(Operator::LessThanEquals),
+            TokenKind::GreaterThanEquals => Some(Operator::GreaterThanEquals),
+            _ => None,
+        }
+    }
+
+    fn parse_additive_expression(&mut self) -> Result<Expr> {
+        let mut left = self.parse_multiplicative_expression()?;
+
+        while let Some(op) = self.parse_additive_operator() {
+            let start_span = left.span().start;
+            self.advance(); // Consume operator
+            let right = self.parse_multiplicative_expression()?;
+            let end_span = right.span().end;
+            left = Expr::BinaryOp(
+                Box::new(left),
+                op,
+                Box::new(right),
+                Span::new(start_span, end_span),
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn parse_additive_operator(&mut self) -> Option<Operator> {
+        match self.current_token().kind {
+            TokenKind::Plus => Some(Operator::Plus),
+            TokenKind::Minus => Some(Operator::Minus),
+            _ => None,
+        }
+    }
+
+    fn parse_multiplicative_expression(&mut self) -> Result<Expr> {
+        let mut left = self.parse_postfix_expression()?;
+
+        while let Some(op) = self.parse_multiplicative_operator() {
+            let start_span = left.span().start;
+            self.advance(); // Consume operator
+            let right = self.parse_postfix_expression()?;
+            let end_span = right.span().end;
+            left = Expr::BinaryOp(
+                Box::new(left),
+                op,
+                Box::new(right),
+                Span::new(start_span, end_span),
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn parse_multiplicative_operator(&mut self) -> Option<Operator> {
+        match self.current_token().kind {
+            TokenKind::Asterisk => Some(Operator::Multiply),
+            TokenKind::Slash => Some(Operator::Divide),
+            TokenKind::Percent => Some(Operator::Modulo),
+            _ => None,
+        }
+    }
+
+    fn parse_postfix_expression(&mut self) -> Result<Expr> {
         let start_span = self.current_token().span.start;
         let mut left = self.parse_unary_expression()?;
 
+        // Handle compound assignment
         loop {
             match self.current_token().kind {
                 TokenKind::PlusEquals
@@ -1101,7 +1233,7 @@ impl Parser {
                         _ => unreachable!(),
                     };
                     self.advance();
-                    let right = self.parse_unary_expression()?;
+                    let right = self.parse_expression()?;
                     let end_span = right.span().end;
                     left = Expr::CompoundAssign(
                         Box::new(left),
@@ -1114,26 +1246,14 @@ impl Parser {
             }
         }
 
-        while let Some(op) = self.parse_operator() {
-            let start_span = left.span().start;
-
-            self.advance(); // Consume operator
-            let right = self.parse_unary_expression()?;
-            let end_span = right.span().end;
-            left = Expr::BinaryOp(
-                Box::new(left),
-                op,
-                Box::new(right),
-                Span::new(start_span, end_span),
-            );
-        }
-
+        // Handle range expressions
         if self.current_token().kind == TokenKind::DblDot
             || self.current_token().kind == TokenKind::DblDotEquals
         {
             let inclusive = self.current_token().kind == TokenKind::DblDotEquals;
             left = self.parse_range_expression(Some(left.clone()), inclusive, start_span)?;
         }
+
         Ok(left)
     }
 
@@ -1425,21 +1545,6 @@ impl Parser {
         ))
     }
 
-    fn parse_operator(&mut self) -> Option<Operator> {
-        match self.current_token().kind {
-            TokenKind::Plus => Some(Operator::Plus),
-            TokenKind::Minus => Some(Operator::Minus),
-            TokenKind::Asterisk => Some(Operator::Multiply),
-            TokenKind::Slash => Some(Operator::Divide),
-            TokenKind::DblEquals => return Some(Operator::Equals),
-            TokenKind::LessThan => return Some(Operator::LessThan),
-            TokenKind::GreaterThan => return Some(Operator::GreaterThan),
-            TokenKind::LessThanEquals => return Some(Operator::LessThanEquals),
-            TokenKind::GreaterThanEquals => return Some(Operator::GreaterThanEquals),
-            TokenKind::Percent => Some(Operator::Modulo),
-            _ => None,
-        }
-    }
 
     fn parse_array(&mut self) -> std::result::Result<Expr, Error> {
         let start = self.current_token().span.start;

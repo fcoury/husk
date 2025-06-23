@@ -294,10 +294,15 @@ impl InterpreterVisitor {
                     }
                 }
                 Operator::Equals => Ok(Value::Bool(a == b)),
+                Operator::NotEquals => Ok(Value::Bool(a != b)),
                 Operator::LessThan => Ok(Value::Bool(a < b)),
                 Operator::GreaterThan => Ok(Value::Bool(a > b)),
                 Operator::LessThanEquals => Ok(Value::Bool(a <= b)),
                 Operator::GreaterThanEquals => Ok(Value::Bool(a >= b)),
+                Operator::And | Operator::Or => Err(Error::new_runtime(
+                    "Logical operators require boolean operands".to_string(),
+                    span,
+                )),
             },
             (Value::Float(a), Value::Float(b)) => match op {
                 Operator::Plus => Ok(Value::Float(a + b)),
@@ -312,10 +317,15 @@ impl InterpreterVisitor {
                 }
                 Operator::Modulo => Ok(Value::Float(a % b)),
                 Operator::Equals => Ok(Value::Bool(a == b)),
+                Operator::NotEquals => Ok(Value::Bool(a != b)),
                 Operator::LessThan => Ok(Value::Bool(a < b)),
                 Operator::GreaterThan => Ok(Value::Bool(a > b)),
                 Operator::LessThanEquals => Ok(Value::Bool(a <= b)),
                 Operator::GreaterThanEquals => Ok(Value::Bool(a >= b)),
+                Operator::And | Operator::Or => Err(Error::new_runtime(
+                    "Logical operators require boolean operands".to_string(),
+                    span,
+                )),
             },
             (Value::Int(a), Value::Float(b)) => {
                 self.evaluate_binary_op(Value::Float(a as f64), op, Value::Float(b), span)
@@ -325,6 +335,9 @@ impl InterpreterVisitor {
             }
             (Value::Bool(a), Value::Bool(b)) => match op {
                 Operator::Equals => Ok(Value::Bool(a == b)),
+                Operator::NotEquals => Ok(Value::Bool(a != b)),
+                Operator::And => Ok(Value::Bool(a && b)),
+                Operator::Or => Ok(Value::Bool(a || b)),
                 _ => Err(Error::new_runtime(
                     format!("Invalid operation {:?} for boolean values", op),
                     span,
@@ -332,6 +345,7 @@ impl InterpreterVisitor {
             },
             (Value::String(a), Value::String(b)) => match op {
                 Operator::Equals => Ok(Value::Bool(a == b)),
+                Operator::NotEquals => Ok(Value::Bool(a != b)),
                 _ => Err(Error::new_runtime(
                     format!("Invalid operation {:?} for string values", op),
                     span,
@@ -340,6 +354,7 @@ impl InterpreterVisitor {
             (Value::EnumVariant(type1, variant1, data1), Value::EnumVariant(type2, variant2, data2)) => {
                 match op {
                     Operator::Equals => Ok(Value::Bool(type1 == type2 && variant1 == variant2 && data1 == data2)),
+                    Operator::NotEquals => Ok(Value::Bool(!(type1 == type2 && variant1 == variant2 && data1 == data2))),
                     _ => Err(Error::new_runtime(
                         format!("Invalid operation {:?} for enum values", op),
                         span,
@@ -513,9 +528,55 @@ impl AstVisitor<Value> for InterpreterVisitor {
     }
 
     fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> Result<Value> {
-        let left_val = self.visit_expr(left)?;
-        let right_val = self.visit_expr(right)?;
-        self.evaluate_binary_op(left_val, op, right_val, *span)
+        // Handle short-circuit evaluation for logical operators
+        match op {
+            Operator::And => {
+                let left_val = self.visit_expr(left)?;
+                match left_val {
+                    Value::Bool(false) => Ok(Value::Bool(false)), // Short-circuit: false && _ = false
+                    Value::Bool(true) => {
+                        let right_val = self.visit_expr(right)?;
+                        match right_val {
+                            Value::Bool(b) => Ok(Value::Bool(b)),
+                            _ => Err(Error::new_runtime(
+                                "Right operand of && must be bool".to_string(),
+                                *span,
+                            )),
+                        }
+                    }
+                    _ => Err(Error::new_runtime(
+                        "Left operand of && must be bool".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            Operator::Or => {
+                let left_val = self.visit_expr(left)?;
+                match left_val {
+                    Value::Bool(true) => Ok(Value::Bool(true)), // Short-circuit: true || _ = true
+                    Value::Bool(false) => {
+                        let right_val = self.visit_expr(right)?;
+                        match right_val {
+                            Value::Bool(b) => Ok(Value::Bool(b)),
+                            _ => Err(Error::new_runtime(
+                                "Right operand of || must be bool".to_string(),
+                                *span,
+                            )),
+                        }
+                    }
+                    _ => Err(Error::new_runtime(
+                        "Left operand of || must be bool".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            _ => {
+                // Regular evaluation for other operators
+                let left_val = self.visit_expr(left)?;
+                let right_val = self.visit_expr(right)?;
+                self.evaluate_binary_op(left_val, op, right_val, *span)
+            }
+        }
     }
 
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, span: &Span) -> Result<Value> {
