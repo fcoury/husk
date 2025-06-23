@@ -325,6 +325,21 @@ mod tests {
             self.visit_expr(body)?;
             Ok("visited_closure".to_string())
         }
+        
+        fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("method_call_{}", method))?;
+            self.visit_expr(object)?;
+            for arg in args {
+                self.visit_expr(arg)?;
+            }
+            Ok("visited_method_call".to_string())
+        }
+        
+        fn visit_cast(&mut self, expr: &Expr, target_type: &str, _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("cast_{}", target_type))?;
+            self.visit_expr(expr)?;
+            Ok("visited_cast".to_string())
+        }
     }
 
     #[test]
