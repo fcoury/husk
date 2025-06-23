@@ -72,6 +72,9 @@ pub enum TokenKind {
     LessThanEquals,
     GreaterThan,
     GreaterThanEquals,
+    BangEquals,
+    DblAmpersand,
+    DblPipe,
     Colon,
     DblColon,
     Dot,
@@ -139,6 +142,9 @@ impl fmt::Display for TokenKind {
             TokenKind::LessThanEquals => "<=",
             TokenKind::GreaterThan => ">",
             TokenKind::GreaterThanEquals => ">=",
+            TokenKind::BangEquals => "!=",
+            TokenKind::DblAmpersand => "&&",
+            TokenKind::DblPipe => "||",
             TokenKind::Colon => ":",
             TokenKind::DblColon => "::",
             TokenKind::Dot => ".",
@@ -350,7 +356,30 @@ impl Lexer {
                     self.create_token(TokenKind::Underscore)
                 }
             }
-            Some('!') => self.create_token(TokenKind::Bang),
+            Some('!') => {
+                if self.peek_char() == Some('=') {
+                    self.read_char();
+                    self.create_token(TokenKind::BangEquals)
+                } else {
+                    self.create_token(TokenKind::Bang)
+                }
+            }
+            Some('&') => {
+                if self.peek_char() == Some('&') {
+                    self.read_char();
+                    self.create_token(TokenKind::DblAmpersand)
+                } else {
+                    self.create_token(TokenKind::Error("Unexpected character: &".to_string()))
+                }
+            }
+            Some('|') => {
+                if self.peek_char() == Some('|') {
+                    self.read_char();
+                    self.create_token(TokenKind::DblPipe)
+                } else {
+                    self.create_token(TokenKind::Error("Unexpected character: |".to_string()))
+                }
+            }
             Some(c) => {
                 if c.is_alphabetic() {
                     let token = self.read_identifier_or_type();

@@ -149,11 +149,14 @@ impl AstVisitor<String> for JsTranspiler {
             Operator::Multiply => "*",
             Operator::Divide => "/",
             Operator::Equals => "===",
+            Operator::NotEquals => "!==",
             Operator::Modulo => "%",
             Operator::LessThan => "<",
             Operator::LessThanEquals => "<=",
             Operator::GreaterThan => ">",
             Operator::GreaterThanEquals => ">=",
+            Operator::And => "&&",
+            Operator::Or => "||",
         };
         Ok(format!("({} {} {})", left_str, op_str, right_str))
     }
