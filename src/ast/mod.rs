@@ -1,4 +1,6 @@
 pub mod visitor;
+mod visitor_tests;
+mod visitor_integration_tests;
 
 use std::cell::RefCell;
 use std::rc::Rc;
