@@ -123,7 +123,33 @@ fn test_block_type_inference() {
 }
 ```
 
-**E. Error Scenarios**
+**E. Return Statement Semantics**
+```rust
+#[test]
+fn test_return_type_checking() {
+    // Return type matches function signature
+    // Return type mismatches (should error)
+    // Unit returns vs value returns
+    // Implicit returns (last expression)
+}
+
+#[test]
+fn test_return_context_validation() {
+    // Return inside function (valid)
+    // Return outside function (should error)
+    // Return in method vs static function
+    // Return in nested contexts
+}
+
+#[test]
+fn test_unreachable_code_detection() {
+    // Code after return statements
+    // Multiple return paths
+    // Dead code in branches
+}
+```
+
+**F. Error Scenarios**
 ```rust
 #[test]
 fn test_semantic_error_detection() {
@@ -200,6 +226,16 @@ fn test_function_calls() {
     // Return value handling
     // Recursive function execution
     // Method calls on structs
+}
+
+#[test]
+fn test_return_statement_execution() {
+    // Basic return with value
+    // Return without value (unit)
+    // Early returns in conditionals
+    // Return in nested blocks
+    // Return type conversion
+    // Control flow interruption
 }
 
 #[test]
