@@ -30,6 +30,9 @@ pub trait AstVisitor<T> {
                 self.visit_enum_variant_or_method_call(target, call, args, span)
             }
             Expr::Block(stmts, span) => self.visit_block(stmts, span),
+            Expr::If(condition, then_block, else_block, span) => {
+                self.visit_if_expr(condition, then_block, else_block, span)
+            }
         }
     }
 
@@ -50,6 +53,7 @@ pub trait AstVisitor<T> {
     fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_block(&mut self, stmts: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Statement visiting methods =====
     
@@ -63,9 +67,6 @@ pub trait AstVisitor<T> {
             Stmt::Struct(name, fields, span) => self.visit_struct(name, fields, span),
             Stmt::Enum(name, variants, span) => self.visit_enum(name, variants, span),
             Stmt::Impl(struct_name, methods, span) => self.visit_impl(struct_name, methods, span),
-            Stmt::If(condition, then_block, else_block, span) => {
-                self.visit_if(condition, then_block, else_block, span)
-            }
             Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
             Stmt::ForLoop(variable, iterable, body, span) => {
                 self.visit_for_loop(variable, iterable, body, span)
@@ -85,7 +86,6 @@ pub trait AstVisitor<T> {
     fn visit_struct(&mut self, name: &str, fields: &[(String, String)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_enum(&mut self, name: &str, variants: &[(String, String)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
-    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;

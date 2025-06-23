@@ -347,24 +347,6 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("function {}({}) {{\n{}\n}}", name, params_str, body_str))
     }
 
-    fn visit_if(&mut self, condition: &Expr, then_body: &[Stmt], else_body: &[Stmt], _span: &Span) -> Result<String> {
-        let condition_str = self.visit_expr(condition)?;
-        
-        self.indent_level += 1;
-        let then_str = self.generate_body(then_body)?;
-        self.indent_level -= 1;
-        
-        let mut result = format!("if ({}) {{\n{}\n}}", condition_str, then_str);
-        
-        if !else_body.is_empty() {
-            self.indent_level += 1;
-            let else_str = self.generate_body(else_body)?;
-            self.indent_level -= 1;
-            result.push_str(&format!(" else {{\n{}\n}}", else_str));
-        }
-        
-        Ok(result)
-    }
 
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
         let condition_str = self.visit_expr(condition)?;
@@ -563,5 +545,34 @@ impl AstVisitor<String> for JsTranspiler {
             "(() => {{\nconst _matched = {};\n{}\n}})()",
             expr_str, cases_str
         ))
+    }
+
+    fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<String> {
+        let condition_str = self.visit_expr(condition)?;
+        
+        // Generate an IIFE for the if expression
+        let mut result = "(() => {\n".to_string();
+        result.push_str(&format!("  if ({}) {{\n", condition_str));
+        
+        self.indent_level += 2;
+        let then_str = self.generate_body(then_block)?;
+        self.indent_level -= 2;
+        
+        result.push_str(&format!("    {}\n", then_str));
+        result.push_str("  }");
+        
+        if !else_block.is_empty() {
+            result.push_str(" else {\n");
+            
+            self.indent_level += 2;
+            let else_str = self.generate_body(else_block)?;
+            self.indent_level -= 2;
+            
+            result.push_str(&format!("    {}\n", else_str));
+            result.push_str("  }");
+        }
+        
+        result.push_str("\n})()");
+        Ok(result)
     }
 }

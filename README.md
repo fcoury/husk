@@ -20,10 +20,11 @@ Husk is a lightweight scripting language inspired by Rust, designed for simplici
 - Support for basic data types: integers, floats, booleans, and strings
 - Struct definitions and instantiation
 - Function definitions and calls
-- Control flow with if-else statements and match expressions
+- Control flow with if-else expressions and match expressions
+- Return statements for early function returns
 - Enums with associated values
 - Arrays and ranges
-- Loop constructs: for, while, and loop
+- Loop constructs: for, while, and loop with break/continue
 - Basic arithmetic and comparison operations
 - Interactive REPL (Read-Eval-Print Loop)
 - Script execution from files
@@ -139,10 +140,10 @@ for x in [1, 2, 3, 4, 5] {
 }
 
 // While loop
-let mut i = 0;
+let i = 0;
 while i < 5 {
     println(i);
-    i += 1;
+    i = i + 1;
 }
 
 // Infinite loop with break
