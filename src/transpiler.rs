@@ -945,13 +945,12 @@ mod tests {
 
     #[test]
     fn test_transpile_compound_assignment() {
-        // Note: This is currently parsed as CompoundAssign but not yet implemented
-        // When implemented, these tests should pass
-        // assert_eq!(transpile_expr("x += 1").unwrap(), "x += 1");
-        // assert_eq!(transpile_expr("x -= 1").unwrap(), "x -= 1");
-        // assert_eq!(transpile_expr("x *= 2").unwrap(), "x *= 2");
-        // assert_eq!(transpile_expr("x /= 2").unwrap(), "x /= 2");
-        // assert_eq!(transpile_expr("x %= 3").unwrap(), "x %= 3");
+        // Compound assignment needs to be parsed as a statement
+        assert_eq!(transpile_stmt("x += 1;").unwrap(), "void (x += 1)");
+        assert_eq!(transpile_stmt("x -= 1;").unwrap(), "void (x -= 1)");
+        assert_eq!(transpile_stmt("x *= 2;").unwrap(), "void (x *= 2)");
+        assert_eq!(transpile_stmt("x /= 2;").unwrap(), "void (x /= 2)");
+        assert_eq!(transpile_stmt("x %= 3;").unwrap(), "void (x %= 3)");
     }
 
     #[test]

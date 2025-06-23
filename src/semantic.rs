@@ -1495,4 +1495,32 @@ mod tests {
         assert!(analyze_code("let x = --5;").is_ok());
         assert!(analyze_code("let x = !!true;").is_ok());
     }
+
+    #[test]
+    fn test_compound_assignment_types() {
+        // Valid: numeric compound assignment
+        let code = r#"
+            let x = 5;
+            x += 3;
+            x -= 2;
+            x *= 4;
+            x /= 2;
+            x %= 3;
+        "#;
+        assert!(analyze_code(code).is_ok());
+        
+        // Valid: float compound assignment
+        let code = r#"
+            let y = 5.0;
+            y += 3.5;
+        "#;
+        assert!(analyze_code(code).is_ok());
+        
+        // Invalid: non-numeric compound assignment
+        let err = analyze_code(r#"
+            let s = "hello";
+            s += " world";
+        "#).unwrap_err();
+        assert!(err.to_string().contains("Compound assignment"));
+    }
 }

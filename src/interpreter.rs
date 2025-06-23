@@ -1564,4 +1564,71 @@ mod tests {
         let err = run_test("!5").unwrap_err();
         assert!(err.to_string().contains("Logical NOT requires bool type"));
     }
+
+    #[test]
+    fn test_compound_assignment() {
+        // Integer compound assignment
+        let program = r#"
+            let x = 10;
+            x += 5;
+            x
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Int(15));
+        
+        let program = r#"
+            let x = 20;
+            x -= 8;
+            x
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Int(12));
+        
+        let program = r#"
+            let x = 5;
+            x *= 3;
+            x
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Int(15));
+        
+        let program = r#"
+            let x = 20;
+            x /= 4;
+            x
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Int(5));
+        
+        let program = r#"
+            let x = 17;
+            x %= 5;
+            x
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Int(2));
+        
+        // Float compound assignment
+        let program = r#"
+            let y = 10.0;
+            y += 2.5;
+            y
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Float(12.5));
+    }
+
+    #[test]
+    fn test_compound_assignment_limitations() {
+        // Array element compound assignment not supported
+        let program = r#"
+            let arr = [1, 2, 3];
+            arr[0] += 5;
+        "#;
+        let err = run_test(program).unwrap_err();
+        assert!(err.to_string().contains("Invalid compound assignment target"));
+        
+        // Struct field compound assignment not supported
+        let program = r#"
+            struct Point { x: int, y: int }
+            let p = Point { x: 10, y: 20 };
+            p.x += 5;
+        "#;
+        let err = run_test(program).unwrap_err();
+        assert!(err.to_string().contains("Invalid compound assignment target"));
+    }
 }
