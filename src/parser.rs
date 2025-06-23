@@ -980,6 +980,15 @@ impl Parser {
             })?;
             if param_name == "self" {
                 params.push(("self".to_string(), "self".to_string()));
+                // Check for comma after self
+                if self.current_token().kind == TokenKind::Comma {
+                    self.advance(); // Consume ','
+                } else if self.current_token().kind != TokenKind::RParen {
+                    return Err(Error::new_parse(
+                        "Expected ',' or ')' after 'self' parameter".to_string(),
+                        self.current_token().span,
+                    ));
+                }
                 continue;
             }
             if self.current_token().kind != TokenKind::Colon {
@@ -1216,9 +1225,49 @@ impl Parser {
         let start_span = self.current_token().span.start;
         let mut left = self.parse_unary_expression()?;
 
-        // Handle compound assignment
+        // Handle postfix operations
         loop {
             match self.current_token().kind {
+                // Function call on expression
+                TokenKind::LParen => {
+                    // Check if the expression can be called
+                    match &left {
+                        Expr::EnumVariantOrMethodCall { target, call, args, .. } if args.is_empty() => {
+                            // This is a method reference like Point::origin, convert to a call
+                            self.advance(); // Consume '('
+                            let mut call_args = Vec::new();
+                            
+                            // Parse arguments
+                            if self.current_token().kind != TokenKind::RParen {
+                                loop {
+                                    call_args.push(self.parse_expression()?);
+                                    
+                                    match self.current_token().kind {
+                                        TokenKind::Comma => self.advance(),
+                                        TokenKind::RParen => break,
+                                        _ => return Err(Error::new_parse(
+                                            "Expected ',' or ')' in argument list".to_string(),
+                                            self.current_token().span,
+                                        )),
+                                    }
+                                }
+                            }
+                            
+                            let end = self.current_token().span.end;
+                            self.advance(); // Consume ')'
+                            
+                            left = Expr::EnumVariantOrMethodCall {
+                                target: target.clone(),
+                                call: call.clone(),
+                                args: call_args,
+                                span: Span::new(start_span, end),
+                                type_annotation: TypeAnnotation::new(),
+                            };
+                        }
+                        _ => break, // Can't call this expression
+                    }
+                }
+                // Compound assignment
                 TokenKind::PlusEquals
                 | TokenKind::MinusEquals
                 | TokenKind::StarEquals
@@ -1423,22 +1472,27 @@ impl Parser {
                 Error::new_parse("Expected identifier".to_string(), self.current_token().span)
             })?;
 
-        // variant value
+        // Check if there are parentheses for method call
         if self.current_token().kind == TokenKind::LParen {
+            // This is a method call like Type::method(args)
             self.advance(); // Consume '('
 
             let mut exprs = Vec::new();
-            loop {
-                exprs.push(self.parse_expression()?);
+            
+            // Parse arguments if any
+            if self.current_token().kind != TokenKind::RParen {
+                loop {
+                    exprs.push(self.parse_expression()?);
 
-                match self.current_token().kind {
-                    TokenKind::RParen => break,
-                    TokenKind::Comma => self.advance(),
-                    _ => {
-                        return Err(Error::new_parse(
-                            "Expected ')' after arguments".to_string(),
-                            self.current_token().span,
-                        ))
+                    match self.current_token().kind {
+                        TokenKind::RParen => break,
+                        TokenKind::Comma => self.advance(),
+                        _ => {
+                            return Err(Error::new_parse(
+                                "Expected ')' after arguments".to_string(),
+                                self.current_token().span,
+                            ))
+                        }
                     }
                 }
             }
@@ -1454,11 +1508,12 @@ impl Parser {
             });
         }
 
+        // This is a method reference like Type::method (without parentheses)
         let new_span = Span::new(start, self.current_token().span.end);
         Ok(Expr::EnumVariantOrMethodCall {
             target: Box::new(Expr::Identifier(name, span)),
             call: target_name,
-            args: vec![],
+            args: vec![], // Empty args indicates this is a method reference, not a call
             span: new_span,
             type_annotation: TypeAnnotation::new(),
         })

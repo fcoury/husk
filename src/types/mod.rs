@@ -65,6 +65,11 @@ impl Type {
             // Array covariance
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
             
+            // Struct types are compatible if they have the same name and field structure
+            (Type::Struct { name: name1, fields: fields1 }, Type::Struct { name: name2, fields: fields2 }) => {
+                name1 == name2 && fields1 == fields2
+            },
+            
             // TODO: Add more rules as needed (e.g., int to float coercion)
             _ => false,
         }

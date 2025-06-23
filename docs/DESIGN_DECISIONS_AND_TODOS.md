@@ -60,12 +60,15 @@ This document tracks design decisions made during development and features that 
 - **Example**: `-1`, `!condition`, `--5` (double negation)
 - **Notes**: Supports chaining and works in all expression contexts
 
-#### 5. Method Call Syntax
+#### 5. Method Call Syntax (Implemented)
 - **Features**: Automatic `self` passing for method calls like `object.method()`
-- **Current Status**: Not implemented
-- **Impact**: Methods must be called as `Type::method(object)` instead of `object.method()`
-- **Example**: Need to write `Rectangle::area(rect)` instead of `rect.area()`
-- **Complexity**: Requires distinguishing between methods and fields in member access
+- **Current Status**: ✅ Implemented
+- **Impact**: Both `Type::method(object)` and `object.method()` syntax work correctly
+- **Example**: Both `Rectangle::area(rect)` and `rect.area()` work
+- **Notes**: 
+  - Supports both static and instance methods
+  - Handles method references (`Type::method`) vs calls (`Type::method()`)
+  - Proper type checking with struct name compatibility
 
 ### Medium Priority
 
@@ -100,12 +103,12 @@ This document tracks design decisions made during development and features that 
 - **Impact**: No way to concatenate strings
 - **Example**: `"hello" + " world"`
 
-#### 9. Self Type in Methods
+#### 9. Self Type in Methods (Implemented)
 - **Features**: Proper handling of `self` type in method signatures
-- **Current Status**: `self` type is not properly resolved to the struct type
-- **Impact**: Method implementations don't work correctly
-- **Example**: `fn area(self) -> int` expects type `self` but gets `Rectangle`
-- **Notes**: Related to method call syntax - both need to be fixed together
+- **Current Status**: ✅ Implemented
+- **Impact**: Method implementations work correctly with proper self type resolution
+- **Example**: `fn area(self) -> int` correctly accepts `Rectangle` instances
+- **Notes**: Fixed together with method call syntax implementation
 
 ### Low Priority
 
