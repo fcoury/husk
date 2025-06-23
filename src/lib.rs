@@ -62,6 +62,9 @@ mod config_test;
 #[cfg(test)]
 mod package_resolution_test;
 
+#[cfg(test)]
+mod semantic_js_interop_tests;
+
 pub use config::HuskConfig;
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
