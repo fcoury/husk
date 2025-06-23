@@ -178,6 +178,14 @@ The `pub` keyword marks items as exported. Without `pub`, items are module-priva
   - Module caching to avoid reloading
   - Context tracking (current file and project root)
   - Tests for error cases
+- Export collection tracking (all top-level items currently exported)
+- Semantic analyzer support for imported names (Unknown type)
+- Successful module imports for functions, structs, and enums
+
+**Current Limitations:**
+- All top-level items are exported regardless of `pub` keyword
+- The AST doesn't track visibility modifiers, requiring significant refactoring to fix
+- Imported items have Unknown type in semantic analysis
 
 ### Phase 2: Type Declaration Support
 1. Parse `.d.hk` files

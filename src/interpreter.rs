@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::fmt;
 
 use indexmap::IndexMap;
 
@@ -37,17 +38,17 @@ pub enum Value {
     EnumVariant(String, String, Option<Box<Value>>),
 }
 
-impl Value {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Unit => "()".to_string(),
-            Value::Int(n) => n.to_string(),
-            Value::Float(f) => f.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::String(s) => s.clone(),
+            Value::Unit => write!(f, "()"),
+            Value::Int(n) => write!(f, "{}", n),
+            Value::Float(fl) => write!(f, "{}", fl),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::String(s) => write!(f, "{}", s),
             Value::Array(elements) => {
                 let elements_str: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
-                format!("[{}]", elements_str.join(", "))
+                write!(f, "[{}]", elements_str.join(", "))
             }
             Value::Range(start, end, inclusive) => {
                 let start_str = start
@@ -58,29 +59,33 @@ impl Value {
                     .as_ref()
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "None".to_string());
-                format!(
+                write!(
+                    f,
                     "{}..{}{}",
                     start_str,
                     end_str,
                     if *inclusive { "=" } else { "" }
                 )
             }
-            Value::Function(_) => "function".to_string(),
-            Value::Struct(name, _) => format!("struct {}", name),
+            Value::Function(_) => write!(f, "function"),
+            Value::Struct(name, _) => write!(f, "struct {}", name),
             Value::StructInstance(name, fields) => {
                 let mut field_strings = Vec::new();
                 for (name, value) in fields {
                     field_strings.push(format!("{}: {:?}", name, value));
                 }
-                format!("struct {} {{{}}}", name, field_strings.join(", "))
+                write!(f, "struct {} {{{}}}", name, field_strings.join(", "))
             }
-            Value::Enum(name, _) => format!("enum {}", name),
+            Value::Enum(name, _) => write!(f, "enum {}", name),
             Value::EnumVariant(name, variant, value) => match value {
-                Some(value) => format!("{}::{}({})", name, variant, value),
-                None => format!("{}::{}", name, variant),
+                Some(value) => write!(f, "{}::{}({})", name, variant, value),
+                None => write!(f, "{}::{}", name, variant),
             },
         }
     }
+}
+
+impl Value {
 
     pub fn type_str(&self) -> String {
         match self {
@@ -110,11 +115,6 @@ impl Value {
     }
 }
 
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
-}
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
@@ -186,6 +186,10 @@ pub struct InterpreterVisitor {
     module_cache: HashMap<PathBuf, Module>,
     current_file: Option<PathBuf>,
     project_root: Option<PathBuf>,
+    // Track exports for the current module being executed
+    current_exports: IndexMap<String, Value>,
+    // Track whether we're at the top level (for export collection)
+    is_top_level: bool,
 }
 
 impl InterpreterVisitor {
@@ -197,6 +201,8 @@ impl InterpreterVisitor {
             module_cache: HashMap::new(),
             current_file: None,
             project_root: None,
+            current_exports: IndexMap::new(),
+            is_top_level: true,
         };
         visitor.init_standard_library();
         visitor
@@ -210,6 +216,8 @@ impl InterpreterVisitor {
             module_cache: HashMap::new(),
             current_file,
             project_root,
+            current_exports: IndexMap::new(),
+            is_top_level: true,
         };
         visitor.init_standard_library();
         visitor
@@ -408,9 +416,8 @@ impl InterpreterVisitor {
         // Execute the module
         module_interpreter.interpret(&stmts)?;
 
-        // Collect exports (for now, just collect all top-level items marked with pub)
-        // TODO: Properly track pub exports during parsing/execution
-        let exports = IndexMap::new();
+        // Collect the exports from the module interpreter
+        let exports = module_interpreter.current_exports;
 
         let module = Module {
             _path: module_path.to_path_buf(),
@@ -1050,7 +1057,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
         ));
         
         // Step 5: Register the function in the global environment so it's always accessible
-        self.global_environment.insert(name.to_string(), final_func);
+        self.global_environment.insert(name.to_string(), final_func.clone());
+        
+        // Step 6: If we're at the top level, add to exports
+        // TODO: This should only export items marked with 'pub' once we track visibility in AST
+        if self.is_top_level {
+            self.current_exports.insert(name.to_string(), final_func);
+        }
         
         Ok(Value::Unit)
     }
@@ -1060,7 +1073,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
         for (field_name, field_type) in fields {
             field_map.insert(field_name.clone(), field_type.clone());
         }
-        self.set_var(name.to_string(), Value::Struct(name.to_string(), field_map));
+        let struct_value = Value::Struct(name.to_string(), field_map);
+        self.set_var(name.to_string(), struct_value.clone());
+        
+        // If we're at the top level, add to exports
+        // TODO: This should only export items marked with 'pub' once we track visibility in AST
+        if self.is_top_level {
+            self.current_exports.insert(name.to_string(), struct_value);
+        }
+        
         Ok(Value::Unit)
     }
 
@@ -1069,7 +1090,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
         for (variant_name, variant_type) in variants {
             variant_map.insert(variant_name.clone(), variant_type.clone());
         }
-        self.set_var(name.to_string(), Value::Enum(name.to_string(), variant_map));
+        let enum_value = Value::Enum(name.to_string(), variant_map);
+        self.set_var(name.to_string(), enum_value.clone());
+        
+        // If we're at the top level, add to exports
+        // TODO: This should only export items marked with 'pub' once we track visibility in AST
+        if self.is_top_level {
+            self.current_exports.insert(name.to_string(), enum_value);
+        }
+        
         Ok(Value::Unit)
     }
 
@@ -1370,6 +1399,10 @@ impl AstVisitor<Value> for InterpreterVisitor {
         // Implement proper scoping for blocks
         let saved_env = self.push_scope();
         
+        // Blocks are not top-level
+        let was_top_level = self.is_top_level;
+        self.is_top_level = false;
+        
         let mut block_value = Value::Unit;
         
         // Execute all statements in the block
@@ -1391,6 +1424,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                         ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => {
                             // If we hit a break/continue/return, stop executing and bubble up
                             self.pop_scope(saved_env);
+                            self.is_top_level = was_top_level;
                             return Ok(Value::Unit);
                         }
                         ControlFlow::Normal => {}
@@ -1399,8 +1433,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
         }
         
-        // Restore the previous scope
+        // Restore the previous scope and top-level flag
         self.pop_scope(saved_env);
+        self.is_top_level = was_top_level;
         
         Ok(block_value)
     }
