@@ -1748,6 +1748,73 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
         }
     }
+    
+    fn visit_cast(&mut self, expr: &Expr, target_type: &str, span: &Span) -> Result<Value> {
+        let value = self.visit_expr(expr)?;
+        
+        // Parse the target type to determine the cast
+        match target_type {
+            "int" => match value {
+                Value::Int(i) => Ok(Value::Int(i)), // No-op
+                Value::Float(f) => Ok(Value::Int(f as i64)),
+                Value::String(s) => {
+                    match s.parse::<i64>() {
+                        Ok(i) => Ok(Value::Int(i)),
+                        Err(_) => Err(Error::new_runtime(
+                            format!("Cannot parse '{}' as int", s),
+                            span.clone(),
+                        ))
+                    }
+                }
+                Value::Bool(b) => Ok(Value::Int(if b { 1 } else { 0 })),
+                _ => Err(Error::new_runtime(
+                    format!("Cannot cast {:?} to int", value),
+                    span.clone(),
+                ))
+            },
+            "float" => match value {
+                Value::Float(f) => Ok(Value::Float(f)), // No-op
+                Value::Int(i) => Ok(Value::Float(i as f64)),
+                Value::String(s) => {
+                    match s.parse::<f64>() {
+                        Ok(f) => Ok(Value::Float(f)),
+                        Err(_) => Err(Error::new_runtime(
+                            format!("Cannot parse '{}' as float", s),
+                            span.clone(),
+                        ))
+                    }
+                }
+                _ => Err(Error::new_runtime(
+                    format!("Cannot cast {:?} to float", value),
+                    span.clone(),
+                ))
+            },
+            "string" => match value {
+                Value::String(s) => Ok(Value::String(s)), // No-op
+                Value::Int(i) => Ok(Value::String(i.to_string())),
+                Value::Float(f) => Ok(Value::String(f.to_string())),
+                Value::Bool(b) => Ok(Value::String(b.to_string())),
+                _ => Err(Error::new_runtime(
+                    format!("Cannot cast {:?} to string", value),
+                    span.clone(),
+                ))
+            },
+            "bool" => match value {
+                Value::Bool(b) => Ok(Value::Bool(b)), // No-op
+                Value::Int(i) => Ok(Value::Bool(i != 0)),
+                Value::String(s) => Ok(Value::Bool(!s.is_empty())),
+                _ => Err(Error::new_runtime(
+                    format!("Cannot cast {:?} to bool", value),
+                    span.clone(),
+                ))
+            },
+            _ => {
+                // For custom types, we can't perform runtime casts
+                // Just return the value as-is and let the type system handle it
+                Ok(value)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

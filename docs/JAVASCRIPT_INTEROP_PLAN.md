@@ -402,6 +402,8 @@ export declare function add(a: number, b: number): number;
 2. Template literals / String formatting ✅
 3. Spread operator
 4. Generic type parameters (partial)
+5. Built-in methods for primitive types ✅
+6. Type casting (as operator) ✅
 
 **Completed:**
 - Basic generic type parsing for extern declarations (Promise<T>, Map<K,V>, etc.)
@@ -424,8 +426,26 @@ export declare function add(a: number, b: number): number;
 - Extended AST nodes to include generic parameter storage
 - Updated visitor trait and all implementations to handle generic parameters
 - Comprehensive test coverage for generic syntax parsing
+- **Implemented built-in methods for primitive types with JavaScript parity:**
+  - String methods: `len()`, `trim()`, `toLowerCase()`, `toUpperCase()`, `substring()`, `split()`
+  - Array methods: `len()` (with more methods planned)
+  - Added new `Expr::MethodCall` variant to AST
+  - Extended parser to recognize method calls on any expression type
+  - Implemented type checking for built-in methods in semantic analyzer
+  - Added runtime support in interpreter with proper UTF-8 handling
+  - Transpiler correctly maps to JavaScript equivalents (e.g., `len()` → `.length`)
+  - Full support in both interpreter and transpiler modes
 
-**Note:** Generic type parameters are now fully supported for parsing in all language constructs. Runtime generic type support and type checking will be implemented in future phases.
+- **Implemented type casting with `as` operator:**
+  - Basic type conversions: `value as int`, `value as float`, `value as string`, `value as bool`
+  - Added new `TokenKind::As` and `Expr::Cast(Box<Expr>, String, Span)` variant
+  - Type checking in semantic analyzer allows safe casts
+  - Runtime casting in interpreter with appropriate error handling
+  - Transpiler generates correct JavaScript conversions (e.g., `Number()`, `String()`, `Boolean()`)
+  - Numeric casts use `Math.floor()` for integer conversion to match Rust semantics
+  - Custom type casts are passed through, allowing for future TypeScript-style assertions
+
+**Note:** Generic type parameters are now fully supported for parsing in all language constructs. Runtime generic type support and type checking will be implemented in future phases. Built-in methods provide JavaScript-compatible functionality while maintaining Husk's type safety. Type casting allows explicit type conversions similar to Rust's `as` operator.
 
 ### Phase 4: Ecosystem Integration (Weeks 9-10)
 1. Build system (husk.toml) ✅

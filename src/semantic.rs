@@ -1837,6 +1837,37 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
         }
     }
+    
+    fn visit_cast(&mut self, expr: &Expr, target_type: &str, _span: &Span) -> Result<Type> {
+        // Type check the expression being cast
+        let expr_type = self.visit_expr(expr)?;
+        
+        // Parse the target type
+        let target = Type::from_string(target_type).unwrap_or(Type::Unknown);
+        
+        // For now, allow all casts and return the target type
+        // In a more complete implementation, we would check if the cast is valid
+        // e.g., numeric types can be cast to each other, but not to strings
+        match (&expr_type, &target) {
+            // Allow unknown types (for extern values)
+            (Type::Unknown, _) | (_, Type::Unknown) => Ok(target),
+            
+            // Allow same-type casts (no-op)
+            _ if expr_type == target => Ok(target),
+            
+            // Numeric casts
+            (Type::Int, Type::Float) | (Type::Float, Type::Int) => Ok(target),
+            
+            // String to numeric parsing would fail at runtime
+            (Type::String, Type::Int) | (Type::String, Type::Float) => Ok(target),
+            
+            // Numeric to string conversion
+            (Type::Int, Type::String) | (Type::Float, Type::String) => Ok(target),
+            
+            // For now, allow other casts and let runtime/transpiler handle them
+            _ => Ok(target),
+        }
+    }
 }
 
 #[cfg(test)]

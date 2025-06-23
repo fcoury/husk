@@ -1093,6 +1093,23 @@ impl AstVisitor<String> for JsTranspiler {
             }
         }
     }
+    
+    fn visit_cast(&mut self, expr: &Expr, target_type: &str, _span: &Span) -> Result<String> {
+        let expr_str = self.visit_expr(expr)?;
+        
+        // Generate JavaScript type casting/conversion
+        match target_type {
+            "int" => Ok(format!("Math.floor(Number({}))", expr_str)),
+            "float" => Ok(format!("Number({})", expr_str)),
+            "string" => Ok(format!("String({})", expr_str)),
+            "bool" => Ok(format!("Boolean({})", expr_str)),
+            _ => {
+                // For custom types, we trust the type system and just return the expression
+                // This allows for TypeScript-style type assertions
+                Ok(expr_str)
+            }
+        }
+    }
 }
 
 impl JsTranspiler {
