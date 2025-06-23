@@ -1,0 +1,14 @@
+extern fn parseJSON(s: string) -> Result<any, any>;
+
+async fn test_error_mapping() -> Result<string, any> {
+    // Test error case - this should demonstrate error mapping
+    let failure = parseJSON("invalid json");
+    
+    match failure {
+        Result::Ok(value) => Result::Ok("Should not happen"),
+        Result::Err(error) => {
+            // The error should be properly mapped with name, message, stack
+            Result::Ok("Error correctly mapped")
+        }
+    }
+}

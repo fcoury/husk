@@ -48,6 +48,9 @@ mod try_operator_test;
 #[cfg(test)]
 mod await_try_test;
 
+#[cfg(test)]
+mod error_mapping_test;
+
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;
