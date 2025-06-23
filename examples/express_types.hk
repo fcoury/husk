@@ -1,0 +1,64 @@
+// Example: Using extern types for Express.js web server
+
+// Declare external Express types
+extern mod express {
+    type Application;
+    type Request;
+    type Response;
+    type NextFunction;
+    
+    fn express() -> Application;
+    
+    impl Application {
+        fn get(path: string, handler: fn(Request, Response) -> void);
+        fn post(path: string, handler: fn(Request, Response) -> void);
+        fn use_middleware(middleware: fn(Request, Response, NextFunction) -> void);
+        fn listen(port: int, callback: fn() -> void);
+    }
+    
+    impl Request {
+        fn body() -> any;
+        fn params() -> any;
+        fn query() -> any;
+    }
+    
+    impl Response {
+        fn send(data: string);
+        fn json(data: any);
+        fn status(code: int) -> Response;
+    }
+}
+
+// Define middleware function using extern types
+fn logger_middleware(req: express::Request, res: express::Response, next: express::NextFunction) {
+    println("Request received");
+    // In real code: next();
+}
+
+// Define route handler using extern types
+fn hello_handler(req: express::Request, res: express::Response) {
+    // In real code: res.send("Hello World!");
+    println("Handling hello request");
+}
+
+fn create_todo_handler(req: express::Request, res: express::Response) {
+    // Access request body (would be JSON in real app)
+    // let todo = req.body;
+    println("Creating todo");
+    // res.status(201).json(todo);
+}
+
+// Main application setup
+fn setup_server() {
+    // In real code:
+    // let app = express::express();
+    // app.use(logger_middleware);
+    // app.get("/", hello_handler);
+    // app.post("/todos", create_todo_handler);
+    // app.listen(3000, || println("Server running on port 3000"));
+    
+    println("Server setup complete (simulation)");
+}
+
+// Run the example
+setup_server();
