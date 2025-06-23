@@ -1,12 +1,17 @@
 mod ast;
 mod error;
+mod error_tests;
 mod interpreter;
 mod lexer;
 mod parser;
+mod parser_error_tests;
 mod repl;
+mod runtime_error_tests;
 mod semantic;
+mod semantic_error_tests;
 mod span;
 mod transpiler;
+mod transpiler_error_tests;
 mod types;
 
 pub use error::{Error, Result};
