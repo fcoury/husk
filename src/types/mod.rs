@@ -36,6 +36,9 @@ pub enum Type {
         return_type: Box<Type>,
     },
 
+    // Promise type for async operations
+    Promise(Box<Type>),
+
     // For future use: Generic types
     Generic {
         name: String,
@@ -64,6 +67,9 @@ impl Type {
             
             // Array covariance
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
+            
+            // Promise covariance
+            (Type::Promise(a), Type::Promise(b)) => a.is_assignable_to(b),
             
             // Struct types are compatible if they have the same name and field structure
             (Type::Struct { name: name1, fields: fields1 }, Type::Struct { name: name2, fields: fields2 }) => {
@@ -94,6 +100,7 @@ impl Type {
                     .join(", ");
                 format!("fn({}) -> {}", param_str, return_type.to_string())
             },
+            Type::Promise(inner) => format!("Promise<{}>", inner.to_string()),
             Type::Generic { name, .. } => name.clone(),
             Type::Unknown => "?".to_string(),
         }
@@ -111,6 +118,10 @@ impl Type {
             s if s.starts_with("array<") && s.ends_with(">") => {
                 let inner = &s[6..s.len()-1];
                 Type::from_string(inner).map(|t| Type::Array(Box::new(t)))
+            },
+            s if s.starts_with("Promise<") && s.ends_with(">") => {
+                let inner = &s[8..s.len()-1];
+                Type::from_string(inner).map(|t| Type::Promise(Box::new(t)))
             },
             // For now, treat any other string as a struct/enum name
             _ => Some(Type::Struct { 

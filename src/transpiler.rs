@@ -488,6 +488,42 @@ impl AstVisitor<String> for JsTranspiler {
         ))
     }
     
+    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], _span: &Span) -> Result<String> {
+        let expr_str = self.visit_expr(expr)?;
+        let mut result = format!("((function(_matched) {{\n");
+        self.indent_level += 1;
+        
+        for (i, (pattern, body)) in arms.iter().enumerate() {
+            let (condition, binding) = self.generate_match_condition(expr, pattern);
+            
+            if i == 0 {
+                result.push_str(&format!("{}if ({}) {{\n", self.indent(), condition));
+            } else {
+                result.push_str(&format!("{}}} else if ({}) {{\n", self.indent(), condition));
+            }
+            
+            self.indent_level += 1;
+            if !binding.is_empty() {
+                result.push_str(&format!("{}{}", self.indent(), binding));
+            }
+            
+            let body_str = self.generate_body(body)?;
+            result.push_str(&body_str);
+            result.push('\n');
+            self.indent_level -= 1;
+        }
+        
+        result.push_str(&format!("{}}} else {{\n", self.indent()));
+        self.indent_level += 1;
+        result.push_str(&format!("{}throw new Error('No pattern matched');\n", self.indent()));
+        self.indent_level -= 1;
+        result.push_str(&format!("{}}}\n", self.indent()));
+        self.indent_level -= 1;
+        result.push_str(&format!("{}}})({})", self.indent(), expr_str));
+        
+        Ok(result)
+    }
+    
     fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         Ok(format!("await {}", expr_str))

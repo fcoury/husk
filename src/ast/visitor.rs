@@ -34,6 +34,7 @@ pub trait AstVisitor<T> {
             Expr::If(condition, then_block, else_block, span) => {
                 self.visit_if_expr(condition, then_block, else_block, span)
             }
+            Expr::Match(expr, arms, span) => self.visit_match_expr(expr, arms, span),
             Expr::Await(expr, span) => self.visit_await(expr, span),
         }
     }
@@ -109,6 +110,7 @@ pub trait AstVisitor<T> {
     fn visit_extern_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_extern_mod(&mut self, name: &str, items: &[ExternItem], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_async_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_await(&mut self, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
