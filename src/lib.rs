@@ -68,6 +68,9 @@ mod semantic_js_interop_tests;
 #[cfg(test)]
 mod interpreter_js_interop_tests;
 
+#[cfg(test)]
+mod transpiler_js_interop_tests;
+
 pub use config::HuskConfig;
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
