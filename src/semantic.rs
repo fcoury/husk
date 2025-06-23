@@ -144,6 +144,46 @@ impl SemanticVisitor {
             "format!".to_string(),
             (vec![], Type::String, Span { start: 0, end: 0 }),
         );
+        
+        // Register built-in Option enum
+        self.type_env.define(
+            "Option".to_string(),
+            Type::Enum {
+                name: "Option".to_string(),
+                variants: {
+                    let mut variants = HashMap::new();
+                    variants.insert("Some".to_string(), Some(Type::Unknown)); // Generic T
+                    variants.insert("None".to_string(), None);
+                    variants
+                },
+            },
+        );
+        self.enums.insert("Option".to_string(), {
+            let mut variants = HashMap::new();
+            variants.insert("Some".to_string(), Some(Type::Unknown));
+            variants.insert("None".to_string(), None);
+            variants
+        });
+        
+        // Register built-in Result enum
+        self.type_env.define(
+            "Result".to_string(),
+            Type::Enum {
+                name: "Result".to_string(),
+                variants: {
+                    let mut variants = HashMap::new();
+                    variants.insert("Ok".to_string(), Some(Type::Unknown)); // Generic T
+                    variants.insert("Err".to_string(), Some(Type::Unknown)); // Generic E
+                    variants
+                },
+            },
+        );
+        self.enums.insert("Result".to_string(), {
+            let mut variants = HashMap::new();
+            variants.insert("Ok".to_string(), Some(Type::Unknown));
+            variants.insert("Err".to_string(), Some(Type::Unknown));
+            variants
+        });
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
@@ -741,7 +781,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 ));
                             }
                             let arg_type = self.visit_expr(&args[0])?;
-                            if arg_type != *associated_type {
+                            // For built-in generic enums (Option, Result), accept any type
+                            if (type_name == "Option" || type_name == "Result") && *associated_type == Type::Unknown {
+                                // Accept any type for generic built-in enums
+                            } else if arg_type != *associated_type {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' expects {}, found {}",
@@ -895,7 +938,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Check return type matches last expression (if any)
         if let Some(Stmt::Expression(expr, _)) = body.last() {
             let expr_type = self.visit_expr(expr)?;
-            if expr_type != ret_type {
+            if !expr_type.is_assignable_to(&ret_type) {
                 self.type_env.pop_scope();
                 return Err(Error::new_semantic(
                     format!(
@@ -1087,7 +1130,13 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if let Expr::Identifier(var_name, _) = &args[0] {
                                 if let Some(enum_variants) = self.enums.get(enum_type) {
                                     if let Some(Some(variant_type)) = enum_variants.get(call) {
-                                        self.match_bound_vars.insert(var_name.clone(), variant_type.clone());
+                                        // For built-in generic enums with Unknown type, infer from usage context
+                                        if (enum_type == "Option" || enum_type == "Result") && *variant_type == Type::Unknown {
+                                            // For now, bind as Unknown and let type inference figure it out
+                                            self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                        } else {
+                                            self.match_bound_vars.insert(var_name.clone(), variant_type.clone());
+                                        }
                                     }
                                 }
                             }
@@ -1140,7 +1189,8 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         let first_arm_type = &arm_types[0];
         for (i, arm_type) in arm_types.iter().enumerate().skip(1) {
-            if arm_type != first_arm_type {
+            // If either type is Unknown, allow it (for generic types)
+            if *arm_type != Type::Unknown && *first_arm_type != Type::Unknown && arm_type != first_arm_type {
                 return Err(Error::new_semantic(
                     format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}", 
                             first_arm_type.to_string(), i, arm_type.to_string()),

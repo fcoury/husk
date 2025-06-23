@@ -1,0 +1,106 @@
+// Demonstrating Option and Result built-in types in Husk
+
+fn find_user(id: int) -> Option {
+    if id == 1 {
+        Option::Some("Alice")
+    } else {
+        Option::None
+    }
+}
+
+fn divide(a: int, b: int) -> Result {
+    if b == 0 {
+        Result::Err("Division by zero")
+    } else {
+        Result::Ok(a / b)
+    }
+}
+
+fn process_user_division(user_id: int, a: int, b: int) -> unit {
+    // Option example
+    let user = find_user(user_id);
+    match user {
+        Option::Some(name) => println(format!("Processing for user: {}", name)),
+        Option::None => println("User not found"),
+    }
+    
+    // Result example
+    let result = divide(a, b);
+    match result {
+        Result::Ok(value) => println(format!("{} / {} = {}", a, b, value)),
+        Result::Err(msg) => println(format!("Error: {}", msg)),
+    }
+}
+
+fn main() {
+    println("=== Option and Result Demo ===");
+    
+    // Test with existing user and valid division
+    process_user_division(1, 10, 2);
+    
+    println("");
+    
+    // Test with non-existing user and division by zero
+    process_user_division(999, 10, 0);
+    
+    // Direct usage example
+    let maybe_number = Option::Some(42);
+    match maybe_number {
+        Option::Some(n) => println(format!("Got number: {}", n)),
+        Option::None => println("Got nothing"),
+    }
+    
+    // Chained Result example  
+    let calc_result = if true {
+        Result::Ok(100)
+    } else {
+        Result::Err("calculation failed")
+    };
+    
+    match calc_result {
+        Result::Ok(val) => println(format!("Calculation succeeded: {}", val)),
+        Result::Err(e) => println(format!("Calculation failed: {}", e)),
+    }
+    
+    println("");
+    println("=== Nested Match Examples ===");
+    
+    // Nested Option<Result> examples
+    let success_case = Option::Some(Result::Ok(42));
+    let error_case = Option::Some(Result::Err("nested error"));
+    let none_case = Option::None;
+    
+    // Test all nested combinations
+    let test_cases = [success_case, error_case, none_case];
+    let case_names = ["Success", "Error", "None"];
+    
+    // For now, manually test each case since we don't have array iteration
+    println("Testing nested Option<Result> combinations:");
+    
+    println("Case 1: Option::Some(Result::Ok)");
+    match success_case {
+        Option::Some(r) => match r {
+            Result::Ok(n) => println(format!("  Got success value: {}", n)),
+            Result::Err(e) => println(format!("  Got error: {}", e)),
+        },
+        Option::None => println("  Got nothing"),
+    }
+    
+    println("Case 2: Option::Some(Result::Err)");
+    match error_case {
+        Option::Some(r) => match r {
+            Result::Ok(n) => println(format!("  Got success value: {}", n)),
+            Result::Err(e) => println(format!("  Got error: {}", e)),
+        },
+        Option::None => println("  Got nothing"),
+    }
+    
+    println("Case 3: Option::None");
+    match none_case {
+        Option::Some(r) => match r {
+            Result::Ok(n) => println(format!("  Got success value: {}", n)),
+            Result::Err(e) => println(format!("  Got error: {}", e)),
+        },
+        Option::None => println("  Got nothing"),
+    }
+}

@@ -300,6 +300,24 @@ impl InterpreterVisitor {
             "format!".to_string(),
             Value::Function(Function::BuiltIn(stdlib_format)),
         );
+        
+        // Register built-in Option enum
+        let mut option_variants = IndexMap::new();
+        option_variants.insert("Some".to_string(), "T".to_string());
+        option_variants.insert("None".to_string(), "".to_string());
+        self.global_environment.insert(
+            "Option".to_string(),
+            Value::Enum("Option".to_string(), option_variants),
+        );
+        
+        // Register built-in Result enum
+        let mut result_variants = IndexMap::new();
+        result_variants.insert("Ok".to_string(), "T".to_string());
+        result_variants.insert("Err".to_string(), "E".to_string());
+        self.global_environment.insert(
+            "Result".to_string(),
+            Value::Enum("Result".to_string(), result_variants),
+        );
     }
 
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
