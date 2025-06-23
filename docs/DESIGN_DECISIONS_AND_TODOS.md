@@ -176,6 +176,26 @@ This document tracks design decisions made during development and features that 
 - Tests validate error propagation across parsing, semantic analysis, and runtime
 - Covers complex nested structures, method calls, control flow, and type interactions
 
+### 6. Return Statement Testing Plan (Updated)
+- **Status**: 📋 Test Plan Updated
+- **Current Implementation Analysis**:
+  - AST: `Stmt::Return(Option<Expr>, Span)` - supports both `return;` and `return expr;`
+  - Interpreter: Implements `visit_return` with ControlFlow::Return tracking ✅
+  - Semantic Analyzer: Partially implemented with TODO comments for type checking ⚠️
+  - Integration Test: `return-statements.hk` covers basic return scenarios ✅
+- **Gaps Identified**:
+  - ❌ No unit tests for return statement semantic analysis
+  - ❌ No unit tests for return statement execution in interpreter
+  - ❌ No return type validation against function signature
+  - ❌ No tests for return statements outside functions (should error)
+  - ❌ No tests for unreachable code after returns
+  - ❌ No tests for return in loops/nested contexts
+- **Test Plan Additions**:
+  - Added return statement execution tests to interpreter test suite
+  - Added return statement semantic analysis tests (type checking, context validation)
+  - Added unreachable code detection tests for dead code after returns
+  - Covers return type compatibility, control flow interruption, and error scenarios
+
 ## Documentation
 
 ### 1. Language Reference
