@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use husk::{execute_script, repl};
+use husk::repl;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -53,8 +53,15 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_command(file: PathBuf) -> anyhow::Result<()> {
-    let code = std::fs::read_to_string(file)?;
-    match execute_script(&code) {
+    let code = std::fs::read_to_string(&file)?;
+    
+    // Determine project root (for now, use parent of src directory if it exists)
+    let project_root = file.parent()
+        .and_then(|p| p.file_name())
+        .and_then(|name| if name == "src" { file.parent()?.parent() } else { None })
+        .map(|p| p.to_path_buf());
+    
+    match husk::execute_script_with_context(&code, Some(file), project_root) {
         Ok(_) => {}
         Err(e) => {
             eprintln!("{}", e.pretty_print(code));

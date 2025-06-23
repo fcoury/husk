@@ -346,6 +346,11 @@ export declare function add(a: number, b: number): number;
 - Added path resolution for local::, self::, super:: prefixes
 - Created module cache to avoid reloading modules
 - Added tests for module loading error cases
+- Implemented export collection for modules (currently exports all top-level items)
+- Made semantic analyzer tolerant of imported names with Unknown type
+- Successfully tested module imports with functions, structs, and enums
+
+**Note:** Currently all top-level items are exported regardless of pub keyword due to AST limitations. The AST doesn't track visibility modifiers, which would require significant refactoring to fix.
 
 ### Phase 2: Async Programming (Weeks 4-5)
 1. Async/await syntax and semantics

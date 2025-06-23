@@ -16,6 +16,7 @@ pub struct SemanticVisitor {
     enums: HashMap<String, HashMap<String, Option<Type>>>,
     match_bound_vars: HashMap<String, Type>,
     loop_depth: u32,
+    imported_names: HashMap<String, Type>,
 }
 
 impl SemanticVisitor {
@@ -27,6 +28,7 @@ impl SemanticVisitor {
             enums: HashMap::new(),
             match_bound_vars: HashMap::new(),
             loop_depth: 0,
+            imported_names: HashMap::new(),
         };
         visitor.init_standard_library();
         visitor
@@ -214,6 +216,11 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         match op {
             Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide | Operator::Modulo => {
+                // If either type is Unknown (imported), we can't check types at compile time
+                if left_type == Type::Unknown || right_type == Type::Unknown {
+                    return Ok(Type::Unknown);
+                }
+                
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     return Err(Error::new_semantic(
                         format!(
@@ -388,6 +395,13 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Check if it's a method call or regular function
         let (param_types, return_type) = if let Some((params, ret_type, _)) = self.functions.get(&func_name) {
             (params.clone(), ret_type.clone())
+        } else if self.imported_names.contains_key(&func_name) {
+            // It's an imported name - we don't know its type yet, so assume it's valid
+            // Visit arguments for side effects
+            for arg in &arg_exprs {
+                self.visit_expr(arg)?;
+            }
+            return Ok(Type::Unknown);
         } else {
             return Err(Error::new_semantic(
                 format!("Function '{}' not found", func_name),
@@ -451,6 +465,15 @@ impl AstVisitor<Type> for SemanticVisitor {
         let struct_fields = match self.structs.get(name) {
             Some(fields) => fields.clone(),
             None => {
+                // Check if it's an imported struct
+                if self.imported_names.contains_key(name) {
+                    // Visit field expressions for side effects
+                    for (_, field_expr) in fields {
+                        self.visit_expr(field_expr)?;
+                    }
+                    return Ok(Type::Unknown);
+                }
+                
                 return Err(Error::new_semantic(
                     format!("Struct '{}' not found", name),
                     *span,
@@ -508,6 +531,10 @@ impl AstVisitor<Type> for SemanticVisitor {
         let object_type = self.visit_expr(object)?;
 
         match &object_type {
+            Type::Unknown => {
+                // It's an imported value - we don't know its type yet
+                Ok(Type::Unknown)
+            }
             Type::Struct { name, .. } => {
                 let struct_fields = match self.structs.get(name) {
                     Some(fields) => fields,
@@ -537,6 +564,15 @@ impl AstVisitor<Type> for SemanticVisitor {
     fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> Result<Type> {
         // This handles both enum variant construction and method calls
         if let Expr::Identifier(type_name, _) = target {
+            // Check if it's an imported type
+            if self.imported_names.contains_key(type_name) {
+                // Visit arguments for side effects
+                for arg in args {
+                    self.visit_expr(arg)?;
+                }
+                return Ok(Type::Unknown);
+            }
+            
             // Check if it's an enum variant
             if let Some(enum_variants) = self.enums.get(type_name).cloned() {
                 if let Some(variant_type) = enum_variants.get(call) {
@@ -1081,14 +1117,36 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_use(&mut self, path: &UsePath, _items: &UseItems, _span: &Span) -> Result<Type> {
+    fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<Type> {
         // For now, just validate that external packages are not used in interpreter mode
         // In the future, this will handle module resolution and type loading
         if path.prefix == UsePrefix::None {
             // External package - we'll need to check if we're in transpiler mode later
             // For now, just accept it
         }
-        // TODO: Implement module loading and symbol importing
+        
+        // TODO: Properly implement module loading and type resolution
+        // For now, register imported names as having unknown type to avoid "not found" errors
+        match items {
+            UseItems::Named(imports) => {
+                for (import_name, alias) in imports {
+                    let local_name = alias.as_ref().unwrap_or(import_name);
+                    // Track as imported name with Unknown type for now
+                    self.imported_names.insert(local_name.clone(), Type::Unknown);
+                }
+            }
+            UseItems::Single => {
+                // Import the module itself - register last segment
+                if let Some(module_name) = path.segments.last() {
+                    self.imported_names.insert(module_name.clone(), Type::Unknown);
+                }
+            }
+            UseItems::All => {
+                // Can't know what's imported without loading the module
+                // This is a limitation of the current implementation
+            }
+        }
+        
         Ok(Type::Unit)
     }
 
