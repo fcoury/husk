@@ -10,6 +10,7 @@ pub enum Error {
     Parse(String, Span),
     Runtime(String, Span),
     Transpiler(String, Span),
+    Config(String),
 }
 
 #[allow(dead_code)]
@@ -30,21 +31,27 @@ impl Error {
         Error::Transpiler(message.into(), span)
     }
 
+    pub fn new_config(message: impl Into<String>) -> Self {
+        Error::Config(message.into())
+    }
+
     pub fn pretty_print(&self, code: impl Into<String>) -> String {
         match self {
             Error::Semantic(message, span) => pretty_print(code, message, span),
             Error::Parse(message, span) => pretty_print(code, message, span),
             Error::Runtime(message, span) => pretty_print(code, message, span),
             Error::Transpiler(message, span) => pretty_print(code, message, span),
+            Error::Config(message) => format!("Configuration Error: {}", message),
         }
     }
 
-    fn span(&self) -> &Span {
+    fn span(&self) -> Option<&Span> {
         match self {
-            Error::Semantic(_, span) => span,
-            Error::Parse(_, span) => span,
-            Error::Runtime(_, span) => span,
-            Error::Transpiler(_, span) => span,
+            Error::Semantic(_, span) => Some(span),
+            Error::Parse(_, span) => Some(span),
+            Error::Runtime(_, span) => Some(span),
+            Error::Transpiler(_, span) => Some(span),
+            Error::Config(_) => None,
         }
     }
 
@@ -54,6 +61,7 @@ impl Error {
             Error::Parse(message, _) => message,
             Error::Runtime(message, _) => message,
             Error::Transpiler(message, _) => message,
+            Error::Config(message) => message,
         }
     }
 }
@@ -71,6 +79,7 @@ impl fmt::Display for Error {
             Error::Transpiler(message, span) => {
                 write!(f, "Transpiler error: {} at {:?}", message, span)
             }
+            Error::Config(message) => write!(f, "Configuration error: {}", message),
         }
     }
 }

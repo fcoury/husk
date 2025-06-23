@@ -1,0 +1,78 @@
+# Sample husk.toml configuration file
+
+[package]
+name = "my-husk-app"
+version = "1.0.0"
+description = "A sample Husk application demonstrating configuration"
+author = "Developer <dev@example.com>"
+license = "MIT"
+repository = "https://github.com/user/my-husk-app"
+homepage = "https://my-husk-app.com"
+keywords = ["husk", "javascript", "transpiler", "web"]
+main = "src/index.husk"
+
+[[package.bin]]
+name = "server"
+path = "src/server.husk"
+
+[[package.bin]]
+name = "cli"
+path = "src/cli.husk"
+
+[dependencies]
+# Simple version spec
+lodash = "^4.17.21"
+express = "^4.18.0"
+
+# Detailed dependency spec
+axios = { version = "^1.4.0", optional = false }
+moment = { version = "^2.29.0", features = ["timezone"] }
+
+# Git dependency
+my-utils = { git = "https://github.com/user/my-utils", branch = "main" }
+
+# Local path dependency
+shared = { path = "../shared-lib" }
+
+[dev-dependencies]
+jest = "^29.0.0"
+typescript = "^5.0.0"
+eslint = "^8.0.0"
+
+[build]
+src = "src"
+out = "dist"
+target = "es2020"
+module = "esm"
+minify = true
+source_map = true
+watch = false
+
+# Multiple build targets
+[targets.node]
+platform = "node"
+format = "cjs"
+entry = "src/server.husk"
+output = "dist/server.js"
+external = ["fs", "path", "os"]
+
+[targets.browser]
+platform = "browser"
+format = "esm"
+entry = "src/client.husk"
+output = "dist/bundle.js"
+external = []
+
+[targets.browser-legacy]
+platform = "browser"
+format = "umd"
+entry = "src/client.husk"
+output = "dist/bundle.umd.js"
+globals = { "lodash" = "_", "moment" = "moment" }
+
+[targets.deno]
+platform = "deno"
+format = "esm"
+entry = "src/deno-main.husk"
+output = "dist/deno.js"
+external = []
