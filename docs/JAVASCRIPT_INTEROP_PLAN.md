@@ -415,14 +415,40 @@ export declare function add(a: number, b: number): number;
 - format! works in both interpreter and transpiler modes
 - Transpiler converts format! to JavaScript template literals when possible
 - Added special lexer handling for format! identifier
+- Implemented full generic type parameter system for all language constructs:
+  - Functions: `fn map<T, U>(item: T) -> U`
+  - Structs: `struct Container<T> { value: T }`
+  - Enums: `enum Result<T, E> { Ok(T), Err(E) }`
+  - Async functions: `async fn fetch<T>() -> Promise<T>`
+  - Extern declarations: `extern fn Array_map<T, U>()`
+- Extended AST nodes to include generic parameter storage
+- Updated visitor trait and all implementations to handle generic parameters
+- Comprehensive test coverage for generic syntax parsing
 
-**Note:** This covers generic type parsing in extern declarations only. Full generic support for Husk types and functions is planned for future phases.
+**Note:** Generic type parameters are now fully supported for parsing in all language constructs. Runtime generic type support and type checking will be implemented in future phases.
 
 ### Phase 4: Ecosystem Integration (Weeks 9-10)
-1. Build system (husk.toml)
-2. Package.json generation
+1. Build system (husk.toml) ✅
+2. Package.json generation ✅ (via husk.toml)
 3. npm package resolution
 4. TypeScript declaration generation
+
+**Completed:**
+- Implemented comprehensive husk.toml configuration parser with serde-based TOML parsing
+- Added support for package metadata (name, version, description, author, license, repository)
+- Implemented flexible dependency management:
+  - Simple version specs: `lodash = "^4.17.21"`
+  - Detailed specs with options: `{ version = "^1.0.0", optional = false }`
+  - Git dependencies: `{ git = "https://github.com/user/repo", branch = "main" }`
+  - Local path dependencies: `{ path = "../shared-lib" }`
+  - Development dependencies with proper `dev-dependencies` section support
+- Added build configuration with source/output directories, ES targets, module formats (ESM/CJS/UMD)
+- Implemented multiple target support for platform-specific builds (Node.js, browser, Deno)
+- Added binary configurations for CLI tools with entry points
+- Created automatic package.json generation from husk.toml with proper dependency conversion
+- Implemented configuration validation with helpful error messages
+- Added automatic husk.toml file discovery in project hierarchy
+- Comprehensive test suite covering all configuration parsing scenarios
 
 ### Phase 5: Optimizations (Weeks 11-12)
 1. Source map generation
