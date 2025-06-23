@@ -576,3 +576,400 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    fn transpile_expr(input: &str) -> Result<String> {
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse()?;
+        
+        // Extract the first expression from the parsed statements
+        if let Some(Stmt::Expression(expr, _)) = stmts.first() {
+            let mut transpiler = JsTranspiler::new();
+            transpiler.visit_expr(expr)
+        } else {
+            Err(Error::new_parse("Expected expression".to_string(), Span::new(0, 0)))
+        }
+    }
+
+    fn transpile_stmt(input: &str) -> Result<String> {
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse()?;
+        
+        // Get the first statement
+        if let Some(stmt) = stmts.first() {
+            let mut transpiler = JsTranspiler::new();
+            transpiler.visit_stmt(stmt)
+        } else {
+            Err(Error::new_parse("Expected statement".to_string(), Span::new(0, 0)))
+        }
+    }
+
+    fn transpile_program(input: &str) -> Result<String> {
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse()?;
+        let mut transpiler = JsTranspiler::new();
+        transpiler.transpile(&program)
+    }
+
+    #[test]
+    fn test_transpile_literals() {
+        assert_eq!(transpile_expr("42").unwrap(), "42");
+        assert_eq!(transpile_expr("3.14").unwrap(), "3.14");
+        assert_eq!(transpile_expr("true").unwrap(), "true");
+        assert_eq!(transpile_expr("false").unwrap(), "false");
+        assert_eq!(transpile_expr("\"hello\"").unwrap(), "\"hello\"");
+    }
+
+    #[test]
+    fn test_transpile_identifiers() {
+        assert_eq!(transpile_expr("x").unwrap(), "x");
+        assert_eq!(transpile_expr("myVar").unwrap(), "myVar");
+    }
+
+    #[test]
+    fn test_transpile_binary_operations() {
+        assert_eq!(transpile_expr("1 + 2").unwrap(), "(1 + 2)");
+        assert_eq!(transpile_expr("5 - 3").unwrap(), "(5 - 3)");
+        assert_eq!(transpile_expr("4 * 6").unwrap(), "(4 * 6)");
+        assert_eq!(transpile_expr("10 / 2").unwrap(), "(10 / 2)");
+        assert_eq!(transpile_expr("7 % 3").unwrap(), "(7 % 3)");
+    }
+
+    #[test]
+    fn test_transpile_comparison_operations() {
+        assert_eq!(transpile_expr("a == b").unwrap(), "(a === b)");
+        assert_eq!(transpile_expr("x < y").unwrap(), "(x < y)");
+        assert_eq!(transpile_expr("x <= y").unwrap(), "(x <= y)");
+        assert_eq!(transpile_expr("x > y").unwrap(), "(x > y)");
+        assert_eq!(transpile_expr("x >= y").unwrap(), "(x >= y)");
+    }
+
+    #[test]
+    fn test_transpile_array_literal() {
+        assert_eq!(transpile_expr("[1, 2, 3]").unwrap(), "[1, 2, 3]");
+        assert_eq!(transpile_expr("[\"a\", \"b\"]").unwrap(), "[\"a\", \"b\"]");
+        assert_eq!(transpile_expr("[]").unwrap(), "[]");
+    }
+
+    #[test]
+    fn test_transpile_array_access() {
+        assert_eq!(transpile_expr("arr[0]").unwrap(), "arr[0]");
+        assert_eq!(transpile_expr("matrix[i]").unwrap(), "matrix[i]");
+    }
+
+    #[test]
+    fn test_transpile_array_slicing() {
+        assert_eq!(transpile_expr("arr[1..3]").unwrap(), "arr.slice(1, 3)");
+        assert_eq!(transpile_expr("arr[1..=3]").unwrap(), "arr.slice(1, 3 + 1)");
+        assert_eq!(transpile_expr("arr[2..]").unwrap(), "arr.slice(2)");
+        assert_eq!(transpile_expr("arr[..5]").unwrap(), "arr.slice(0, 5)");
+    }
+
+    #[test]
+    fn test_transpile_function_call() {
+        assert_eq!(transpile_expr("foo()").unwrap(), "foo()");
+        assert_eq!(transpile_expr("add(1, 2)").unwrap(), "add(1, 2)");
+        assert_eq!(transpile_expr("println(\"hello\")").unwrap(), "println(\"hello\")");
+    }
+
+    #[test]
+    fn test_transpile_member_access() {
+        assert_eq!(transpile_expr("obj.field").unwrap(), "obj.field");
+        assert_eq!(transpile_expr("person.name").unwrap(), "person.name");
+    }
+
+    #[test]
+    fn test_transpile_assignment() {
+        // Assignments need semicolons when parsed as statements
+        assert_eq!(transpile_stmt("x = 5;").unwrap(), "void (x = 5)");
+        assert_eq!(transpile_stmt("arr[0] = 10;").unwrap(), "void (arr[0] = 10)");
+        assert_eq!(transpile_stmt("obj.field = \"value\";").unwrap(), "void (obj.field = \"value\")");
+    }
+
+    #[test]
+    fn test_transpile_let_statement() {
+        assert_eq!(transpile_stmt("let x = 5;").unwrap(), "let x = 5");
+        assert_eq!(transpile_stmt("let name = \"Alice\";").unwrap(), "let name = \"Alice\"");
+    }
+
+    #[test]
+    fn test_transpile_function_definition() {
+        let input = "fn add(a: int, b: int) -> int { a + b }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("function add(a, b)"));
+        assert!(result.contains("return (a + b);"));
+    }
+
+    #[test]
+    fn test_transpile_while_loop() {
+        let input = "while x < 10 { x = x + 1; }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("while ((x < 10))"));
+        assert!(result.contains("x = (x + 1)"));
+    }
+
+    #[test]
+    fn test_transpile_for_loop_range() {
+        let input = "for i in 0..5 { println(i); }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("for (let i = 0; i < 5; i++)"));
+        assert!(result.contains("println(i)"));
+    }
+
+    #[test]
+    fn test_transpile_for_loop_array() {
+        let input = "for x in arr { println(x); }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("for (const x of arr)"));
+        assert!(result.contains("println(x)"));
+    }
+
+    #[test]
+    fn test_transpile_infinite_loop() {
+        let input = "loop { break; }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("while (true)"));
+        assert!(result.contains("break"));
+    }
+
+    #[test]
+    fn test_transpile_break_continue() {
+        assert_eq!(transpile_stmt("break;").unwrap(), "break");
+        assert_eq!(transpile_stmt("continue;").unwrap(), "continue");
+    }
+
+    #[test]
+    fn test_transpile_return_statement() {
+        assert_eq!(transpile_stmt("return;").unwrap(), "return");
+        assert_eq!(transpile_stmt("return 42;").unwrap(), "return 42");
+        assert_eq!(transpile_stmt("return x + y;").unwrap(), "return (x + y)");
+    }
+
+    #[test]
+    fn test_transpile_struct_definition() {
+        let input = "struct Point { x: int, y: int }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("function Point(x, y)"));
+        assert!(result.contains("this.x = x;"));
+        assert!(result.contains("this.y = y;"));
+    }
+
+    #[test]
+    fn test_transpile_struct_instantiation() {
+        let input = "Point { x: 10, y: 20 }";
+        let result = transpile_expr(input).unwrap();
+        assert!(result.contains("Object.create(Point.prototype)"));
+        assert!(result.contains("__INSTANCE__.x = 10;"));
+        assert!(result.contains("__INSTANCE__.y = 20;"));
+    }
+
+    #[test]
+    fn test_transpile_enum_definition() {
+        let input = "enum Option { Some(int), None }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("class Option"));
+        assert!(result.contains("Option.Some = class extends Option"));
+        assert!(result.contains("Option.None = class extends Option"));
+        assert!(result.contains("Option.None = new Option.None()"));
+    }
+
+    #[test]
+    fn test_transpile_enum_variant() {
+        assert_eq!(transpile_expr("Option::None").unwrap(), "Option.None");
+        assert_eq!(transpile_expr("Option::Some(5)").unwrap(), "new Option.Some(5)");
+    }
+
+    #[test]
+    fn test_transpile_impl_block() {
+        let input = r#"
+            impl Rectangle {
+                fn area(self) -> int {
+                    self.width * self.height
+                }
+                
+                fn new(w: int, h: int) -> Rectangle {
+                    Rectangle { width: w, height: h }
+                }
+            }
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+        
+        // Find the impl statement
+        for stmt in &program {
+            if let Stmt::Impl(_, _, _) = stmt {
+                let result = transpiler.visit_stmt(stmt).unwrap();
+                assert!(result.contains("Rectangle.prototype.area = function()"));
+                assert!(result.contains("const self = this;"));
+                assert!(result.contains("Rectangle.new = function(w, h)"));
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_transpile_match_expression() {
+        // Match needs to be in a function context for proper parsing
+        let input = r#"
+            fn test_match() -> int {
+                match opt {
+                    Option::Some(n) => n,
+                    Option::None => 0,
+                }
+            }
+        "#;
+        let result = transpile_program(input).unwrap();
+        assert!(result.contains("const _matched = opt;"));
+        assert!(result.contains("if (_matched instanceof Option.Some)"));
+        assert!(result.contains("const n = _matched.value;"));
+        assert!(result.contains("return n;"));
+        assert!(result.contains("else if (_matched === Option.None)"));
+        assert!(result.contains("return 0;"));
+    }
+
+    #[test]
+    fn test_transpile_if_expression() {
+        let input = "if x > 0 { x } else { 0 }";
+        let result = transpile_expr(input).unwrap();
+        assert!(result.contains("(() => {"));
+        assert!(result.contains("if ((x > 0))"));
+        assert!(result.contains("return x;"));
+        assert!(result.contains("return 0;"));
+        assert!(result.contains("})()"));
+    }
+
+    #[test]
+    fn test_transpile_block_expression() {
+        // Block expressions need to be parsed as complete programs
+        let input = "fn test() -> int { let x = 5; x + 1 }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("let x = 5;"));
+        assert!(result.contains("return (x + 1);"));
+    }
+
+    #[test]
+    fn test_transpile_expression_with_semicolon() {
+        let input = "x = 5;";
+        let result = transpile_stmt(input).unwrap();
+        assert_eq!(result, "void (x = 5)");
+    }
+
+    #[test]
+    fn test_transpile_parentheses() {
+        assert_eq!(transpile_expr("(1 + 2) * 3").unwrap(), "((1 + 2) * 3)");
+        assert_eq!(transpile_expr("(x)").unwrap(), "x");
+    }
+
+    #[test]
+    fn test_transpile_complete_program() {
+        let input = r#"
+            fn main() -> void {
+                let x = 5;
+                if x > 0 {
+                    println("positive");
+                } else {
+                    println("non-positive");
+                }
+            }
+        "#;
+        let result = transpile_program(input).unwrap();
+        assert!(result.contains("function println(...args)"));
+        assert!(result.contains("function main()"));
+        assert!(result.contains("let x = 5;"));
+    }
+
+    #[test]
+    fn test_transpile_nested_expressions() {
+        let input = "arr[if cond { 0 } else { 1 }]";
+        let result = transpile_expr(input).unwrap();
+        assert!(result.contains("arr[(() => {"));
+        assert!(result.contains("if (cond)"));
+    }
+
+    #[test]
+    fn test_transpile_method_call() {
+        // Test static method call
+        assert_eq!(transpile_expr("Point::new(1, 2)").unwrap(), "Point.new(1, 2)");
+        
+        // Test method call on dot notation (for future implementation)
+        let input = "obj.method(arg)";
+        let result = transpile_expr(input).unwrap();
+        assert_eq!(result, "obj.method(arg)");
+    }
+
+    #[test]
+    fn test_transpile_match_with_wildcard() {
+        let input = r#"
+            fn test_wildcard() -> string {
+                match x {
+                    1 => "one",
+                    2 => "two",
+                    _ => "other",
+                }
+            }
+        "#;
+        let result = transpile_program(input).unwrap();
+        assert!(result.contains("const _matched = x;"));
+        assert!(result.contains("if (true)"));
+        assert!(result.contains("const _ = _matched;"));
+    }
+
+    #[test]
+    fn test_transpile_for_inclusive_range() {
+        let input = "for i in 1..=5 { println(i); }";
+        let result = transpile_stmt(input).unwrap();
+        assert!(result.contains("for (let i = 1; i <= 5; i++)"));
+    }
+
+    #[test]
+    fn test_transpile_compound_assignment() {
+        // Note: This is currently parsed as CompoundAssign but not yet implemented
+        // When implemented, these tests should pass
+        // assert_eq!(transpile_expr("x += 1").unwrap(), "x += 1");
+        // assert_eq!(transpile_expr("x -= 1").unwrap(), "x -= 1");
+        // assert_eq!(transpile_expr("x *= 2").unwrap(), "x *= 2");
+        // assert_eq!(transpile_expr("x /= 2").unwrap(), "x /= 2");
+        // assert_eq!(transpile_expr("x %= 3").unwrap(), "x %= 3");
+    }
+
+    #[test]
+    fn test_transpile_function_with_return() {
+        let input = r#"
+            fn factorial(n: int) -> int {
+                if n <= 1 {
+                    return 1;
+                }
+                return n * factorial(n - 1);
+            }
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+        
+        for stmt in &program {
+            if let Stmt::Function(_, _, _, _, _) = stmt {
+                let result = transpiler.visit_stmt(stmt).unwrap();
+                assert!(result.contains("function factorial(n)"));
+                assert!(result.contains("return 1;"));
+                assert!(result.contains("return (n * factorial((n - 1)));"));
+                break;
+            }
+        }
+    }
+}
