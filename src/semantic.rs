@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix},
     span::Span,
     types::{Type, TypeEnvironment},
 };
@@ -1078,6 +1078,17 @@ impl AstVisitor<Type> for SemanticVisitor {
         // For now, just analyze the expression
         // Later, when implementing expression-based semantics, we'll use has_semicolon
         self.visit_expr(expr)?;
+        Ok(Type::Unit)
+    }
+
+    fn visit_use(&mut self, path: &UsePath, _items: &UseItems, _span: &Span) -> Result<Type> {
+        // For now, just validate that external packages are not used in interpreter mode
+        // In the future, this will handle module resolution and type loading
+        if path.prefix == UsePrefix::None {
+            // External package - we'll need to check if we're in transpiler mode later
+            // For now, just accept it
+        }
+        // TODO: Implement module loading and symbol importing
         Ok(Type::Unit)
     }
 
