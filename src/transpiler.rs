@@ -592,7 +592,7 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("let {} = {}", name, value))
     }
 
-    fn visit_function(&mut self, name: &str, params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
+    fn visit_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
         let params_str = params
             .iter()
             .map(|(name, _)| name.clone())
@@ -705,7 +705,7 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
-    fn visit_extern_function(&mut self, _name: &str, _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String> {
+    fn visit_extern_function(&mut self, _name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String> {
         // Extern declarations don't generate any JavaScript code
         // They're only used for type checking
         Ok(String::new())
@@ -717,7 +717,7 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(String::new())
     }
     
-    fn visit_async_function(&mut self, name: &str, params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
+    fn visit_async_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
         let params_str = params
             .iter()
             .map(|(name, _)| name.clone())
@@ -864,7 +864,7 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(import_stmt)
     }
 
-    fn visit_struct(&mut self, name: &str, fields: &[(String, String)], _span: &Span) -> Result<String> {
+    fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<String> {
         let params = fields
             .iter()
             .map(|(name, _)| name.clone())
@@ -882,7 +882,7 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(result)
     }
 
-    fn visit_enum(&mut self, name: &str, variants: &[(String, String)], _span: &Span) -> Result<String> {
+    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[(String, String)], _span: &Span) -> Result<String> {
         Ok(self.generate_enum(name, variants))
     }
 
@@ -890,7 +890,7 @@ impl AstVisitor<String> for JsTranspiler {
         let mut output = String::new();
         
         for method in methods {
-            let Stmt::Function(name, params, _return_type, body, _) = method else {
+            let Stmt::Function(name, _, params, _return_type, body, _) = method else {
                 return Err(Error::new_transpile(
                     "Impl methods must be function definitions",
                     *span,
@@ -1380,7 +1380,7 @@ mod tests {
         let mut transpiler = JsTranspiler::new();
         
         for stmt in &program {
-            if let Stmt::Function(_, _, _, _, _) = stmt {
+            if let Stmt::Function(_, _, _, _, _, _) = stmt {
                 let result = transpiler.visit_stmt(stmt).unwrap();
                 assert!(result.contains("function factorial(n)"));
                 assert!(result.contains("return 1;"));

@@ -38,7 +38,7 @@ impl SemanticVisitor {
     
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
         match item {
-            ExternItem::Function(name, params, return_type) => {
+            ExternItem::Function(name, _, params, return_type) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
@@ -70,7 +70,7 @@ impl SemanticVisitor {
                     return_type: Box::new(ret_type),
                 });
             }
-            ExternItem::Type(name) => {
+            ExternItem::Type(name, _) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
@@ -96,7 +96,7 @@ impl SemanticVisitor {
             ExternItem::Impl(type_name, items) => {
                 // Process impl block methods
                 for item in items {
-                    if let ExternItem::Function(method_name, params, return_type) = item {
+                    if let ExternItem::Function(method_name, _, params, return_type) = item {
                         let full_name = format!("{}::{}", type_name, method_name);
                         
                         // Convert parameter types
@@ -874,7 +874,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
+    fn visit_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
         // Convert parameter types
         let param_types: Vec<(String, Type)> = params
             .iter()
@@ -958,7 +958,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_struct(&mut self, name: &str, fields: &[(String, String)], _span: &Span) -> Result<Type> {
+    fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<Type> {
         // Register struct type
         self.type_env.define(
             name.to_string(),
@@ -979,7 +979,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_enum(&mut self, name: &str, variants: &[(String, String)], _span: &Span) -> Result<Type> {
+    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[(String, String)], _span: &Span) -> Result<Type> {
         // Register enum type
         self.type_env.define(
             name.to_string(),
@@ -1006,7 +1006,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], _span: &Span) -> Result<Type> {
         for method in methods {
-            if let Stmt::Function(name, params, return_type, body, method_span) = method {
+            if let Stmt::Function(name, _, params, return_type, body, method_span) = method {
                 // Convert parameter types
                 let mut param_types: Vec<(String, Type)> = vec![];
                 
@@ -1051,6 +1051,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // Now analyze the method body just like a regular function
                 self.visit_function(
                     &format!("{}::{}", struct_name, name),
+                    &vec![], // No generic params for now
                     params,
                     return_type,
                     body,
@@ -1320,7 +1321,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_extern_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, _span: &Span) -> Result<Type> {
+    fn visit_extern_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], return_type: &str, _span: &Span) -> Result<Type> {
         // Convert parameter types
         let param_types: Vec<(String, Type)> = params
             .iter()
@@ -1357,7 +1358,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
     
-    fn visit_async_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
+    fn visit_async_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
         // Track that we're in an async function
         let prev_async = self.in_async_function;
         self.in_async_function = true;
@@ -1467,7 +1468,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         
         // Check if the expression is a Promise and convert it to Result
         match &expr_type {
-            Type::Promise(inner) => {
+            Type::Promise(_inner) => {
                 // .await? converts Promise<T> to Result<T, JsError>
                 // For now, we'll return Result<T, Unknown> to represent Result<T, JsError>
                 Ok(Type::Enum {
