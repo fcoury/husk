@@ -1694,6 +1694,149 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         Ok(then_type)
     }
+    
+    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], span: &Span) -> Result<Type> {
+        let object_type = self.visit_expr(object)?;
+        
+        match &object_type {
+            Type::String => {
+                // String methods
+                match method {
+                    "len" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Int)
+                    }
+                    "trim" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::String)
+                    }
+                    "substring" => {
+                        if args.len() != 2 {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects 2 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        // Check argument types
+                        for arg in args {
+                            let arg_type = self.visit_expr(arg)?;
+                            if arg_type != Type::Int {
+                                return Err(Error::new_semantic(
+                                    format!("String method '{}' expects int arguments, found {}", method, arg_type.to_string()),
+                                    *span,
+                                ));
+                            }
+                        }
+                        Ok(Type::String)
+                    }
+                    "split" => {
+                        if args.len() != 1 {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects 1 argument, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        let arg_type = self.visit_expr(&args[0])?;
+                        if arg_type != Type::String {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects string argument, found {}", method, arg_type.to_string()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Array(Box::new(Type::String)))
+                    }
+                    "toLowerCase" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::String)
+                    }
+                    "toUpperCase" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::String)
+                    }
+                    _ => Err(Error::new_semantic(
+                        format!("Unknown method '{}' for string type", method),
+                        *span,
+                    ))
+                }
+            }
+            Type::Array(elem_type) => {
+                // Array methods
+                match method {
+                    "len" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!("Array method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Int)
+                    }
+                    "push" => {
+                        if args.len() != 1 {
+                            return Err(Error::new_semantic(
+                                format!("Array method '{}' expects 1 argument, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        let arg_type = self.visit_expr(&args[0])?;
+                        if arg_type != **elem_type {
+                            return Err(Error::new_semantic(
+                                format!("Array method '{}' expects {} argument, found {}", 
+                                    method, elem_type.to_string(), arg_type.to_string()),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Unit)
+                    }
+                    "pop" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!("Array method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                *span,
+                            ));
+                        }
+                        // Return Option<T>
+                        Ok(Type::Unknown) // For now, as we need proper Option<T> support
+                    }
+                    _ => Err(Error::new_semantic(
+                        format!("Unknown method '{}' for array type", method),
+                        *span,
+                    ))
+                }
+            }
+            Type::Struct { name, .. } => {
+                // Original struct method handling
+                let target_expr = Expr::Identifier(name.clone(), *span);
+                self.visit_enum_variant_or_method_call(&target_expr, method, args, span)
+            }
+            _ => {
+                Err(Error::new_semantic(
+                    format!("Cannot call method '{}' on type {}", method, object_type.to_string()),
+                    *span,
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

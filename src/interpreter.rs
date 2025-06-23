@@ -1665,6 +1665,89 @@ impl AstVisitor<Value> for InterpreterVisitor {
             )),
         }
     }
+    
+    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _span: &Span) -> Result<Value> {
+        let obj_value = self.visit_expr(object)?;
+        
+        match &obj_value {
+            Value::String(s) => {
+                match method {
+                    "len" => Ok(Value::Int(s.len() as i64)),
+                    "trim" => Ok(Value::String(s.trim().to_string())),
+                    "substring" => {
+                        let start = match self.visit_expr(&args[0])? {
+                            Value::Int(i) => i as usize,
+                            _ => return Err(Error::new_runtime("substring start must be an integer".to_string(), args[0].span())),
+                        };
+                        let end = match self.visit_expr(&args[1])? {
+                            Value::Int(i) => i as usize,
+                            _ => return Err(Error::new_runtime("substring end must be an integer".to_string(), args[1].span())),
+                        };
+                        
+                        // Handle UTF-8 properly
+                        let chars: Vec<char> = s.chars().collect();
+                        let result: String = chars.iter()
+                            .skip(start)
+                            .take(end.saturating_sub(start))
+                            .collect();
+                        Ok(Value::String(result))
+                    }
+                    "split" => {
+                        let delimiter = match self.visit_expr(&args[0])? {
+                            Value::String(s) => s,
+                            _ => return Err(Error::new_runtime("split delimiter must be a string".to_string(), args[0].span())),
+                        };
+                        
+                        let parts: Vec<Value> = s.split(&delimiter)
+                            .map(|part| Value::String(part.to_string()))
+                            .collect();
+                        Ok(Value::Array(parts))
+                    }
+                    "toLowerCase" => Ok(Value::String(s.to_lowercase())),
+                    "toUpperCase" => Ok(Value::String(s.to_uppercase())),
+                    _ => Err(Error::new_runtime(
+                        format!("Unknown string method: {}", method),
+                        _span.clone(),
+                    ))
+                }
+            }
+            Value::Array(arr) => {
+                match method {
+                    "len" => Ok(Value::Int(arr.len() as i64)),
+                    "push" => {
+                        // Arrays are immutable in the current implementation
+                        // This would need mutable references to work properly
+                        Err(Error::new_runtime(
+                            "Array push not implemented (arrays are immutable)".to_string(),
+                            _span.clone(),
+                        ))
+                    }
+                    "pop" => {
+                        // Arrays are immutable in the current implementation
+                        Err(Error::new_runtime(
+                            "Array pop not implemented (arrays are immutable)".to_string(),
+                            _span.clone(),
+                        ))
+                    }
+                    _ => Err(Error::new_runtime(
+                        format!("Unknown array method: {}", method),
+                        _span.clone(),
+                    ))
+                }
+            }
+            Value::Struct(struct_name, _) => {
+                // Delegate to existing method call handling
+                let target = Expr::Identifier(struct_name.clone(), _span.clone());
+                self.visit_enum_variant_or_method_call(&target, method, args, _span)
+            }
+            _ => {
+                Err(Error::new_runtime(
+                    format!("Cannot call method '{}' on {:?}", method, obj_value),
+                    _span.clone(),
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
