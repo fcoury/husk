@@ -270,6 +270,34 @@ fn divide(a: int, b: int) -> Result<int, string> {
 let result = divide(10, 2)?; // Error propagation operator
 ```
 
+### Built-in Methods
+
+Husk provides JavaScript-compatible methods for primitive types:
+
+#### String Methods
+
+```rust
+let s = "  Hello World  ";
+println(s.len());           // 15
+println(s.trim());          // "Hello World"
+println(s.toLowerCase());   // "  hello world  "
+println(s.toUpperCase());   // "  HELLO WORLD  "
+
+let text = "Hello World";
+println(text.substring(0, 5));  // "Hello"
+println(text.substring(6, 11)); // "World"
+
+let csv = "apple,banana,orange";
+let parts = csv.split(",");    // ["apple", "banana", "orange"]
+```
+
+#### Array Methods
+
+```rust
+let arr = [1, 2, 3, 4, 5];
+println(arr.len());  // 5
+```
+
 ## Development
 
 To set up the development environment:

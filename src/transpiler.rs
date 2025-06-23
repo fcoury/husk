@@ -1045,6 +1045,54 @@ impl AstVisitor<String> for JsTranspiler {
         result.push_str("\n})()");
         Ok(result)
     }
+    
+    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _span: &Span) -> Result<String> {
+        let obj_str = self.visit_expr(object)?;
+        
+        // Check if it's a built-in method that needs special handling
+        match method {
+            // String methods
+            "len" => {
+                // JavaScript uses .length property, not .len() method
+                Ok(format!("{}.length", obj_str))
+            }
+            "toLowerCase" | "toUpperCase" | "trim" => {
+                // These methods map directly to JavaScript
+                Ok(format!("{}.{}()", obj_str, method))
+            }
+            "substring" | "split" => {
+                // These methods take arguments and map directly
+                let args_str = args.iter()
+                    .map(|arg| self.visit_expr(arg))
+                    .collect::<Result<Vec<_>>>()?
+                    .join(", ");
+                Ok(format!("{}.{}({})", obj_str, method, args_str))
+            }
+            
+            // Array methods that need special handling
+            "push" => {
+                // In JavaScript, push returns the new length, but in Husk it returns void
+                let args_str = args.iter()
+                    .map(|arg| self.visit_expr(arg))
+                    .collect::<Result<Vec<_>>>()?
+                    .join(", ");
+                Ok(format!("void ({}.push({}))", obj_str, args_str))
+            }
+            "pop" => {
+                // pop() returns the element in JS, which matches our Option<T> semantics
+                Ok(format!("{}.pop()", obj_str))
+            }
+            
+            // Default: assume direct method mapping
+            _ => {
+                let args_str = args.iter()
+                    .map(|arg| self.visit_expr(arg))
+                    .collect::<Result<Vec<_>>>()?
+                    .join(", ");
+                Ok(format!("{}.{}({})", obj_str, method, args_str))
+            }
+        }
+    }
 }
 
 impl JsTranspiler {

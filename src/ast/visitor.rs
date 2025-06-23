@@ -39,6 +39,7 @@ pub trait AstVisitor<T> {
             Expr::Try(expr, span) => self.visit_try(expr, span),
             Expr::AwaitTry(expr, span) => self.visit_await_try(expr, span),
             Expr::Closure(params, ret_type, body, span) => self.visit_closure(params, ret_type, body, span),
+            Expr::MethodCall(object, method, args, span) => self.visit_method_call(object, method, args, span),
         }
     }
 
@@ -118,6 +119,7 @@ pub trait AstVisitor<T> {
     fn visit_try(&mut self, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_await_try(&mut self, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
     

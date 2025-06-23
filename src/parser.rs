@@ -38,6 +38,7 @@ pub enum Expr {
     Try(Box<Expr>, Span),
     AwaitTry(Box<Expr>, Span),
     Closure(Vec<(String, Option<String>)>, Option<String>, Box<Expr>, Span),
+    MethodCall(Box<Expr>, String, Vec<Expr>, Span), // object.method(args)
 }
 
 impl PartialEq for Expr {
@@ -217,6 +218,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::MethodCall(obj, method, args, _) => {
+                if let Expr::MethodCall(other_obj, other_method, other_args, _) = other {
+                    obj == other_obj && method == other_method && args == other_args
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -261,6 +269,7 @@ impl Expr {
             Expr::AwaitTry(_, span) => span.clone(),
             Expr::Match(_, _, span) => span.clone(),
             Expr::Closure(_, _, _, span) => span.clone(),
+            Expr::MethodCall(_, _, _, span) => span.clone(),
         }
     }
 }
@@ -368,6 +377,18 @@ impl fmt::Display for Expr {
                 } else {
                     write!(f, "|{}| {{ ... }}", param_str)
                 }
+            }
+            Expr::MethodCall(obj, method, args, _) => {
+                write!(
+                    f,
+                    "{}.{}({})",
+                    obj,
+                    method,
+                    args.iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
             }
         }
     }
@@ -2185,19 +2206,51 @@ impl Parser {
                         }
                     }
                     
-                    // Regular member access
+                    // Regular member access or method call
                     let field_name = self.consume_identifier("member access")?
                         .ok_or_else(|| Error::new_parse(
                             "Expected field name after '.'".to_string(),
                             self.current_token().span,
                         ))?;
                     
-                    let end_span = self.current_token().span.start;
-                    left = Expr::MemberAccess(
-                        Box::new(left),
-                        field_name,
-                        Span::new(start_span, end_span),
-                    );
+                    // Check if this is a method call
+                    if self.current_token().kind == TokenKind::LParen {
+                        self.advance(); // Consume '('
+                        let mut args = Vec::new();
+                        
+                        // Parse arguments
+                        if self.current_token().kind != TokenKind::RParen {
+                            loop {
+                                args.push(self.parse_expression()?);
+                                
+                                match self.current_token().kind {
+                                    TokenKind::Comma => self.advance(),
+                                    TokenKind::RParen => break,
+                                    _ => return Err(Error::new_parse(
+                                        "Expected ',' or ')' in argument list".to_string(),
+                                        self.current_token().span,
+                                    )),
+                                }
+                            }
+                        }
+                        
+                        let end_span = self.current_token().span.end;
+                        self.advance(); // Consume ')'
+                        
+                        left = Expr::MethodCall(
+                            Box::new(left),
+                            field_name,
+                            args,
+                            Span::new(start_span, end_span),
+                        );
+                    } else {
+                        let end_span = self.current_token().span.start;
+                        left = Expr::MemberAccess(
+                            Box::new(left),
+                            field_name,
+                            Span::new(start_span, end_span),
+                        );
+                    }
                 }
                 // Array indexing
                 TokenKind::LSquare => {
@@ -2318,29 +2371,8 @@ impl Parser {
                 let start_pos = self.position;
                 self.advance(); // Consume identifier
 
-                // TODO: this will appear after expressions too
+                // Member access and method calls are handled in parse_postfix_expression
                 match self.current_token().kind {
-                    TokenKind::Dot => {
-                        self.advance(); // Consume '.'
-                        let field_name = self
-                            .consume_identifier("parse_primary_expression")?
-                            .ok_or_else(|| {
-                                Error::new_parse(
-                                    "Expected field name after '.'".to_string(),
-                                    self.current_token().span,
-                                )
-                            })?;
-
-                        if self.current_token().kind == TokenKind::LParen {
-                            self.parse_function_call(format!("{}.{}", name, field_name), span)
-                        } else {
-                            Ok(Expr::MemberAccess(
-                                Box::new(Expr::Identifier(name, span)),
-                                field_name,
-                                Span::new(span.start, self.current_token().span.end),
-                            ))
-                        }
-                    }
                     TokenKind::LParen => self.parse_function_call(name, span),
                     TokenKind::LBrace if self.lookahead_for_struct_initialization(start_pos) => {
                         self.parse_struct_init(name, span)
