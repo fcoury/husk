@@ -1,0 +1,36 @@
+{
+  "name": "husk-language",
+  "displayName": "Husk Language Support",
+  "description": "Syntax highlighting and language support for Husk",
+  "version": "0.1.0",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "husk",
+        "aliases": [
+          "Husk",
+          "husk"
+        ],
+        "extensions": [
+          ".husk",
+          ".hk"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "husk",
+        "scopeName": "source.husk",
+        "path": "./syntaxes/husk.tmLanguage.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,155 @@
+// Test file for Husk syntax highlighting
+use std::io;
+use local::utils::helper;
+
+// Single line comment
+/* Block comment */
+/*
+ * Multi-line
+ * block comment
+ */
+
+// Basic types and variables
+let x: int = 42;
+let pi: float = 3.14159;
+let name: string = "Husk Language";
+let is_ready: bool = true;
+
+// Functions
+fn add(a: int, b: int) -> int {
+    a + b
+}
+
+fn factorial(n: int) -> int {
+    if n == 0 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+// Structs
+struct Point {
+    x: int,
+    y: int,
+}
+
+struct Person {
+    name: string,
+    age: int,
+}
+
+// Impl blocks
+impl Point {
+    fn new(x: int, y: int) -> Point {
+        Point { x: x, y: y }
+    }
+    
+    fn distance_from_origin(self) -> int {
+        self.x + self.y
+    }
+}
+
+// Enums
+enum Option {
+    Some(int),
+    None,
+}
+
+enum Result {
+    Ok(string),
+    Err(string),
+}
+
+// Control flow
+fn test_control_flow() {
+    // If-else
+    if x > 0 {
+        println("Positive");
+    } else if x < 0 {
+        println("Negative");
+    } else {
+        println("Zero");
+    }
+    
+    // Match
+    let opt = Option::Some(5);
+    match opt {
+        Option::Some(value) => println("Value:", value),
+        Option::None => println("No value"),
+    }
+    
+    // Loops
+    for i in 0..10 {
+        println(i);
+    }
+    
+    for i in 0..=10 {
+        if i == 5 {
+            continue;
+        }
+        if i == 8 {
+            break;
+        }
+        println(i);
+    }
+    
+    let j = 0;
+    while j < 5 {
+        println(j);
+        j += 1;
+    }
+    
+    loop {
+        println("Infinite loop");
+        if true {
+            break;
+        }
+    }
+}
+
+// Operators
+fn test_operators() {
+    // Arithmetic
+    let sum = 1 + 2;
+    let diff = 5 - 3;
+    let product = 4 * 3;
+    let quotient = 10 / 2;
+    let remainder = 10 % 3;
+    
+    // Compound assignment
+    let z = 5;
+    z += 1;
+    z -= 1;
+    z *= 2;
+    z /= 2;
+    z %= 3;
+    
+    // Comparison
+    let eq = 1 == 1;
+    let ne = 1 != 2;
+    let lt = 1 < 2;
+    let gt = 2 > 1;
+    let le = 1 <= 2;
+    let ge = 2 >= 1;
+    
+    // Logical
+    let and = true && false;
+    let or = true || false;
+    let not = !true;
+}
+
+// Main function
+fn main() {
+    let p = Point::new(3, 4);
+    println("Distance:", p.distance_from_origin());
+    
+    let person = Person { 
+        name: "Alice", 
+        age: 30 
+    };
+    println(person.name);
+    
+    test_control_flow();
+    test_operators();
+}
