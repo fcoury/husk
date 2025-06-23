@@ -147,9 +147,18 @@ This document tracks design decisions made during development and features that 
 - Current test runner is basic
 - Could add better test organization and reporting
 
-### 2. Error Testing
-- Need systematic testing of error conditions
-- Ensure good error messages for common mistakes
+### 2. Error Testing (Implemented)
+- **Status**: ✅ Implemented
+- Added comprehensive error handling tests for all error types
+- Tests cover parse, semantic, runtime, and transpiler errors
+- Added 42 error handling tests covering common error scenarios
+
+### 3. AST Visitor Pattern Tests (Implemented)
+- **Status**: ✅ Implemented
+- Added unit tests for the visitor pattern dispatch mechanism
+- Added integration tests showing visitor pattern across components
+- Includes mock visitor for testing visitor behavior
+- Added 26 tests covering all AST node types
 
 ## Documentation
 
