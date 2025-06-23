@@ -89,6 +89,63 @@ impl JsTranspiler {
             Expr::EnumVariantOrMethodCall {
                 target, call, args, ..
             } => {
+                if let Expr::Identifier(type_name, _) = &**target {
+                    // Special handling for Option
+                    if type_name == "Option" {
+                        match call.as_str() {
+                            "None" => return (
+                                "(_matched === null || _matched === undefined)".to_string(),
+                                String::new(),
+                            ),
+                            "Some" => {
+                                if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
+                                    return (
+                                        "(_matched !== null && _matched !== undefined)".to_string(),
+                                        format!("const {} = _matched;\n", bind_name),
+                                    );
+                                }
+                                return (
+                                    "(_matched !== null && _matched !== undefined)".to_string(),
+                                    String::new(),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                    
+                    // Special handling for Result
+                    if type_name == "Result" {
+                        match call.as_str() {
+                            "Ok" => {
+                                if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
+                                    return (
+                                        "(_matched && typeof _matched === 'object' && 'Ok' in _matched)".to_string(),
+                                        format!("const {} = _matched.Ok;\n", bind_name),
+                                    );
+                                }
+                                return (
+                                    "(_matched && typeof _matched === 'object' && 'Ok' in _matched)".to_string(),
+                                    String::new(),
+                                );
+                            }
+                            "Err" => {
+                                if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
+                                    return (
+                                        "(_matched && typeof _matched === 'object' && 'Err' in _matched)".to_string(),
+                                        format!("const {} = _matched.Err;\n", bind_name),
+                                    );
+                                }
+                                return (
+                                    "(_matched && typeof _matched === 'object' && 'Err' in _matched)".to_string(),
+                                    String::new(),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                
+                // Default enum handling
                 if let Some(value) = args.get(0) {
                     if let Expr::Identifier(bind_name, _) = value {
                         (
@@ -109,10 +166,14 @@ impl JsTranspiler {
                 }
             }
             Expr::Identifier(var_name, _) => {
-                (
-                    "true".to_string(),
-                    format!("const {} = _matched;\n", var_name),
-                )
+                if var_name == "_" {
+                    ("true".to_string(), String::new())
+                } else {
+                    (
+                        "true".to_string(),
+                        format!("const {} = _matched;\n", var_name),
+                    )
+                }
             }
             _ => ("true".to_string(), String::new()),
         }
@@ -333,6 +394,40 @@ impl AstVisitor<String> for JsTranspiler {
     fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], _span: &Span) -> Result<String> {
         let target_str = self.visit_expr(target)?;
         
+        // Special handling for built-in Option type
+        if target_str == "Option" {
+            match call {
+                "None" => return Ok("null".to_string()),
+                "Some" => {
+                    if !args.is_empty() {
+                        let arg_str = self.visit_expr(&args[0])?;
+                        return Ok(arg_str); // Option::Some(x) -> x
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        // Special handling for built-in Result type
+        if target_str == "Result" {
+            match call {
+                "Ok" => {
+                    if !args.is_empty() {
+                        let arg_str = self.visit_expr(&args[0])?;
+                        return Ok(format!("{{ Ok: {} }}", arg_str));
+                    }
+                }
+                "Err" => {
+                    if !args.is_empty() {
+                        let arg_str = self.visit_expr(&args[0])?;
+                        return Ok(format!("{{ Err: {} }}", arg_str));
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        // Default handling for other enums
         if args.is_empty() {
             Ok(format!("{}.{}", target_str, call))
         } else {

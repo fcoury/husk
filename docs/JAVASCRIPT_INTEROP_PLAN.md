@@ -376,7 +376,7 @@ export declare function add(a: number, b: number): number;
 ### Phase 2: Async Programming (Weeks 4-5) ✅
 1. Async/await syntax and semantics ✅
 2. Promise type integration (partial - basic async works)
-3. Error handling for async functions (pending)
+3. Error handling for async functions (in progress - Option/Result implementation)
 
 **Completed:**
 - Added Async token to lexer
@@ -390,6 +390,10 @@ export declare function add(a: number, b: number): number;
 - Implemented transpilation to JavaScript async/await syntax
 - Created comprehensive test suite for all async/await scenarios
 - Documented future interpreter async support plans
+
+**In Progress:**
+- Implementing Option and Result as built-in types for error handling
+- See OPTION_RESULT_BUILTIN_PLAN.md for detailed implementation plan
 
 **Note:** Transpiler-only implementation as agreed. Interpreter returns clear error messages when async/await is used.
 

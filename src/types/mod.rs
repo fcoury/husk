@@ -95,6 +95,12 @@ impl Type {
                 name1 == name2 && fields1 == fields2
             },
             
+            // Enum types are compatible if they have the same name
+            // We compare by name only to handle built-in generic enums like Option<T> and Result<T,E>
+            (Type::Enum { name: name1, .. }, Type::Enum { name: name2, .. }) => {
+                name1 == name2
+            },
+            
             // TODO: Add more rules as needed (e.g., int to float coercion)
             _ => false,
         }
@@ -165,6 +171,25 @@ impl Type {
                     return_type: Box::new(return_type),
                 })
             },
+            // Special handling for built-in enums
+            "Option" => Some(Type::Enum { 
+                name: "Option".to_string(), 
+                variants: {
+                    let mut v = HashMap::new();
+                    v.insert("Some".to_string(), Some(Type::Unknown));
+                    v.insert("None".to_string(), None);
+                    v
+                }
+            }),
+            "Result" => Some(Type::Enum { 
+                name: "Result".to_string(), 
+                variants: {
+                    let mut v = HashMap::new();
+                    v.insert("Ok".to_string(), Some(Type::Unknown));
+                    v.insert("Err".to_string(), Some(Type::Unknown));
+                    v
+                }
+            }),
             // For now, treat any other string as a struct/enum name
             _ => Some(Type::Struct { 
                 name: s.to_string(), 

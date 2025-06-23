@@ -39,6 +39,9 @@ mod closure_test;
 #[cfg(test)]
 mod format_test;
 
+#[cfg(test)]
+mod option_result_test;
+
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;
