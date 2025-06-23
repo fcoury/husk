@@ -1,0 +1,290 @@
+// Utility functions and logger for CLI tool
+
+use process::Process;
+
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+pub struct Logger {
+    level: LogLevel,
+    timestamp: bool,
+    prefix: string,
+}
+
+impl Logger {
+    pub fn new(level: LogLevel) -> Logger {
+        Logger {
+            level,
+            timestamp: true,
+            prefix: "[husk-cli]",
+        }
+    }
+    
+    pub fn with_prefix(level: LogLevel, prefix: string) -> Logger {
+        Logger {
+            level,
+            timestamp: true,
+            prefix,
+        }
+    }
+    
+    pub fn debug(&self, message: string) {
+        if self.should_log(LogLevel::Debug) {
+            self.write_log(LogLevel::Debug, message);
+        }
+    }
+    
+    pub fn info(&self, message: string) {
+        if self.should_log(LogLevel::Info) {
+            self.write_log(LogLevel::Info, message);
+        }
+    }
+    
+    pub fn warn(&self, message: string) {
+        if self.should_log(LogLevel::Warn) {
+            self.write_log(LogLevel::Warn, message);
+        }
+    }
+    
+    pub fn error(&self, message: string) {
+        if self.should_log(LogLevel::Error) {
+            self.write_log(LogLevel::Error, message);
+        }
+    }
+    
+    fn should_log(&self, level: LogLevel) -> bool {
+        match (&self.level, &level) {
+            (LogLevel::Debug, _) => true,
+            (LogLevel::Info, LogLevel::Debug) => false,
+            (LogLevel::Info, _) => true,
+            (LogLevel::Warn, LogLevel::Debug) => false,
+            (LogLevel::Warn, LogLevel::Info) => false,
+            (LogLevel::Warn, _) => true,
+            (LogLevel::Error, LogLevel::Error) => true,
+            (LogLevel::Error, _) => false,
+        }
+    }
+    
+    fn write_log(&self, level: LogLevel, message: string) {
+        let level_str = self.level_to_string(level);
+        let timestamp_str = if self.timestamp {
+            format!("{} ", self.get_timestamp())
+        } else {
+            ""
+        };
+        
+        let formatted = format!(
+            "{}{} {} {}",
+            timestamp_str,
+            self.prefix,
+            level_str,
+            message
+        );
+        
+        match level {
+            LogLevel::Error => {
+                // Write to stderr for errors
+                Process.stderr.write(formatted);
+            },
+            _ => {
+                // Write to stdout for other levels
+                println(formatted);
+            }
+        }
+    }
+    
+    fn level_to_string(&self, level: LogLevel) -> string {
+        match level {
+            LogLevel::Debug => "[DEBUG]",
+            LogLevel::Info => "[INFO]",
+            LogLevel::Warn => "[WARN]",
+            LogLevel::Error => "[ERROR]",
+        }
+    }
+    
+    fn get_timestamp(&self) -> string {
+        // Simplified timestamp - in practice would use Date.now() or similar
+        "2024-01-01T12:00:00Z"
+    }
+}
+
+// Utility functions for common operations
+
+pub fn format_bytes(bytes: int) -> string {
+    if bytes < 1024 {
+        return format!("{} B", bytes);
+    } else {
+        if bytes < 1024 * 1024 {
+            let kb = bytes / 1024;
+            return format!("{} KB", kb);
+        } else {
+            if bytes < 1024 * 1024 * 1024 {
+                let mb = bytes / (1024 * 1024);
+                return format!("{} MB", mb);
+            } else {
+                let gb = bytes / (1024 * 1024 * 1024);
+                return format!("{} GB", gb);
+            }
+        }
+    }
+}
+
+pub fn format_duration(ms: int) -> string {
+    if ms < 1000 {
+        return format!("{}ms", ms);
+    } else {
+        if ms < 60000 {
+            let seconds = ms / 1000;
+            return format!("{}s", seconds);
+        } else {
+            let minutes = ms / 60000;
+            let remaining_seconds = (ms % 60000) / 1000;
+            return format!("{}m {}s", minutes, remaining_seconds);
+        }
+    }
+}
+
+pub fn validate_path(path: string) -> Result<string, string> {
+    if path.len() == 0 {
+        return Err("Path cannot be empty");
+    }
+    
+    // Check for invalid characters (simplified)
+    let invalid_chars = ["<", ">", ":", "\"", "|", "?", "*"];
+    for char in invalid_chars {
+        if path.contains(char) {
+            return Err(format!("Path contains invalid character: {}", char));
+        }
+    }
+    
+    Ok(path)
+}
+
+pub fn normalize_path(path: string) -> string {
+    // Simple path normalization
+    let mut normalized = path;
+    
+    // Convert backslashes to forward slashes
+    normalized = normalized.replace("\\", "/");
+    
+    // Remove duplicate slashes
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+    
+    // Remove trailing slash (except for root)
+    if normalized.len() > 1 && normalized.ends_with("/") {
+        normalized = normalized.substring(0, normalized.len() - 1);
+    }
+    
+    normalized
+}
+
+pub fn parse_file_pattern(pattern: string) -> FilePattern {
+    if pattern.starts_with("*.") {
+        FilePattern::Extension(pattern.substring(2, pattern.len()))
+    } else {
+        if pattern.contains("*") {
+            FilePattern::Glob(pattern)
+        } else {
+            FilePattern::Exact(pattern)
+        }
+    }
+}
+
+pub enum FilePattern {
+    Extension(string),
+    Glob(string),
+    Exact(string),
+}
+
+impl FilePattern {
+    pub fn matches(&self, filename: string) -> bool {
+        match self {
+            FilePattern::Extension(ext) => filename.ends_with(ext),
+            FilePattern::Glob(pattern) => {
+                // Simplified glob matching
+                if pattern.contains("*") {
+                    let parts = pattern.split("*");
+                    let mut current_pos = 0;
+                    
+                    for part in parts {
+                        if part.len() == 0 {
+                            continue;
+                        }
+                        
+                        let found_pos = filename.substring(current_pos, filename.len()).find(part);
+                        match found_pos {
+                            Some(pos) => {
+                                current_pos = current_pos + pos + part.len();
+                            },
+                            None => return false,
+                        }
+                    }
+                    true
+                } else {
+                    filename == pattern
+                }
+            },
+            FilePattern::Exact(exact) => filename == exact,
+        }
+    }
+}
+
+// Performance measurement utilities
+pub struct Timer {
+    start_time: int,
+    name: string,
+}
+
+impl Timer {
+    pub fn start(name: string) -> Timer {
+        Timer {
+            start_time: Self::current_time_ms(),
+            name,
+        }
+    }
+    
+    pub fn elapsed(&self) -> int {
+        Self::current_time_ms() - self.start_time
+    }
+    
+    pub fn stop(&self, logger: &Logger) {
+        let elapsed = self.elapsed();
+        logger.debug(format!("{} took {}", self.name, format_duration(elapsed)));
+    }
+    
+    fn current_time_ms() -> int {
+        // In practice would use Date.now() or process.hrtime()
+        // This is a placeholder for demonstration
+        12345678
+    }
+}
+
+// Error handling utilities
+pub fn handle_node_error(error: string) -> string {
+    // Map common Node.js errors to user-friendly messages
+    if error.contains("ENOENT") {
+        "File or directory not found"
+    } else {
+        if error.contains("EACCES") {
+            "Permission denied"
+        } else {
+            if error.contains("EEXIST") {
+                "File or directory already exists"
+            } else {
+                error // Return original error if not recognized
+            }
+        }
+    }
+}
+
+pub fn exit_with_error(message: string, code: int) {
+    let logger = Logger::new(LogLevel::Error);
+    logger.error(message);
+    Process.exit(code);
+}

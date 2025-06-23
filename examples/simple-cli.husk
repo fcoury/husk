@@ -1,0 +1,30 @@
+// Simple CLI example demonstrating Node.js API usage
+
+// extern type Process; // Not needed for this simple example
+
+fn main() {
+    println("Simple Husk CLI Tool");
+    
+    // Simulate accessing process.argv (in real implementation would use proper imports)
+    let app_name = "husk-cli";
+    let command = "test";
+    
+    println(format!("App: {}", app_name));
+    println(format!("Command: {}", command));
+    
+    // Demonstrate string operations on "command line arguments"
+    let upper_command = command.toUpperCase();
+    let command_len = command.len();
+    
+    println(format!("Command '{}' in uppercase: '{}'", command, upper_command));
+    println(format!("Command length: {} characters", command_len));
+    
+    // Test type casting
+    let version_str = "1";
+    let version_num = version_str as int;
+    let next_version = version_num + 1;
+    
+    println(format!("Version: v{}.0, Next version: v{}.0", version_num, next_version));
+    
+    println("CLI test completed successfully!");
+}
