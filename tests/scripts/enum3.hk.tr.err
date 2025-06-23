@@ -1,0 +1,17 @@
+[stdin]:14
+let option = new Option.Some("Hello");(() => {
+             ^
+
+TypeError: Option.Some is not a constructor
+    at main ([stdin]:14:14)
+    at [stdin]:24:1
+    at runScriptInThisContext (node:internal/vm:218:10)
+    at node:internal/process/execution:456:12
+    at [stdin]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:454:60)
+    at evalFunction (node:internal/process/execution:286:30)
+    at evalTypeScript (node:internal/process/execution:298:3)
+    at node:internal/main/eval_stdin:51:5
+    at ReadStream.<anonymous> (node:internal/process/execution:206:5)
+
+Node.js v24.2.0

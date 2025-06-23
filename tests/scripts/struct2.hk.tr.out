@@ -1,2 +1,2 @@
-Error { message: 'Success', code: 0 }
-Error { message: 'Error', code: 1 }
+undefined
+undefined

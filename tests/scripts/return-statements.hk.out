@@ -1,0 +1,8 @@
+return_value() =42
+early_return(0) =zero
+early_return(1) =one
+early_return(2) =other
+mixed_returns(0) =zero
+nested_return(15) =100
+nested_return(5) =10
+nested_return(0) =0
