@@ -1,6 +1,7 @@
 mod ast;
 mod error;
 mod error_tests;
+mod integration_error_tests;
 mod interpreter;
 mod lexer;
 mod parser;
