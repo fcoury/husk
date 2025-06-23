@@ -1,0 +1,99 @@
+// Logger utility module
+use std::time::SystemTime;
+
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+pub struct Logger {
+    level: LogLevel,
+    timestamp: bool,
+}
+
+impl Logger {
+    pub fn new(level: LogLevel) -> Logger {
+        Logger {
+            level,
+            timestamp: true,
+        }
+    }
+    
+    pub fn with_timestamp(level: LogLevel, timestamp: bool) -> Logger {
+        Logger {
+            level,
+            timestamp,
+        }
+    }
+    
+    pub fn log(&self, message: string) {
+        let prefix = self.format_prefix(LogLevel::Info);
+        println(format!("{}{}", prefix, message));
+    }
+    
+    pub fn debug(&self, message: string) {
+        if self.should_log(LogLevel::Debug) {
+            let prefix = self.format_prefix(LogLevel::Debug);
+            println(format!("{}{}", prefix, message));
+        }
+    }
+    
+    pub fn info(&self, message: string) {
+        if self.should_log(LogLevel::Info) {
+            let prefix = self.format_prefix(LogLevel::Info);
+            println(format!("{}{}", prefix, message));
+        }
+    }
+    
+    pub fn warn(&self, message: string) {
+        if self.should_log(LogLevel::Warn) {
+            let prefix = self.format_prefix(LogLevel::Warn);
+            println(format!("{}{}", prefix, message));
+        }
+    }
+    
+    pub fn error(&self, message: string) {
+        if self.should_log(LogLevel::Error) {
+            let prefix = self.format_prefix(LogLevel::Error);
+            println(format!("{}{}", prefix, message));
+        }
+    }
+    
+    fn should_log(&self, level: LogLevel) -> bool {
+        // Simple level comparison (in practice would be more sophisticated)
+        match (&self.level, &level) {
+            (LogLevel::Debug, _) => true,
+            (LogLevel::Info, LogLevel::Debug) => false,
+            (LogLevel::Info, _) => true,
+            (LogLevel::Warn, LogLevel::Debug) => false,
+            (LogLevel::Warn, LogLevel::Info) => false,
+            (LogLevel::Warn, _) => true,
+            (LogLevel::Error, LogLevel::Error) => true,
+            (LogLevel::Error, _) => false,
+        }
+    }
+    
+    fn format_prefix(&self, level: LogLevel) -> string {
+        let level_str = match level {
+            LogLevel::Debug => "[DEBUG]",
+            LogLevel::Info => "[INFO]",
+            LogLevel::Warn => "[WARN]",
+            LogLevel::Error => "[ERROR]",
+        };
+        
+        if self.timestamp {
+            // In a real implementation, would format actual timestamp
+            let timestamp = self.get_timestamp();
+            return format!("{} {} ", timestamp, level_str);
+        } else {
+            return format!("{} ", level_str);
+        }
+    }
+    
+    fn get_timestamp(&self) -> string {
+        // Simplified timestamp - in real implementation would use actual time
+        return "2024-01-01 12:00:00";
+    }
+}

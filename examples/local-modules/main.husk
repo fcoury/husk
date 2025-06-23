@@ -1,0 +1,61 @@
+// Main entry point demonstrating local module system
+use local::utils::logger::{Logger, LogLevel};
+use local::math::calculator::{Calculator, Operation};
+use local::data::user::{User, UserProfile};
+use self::helpers::format_output;
+
+pub fn main() {
+    // Initialize logger
+    let logger = Logger::new(LogLevel::Info);
+    logger.log("Starting local module system example");
+    
+    // Create calculator
+    let calc = Calculator::new();
+    
+    // Perform calculations using different operations
+    let sum = calc.calculate(Operation::Add, 10, 5);
+    let product = calc.calculate(Operation::Multiply, 8, 7);
+    let quotient = calc.calculate(Operation::Divide, 20, 4);
+    
+    logger.log(format!("Sum: {}", sum));
+    logger.log(format!("Product: {}", product));
+    logger.log(format!("Quotient: {}", quotient));
+    
+    // Create user profile
+    let profile = UserProfile::new("Alice Johnson", 28);
+    let user = User::from_profile(profile);
+    
+    // Demonstrate built-in methods and type casting
+    let user_json = user.to_json();
+    let user_summary = format_output(user_json);
+    
+    logger.log(user_summary);
+    
+    // Demonstrate string operations
+    let message = "  Welcome to Husk Module System!  ";
+    let clean_message = message.trim().toUpperCase();
+    logger.log(clean_message);
+    
+    // Demonstrate type casting
+    let score_str = "95";
+    let score = score_str as int;
+    let grade = if score >= 90 {
+        "A"
+    } else if score >= 80 {
+        "B"
+    } else {
+        "C"
+    };
+    
+    logger.log(format!("Score: {}, Grade: {}", score, grade));
+    
+    println("Local module system example completed successfully!");
+}
+
+// Helper module in same file
+mod helpers {
+    pub fn format_output(json: string) -> string {
+        let formatted = format!("User Data: {}", json);
+        return formatted.trim();
+    }
+}

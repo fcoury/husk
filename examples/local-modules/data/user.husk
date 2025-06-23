@@ -1,0 +1,193 @@
+// User data structures and utilities
+
+pub struct UserProfile {
+    name: string,
+    age: int,
+    email: Option<string>,
+    preferences: UserPreferences,
+}
+
+pub struct UserPreferences {
+    theme: string,
+    language: string,
+    notifications: bool,
+}
+
+pub struct User {
+    id: string,
+    profile: UserProfile,
+    created_at: string,
+    last_login: Option<string>,
+}
+
+impl UserProfile {
+    pub fn new(name: string, age: int) -> UserProfile {
+        UserProfile {
+            name,
+            age,
+            email: None,
+            preferences: UserPreferences::default(),
+        }
+    }
+    
+    pub fn with_email(name: string, age: int, email: string) -> UserProfile {
+        UserProfile {
+            name,
+            age,
+            email: Some(email),
+            preferences: UserPreferences::default(),
+        }
+    }
+    
+    pub fn set_email(&mut self, email: string) {
+        self.email = Some(email);
+    }
+    
+    pub fn get_email(&self) -> Option<string> {
+        return self.email.clone();
+    }
+    
+    pub fn update_preferences(&mut self, preferences: UserPreferences) {
+        self.preferences = preferences;
+    }
+    
+    pub fn is_adult(&self) -> bool {
+        return self.age >= 18;
+    }
+    
+    pub fn get_display_name(&self) -> string {
+        return self.name.trim().toUpperCase();
+    }
+}
+
+impl UserPreferences {
+    pub fn default() -> UserPreferences {
+        UserPreferences {
+            theme: "light",
+            language: "en",
+            notifications: true,
+        }
+    }
+    
+    pub fn new(theme: string, language: string, notifications: bool) -> UserPreferences {
+        UserPreferences {
+            theme,
+            language,
+            notifications,
+        }
+    }
+    
+    pub fn dark_mode() -> UserPreferences {
+        UserPreferences {
+            theme: "dark",
+            language: "en",
+            notifications: true,
+        }
+    }
+}
+
+impl User {
+    pub fn from_profile(profile: UserProfile) -> User {
+        User {
+            id: Self::generate_id(),
+            profile,
+            created_at: Self::current_timestamp(),
+            last_login: None,
+        }
+    }
+    
+    pub fn new(name: string, age: int) -> User {
+        let profile = UserProfile::new(name, age);
+        User::from_profile(profile)
+    }
+    
+    pub fn login(&mut self) {
+        self.last_login = Some(Self::current_timestamp());
+    }
+    
+    pub fn get_profile(&self) -> UserProfile {
+        return self.profile.clone();
+    }
+    
+    pub fn update_profile(&mut self, profile: UserProfile) {
+        self.profile = profile;
+    }
+    
+    pub fn to_json(&self) -> string {
+        // Simplified JSON serialization
+        let email_str = match &self.profile.email {
+            Some(email) => format!("\"{}\"", email),
+            None => "null".to_string(),
+        };
+        
+        let last_login_str = match &self.last_login {
+            Some(login) => format!("\"{}\"", login),
+            None => "null".to_string(),
+        };
+        
+        return format!(
+            "{{\"id\":\"{}\",\"name\":\"{}\",\"age\":{},\"email\":{},\"theme\":\"{}\",\"language\":\"{}\",\"notifications\":{},\"created_at\":\"{}\",\"last_login\":{}}}",
+            self.id,
+            self.profile.name,
+            self.profile.age,
+            email_str,
+            self.profile.preferences.theme,
+            self.profile.preferences.language,
+            self.profile.preferences.notifications,
+            self.created_at,
+            last_login_str
+        );
+    }
+    
+    pub fn from_json(json: string) -> Option<User> {
+        // Simplified JSON parsing - in practice would use proper parser
+        // This is just a demonstration
+        if json.len() > 10 {
+            // Return a default user for demo purposes
+            return Some(User::new("Unknown", 0));
+        }
+        return None;
+    }
+    
+    fn generate_id() -> string {
+        // Simplified ID generation - in practice would use UUID or similar
+        let timestamp = Self::current_timestamp();
+        return format!("user_{}", timestamp.len());
+    }
+    
+    fn current_timestamp() -> string {
+        // Simplified timestamp - in practice would use actual time
+        return "2024-01-01T12:00:00Z";
+    }
+}
+
+// Utility functions for working with users
+pub fn validate_email(email: string) -> bool {
+    // Simple email validation
+    return email.len() > 0 && email.contains("@") && email.contains(".");
+}
+
+pub fn calculate_age_group(age: int) -> string {
+    if age < 13 {
+        return "child";
+    } else if age < 20 {
+        return "teenager";
+    } else if age < 60 {
+        return "adult";
+    } else {
+        return "senior";
+    }
+}
+
+pub fn format_user_summary(user: User) -> string {
+    let age_group = calculate_age_group(user.profile.age);
+    let adult_status = if user.profile.is_adult() { "adult" } else { "minor" };
+    
+    return format!(
+        "{} ({} years old, {}, {})",
+        user.profile.get_display_name(),
+        user.profile.age,
+        age_group,
+        adult_status
+    );
+}
