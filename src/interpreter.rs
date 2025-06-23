@@ -1485,6 +1485,32 @@ impl AstVisitor<Value> for InterpreterVisitor {
         ))
     }
     
+    fn visit_try(&mut self, expr: &Expr, span: &Span) -> Result<Value> {
+        // Evaluate the expression
+        let result = self.visit_expr(expr)?;
+        
+        // Check if it's a Result type and unwrap it
+        match result {
+            Value::EnumVariant(enum_name, variant, value) if enum_name == "Result" && variant == "Ok" => {
+                if let Some(val) = value {
+                    Ok(*val)
+                } else {
+                    Ok(Value::Unit)
+                }
+            }
+            Value::EnumVariant(enum_name, variant, _) if enum_name == "Result" && variant == "Err" => {
+                Err(Error::new_runtime(
+                    "? operator encountered Result::Err variant - error propagation would return early",
+                    span.clone(),
+                ))
+            }
+            _ => Err(Error::new_runtime(
+                "? operator can only be used on Result types",
+                span.clone(),
+            )),
+        }
+    }
+    
     fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, span: &Span) -> Result<Value> {
         // Create a closure value that captures the current environment
         let closure_params = params.iter()
