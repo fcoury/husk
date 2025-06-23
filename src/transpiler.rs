@@ -21,6 +21,33 @@ impl JsTranspiler {
     pub fn transpile(&mut self, stmts: &[Stmt]) -> Result<String> {
         let mut output = String::new();
         output.push_str("function println(...args) { console.log(...args); }\n");
+        // Add the intelligent await bridge for .await? operator
+        output.push_str("async function __husk_await_bridge(promise) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const value = await promise;\n");
+        output.push_str("    // Check if the resolved value is already a Husk Result\n");
+        output.push_str("    if (value && typeof value === 'object' && (value.type === 'Ok' || value.type === 'Err')) {\n");
+        output.push_str("      return value; // It's already a Result, pass it through\n");
+        output.push_str("    }\n");
+        output.push_str("    return { type: 'Ok', value }; // Wrap the success value\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    // Convert JS error to Husk JsError\n");
+        output.push_str("    let errorPayload;\n");
+        output.push_str("    if (error instanceof Error) {\n");
+        output.push_str("      errorPayload = {\n");
+        output.push_str("        name: error.name,\n");
+        output.push_str("        message: error.message,\n");
+        output.push_str("        stack: error.stack || null\n");
+        output.push_str("      };\n");
+        output.push_str("    } else {\n");
+        output.push_str("      errorPayload = {\n");
+        output.push_str("        value: error,\n");
+        output.push_str("        stack: (new Error()).stack || null\n");
+        output.push_str("      };\n");
+        output.push_str("    }\n");
+        output.push_str("    return { type: 'Err', value: errorPayload };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n");
         output.push_str("function __format__(formatStr, ...args) {\n");
         output.push_str("  let result = '';\n");
         output.push_str("  let argIndex = 0;\n");
@@ -723,6 +750,12 @@ impl AstVisitor<String> for JsTranspiler {
         let expr_str = self.visit_expr(expr)?;
         // Generate JS code that checks if the result is an error and returns early if so
         Ok(format!("(() => {{ const __result = {}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()", expr_str))
+    }
+    
+    fn visit_await_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
+        let expr_str = self.visit_expr(expr)?;
+        // Generate the intelligent await bridge that handles both Promises and Promise<Result>
+        Ok(format!("await __husk_await_bridge({})", expr_str))
     }
     
     fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<String> {
