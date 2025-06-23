@@ -35,6 +35,7 @@ pub enum Expr {
     If(Box<Expr>, Vec<Stmt>, Vec<Stmt>, Span),
     Match(Box<Expr>, Vec<(Expr, Vec<Stmt>)>, Span),
     Await(Box<Expr>, Span),
+    Closure(Vec<(String, Option<String>)>, Option<String>, Box<Expr>, Span),
 }
 
 impl PartialEq for Expr {
@@ -193,6 +194,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::Closure(params, ret_type, body, _) => {
+                if let Expr::Closure(other_params, other_ret_type, other_body, _) = other {
+                    params == other_params && ret_type == other_ret_type && body == other_body
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -234,6 +242,7 @@ impl Expr {
             Expr::If(_, _, _, span) => span.clone(),
             Expr::Await(_, span) => span.clone(),
             Expr::Match(_, _, span) => span.clone(),
+            Expr::Closure(_, _, _, span) => span.clone(),
         }
     }
 }
@@ -321,6 +330,24 @@ impl fmt::Display for Expr {
             Expr::Await(expr, _) => write!(f, "{}.await", expr),
             Expr::Match(_expr, _arms, _) => {
                 write!(f, "match ... {{ ... }}")  // Simple representation for now
+            }
+            Expr::Closure(params, ret_type, _body, _) => {
+                let param_str = params.iter()
+                    .map(|(name, ty)| {
+                        if let Some(ty) = ty {
+                            format!("{}: {}", name, ty)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                
+                if let Some(ret) = ret_type {
+                    write!(f, "|{}| -> {} {{ ... }}", param_str, ret)
+                } else {
+                    write!(f, "|{}| {{ ... }}", param_str)
+                }
             }
         }
     }
@@ -1499,6 +1526,78 @@ impl Parser {
         Ok(Stmt::Match(expr, arms, Span::new(start_span, end_span)))
     }
     
+    fn parse_closure_expression(&mut self) -> Result<Expr> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume '|'
+        
+        // Parse parameters
+        let mut params = Vec::new();
+        
+        while self.current_token().kind != TokenKind::Pipe {
+            // Handle empty parameter list
+            if params.is_empty() && self.current_token().kind == TokenKind::Pipe {
+                break;
+            }
+            
+            let param_name = self.consume_identifier("closure parameter")?
+                .ok_or_else(|| Error::new_parse(
+                    "Expected parameter name".to_string(),
+                    self.current_token().span,
+                ))?;
+            
+            // Optional type annotation
+            let param_type = if self.current_token().kind == TokenKind::Colon {
+                self.advance(); // Consume ':'
+                Some(self.consume_type().ok_or_else(|| Error::new_parse(
+                    "Expected type after ':'".to_string(),
+                    self.current_token().span,
+                ))?)
+            } else {
+                None
+            };
+            
+            params.push((param_name, param_type));
+            
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            } else if self.current_token().kind != TokenKind::Pipe {
+                return Err(Error::new_parse(
+                    "Expected ',' or '|' in closure parameters".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+        
+        self.advance(); // Consume closing '|'
+        
+        // Optional return type
+        let return_type = if self.current_token().kind == TokenKind::Arrow {
+            self.advance(); // Consume '->'
+            Some(self.consume_type().ok_or_else(|| Error::new_parse(
+                "Expected return type after '->'".to_string(),
+                self.current_token().span,
+            ))?)
+        } else {
+            None
+        };
+        
+        // Parse body - can be a single expression or a block
+        let body = if self.current_token().kind == TokenKind::LBrace {
+            self.parse_block_expression()?
+        } else {
+            self.parse_expression()?
+        };
+        
+        let end_span = body.span().end;
+        
+        Ok(Expr::Closure(
+            params,
+            return_type,
+            Box::new(body),
+            Span::new(start_span, end_span),
+        ))
+    }
+
     fn parse_match_expression(&mut self) -> Result<Expr> {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'match'
@@ -2259,6 +2358,39 @@ impl Parser {
             TokenKind::Underscore => {
                 self.advance(); // Consume '_'
                 Ok(Expr::Identifier("_".to_string(), span))
+            }
+            TokenKind::Pipe => self.parse_closure_expression(),
+            TokenKind::DblPipe => {
+                // Handle empty closure parameters ||
+                let start_span = self.current_token().span.start;
+                self.advance(); // Consume '||'
+                
+                // Optional return type
+                let return_type = if self.current_token().kind == TokenKind::Arrow {
+                    self.advance(); // Consume '->'
+                    Some(self.consume_type().ok_or_else(|| Error::new_parse(
+                        "Expected return type after '->'".to_string(),
+                        self.current_token().span,
+                    ))?)
+                } else {
+                    None
+                };
+                
+                // Parse body
+                let body = if self.current_token().kind == TokenKind::LBrace {
+                    self.parse_block_expression()?
+                } else {
+                    self.parse_expression()?
+                };
+                
+                let end_span = body.span().end;
+                
+                Ok(Expr::Closure(
+                    Vec::new(), // Empty parameters
+                    return_type,
+                    Box::new(body),
+                    Span::new(start_span, end_span),
+                ))
             }
             _ => Err(Error::new_parse(
                 "Invalid primary expression".to_string(),

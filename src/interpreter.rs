@@ -148,6 +148,12 @@ pub enum Function {
         IndexMap<String, Value>,
     ),
     BuiltIn(fn(&[Value]) -> Result<Value>),
+    Closure {
+        params: Vec<String>,
+        body: Expr,
+        captured_env: IndexMap<String, Value>,
+        span: Span,
+    },
 }
 
 pub fn stdlib_print(args: &[Value]) -> Result<Value> {
@@ -567,6 +573,39 @@ impl InterpreterVisitor {
                         break;
                     }
                 }
+
+                // Restore environment
+                self.pop_scope(saved_env);
+                Ok(result)
+            }
+            Value::Function(Function::Closure { params, body, captured_env, .. }) => {
+                if args.len() != params.len() {
+                    return Err(Error::new_runtime(
+                        format!("Expected {} arguments, got {}", params.len(), args.len()),
+                        span,
+                    ));
+                }
+
+                // Save current environment and use captured environment
+                let saved_env = self.push_scope();
+                
+                // Set up closure environment
+                let mut new_env = captured_env.clone();
+                // Preserve function definitions from current environment
+                for (name, value) in &self.environment {
+                    if let Value::Function(_) = value {
+                        new_env.insert(name.clone(), value.clone());
+                    }
+                }
+                self.environment = new_env;
+
+                // Bind arguments
+                for (param, value) in params.iter().zip(args.iter()) {
+                    self.set_var(param.clone(), value.clone());
+                }
+
+                // Execute closure body (expression)
+                let result = self.visit_expr(&body)?;
 
                 // Restore environment
                 self.pop_scope(saved_env);
@@ -1364,6 +1403,26 @@ impl AstVisitor<Value> for InterpreterVisitor {
             ".await is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
             span.clone(),
         ))
+    }
+    
+    fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, span: &Span) -> Result<Value> {
+        // Create a closure value that captures the current environment
+        let closure_params = params.iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        
+        // Clone the body expression for storage
+        let closure_body = body.clone();
+        
+        // Capture the current environment (simplified - just clone the whole thing)
+        let captured_env = self.environment.clone();
+        
+        Ok(Value::Function(Function::Closure {
+            params: closure_params,
+            body: closure_body,
+            captured_env,
+            span: span.clone(),
+        }))
     }
     
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Value> {

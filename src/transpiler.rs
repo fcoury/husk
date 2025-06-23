@@ -529,6 +529,26 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("await {}", expr_str))
     }
     
+    fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<String> {
+        // Generate parameter list
+        let param_list = params.iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        
+        // Check if body is a block or single expression
+        let body_str = self.visit_expr(body)?;
+        
+        // Generate arrow function
+        if body_str.starts_with('{') {
+            // Block body - no need for return, it's already in the block
+            Ok(format!("({}) => {}", param_list, body_str))
+        } else {
+            // Single expression - implicit return
+            Ok(format!("({}) => {}", param_list, body_str))
+        }
+    }
+    
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
         // For now, transpile to ES6 imports
         let module_path = match &path.prefix {
