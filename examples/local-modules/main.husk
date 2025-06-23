@@ -2,7 +2,7 @@
 use local::utils::logger::{Logger, LogLevel};
 use local::math::calculator::{Calculator, Operation};
 use local::data::user::{User, UserProfile};
-use self::helpers::format_output;
+// Helper function defined below
 
 pub fn main() {
     // Initialize logger
@@ -41,10 +41,12 @@ pub fn main() {
     let score = score_str as int;
     let grade = if score >= 90 {
         "A"
-    } else if score >= 80 {
-        "B"
     } else {
-        "C"
+        if score >= 80 {
+            "B"
+        } else {
+            "C"
+        }
     };
     
     logger.log(format!("Score: {}, Grade: {}", score, grade));
@@ -52,10 +54,8 @@ pub fn main() {
     println("Local module system example completed successfully!");
 }
 
-// Helper module in same file
-mod helpers {
-    pub fn format_output(json: string) -> string {
-        let formatted = format!("User Data: {}", json);
-        return formatted.trim();
-    }
+// Helper function in same file
+fn format_output(json: string) -> string {
+    let formatted = format!("User Data: {}", json);
+    return formatted.trim();
 }

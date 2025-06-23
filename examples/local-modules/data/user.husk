@@ -170,12 +170,16 @@ pub fn validate_email(email: string) -> bool {
 pub fn calculate_age_group(age: int) -> string {
     if age < 13 {
         return "child";
-    } else if age < 20 {
-        return "teenager";
-    } else if age < 60 {
-        return "adult";
     } else {
-        return "senior";
+        if age < 20 {
+            return "teenager";
+        } else {
+            if age < 60 {
+                return "adult";
+            } else {
+                return "senior";
+            }
+        }
     }
 }
 

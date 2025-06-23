@@ -772,11 +772,12 @@ async fn main() {
 
 ## Future Considerations
 
-### Potential Extensions
-1. Decorator syntax for frameworks
-2. Reflection API for runtime type information
-3. WebAssembly compilation target
-4. Native Node.js addon support
+### Language Syntax Improvements
+1. **else if syntax**: Currently requires nested if statements, should support `else if` for cleaner code
+2. Decorator syntax for frameworks
+3. Reflection API for runtime type information
+4. WebAssembly compilation target
+5. Native Node.js addon support
 
 ### Performance Optimizations
 1. Incremental compilation

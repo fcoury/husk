@@ -1,0 +1,35 @@
+// Simple test to validate JavaScript interop features work
+
+fn main() {
+    println("Testing JavaScript interop features:");
+    
+    // Test type casting
+    let score_str = "95";
+    let score = score_str as int;
+    println(format!("Type casting: '{}' as int = {}", score_str, score));
+    
+    // Test string methods
+    let message = "  hello world  ";
+    let clean = message.trim();
+    let upper = clean.toUpperCase();
+    println(format!("String methods: '{}' -> trim() -> '{}' -> toUpperCase() -> '{}'", message, clean, upper));
+    
+    // Test nested if (instead of else if)
+    let grade = if score >= 90 {
+        "A"
+    } else {
+        if score >= 80 {
+            "B"
+        } else {
+            "C"
+        }
+    };
+    println(format!("Grade calculation: score {} = grade '{}'", score, grade));
+    
+    // Test array operations
+    let numbers = [1, 2, 3, 4, 5];
+    let length = numbers.len();
+    println(format!("Array length: {} elements", length));
+    
+    println("All tests completed successfully!");
+}
