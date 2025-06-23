@@ -445,7 +445,15 @@ export declare function add(a: number, b: number): number;
   - Numeric casts use `Math.floor()` for integer conversion to match Rust semantics
   - Custom type casts are passed through, allowing for future TypeScript-style assertions
 
-**Note:** Generic type parameters are now fully supported for parsing in all language constructs. Runtime generic type support and type checking will be implemented in future phases. Built-in methods provide JavaScript-compatible functionality while maintaining Husk's type safety. Type casting allows explicit type conversions similar to Rust's `as` operator.
+- **Support for extern types in function signatures:**
+  - Parser now supports qualified type names (e.g., `express::Request`) in function parameters and return types
+  - Added parsing of `::` in type positions in the `consume_type` method
+  - Extern types declared in `extern mod` blocks can be used with their fully qualified names
+  - Type system treats extern types as opaque types (similar to structs without known fields)
+  - Both interpreter and transpiler correctly handle functions with extern type parameters
+  - Enables type-safe declarations for JavaScript APIs like Express.js handlers
+
+**Note:** Generic type parameters are now fully supported for parsing in all language constructs. Runtime generic type support and type checking will be implemented in future phases. Built-in methods provide JavaScript-compatible functionality while maintaining Husk's type safety. Type casting allows explicit type conversions similar to Rust's `as` operator. Extern types can be used in function signatures to provide type safety for JavaScript interop.
 
 ### Phase 4: Ecosystem Integration (Weeks 9-10)
 1. Build system (husk.toml) ✅

@@ -1834,6 +1834,19 @@ impl Parser {
                 let mut result = name.clone();
                 self.advance(); // Consume identifier
                 
+                // Check for qualified types (e.g., express::Request)
+                while self.current_token().kind == TokenKind::DblColon {
+                    self.advance(); // Consume '::'
+                    result.push_str("::");
+                    
+                    if let TokenKind::Identifier(segment) = &self.current_token().kind {
+                        result.push_str(segment);
+                        self.advance(); // Consume segment
+                    } else {
+                        return None; // Expected identifier after '::'
+                    }
+                }
+                
                 // Check for generic type parameters (e.g., Promise<T>)
                 if self.current_token().kind == TokenKind::LessThan {
                     self.advance(); // Consume '<'
