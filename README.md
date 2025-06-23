@@ -270,6 +270,32 @@ fn divide(a: int, b: int) -> Result<int, string> {
 let result = divide(10, 2)?; // Error propagation operator
 ```
 
+### Type Casting
+
+Husk supports explicit type conversion using the `as` operator:
+
+```rust
+// Numeric conversions
+let i = 42;
+let f = i as float;  // 42.0
+
+let f2 = 3.14;
+let i2 = f2 as int;  // 3 (truncates decimal)
+
+// String parsing
+let s = "123";
+let num = s as int;  // 123
+
+// To string conversion
+let n = 456;
+let str = n as string;  // "456"
+
+// Boolean conversion
+let b = true as int;     // 1
+let zero = 0 as bool;    // false
+let nonzero = 5 as bool; // true
+```
+
 ### Built-in Methods
 
 Husk provides JavaScript-compatible methods for primitive types:

@@ -39,6 +39,7 @@ pub enum Expr {
     AwaitTry(Box<Expr>, Span),
     Closure(Vec<(String, Option<String>)>, Option<String>, Box<Expr>, Span),
     MethodCall(Box<Expr>, String, Vec<Expr>, Span), // object.method(args)
+    Cast(Box<Expr>, String, Span), // expr as type
 }
 
 impl PartialEq for Expr {
@@ -225,6 +226,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::Cast(expr, target_type, _) => {
+                if let Expr::Cast(other_expr, other_type, _) = other {
+                    expr == other_expr && target_type == other_type
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -270,6 +278,7 @@ impl Expr {
             Expr::Match(_, _, span) => span.clone(),
             Expr::Closure(_, _, _, span) => span.clone(),
             Expr::MethodCall(_, _, _, span) => span.clone(),
+            Expr::Cast(_, _, span) => span.clone(),
         }
     }
 }
@@ -390,6 +399,7 @@ impl fmt::Display for Expr {
                         .join(", ")
                 )
             }
+            Expr::Cast(expr, target_type, _) => write!(f, "{} as {}", expr, target_type),
         }
     }
 }
@@ -2029,17 +2039,52 @@ impl Parser {
     }
 
     fn parse_comparison_expression(&mut self) -> Result<Expr> {
-        let mut left = self.parse_additive_expression()?;
+        let mut left = self.parse_cast_expression()?;
 
         while let Some(op) = self.parse_comparison_operator() {
             let start_span = left.span().start;
             self.advance(); // Consume operator
-            let right = self.parse_additive_expression()?;
+            let right = self.parse_cast_expression()?;
             let end_span = right.span().end;
             left = Expr::BinaryOp(
                 Box::new(left),
                 op,
                 Box::new(right),
+                Span::new(start_span, end_span),
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn parse_cast_expression(&mut self) -> Result<Expr> {
+        let mut left = self.parse_additive_expression()?;
+
+        while self.current_token().kind == TokenKind::As {
+            let start_span = left.span().start;
+            self.advance(); // Consume 'as'
+            
+            // Save the position before parsing type
+            let type_start_pos = self.position;
+            
+            // Parse the target type
+            let target_type = self.consume_type()
+                .ok_or_else(|| Error::new_parse(
+                    "Expected type after 'as'".to_string(),
+                    self.current_token().span,
+                ))?;
+            
+            // Use the previous token's end position
+            let end_span = if self.position > 0 && self.position <= self.tokens.len() {
+                self.tokens[self.position - 1].span.end
+            } else {
+                // Fallback to the type start position's span
+                self.tokens[type_start_pos].span.end
+            };
+            
+            left = Expr::Cast(
+                Box::new(left),
+                target_type,
                 Span::new(start_span, end_span),
             );
         }

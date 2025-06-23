@@ -151,8 +151,8 @@ impl Request {
     fn params: any;
 }
 
-// Then cast manually
-let dto = req.body as CreateTodoDto;  // Casting not implemented
+// Cast manually (now implemented!)
+let dto = req.body as CreateTodoDto;
 ```
 
 ### Proposed Solution
