@@ -320,6 +320,16 @@ pub enum Stmt {
     Continue(Span),
     Return(Option<Expr>, Span),
     Use(UsePath, UseItems, Span),
+    ExternFunction(String, Vec<(String, String)>, String, Span),
+    ExternMod(String, Vec<ExternItem>, Span),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ExternItem {
+    Function(String, Vec<(String, String)>, String),
+    Type(String),
+    Mod(String, Vec<ExternItem>),
+    Impl(String, Vec<ExternItem>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -436,6 +446,15 @@ impl Parser {
                 self.parse_use_statement()
             }
             TokenKind::Function => self.parse_function(),
+            TokenKind::Extern => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'extern' declarations".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_extern()
+            }
             TokenKind::Match => {
                 if is_pub {
                     return Err(Error::new_parse(
@@ -680,6 +699,179 @@ impl Parser {
         self.advance(); // Consume '}'
         
         Ok(Expr::Block(statements, Span::new(start_span, end_span)))
+    }
+
+    fn expect_token(&mut self, expected: TokenKind) -> Result<()> {
+        if self.current_token().kind == expected {
+            self.advance();
+            Ok(())
+        } else {
+            Err(Error::new_parse(
+                format!("Expected {:?}, found {:?}", expected, self.current_token().kind),
+                self.current_token().span,
+            ))
+        }
+    }
+    
+    fn parse_function_params(&mut self) -> Result<Vec<(String, String)>> {
+        let mut params = Vec::new();
+        
+        while self.current_token().kind != TokenKind::RParen {
+            let param_name = self.consume_identifier("parameter")?
+                .ok_or_else(|| Error::new_parse(
+                    "Expected parameter name".to_string(),
+                    self.current_token().span,
+                ))?;
+            
+            self.expect_token(TokenKind::Colon)?;
+            let param_type = self.consume_type().unwrap_or_else(|| "Unknown".to_string());
+            
+            params.push((param_name, param_type));
+            
+            if self.current_token().kind != TokenKind::RParen {
+                self.expect_token(TokenKind::Comma)?;
+            }
+        }
+        
+        Ok(params)
+    }
+    
+    fn parse_extern(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span;
+        self.advance(); // Consume 'extern'
+        
+        match &self.current_token().kind {
+            TokenKind::Function => {
+                // extern fn name(params) -> return_type;
+                self.advance(); // Consume 'fn'
+                let name = self.consume_identifier("extern function")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected function name after 'fn'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                
+                self.expect_token(TokenKind::LParen)?;
+                let params = self.parse_function_params()?;
+                self.expect_token(TokenKind::RParen)?;
+                
+                // Parse return type
+                let return_type = if self.current_token().kind == TokenKind::Arrow {
+                    self.advance(); // Consume '->'
+                    self.consume_type().unwrap_or_else(|| "Unknown".to_string())
+                } else {
+                    "unit".to_string()
+                };
+                
+                self.expect_token(TokenKind::Semicolon)?;
+                
+                Ok(Stmt::ExternFunction(name, params, return_type, start_span))
+            }
+            TokenKind::Identifier(s) if s == "mod" => {
+                // extern mod name { ... }
+                self.advance(); // Consume 'mod'
+                let name = self.consume_identifier("extern module")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected module name after 'mod'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                self.expect_token(TokenKind::LBrace)?;
+                
+                let mut items = Vec::new();
+                while self.current_token().kind != TokenKind::RBrace {
+                    items.push(self.parse_extern_item()?);
+                }
+                
+                self.expect_token(TokenKind::RBrace)?;
+                
+                Ok(Stmt::ExternMod(name, items, start_span))
+            }
+            _ => Err(Error::new_parse(
+                "Expected 'fn' or 'mod' after 'extern'".to_string(),
+                self.current_token().span,
+            )),
+        }
+    }
+    
+    fn parse_extern_item(&mut self) -> Result<ExternItem> {
+        match &self.current_token().kind {
+            TokenKind::Function => {
+                // fn name(params) -> return_type;
+                self.advance(); // Consume 'fn'
+                let name = self.consume_identifier("extern function")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected function name after 'fn'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                
+                self.expect_token(TokenKind::LParen)?;
+                let params = self.parse_function_params()?;
+                self.expect_token(TokenKind::RParen)?;
+                
+                let return_type = if self.current_token().kind == TokenKind::Arrow {
+                    self.advance(); // Consume '->'
+                    self.consume_type().unwrap_or_else(|| "Unknown".to_string())
+                } else {
+                    "unit".to_string()
+                };
+                
+                self.expect_token(TokenKind::Semicolon)?;
+                
+                Ok(ExternItem::Function(name, params, return_type))
+            }
+            TokenKind::Identifier(s) if s == "type" => {
+                // type Name;
+                self.advance(); // Consume 'type'
+                let name = self.consume_identifier("extern type")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected identifier after 'type'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                self.expect_token(TokenKind::Semicolon)?;
+                Ok(ExternItem::Type(name))
+            }
+            TokenKind::Identifier(s) if s == "mod" => {
+                // mod name { ... }
+                self.advance(); // Consume 'mod'
+                let name = self.consume_identifier("extern module")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected module name after 'mod'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                self.expect_token(TokenKind::LBrace)?;
+                
+                let mut items = Vec::new();
+                while self.current_token().kind != TokenKind::RBrace {
+                    items.push(self.parse_extern_item()?);
+                }
+                
+                self.expect_token(TokenKind::RBrace)?;
+                
+                Ok(ExternItem::Mod(name, items))
+            }
+            TokenKind::Impl => {
+                // impl Type { ... }
+                self.advance(); // Consume 'impl'
+                let type_name = self.consume_identifier("extern impl")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected type name after 'impl'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                self.expect_token(TokenKind::LBrace)?;
+                
+                let mut items = Vec::new();
+                while self.current_token().kind != TokenKind::RBrace {
+                    items.push(self.parse_extern_item()?);
+                }
+                
+                self.expect_token(TokenKind::RBrace)?;
+                
+                Ok(ExternItem::Impl(type_name, items))
+            }
+            _ => Err(Error::new_parse(
+                "Expected 'fn', 'type', 'mod', or 'impl' in extern block".to_string(),
+                self.current_token().span,
+            )),
+        }
     }
 
     fn parse_struct(&mut self) -> Result<Stmt> {
@@ -1347,13 +1539,65 @@ impl Parser {
     }
 
     fn consume_type(&mut self) -> Option<String> {
-        let typ = match self.current_token().kind {
-            TokenKind::Type(ref type_name) => Some(type_name.clone()),
-            TokenKind::Identifier(ref name) => Some(name.clone()),
-            _ => return None,
-        };
-        self.advance(); // Consume type
-        typ
+        match &self.current_token().kind {
+            TokenKind::Type(type_name) => {
+                let result = type_name.clone();
+                self.advance(); // Consume type
+                Some(result)
+            }
+            TokenKind::Identifier(name) => {
+                let result = name.clone();
+                self.advance(); // Consume identifier
+                Some(result)
+            }
+            TokenKind::Function => {
+                // Parse function type: fn() or fn(params) -> return_type
+                self.advance(); // Consume 'fn'
+                
+                if self.current_token().kind != TokenKind::LParen {
+                    return None;
+                }
+                
+                let mut fn_type = "fn(".to_string();
+                self.advance(); // Consume '('
+                
+                // Parse parameter types
+                let mut first = true;
+                while self.current_token().kind != TokenKind::RParen {
+                    if !first {
+                        if self.current_token().kind != TokenKind::Comma {
+                            return None;
+                        }
+                        self.advance(); // Consume ','
+                        fn_type.push_str(", ");
+                    }
+                    first = false;
+                    
+                    if let Some(param_type) = self.consume_type() {
+                        fn_type.push_str(&param_type);
+                    } else {
+                        return None;
+                    }
+                }
+                
+                self.advance(); // Consume ')'
+                fn_type.push(')');
+                
+                // Check for return type
+                if self.current_token().kind == TokenKind::Arrow {
+                    self.advance(); // Consume '->'
+                    fn_type.push_str(" -> ");
+                    if let Some(return_type) = self.consume_type() {
+                        fn_type.push_str(&return_type);
+                    } else {
+                        return None;
+                    }
+                }
+                
+                Some(fn_type)
+            }
+            _ => None,
+        }
     }
 
     fn parse_expression_statement(&mut self) -> Result<Stmt> {

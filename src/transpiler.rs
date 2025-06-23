@@ -1,7 +1,7 @@
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
     span::Span,
 };
 
@@ -457,6 +457,18 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
+    fn visit_extern_function(&mut self, _name: &str, _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String> {
+        // Extern declarations don't generate any JavaScript code
+        // They're only used for type checking
+        Ok(String::new())
+    }
+    
+    fn visit_extern_mod(&mut self, _name: &str, _items: &[ExternItem], _span: &Span) -> Result<String> {
+        // Extern declarations don't generate any JavaScript code
+        // They're only used for type checking
+        Ok(String::new())
+    }
+    
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
         // For now, transpile to ES6 imports
         let module_path = match &path.prefix {

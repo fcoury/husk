@@ -1,5 +1,5 @@
 use crate::{
-    parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems},
+    parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems, ExternItem},
     span::Span,
 };
 
@@ -80,6 +80,10 @@ pub trait AstVisitor<T> {
             Stmt::Return(expr, span) => self.visit_return(expr.as_ref(), span),
             Stmt::Expression(expr, has_semicolon) => self.visit_expression_stmt(expr, *has_semicolon),
             Stmt::Use(path, items, span) => self.visit_use(path, items, span),
+            Stmt::ExternFunction(name, params, return_type, span) => {
+                self.visit_extern_function(name, params, return_type, span)
+            }
+            Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
         }
     }
 
@@ -98,6 +102,8 @@ pub trait AstVisitor<T> {
     fn visit_return(&mut self, expr: Option<&Expr>, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> std::result::Result<T, Self::Error>;
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_extern_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_extern_mod(&mut self, name: &str, items: &[ExternItem], span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
     

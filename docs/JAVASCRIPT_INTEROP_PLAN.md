@@ -169,29 +169,31 @@ fn Button(props: ButtonProps) -> JSX {
 
 ### 1. External Type Declarations
 
-#### File Structure
-```
-project/
-├── src/
-│   └── main.hk
-├── types/
-│   ├── node.d.hk      # Node.js type definitions
-│   ├── react.d.hk     # React type definitions
-│   └── express.d.hk   # Express type definitions
-└── husk.toml
+#### Extern Keyword Approach
+
+Instead of separate .d.hk files, Husk uses an `extern` keyword to declare external JavaScript APIs directly in your code. This provides better locality and simpler maintenance.
+
+#### Simple Function Declarations
+```husk
+// Declare external JavaScript functions
+extern fn parseInt(s: string) -> int;
+extern fn setTimeout(callback: fn(), delay: int) -> int;
+
+// Note: Generic types like Promise<T> are not yet supported
+// Use string or create specific type aliases for now
+extern fn fetch(url: string) -> string; // Will be Promise<Response> when generics are implemented
 ```
 
-#### Declaration Syntax
+#### Module Declarations
 ```husk
-// types/node.d.hk
+// Declare external modules with extern mod blocks
 extern mod fs {
     mod promises {
-        async fn readFile(path: string, encoding?: string) -> string;
-        async fn writeFile(path: string, data: string) -> void;
+        fn readFile(path: string, encoding?: string) -> Promise<string>;
+        fn writeFile(path: string, data: string) -> Promise<void>;
     }
 }
 
-// types/express.d.hk
 extern mod express {
     type Application;
     type Request;
@@ -204,6 +206,15 @@ extern mod express {
         fn listen(port: int, callback?: fn() -> void);
     }
 }
+
+// Import and use normally
+use express::express;
+use fs::promises::{readFile, writeFile};
+
+let app = express();
+app.get("/", |req, res| {
+    res.send("Hello from Husk!");
+});
 ```
 
 ### 2. Generic Type Parameters
@@ -333,7 +344,7 @@ export declare function add(a: number, b: number): number;
 ### Phase 1: Core Language Features (Weeks 1-3)
 1. Import/export syntax parsing ✅
 2. Basic transpiler module system support ✅
-3. External type declaration parsing
+3. External type declaration parsing ✅
 4. Simple Node.js API usage
 
 **Completed:**
@@ -349,8 +360,18 @@ export declare function add(a: number, b: number): number;
 - Implemented export collection for modules (currently exports all top-level items)
 - Made semantic analyzer tolerant of imported names with Unknown type
 - Successfully tested module imports with functions, structs, and enums
+- Implemented extern keyword for declaring external JavaScript APIs
+- Added support for extern fn declarations
+- Added support for extern mod blocks with nested functions, types, and impl blocks
+- Enhanced type parser to handle function types (fn() -> type)
+- Extern declarations are no-op in interpreter but provide type checking
 
 **Note:** Currently all top-level items are exported regardless of pub keyword due to AST limitations. The AST doesn't track visibility modifiers, which would require significant refactoring to fix.
+
+**Limitations:**
+- Generic types (e.g., Promise<T>) are not yet supported in type declarations
+- Optional parameters are not yet supported
+- Union types are not yet implemented
 
 ### Phase 2: Async Programming (Weeks 4-5)
 1. Async/await syntax and semantics
