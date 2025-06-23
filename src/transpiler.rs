@@ -21,6 +21,34 @@ impl JsTranspiler {
     pub fn transpile(&mut self, stmts: &[Stmt]) -> Result<String> {
         let mut output = String::new();
         output.push_str("function println(...args) { console.log(...args); }\n");
+        output.push_str("function __format__(formatStr, ...args) {\n");
+        output.push_str("  let result = '';\n");
+        output.push_str("  let argIndex = 0;\n");
+        output.push_str("  let i = 0;\n");
+        output.push_str("  while (i < formatStr.length) {\n");
+        output.push_str("    if (formatStr[i] === '{' && i + 1 < formatStr.length) {\n");
+        output.push_str("      if (formatStr[i + 1] === '{') {\n");
+        output.push_str("        result += '{';\n");
+        output.push_str("        i += 2;\n");
+        output.push_str("      } else if (formatStr[i + 1] === '}') {\n");
+        output.push_str("        if (argIndex < args.length) {\n");
+        output.push_str("          result += String(args[argIndex++]);\n");
+        output.push_str("        }\n");
+        output.push_str("        i += 2;\n");
+        output.push_str("      } else {\n");
+        output.push_str("        result += formatStr[i];\n");
+        output.push_str("        i++;\n");
+        output.push_str("      }\n");
+        output.push_str("    } else if (formatStr[i] === '}' && i + 1 < formatStr.length && formatStr[i + 1] === '}') {\n");
+        output.push_str("      result += '}';\n");
+        output.push_str("      i += 2;\n");
+        output.push_str("    } else {\n");
+        output.push_str("      result += formatStr[i];\n");
+        output.push_str("      i++;\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
+        output.push_str("  return result;\n");
+        output.push_str("}\n");
         
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
@@ -192,19 +220,86 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("{} {}= {}", left_str, op_str, right_str))
     }
 
-    fn visit_function_call(&mut self, name: &str, args: &[Expr], _span: &Span) -> Result<String> {
-        let args_str = args
-            .iter()
-            .map(|arg| self.visit_expr(arg))
-            .collect::<Result<Vec<_>>>()?
-            .join(", ");
-        
-        // Handle method calls with dot notation
-        if name.contains('.') {
-            let (obj, method) = name.split_once('.').unwrap();
-            Ok(format!("{}.{}({})", obj, method, args_str))
+    fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<String> {
+        // Special handling for format!
+        if name == "format!" {
+            if args.is_empty() {
+                return Err(Error::new_transpile(
+                    "format! requires at least one argument".to_string(),
+                    *span,
+                ));
+            }
+            
+            // First argument must be a string literal
+            if let Expr::String(format_str, _) = &args[0] {
+                let mut template_parts = Vec::new();
+                let mut arg_index = 1;
+                let mut chars = format_str.chars().peekable();
+                let mut current_part = String::new();
+                
+                while let Some(ch) = chars.next() {
+                    if ch == '{' {
+                        if chars.peek() == Some(&'{') {
+                            // Escaped {{
+                            chars.next();
+                            current_part.push('{');
+                        } else if chars.peek() == Some(&'}') {
+                            // Placeholder {}
+                            chars.next();
+                            template_parts.push(current_part.clone());
+                            current_part.clear();
+                            
+                            if arg_index < args.len() {
+                                let arg_str = self.visit_expr(&args[arg_index])?;
+                                template_parts.push(format!("${{{}}}", arg_str));
+                                arg_index += 1;
+                            }
+                        } else {
+                            current_part.push(ch);
+                        }
+                    } else if ch == '}' {
+                        if chars.peek() == Some(&'}') {
+                            // Escaped }}
+                            chars.next();
+                            current_part.push('}');
+                        } else {
+                            current_part.push(ch);
+                        }
+                    } else {
+                        current_part.push(ch);
+                    }
+                }
+                
+                if !current_part.is_empty() {
+                    template_parts.push(current_part);
+                }
+                
+                // Return as template literal
+                Ok(format!("`{}`", template_parts.join("")))
+            } else {
+                // Dynamic format string - use a helper function
+                let args_str = args
+                    .iter()
+                    .map(|arg| self.visit_expr(arg))
+                    .collect::<Result<Vec<_>>>()?
+                    .join(", ");
+                Ok(format!("__format__({})", args_str))
+            }
         } else {
-            Ok(format!("{}({})", name, args_str))
+            // Regular function call
+            let args_str = args
+                .iter()
+                .map(|arg| self.visit_expr(arg))
+                .collect::<Result<Vec<_>>>()?
+                .join(", ");
+            
+            // Handle method calls with dot notation
+            if name.contains('.') {
+                let (obj, method) = name.split_once('.').unwrap();
+                Ok(format!("{}.{}({})", obj, method, args_str))
+            } else {
+                Ok(format!("{}({})", name, args_str))
+            }
         }
     }
 

@@ -177,6 +177,64 @@ pub fn stdlib_println(args: &[Value]) -> Result<Value> {
     Ok(Value::Unit)
 }
 
+pub fn stdlib_format(args: &[Value]) -> Result<Value> {
+    if args.is_empty() {
+        return Err(Error::new_runtime(
+            "format! requires at least one argument (the format string)".to_string(),
+            Span::default(),
+        ));
+    }
+    
+    // First argument must be a string
+    let format_str = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(Error::new_runtime(
+            "format! first argument must be a string".to_string(),
+            Span::default(),
+        )),
+    };
+    
+    let mut result = String::new();
+    let mut arg_index = 1;
+    let mut chars = format_str.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            if chars.peek() == Some(&'{') {
+                // Escaped {{
+                chars.next();
+                result.push('{');
+            } else if chars.peek() == Some(&'}') {
+                // Placeholder {}
+                chars.next();
+                if arg_index >= args.len() {
+                    return Err(Error::new_runtime(
+                        format!("format! expects {} arguments after format string, but {} were provided", 
+                               arg_index - 1, args.len() - 1),
+                        Span::default(),
+                    ));
+                }
+                result.push_str(&args[arg_index].to_string());
+                arg_index += 1;
+            } else {
+                result.push(ch);
+            }
+        } else if ch == '}' {
+            if chars.peek() == Some(&'}') {
+                // Escaped }}
+                chars.next();
+                result.push('}');
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    
+    Ok(Value::String(result))
+}
+
 /// Represents a loaded module with its exports
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -237,6 +295,10 @@ impl InterpreterVisitor {
         self.global_environment.insert(
             "println".to_string(),
             Value::Function(Function::BuiltIn(stdlib_println)),
+        );
+        self.global_environment.insert(
+            "format!".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_format)),
         );
     }
 

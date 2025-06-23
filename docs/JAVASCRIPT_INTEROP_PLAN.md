@@ -394,10 +394,10 @@ export declare function add(a: number, b: number): number;
 **Note:** Transpiler-only implementation as agreed. Interpreter returns clear error messages when async/await is used.
 
 ### Phase 3: Advanced Features (Weeks 6-8)
-1. Closure/lambda syntax
-2. Template literals
+1. Closure/lambda syntax ✅
+2. Template literals / String formatting ✅
 3. Spread operator
-4. Generic type parameters
+4. Generic type parameters (partial)
 
 **Completed:**
 - Basic generic type parsing for extern declarations (Promise<T>, Map<K,V>, etc.)
@@ -405,6 +405,12 @@ export declare function add(a: number, b: number): number;
 - Support for generic types in extern type declarations (type Map<K,V>)
 - Nested generic type support (Promise<array<T>>, Map<string, Promise<T>>)
 - Comprehensive test coverage for generic parsing scenarios
+- Implemented closure/lambda syntax with |params| expr syntax
+- Added closure support in both interpreter and transpiler
+- Implemented Rust-style format! macro for string formatting
+- format! works in both interpreter and transpiler modes
+- Transpiler converts format! to JavaScript template literals when possible
+- Added special lexer handling for format! identifier
 
 **Note:** This covers generic type parsing in extern declarations only. Full generic support for Husk types and functions is planned for future phases.
 
