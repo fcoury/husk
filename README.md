@@ -25,7 +25,10 @@ Husk is a lightweight scripting language inspired by Rust, designed for simplici
 - Enums with associated values
 - Arrays and ranges
 - Loop constructs: for, while, and loop with break/continue
-- Basic arithmetic and comparison operations
+- Arithmetic operations: `+`, `-`, `*`, `/`, `%`
+- Comparison operations: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Logical operations: `&&`, `||`, `!`
+- Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`
 - Interactive REPL (Read-Eval-Print Loop)
 - Script execution from files
 - Transpilation to JavaScript
