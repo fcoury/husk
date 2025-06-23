@@ -1347,6 +1347,20 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
     
+    fn visit_async_function(&mut self, _name: &str, _params: &[(String, String)], _return_type: &str, _body: &[Stmt], span: &Span) -> Result<Value> {
+        Err(Error::new_runtime(
+            "Async functions are not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
+            span.clone(),
+        ))
+    }
+    
+    fn visit_await(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
+        Err(Error::new_runtime(
+            ".await is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
+            span.clone(),
+        ))
+    }
+    
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Value> {
         // Check if it's an external package
         if path.prefix == UsePrefix::None {

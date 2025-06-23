@@ -21,6 +21,9 @@ mod interpreter_modules_test;
 #[cfg(test)]
 mod extern_test;
 
+#[cfg(test)]
+mod async_test;
+
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;

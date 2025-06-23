@@ -33,6 +33,7 @@ pub enum Expr {
     },
     Block(Vec<Stmt>, Span),
     If(Box<Expr>, Vec<Stmt>, Vec<Stmt>, Span),
+    Await(Box<Expr>, Span),
 }
 
 impl PartialEq for Expr {
@@ -177,6 +178,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::Await(expr, _) => {
+                if let Expr::Await(other_expr, _) = other {
+                    expr == other_expr
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -216,6 +224,7 @@ impl Expr {
             Expr::EnumVariantOrMethodCall { span, .. } => span.clone(),
             Expr::Block(_, span) => span.clone(),
             Expr::If(_, _, _, span) => span.clone(),
+            Expr::Await(_, span) => span.clone(),
         }
     }
 }
@@ -300,6 +309,7 @@ impl fmt::Display for Expr {
             Expr::If(_cond, _then, _else, _) => {
                 write!(f, "if ... {{ ... }}")  // Simple representation for now
             }
+            Expr::Await(expr, _) => write!(f, "{}.await", expr),
         }
     }
 }
@@ -322,6 +332,7 @@ pub enum Stmt {
     Use(UsePath, UseItems, Span),
     ExternFunction(String, Vec<(String, String)>, String, Span),
     ExternMod(String, Vec<ExternItem>, Span),
+    AsyncFunction(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -446,6 +457,12 @@ impl Parser {
                 self.parse_use_statement()
             }
             TokenKind::Function => self.parse_function(),
+            TokenKind::Async => {
+                if is_pub {
+                    // pub async fn is allowed
+                }
+                self.parse_async_function()
+            }
             TokenKind::Extern => {
                 if is_pub {
                     return Err(Error::new_parse(
@@ -734,6 +751,34 @@ impl Parser {
         }
         
         Ok(params)
+    }
+    
+    fn parse_async_function(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'async'
+        
+        if self.current_token().kind != TokenKind::Function {
+            return Err(Error::new_parse(
+                "Expected 'fn' after 'async'".to_string(),
+                self.current_token().span,
+            ));
+        }
+        
+        // Parse the function normally
+        let func_stmt = self.parse_function()?;
+        
+        // Convert Function to AsyncFunction
+        if let Stmt::Function(name, params, return_type, body, func_span) = func_stmt {
+            Ok(Stmt::AsyncFunction(
+                name,
+                params,
+                return_type,
+                body,
+                Span::new(start_span, func_span.end),
+            ))
+        } else {
+            unreachable!("parse_function should return a Function statement")
+        }
     }
     
     fn parse_extern(&mut self) -> Result<Stmt> {
@@ -1829,6 +1874,55 @@ impl Parser {
                         Box::new(left),
                         op,
                         Box::new(right),
+                        Span::new(start_span, end_span),
+                    );
+                }
+                // Member access and .await
+                TokenKind::Dot => {
+                    self.advance(); // Consume '.'
+                    
+                    // Check if this is .await
+                    if let TokenKind::Identifier(field) = &self.current_token().kind {
+                        if field == "await" {
+                            self.advance(); // Consume 'await'
+                            let end_span = self.current_token().span.start;
+                            left = Expr::Await(Box::new(left), Span::new(start_span, end_span));
+                            continue;
+                        }
+                    }
+                    
+                    // Regular member access
+                    let field_name = self.consume_identifier("member access")?
+                        .ok_or_else(|| Error::new_parse(
+                            "Expected field name after '.'".to_string(),
+                            self.current_token().span,
+                        ))?;
+                    
+                    let end_span = self.current_token().span.start;
+                    left = Expr::MemberAccess(
+                        Box::new(left),
+                        field_name,
+                        Span::new(start_span, end_span),
+                    );
+                }
+                // Array indexing
+                TokenKind::LSquare => {
+                    self.advance(); // Consume '['
+                    let index = self.parse_expression()?;
+                    
+                    if self.current_token().kind != TokenKind::RSquare {
+                        return Err(Error::new_parse(
+                            "Expected ']' after array index".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    
+                    let end_span = self.current_token().span.end;
+                    self.advance(); // Consume ']'
+                    
+                    left = Expr::ArrayIndex(
+                        Box::new(left),
+                        Box::new(index),
                         Span::new(start_span, end_span),
                     );
                 }
