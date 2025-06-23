@@ -18,6 +18,9 @@ mod types;
 #[cfg(test)]
 mod interpreter_modules_test;
 
+#[cfg(test)]
+mod extern_test;
+
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;

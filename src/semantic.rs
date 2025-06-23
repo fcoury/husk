@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
     span::Span,
     types::{Type, TypeEnvironment},
 };
@@ -32,6 +32,99 @@ impl SemanticVisitor {
         };
         visitor.init_standard_library();
         visitor
+    }
+    
+    fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
+        match item {
+            ExternItem::Function(name, params, return_type) => {
+                let full_name = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}::{}", prefix, name)
+                };
+                
+                // Convert parameter types
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|(param_name, type_str)| {
+                        (
+                            param_name.clone(),
+                            Type::from_string(type_str).unwrap_or(Type::Unknown),
+                        )
+                    })
+                    .collect();
+                
+                let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                
+                // Register extern function
+                self.functions.insert(
+                    full_name.clone(),
+                    (param_types, ret_type.clone(), Span::default()),
+                );
+                
+                // Register as imported name
+                self.imported_names.insert(full_name, Type::Function {
+                    params: vec![],
+                    return_type: Box::new(ret_type),
+                });
+            }
+            ExternItem::Type(name) => {
+                let full_name = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}::{}", prefix, name)
+                };
+                
+                // Register as an opaque external type
+                self.type_env.define(full_name.clone(), Type::Unknown);
+                self.imported_names.insert(full_name, Type::Unknown);
+            }
+            ExternItem::Mod(name, items) => {
+                let new_prefix = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}::{}", prefix, name)
+                };
+                
+                // Recursively process nested items
+                for item in items {
+                    self.process_extern_item(item, &new_prefix)?;
+                }
+            }
+            ExternItem::Impl(type_name, items) => {
+                // Process impl block methods
+                for item in items {
+                    if let ExternItem::Function(method_name, params, return_type) = item {
+                        let full_name = format!("{}::{}", type_name, method_name);
+                        
+                        // Convert parameter types
+                        let param_types: Vec<(String, Type)> = params
+                            .iter()
+                            .map(|(param_name, type_str)| {
+                                (
+                                    param_name.clone(),
+                                    Type::from_string(type_str).unwrap_or(Type::Unknown),
+                                )
+                            })
+                            .collect();
+                        
+                        let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                        
+                        // Register method
+                        self.functions.insert(
+                            full_name.clone(),
+                            (param_types, ret_type.clone(), Span::default()),
+                        );
+                        
+                        self.imported_names.insert(full_name, Type::Function {
+                            params: vec![],
+                            return_type: Box::new(ret_type),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn init_standard_library(&mut self) {
@@ -1117,6 +1210,43 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
+    fn visit_extern_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, _span: &Span) -> Result<Type> {
+        // Convert parameter types
+        let param_types: Vec<(String, Type)> = params
+            .iter()
+            .map(|(param_name, type_str)| {
+                (
+                    param_name.clone(),
+                    Type::from_string(type_str).unwrap_or(Type::Unknown),
+                )
+            })
+            .collect();
+        
+        let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+        
+        // Register extern function signature
+        self.functions.insert(
+            name.to_string(),
+            (param_types, ret_type.clone(), *_span),
+        );
+        
+        // Also register as imported name
+        self.imported_names.insert(name.to_string(), Type::Function {
+            params: vec![], // We don't track parameter types in imported_names
+            return_type: Box::new(ret_type),
+        });
+        
+        Ok(Type::Unit)
+    }
+    
+    fn visit_extern_mod(&mut self, _name: &str, items: &[ExternItem], _span: &Span) -> Result<Type> {
+        // Process all items in the extern mod block
+        for item in items {
+            self.process_extern_item(item, "")?;
+        }
+        Ok(Type::Unit)
+    }
+    
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<Type> {
         // For now, just validate that external packages are not used in interpreter mode
         // In the future, this will handle module resolution and type loading

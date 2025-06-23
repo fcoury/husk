@@ -273,6 +273,14 @@ mod tests {
             self.track(&format!("use_{:?}_{:?}", path.prefix, items))?;
             Ok("visited_use".to_string())
         }
+        
+        fn visit_extern_function(&mut self, name: &str, _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("extern_function_{}", name))
+        }
+        
+        fn visit_extern_mod(&mut self, name: &str, _items: &[crate::parser::ExternItem], _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("extern_mod_{}", name))
+        }
     }
 
     #[test]

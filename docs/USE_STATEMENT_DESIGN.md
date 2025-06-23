@@ -187,10 +187,12 @@ The `pub` keyword marks items as exported. Without `pub`, items are module-priva
 - The AST doesn't track visibility modifiers, requiring significant refactoring to fix
 - Imported items have Unknown type in semantic analysis
 
-### Phase 2: Type Declaration Support
-1. Parse `.d.hk` files
-2. Build type environment from declarations
-3. Type check against external types
+### Phase 2: External Type Declaration Support
+1. Parse `extern fn` declarations for standalone functions
+2. Parse `extern mod` blocks for module APIs
+3. Build type environment from extern declarations
+4. Type check against external types
+5. Allow extern declarations in interpreter (no-op) and transpiler (type info only)
 
 ### Phase 3: Transpiler Support
 1. Convert use statements to imports

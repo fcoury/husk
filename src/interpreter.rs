@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, Parser},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, Parser, ExternItem},
     lexer::Lexer,
     span::Span,
 };
@@ -1335,6 +1335,18 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
+    fn visit_extern_function(&mut self, _name: &str, _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<Value> {
+        // Extern declarations are no-op in interpreter mode
+        // They're only used for type checking external APIs
+        Ok(Value::Unit)
+    }
+    
+    fn visit_extern_mod(&mut self, _name: &str, _items: &[ExternItem], _span: &Span) -> Result<Value> {
+        // Extern declarations are no-op in interpreter mode
+        // They're only used for type checking external APIs
+        Ok(Value::Unit)
+    }
+    
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Value> {
         // Check if it's an external package
         if path.prefix == UsePrefix::None {
