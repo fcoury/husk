@@ -15,7 +15,7 @@ mod tests {
         let ast = parser.parse().expect("Should parse generic function");
         
         assert_eq!(ast.len(), 1);
-        if let Stmt::Function(name, generic_params, params, return_type, _body, _span) = &ast[0] {
+        if let Stmt::Function(_, name, generic_params, params, return_type, _body, _span) = &ast[0] {
             assert_eq!(name, "map");
             assert_eq!(generic_params, &vec!["T".to_string(), "U".to_string()]);
             assert_eq!(params.len(), 2);
@@ -81,7 +81,7 @@ mod tests {
         let ast = parser.parse().expect("Should parse generic async function");
         
         assert_eq!(ast.len(), 1);
-        if let Stmt::AsyncFunction(name, generic_params, params, return_type, _body, _span) = &ast[0] {
+        if let Stmt::AsyncFunction(_, name, generic_params, params, return_type, _body, _span) = &ast[0] {
             assert_eq!(name, "fetch_data");
             assert_eq!(generic_params, &vec!["T".to_string()]);
             assert_eq!(params.len(), 0);
@@ -101,7 +101,7 @@ mod tests {
         let ast = parser.parse().expect("Should parse regular function");
         
         assert_eq!(ast.len(), 1);
-        if let Stmt::Function(name, generic_params, params, return_type, _body, _span) = &ast[0] {
+        if let Stmt::Function(_, name, generic_params, params, return_type, _body, _span) = &ast[0] {
             assert_eq!(name, "regular_function");
             assert_eq!(generic_params, &Vec::<String>::new()); // Empty generic params
             assert_eq!(params.len(), 1);

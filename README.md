@@ -32,6 +32,14 @@ Husk is a lightweight scripting language inspired by Rust, designed for simplici
 - Interactive REPL (Read-Eval-Print Loop)
 - Script execution from files
 - Transpilation to JavaScript
+- Module system with local imports and exports
+- Project build system with husk.toml configuration
+- Package.json generation from dependencies
+- Async/await syntax (transpiler only)
+- Option and Result built-in types
+- Closure/lambda expressions
+- Format macro for string formatting
+- Generic type support
 
 ## Installation
 
@@ -72,6 +80,47 @@ This will output the transpiled JavaScript code to stdout. If you have node inst
 ```bash
 husk compile path/to/your/script.hk | node
 ```
+
+### Project Build System
+
+Husk supports project-based development with `husk.toml` configuration files. To build an entire project:
+
+```bash
+husk build
+```
+
+Additional build options:
+
+```bash
+# Generate package.json from husk.toml
+husk build --generate-package-json
+
+# Specify target platform
+husk build --target node-cjs
+```
+
+#### Project Structure
+
+Create a `husk.toml` file in your project root:
+
+```toml
+[package]
+name = "my-husk-app"
+version = "0.1.0"
+description = "My Husk application"
+author = "Your Name"
+
+[dependencies]
+express = "^4.18.0"
+lodash = "^4.17.21"
+
+[build]
+target = "node-esm"
+src = "src"
+out = "dist"
+```
+
+Place your Husk source files in the `src` directory. The build command will compile all `.husk` files and generate corresponding JavaScript files in the output directory.
 
 ## Language Syntax
 
@@ -156,6 +205,69 @@ loop {
         break;
     }
 }
+```
+
+### Module System
+
+Husk supports a module system for organizing code across multiple files:
+
+```rust
+// In utils.hk
+pub fn log(message: string) {
+    println(format!("[LOG] {}", message));
+}
+
+pub fn formatDate(date: string) -> string {
+    format!("Date: {}", date)
+}
+```
+
+```rust
+// In main.husk
+use local::utils::{log, formatDate};
+
+fn main() {
+    log("Application started");
+    let today = formatDate("2023-12-25");
+    println(today);
+}
+```
+
+Module import prefixes:
+- `local::` - Import from project root
+- `self::` - Import from current directory
+- `super::` - Import from parent directory
+
+### Async/Await (Transpiler Only)
+
+```rust
+async fn fetchData() -> Result<string, string> {
+    let response = fetch("https://api.example.com/data").await?;
+    Ok(response.text().await?)
+}
+
+async fn main() {
+    match fetchData().await {
+        Ok(data) => println(data),
+        Err(error) => println(format!("Error: {}", error)),
+    }
+}
+```
+
+### Built-in Types
+
+Husk includes Option and Result types for safe error handling:
+
+```rust
+fn divide(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        Err("Division by zero")
+    } else {
+        Ok(a / b)
+    }
+}
+
+let result = divide(10, 2)?; // Error propagation operator
 ```
 
 ## Development

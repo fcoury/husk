@@ -5,6 +5,7 @@ mod error_tests;
 mod integration_error_tests;
 mod interpreter;
 mod lexer;
+mod package_resolver;
 mod parser;
 mod parser_error_tests;
 mod repl;
@@ -58,10 +59,14 @@ mod generic_types_test;
 #[cfg(test)]
 mod config_test;
 
+#[cfg(test)]
+mod package_resolution_test;
+
 pub use config::HuskConfig;
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;
+pub use package_resolver::PackageResolver;
 pub use parser::Parser;
 pub use repl::repl;
 pub use semantic::SemanticVisitor;
@@ -118,5 +123,34 @@ pub fn transpile_to_js(code: impl Into<String>) -> Result<String> {
     analyzer.analyze(&ast)?;
 
     let mut js_generator = JsTranspiler::new();
+    Ok(js_generator.generate(&ast)?)
+}
+
+pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> {
+    let code = code.into();
+    let mut lexer = Lexer::new(code.to_string());
+    let tokens = lexer.lex_all();
+
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse()?;
+
+    // Use visitor pattern for semantic analysis with package resolution
+    let mut analyzer = match SemanticVisitor::with_package_resolver() {
+        Ok(analyzer) => analyzer,
+        Err(_) => {
+            // Fall back to basic analyzer if package resolution fails
+            SemanticVisitor::new()
+        }
+    };
+    analyzer.analyze(&ast)?;
+
+    // Use transpiler with package resolution
+    let mut js_generator = match JsTranspiler::with_package_resolver() {
+        Ok(transpiler) => transpiler,
+        Err(_) => {
+            // Fall back to basic transpiler if package resolution fails
+            JsTranspiler::new()
+        }
+    };
     Ok(js_generator.generate(&ast)?)
 }

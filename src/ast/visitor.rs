@@ -68,7 +68,7 @@ pub trait AstVisitor<T> {
     fn visit_stmt(&mut self, stmt: &Stmt) -> std::result::Result<T, Self::Error> {
         match stmt {
             Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
-            Stmt::Function(name, generic_params, params, return_type, body, span) => {
+            Stmt::Function(_is_pub, name, generic_params, params, return_type, body, span) => {
                 self.visit_function(name, generic_params, params, return_type, body, span)
             }
             Stmt::Struct(name, generic_params, fields, span) => self.visit_struct(name, generic_params, fields, span),
@@ -89,7 +89,7 @@ pub trait AstVisitor<T> {
                 self.visit_extern_function(name, generic_params, params, return_type, span)
             }
             Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
-            Stmt::AsyncFunction(name, generic_params, params, return_type, body, span) => {
+            Stmt::AsyncFunction(_is_pub, name, generic_params, params, return_type, body, span) => {
                 self.visit_async_function(name, generic_params, params, return_type, body, span)
             }
         }

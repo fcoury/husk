@@ -1,0 +1,14 @@
+[package]
+name = "my-husk-app"
+version = "0.1.0"
+description = "Sample Husk application"
+author = "Your Name"
+
+[dependencies]
+express = "^4.18.0"
+lodash = "^4.17.21"
+
+[build]
+target = "node-esm"
+src = "src"
+out = "dist"

@@ -20,6 +20,21 @@ struct Run {
     file: PathBuf,
 }
 
+#[derive(Parser, Debug)]
+struct Build {
+    /// Target platform (node-esm, node-cjs, browser)
+    #[clap(long)]
+    target: Option<String>,
+    
+    /// Watch for changes and rebuild
+    #[clap(long)]
+    watch: bool,
+    
+    /// Generate package.json from husk.toml
+    #[clap(long)]
+    generate_package_json: bool,
+}
+
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Start the Husk REPL
@@ -30,6 +45,9 @@ enum Command {
 
     /// Transpile a Husk script to JavaScript
     Compile(Compile),
+    
+    /// Build the entire project from husk.toml
+    Build(Build),
 }
 
 #[derive(Parser, Debug)]
@@ -48,6 +66,7 @@ fn main() -> anyhow::Result<()> {
     Ok(match cli.cmd {
         Some(Command::Run(run)) => run_command(run.file)?,
         Some(Command::Compile(compile)) => compile_command(compile)?,
+        Some(Command::Build(build)) => build_command(build)?,
         Some(Command::Repl) | None => repl()?,
     })
 }
@@ -72,9 +91,119 @@ fn run_command(file: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn build_command(cli: Build) -> anyhow::Result<()> {
+    use husk::HuskConfig;
+    use std::fs;
+    
+    // Load husk.toml configuration
+    let (config, project_root) = match HuskConfig::find_and_load() {
+        Ok((config, root)) => (config, root),
+        Err(e) => {
+            eprintln!("Error: Could not find husk.toml: {}", e);
+            eprintln!("Run 'husk init' to create a new project or ensure you're in a Husk project directory.");
+            std::process::exit(1);
+        }
+    };
+    
+    println!("Building project: {}", config.package.name);
+    
+    // Generate package.json if requested
+    if cli.generate_package_json {
+        let package_json = config.generate_package_json()?;
+        let package_json_path = project_root.join("package.json");
+        fs::write(&package_json_path, package_json)?;
+        println!("Generated package.json");
+    }
+    
+    // Determine target
+    let target = cli.target.as_deref()
+        .or(if config.build.target.is_empty() { None } else { Some(config.build.target.as_str()) })
+        .unwrap_or("node-esm");
+    
+    println!("Target: {}", target);
+    
+    // Create output directory
+    let src_dir = project_root.join(&config.build.src);
+    let out_dir = project_root.join(&config.build.out);
+    
+    if !src_dir.exists() {
+        eprintln!("Error: Source directory '{}' not found", config.build.src);
+        std::process::exit(1);
+    }
+    
+    fs::create_dir_all(&out_dir)?;
+    
+    // Find all .husk files in src directory
+    let husk_files = find_husk_files(&src_dir)?;
+    
+    if husk_files.is_empty() {
+        println!("No .husk files found in {}", config.build.src);
+        return Ok(());
+    }
+    
+    println!("Found {} Husk files to compile", husk_files.len());
+    
+    // Compile each file
+    for husk_file in husk_files {
+        let relative_path = husk_file.strip_prefix(&src_dir)?;
+        let js_file = out_dir.join(relative_path).with_extension("js");
+        
+        // Create parent directory if needed
+        if let Some(parent) = js_file.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        let code = fs::read_to_string(&husk_file)?;
+        
+        match husk::transpile_to_js_with_packages(&code) {
+            Ok(js) => {
+                fs::write(&js_file, js)?;
+                println!("  {} -> {}", 
+                    husk_file.strip_prefix(&project_root)?.display(),
+                    js_file.strip_prefix(&project_root)?.display()
+                );
+            }
+            Err(e) => {
+                eprintln!("Error compiling {}: {}", husk_file.display(), e);
+                std::process::exit(1);
+            }
+        }
+    }
+    
+    println!("Build completed successfully!");
+    
+    if cli.watch {
+        println!("Watch mode not implemented yet - use a file watcher tool like 'watchexec'");
+        println!("Example: watchexec -e husk 'husk build'");
+    }
+    
+    Ok(())
+}
+
+fn find_husk_files(dir: &std::path::Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let mut husk_files = Vec::new();
+    
+    if dir.is_dir() {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                husk_files.extend(find_husk_files(&path)?);
+            } else if let Some(ext) = path.extension() {
+                if ext == "husk" || ext == "hk" {
+                    husk_files.push(path);
+                }
+            }
+        }
+    }
+    
+    Ok(husk_files)
+}
+
 fn compile_command(cli: Compile) -> anyhow::Result<()> {
     let code = std::fs::read_to_string(cli.file)?;
-    match husk::transpile_to_js(&code) {
+    match husk::transpile_to_js_with_packages(&code) {
         Ok(js) => println!("{}", js),
         Err(e) => {
             eprintln!("{}", e.pretty_print(code));
