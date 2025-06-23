@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix},
     span::Span,
 };
 
@@ -1153,6 +1153,24 @@ impl AstVisitor<Value> for InterpreterVisitor {
         } else {
             Ok(expr_value)
         }
+    }
+
+    fn visit_use(&mut self, path: &UsePath, _items: &UseItems, span: &Span) -> Result<Value> {
+        // Check if it's an external package
+        if path.prefix == UsePrefix::None {
+            return Err(Error::new_runtime(
+                format!(
+                    "External package '{}' cannot be used in interpreter mode. \
+                    Use the transpiler to convert to JavaScript for external package support.",
+                    path.segments.join("::")
+                ),
+                *span,
+            ));
+        }
+        
+        // TODO: Implement local module loading
+        // For now, just return Unit since we haven't implemented module loading yet
+        Ok(Value::Unit)
     }
 
     fn visit_block(&mut self, stmts: &[Stmt], _span: &Span) -> Result<Value> {

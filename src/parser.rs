@@ -319,6 +319,28 @@ pub enum Stmt {
     Break(Span),
     Continue(Span),
     Return(Option<Expr>, Span),
+    Use(UsePath, UseItems, Span),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsePath {
+    pub prefix: UsePrefix,
+    pub segments: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UsePrefix {
+    None,       // External package
+    Local,      // local::
+    Super(u32), // super:: (count for nested super)
+    Self_,      // self::
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UseItems {
+    All,                                      // use module::*;
+    Single,                                   // use module::item;
+    Named(Vec<(String, Option<String>)>),     // use module::{a, b as c};
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -361,6 +383,10 @@ impl Parser {
         self.tokens.get(self.position).unwrap_or(&EOF)
     }
 
+    fn peek_token(&self) -> &Token {
+        self.tokens.get(self.position + 1).unwrap_or(&EOF)
+    }
+
     fn advance(&mut self) {
         if self.position < self.tokens.len() {
             self.position += 1;
@@ -379,21 +405,114 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> Result<Stmt> {
-        match self.current_token().kind {
+        // Check for pub keyword
+        let is_pub = if self.current_token().kind == TokenKind::Pub {
+            self.advance(); // Consume 'pub'
+            true
+        } else {
+            false
+        };
+
+        let stmt = match self.current_token().kind {
             TokenKind::Struct => self.parse_struct(),
             TokenKind::Impl => self.parse_impl(),
             TokenKind::Enum => self.parse_enum(),
-            TokenKind::Let => self.parse_let_statement(),
+            TokenKind::Let => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'let' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_let_statement()
+            }
+            TokenKind::Use => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'use' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_use_statement()
+            }
             TokenKind::Function => self.parse_function(),
-            TokenKind::Match => self.parse_match_statement(),
-            TokenKind::For => self.parse_for_loop(),
-            TokenKind::While => self.parse_while_statement(),
-            TokenKind::Loop => self.parse_loop_statement(),
-            TokenKind::Break => self.parse_break(),
-            TokenKind::Continue => self.parse_continue(),
-            TokenKind::Return => self.parse_return(),
-            _ => self.parse_expression_statement(),
-        }
+            TokenKind::Match => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'match' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_match_statement()
+            }
+            TokenKind::For => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'for' loops".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_for_loop()
+            }
+            TokenKind::While => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'while' loops".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_while_statement()
+            }
+            TokenKind::Loop => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'loop' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_loop_statement()
+            }
+            TokenKind::Break => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'break' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_break()
+            }
+            TokenKind::Continue => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'continue' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_continue()
+            }
+            TokenKind::Return => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' cannot be used with 'return' statements".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_return()
+            }
+            _ => {
+                if is_pub {
+                    return Err(Error::new_parse(
+                        "'pub' can only be used with functions, structs, enums, or impl blocks".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.parse_expression_statement()
+            }
+        };
+
+        // TODO: Store visibility information in AST once we enhance the structure
+        // For now, we just parse and ignore pub
+        stmt
     }
 
     fn parse_loop_statement(&mut self) -> Result<Stmt> {
@@ -719,6 +838,184 @@ impl Parser {
         self.advance(); // Consume ';'
 
         Ok(Stmt::Let(name, expr, Span::new(start_span, end_span)))
+    }
+
+    fn parse_use_statement(&mut self) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'use'
+
+        // Parse the path with prefix
+        let (prefix, segments) = self.parse_use_path()?;
+        let use_path = UsePath { prefix, segments };
+
+        // Parse what to import (::item, ::{items}, or nothing for the whole module)
+        let use_items = if self.current_token().kind == TokenKind::DblColon {
+            self.advance(); // Consume '::'
+            
+            if self.current_token().kind == TokenKind::LBrace {
+                // use module::{a, b, c}
+                self.parse_use_items()?
+            } else if self.current_token().kind == TokenKind::Asterisk {
+                // use module::*
+                self.advance(); // Consume '*'
+                UseItems::All
+            } else {
+                // use module::item
+                UseItems::Single
+            }
+        } else {
+            // use module; (import the whole module)
+            UseItems::Single
+        };
+
+        if self.current_token().kind != TokenKind::Semicolon {
+            return Err(Error::new_parse(
+                format!(
+                    "Expected ';' after use statement, found {:?}",
+                    self.current_token()
+                ),
+                self.current_token().span,
+            ));
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume ';'
+
+        Ok(Stmt::Use(use_path, use_items, Span::new(start_span, end_span)))
+    }
+
+    fn parse_use_path(&mut self) -> Result<(UsePrefix, Vec<String>)> {
+        let mut prefix = UsePrefix::None;
+        let mut segments = Vec::new();
+
+        // Check for prefix (local::, self::, super::)
+        if let TokenKind::Identifier(first) = &self.current_token().kind {
+            match first.as_str() {
+                "local" if self.peek_token().kind == TokenKind::DblColon => {
+                    prefix = UsePrefix::Local;
+                    self.advance(); // Consume 'local'
+                    self.advance(); // Consume '::'
+                }
+                "self" if self.peek_token().kind == TokenKind::DblColon => {
+                    prefix = UsePrefix::Self_;
+                    self.advance(); // Consume 'self'
+                    self.advance(); // Consume '::'
+                }
+                "super" if self.peek_token().kind == TokenKind::DblColon => {
+                    // Count consecutive super::
+                    let mut super_count = 1;
+                    self.advance(); // Consume 'super'
+                    self.advance(); // Consume '::'
+                    
+                    while let TokenKind::Identifier(next) = &self.current_token().kind {
+                        if next == "super" && self.peek_token().kind == TokenKind::DblColon {
+                            super_count += 1;
+                            self.advance(); // Consume 'super'
+                            self.advance(); // Consume '::'
+                        } else {
+                            break;
+                        }
+                    }
+                    prefix = UsePrefix::Super(super_count);
+                }
+                _ => {} // External package, no prefix
+            }
+        }
+
+        // Parse the rest of the path segments
+        loop {
+            if let TokenKind::Identifier(segment) = &self.current_token().kind {
+                segments.push(segment.clone());
+                self.advance();
+                
+                if self.current_token().kind == TokenKind::DblColon {
+                    // Check what comes after ::
+                    if matches!(self.peek_token().kind, TokenKind::LBrace | TokenKind::Asterisk) {
+                        // This is the path before items like use react::{...}
+                        break;
+                    } else if let TokenKind::Identifier(_) = self.peek_token().kind {
+                        // Continue parsing path segments
+                        self.advance(); // Consume '::'
+                    } else {
+                        return Err(Error::new_parse(
+                            "Expected identifier, '{', or '*' after '::'".to_string(),
+                            self.peek_token().span,
+                        ));
+                    }
+                } else {
+                    // No more :: means we're done with the path
+                    break;
+                }
+            } else {
+                return Err(Error::new_parse(
+                    "Expected identifier in use path".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+
+        if segments.is_empty() {
+            return Err(Error::new_parse(
+                "Expected at least one path segment in use statement".to_string(),
+                self.current_token().span,
+            ));
+        }
+
+        Ok((prefix, segments))
+    }
+
+    fn parse_use_items(&mut self) -> Result<UseItems> {
+        self.advance(); // Consume '{'
+        
+        let mut items = Vec::new();
+        
+        loop {
+            if let TokenKind::Identifier(name) = &self.current_token().kind {
+                let item_name = name.clone();
+                self.advance();
+                
+                // Check for 'as' alias
+                let alias = if self.current_token().kind == TokenKind::Identifier(String::from("as")) {
+                    self.advance(); // Consume 'as'
+                    
+                    if let TokenKind::Identifier(alias_name) = &self.current_token().kind {
+                        let alias = alias_name.clone();
+                        self.advance();
+                        Some(alias)
+                    } else {
+                        return Err(Error::new_parse(
+                            "Expected identifier after 'as'".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                } else {
+                    None
+                };
+                
+                items.push((item_name, alias));
+                
+                if self.current_token().kind == TokenKind::Comma {
+                    self.advance(); // Consume ','
+                } else {
+                    break;
+                }
+            } else {
+                return Err(Error::new_parse(
+                    "Expected identifier in use items".to_string(),
+                    self.current_token().span,
+                ));
+            }
+        }
+        
+        if self.current_token().kind != TokenKind::RBrace {
+            return Err(Error::new_parse(
+                "Expected '}' after use items".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume '}'
+        
+        Ok(UseItems::Named(items))
     }
 
     fn parse_impl(&mut self) -> Result<Stmt> {
@@ -2763,5 +3060,191 @@ mod tests {
                 Span::new(0, 3)
             )
         );
+    }
+
+    #[test]
+    fn test_parse_pub_keyword() {
+        // Test pub function
+        let ast = parse("pub fn hello() { println(\"Hello\"); }");
+        assert_eq!(ast.len(), 1);
+        // For now, pub is parsed but not stored in AST
+        if let Stmt::Function(name, params, ret_type, body, _) = &ast[0] {
+            assert_eq!(name, "hello");
+            assert_eq!(params.len(), 0);
+            assert_eq!(ret_type, "void");
+            assert_eq!(body.len(), 1);
+        } else {
+            panic!("Expected Function statement");
+        }
+
+        // Test pub struct
+        let ast = parse("pub struct User { name: string, age: int }");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Struct(name, fields, _) = &ast[0] {
+            assert_eq!(name, "User");
+            assert_eq!(fields.len(), 2);
+        } else {
+            panic!("Expected Struct statement");
+        }
+
+        // Test pub enum
+        let ast = parse("pub enum Status { Ok, Error }");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Enum(name, variants, _) = &ast[0] {
+            assert_eq!(name, "Status");
+            assert_eq!(variants.len(), 2);
+        } else {
+            panic!("Expected Enum statement");
+        }
+
+        // Test pub impl
+        let ast = parse("pub impl Point { fn new() -> Point { Point { x: 0, y: 0 } } }");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Impl(name, methods, _) = &ast[0] {
+            assert_eq!(name, "Point");
+            assert_eq!(methods.len(), 1);
+        } else {
+            panic!("Expected Impl statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_pub_errors() {
+        // Test that pub cannot be used with let
+        let mut lexer = Lexer::new("pub let x = 5;".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse();
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let error_str = e.to_string();
+            assert!(error_str.contains("'pub' cannot be used with 'let' statements"));
+        }
+
+        // Test that pub cannot be used with use
+        let mut lexer = Lexer::new("pub use std::io;".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse();
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let error_str = e.to_string();
+            assert!(error_str.contains("'pub' cannot be used with 'use' statements"));
+        }
+
+        // Test that pub cannot be used with loops
+        let mut lexer = Lexer::new("pub for i in 1..10 { }".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let result = parser.parse();
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let error_str = e.to_string();
+            assert!(error_str.contains("'pub' cannot be used with 'for' loops"));
+        }
+    }
+
+    #[test]
+    fn test_parse_use_statements() {
+        // Test external package import
+        let ast = parse("use express::express;");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::None);
+            assert_eq!(path.segments, vec!["express", "express"]);
+            assert_eq!(items, &UseItems::Single);
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test local import
+        let ast = parse("use local::models::User;");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::Local);
+            assert_eq!(path.segments, vec!["models", "User"]);
+            assert_eq!(items, &UseItems::Single);
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test self import
+        let ast = parse("use self::helper;");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::Self_);
+            assert_eq!(path.segments, vec!["helper"]);
+            assert_eq!(items, &UseItems::Single);
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test super import
+        let ast = parse("use super::shared;");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::Super(1));
+            assert_eq!(path.segments, vec!["shared"]);
+            assert_eq!(items, &UseItems::Single);
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test multiple super
+        let ast = parse("use super::super::utils;");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::Super(2));
+            assert_eq!(path.segments, vec!["utils"]);
+            assert_eq!(items, &UseItems::Single);
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test named imports
+        let ast = parse("use react::{React, useState, useEffect};");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::None);
+            assert_eq!(path.segments, vec!["react"]);
+            if let UseItems::Named(named) = items {
+                assert_eq!(named.len(), 3);
+                assert_eq!(named[0], ("React".to_string(), None));
+                assert_eq!(named[1], ("useState".to_string(), None));
+                assert_eq!(named[2], ("useEffect".to_string(), None));
+            } else {
+                panic!("Expected Named items");
+            }
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test imports with aliases
+        let ast = parse("use fs::promises::{readFile as read, writeFile as write};");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::None);
+            assert_eq!(path.segments, vec!["fs", "promises"]);
+            if let UseItems::Named(named) = items {
+                assert_eq!(named.len(), 2);
+                assert_eq!(named[0], ("readFile".to_string(), Some("read".to_string())));
+                assert_eq!(named[1], ("writeFile".to_string(), Some("write".to_string())));
+            } else {
+                panic!("Expected Named items");
+            }
+        } else {
+            panic!("Expected Use statement");
+        }
+
+        // Test wildcard import
+        let ast = parse("use std::collections::*;");
+        assert_eq!(ast.len(), 1);
+        if let Stmt::Use(path, items, _) = &ast[0] {
+            assert_eq!(path.prefix, UsePrefix::None);
+            assert_eq!(path.segments, vec!["std", "collections"]);
+            assert_eq!(items, &UseItems::All);
+        } else {
+            panic!("Expected Use statement");
+        }
     }
 }

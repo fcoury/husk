@@ -1,7 +1,7 @@
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix},
     span::Span,
 };
 
@@ -455,6 +455,61 @@ impl AstVisitor<String> for JsTranspiler {
         } else {
             Ok(expr_js)
         }
+    }
+
+    fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
+        // For now, transpile to ES6 imports
+        let module_path = match &path.prefix {
+            UsePrefix::None => {
+                // External package - use as is
+                path.segments.join("/")
+            }
+            UsePrefix::Local => {
+                // From project root
+                format!("./{}", path.segments.join("/"))
+            }
+            UsePrefix::Self_ => {
+                // Current directory
+                format!("./{}", path.segments.join("/"))
+            }
+            UsePrefix::Super(count) => {
+                // Parent directories
+                let mut prefix = String::new();
+                for _ in 0..*count {
+                    prefix.push_str("../");
+                }
+                format!("{}{}", prefix, path.segments.join("/"))
+            }
+        };
+        
+        let import_stmt = match items {
+            UseItems::All => {
+                format!("import * from '{}'", module_path)
+            }
+            UseItems::Single => {
+                if path.segments.len() > 1 {
+                    let last = path.segments.last().unwrap();
+                    format!("import {{ {} }} from '{}'", last, module_path)
+                } else {
+                    format!("import '{}'", module_path)
+                }
+            }
+            UseItems::Named(items) => {
+                let imports = items.iter()
+                    .map(|(name, alias)| {
+                        if let Some(alias) = alias {
+                            format!("{} as {}", name, alias)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("import {{ {} }} from '{}'", imports, module_path)
+            }
+        };
+        
+        Ok(import_stmt)
     }
 
     fn visit_struct(&mut self, name: &str, fields: &[(String, String)], _span: &Span) -> Result<String> {

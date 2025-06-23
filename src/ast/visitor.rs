@@ -1,5 +1,5 @@
 use crate::{
-    parser::{Expr, Stmt, Operator, UnaryOp},
+    parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems},
     span::Span,
 };
 
@@ -79,6 +79,7 @@ pub trait AstVisitor<T> {
             Stmt::Continue(span) => self.visit_continue(span),
             Stmt::Return(expr, span) => self.visit_return(expr.as_ref(), span),
             Stmt::Expression(expr, has_semicolon) => self.visit_expression_stmt(expr, *has_semicolon),
+            Stmt::Use(path, items, span) => self.visit_use(path, items, span),
         }
     }
 
@@ -96,6 +97,7 @@ pub trait AstVisitor<T> {
     fn visit_continue(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_return(&mut self, expr: Option<&Expr>, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> std::result::Result<T, Self::Error>;
+    fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
     

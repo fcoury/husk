@@ -2,7 +2,7 @@
 mod tests {
     use super::super::visitor::AstVisitor;
     use crate::{
-        parser::{Expr, Stmt, Operator, UnaryOp},
+        parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems},
         span::Span,
     };
     use std::collections::HashMap;
@@ -267,6 +267,11 @@ mod tests {
             self.track(&format!("expression_stmt_semicolon_{}", has_semicolon))?;
             self.visit_expr(expr)?;
             Ok("visited_expression_stmt".to_string())
+        }
+
+        fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("use_{:?}_{:?}", path.prefix, items))?;
+            Ok("visited_use".to_string())
         }
     }
 

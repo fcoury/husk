@@ -30,6 +30,8 @@ pub enum TokenKind {
     Impl,
     Enum,
     Let,
+    Use,
+    Pub,
     If,
     Else,
     Match,
@@ -100,6 +102,8 @@ impl fmt::Display for TokenKind {
             TokenKind::Impl => "Impl",
             TokenKind::Enum => "Enum",
             TokenKind::Let => "Let",
+            TokenKind::Use => "Use",
+            TokenKind::Pub => "Pub",
             TokenKind::If => "If",
             TokenKind::Else => "Else",
             TokenKind::Match => "Match",
@@ -436,6 +440,8 @@ impl Lexer {
             "true" => TokenKind::Bool(true),
             "fn" => TokenKind::Function,
             "let" => TokenKind::Let,
+            "use" => TokenKind::Use,
+            "pub" => TokenKind::Pub,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "match" => TokenKind::Match,
@@ -1376,6 +1382,44 @@ mod tests {
             TokenKind::Comma,
             TokenKind::Int(4),
             TokenKind::RParen,
+        ];
+
+        for expected in expected_tokens {
+            let token = lexer.next_token();
+            assert_eq!(token.kind, expected);
+        }
+    }
+
+    #[test]
+    fn test_use_and_pub_keywords() {
+        let input = r#"
+            use local::models::User;
+            pub fn hello() {
+                println("Hello");
+            }
+        "#;
+        let mut lexer = Lexer::new(input.to_string());
+
+        let expected_tokens = vec![
+            TokenKind::Use,
+            TokenKind::Identifier("local".to_string()),
+            TokenKind::DblColon,
+            TokenKind::Identifier("models".to_string()),
+            TokenKind::DblColon,
+            TokenKind::Identifier("User".to_string()),
+            TokenKind::Semicolon,
+            TokenKind::Pub,
+            TokenKind::Function,
+            TokenKind::Identifier("hello".to_string()),
+            TokenKind::LParen,
+            TokenKind::RParen,
+            TokenKind::LBrace,
+            TokenKind::Identifier("println".to_string()),
+            TokenKind::LParen,
+            TokenKind::String("Hello".to_string()),
+            TokenKind::RParen,
+            TokenKind::Semicolon,
+            TokenKind::RBrace,
         ];
 
         for expected in expected_tokens {
