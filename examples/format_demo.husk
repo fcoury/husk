@@ -1,0 +1,34 @@
+// Demonstrating the format! macro in Husk
+
+fn main() {
+    // Simple format string
+    let greeting = format!("Hello, World!");
+    println(greeting);
+    
+    // Format with placeholders
+    let name = "Alice";
+    let age = 30;
+    let message = format!("Hello, {}! You are {} years old.", name, age);
+    println(message);
+    
+    // Format with different types
+    let count = 42;
+    let price = 3.14;
+    let available = true;
+    let product = "apples";
+    
+    let summary = format!("We have {} {} at ${} each. Available: {}", 
+                         count, product, price, available);
+    println(summary);
+    
+    // Escaped braces
+    let template = format!("Use {{}} for placeholders in format!");
+    println(template);
+    
+    // Complex formatting
+    let x = 10;
+    let y = 20;
+    let result = x + y;
+    let equation = format!("{} + {} = {}", x, y, result);
+    println(equation);
+}

@@ -139,6 +139,11 @@ impl SemanticVisitor {
             "println".to_string(),
             (vec![], Type::Unit, Span { start: 0, end: 0 }),
         );
+        // format! is a special macro-like function that returns a string
+        self.functions.insert(
+            "format!".to_string(),
+            (vec![], Type::String, Span { start: 0, end: 0 }),
+        );
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
@@ -523,6 +528,46 @@ impl AstVisitor<Type> for SemanticVisitor {
                 self.visit_expr(arg)?;
             }
             return Ok(Type::Unit);
+        }
+        
+        // Special handling for format! - requires at least one string argument
+        if func_name == "format!" {
+            if arg_exprs.is_empty() {
+                return Err(Error::new_semantic(
+                    "format! requires at least one argument (the format string)".to_string(),
+                    *span,
+                ));
+            }
+            
+            // First argument must be a string
+            let format_str_type = self.visit_expr(&arg_exprs[0])?;
+            if format_str_type != Type::String {
+                return Err(Error::new_semantic(
+                    format!("format! first argument must be a string, found {}", format_str_type.to_string()),
+                    *span,
+                ));
+            }
+            
+            // Count placeholders in format string (if it's a literal)
+            if let Expr::String(format_str, _) = &arg_exprs[0] {
+                let placeholder_count = format_str.matches("{}").count() - format_str.matches("{{}}").count();
+                let arg_count = arg_exprs.len() - 1;
+                
+                if placeholder_count != arg_count {
+                    return Err(Error::new_semantic(
+                        format!("format! expects {} arguments after format string, but {} were provided", 
+                               placeholder_count, arg_count),
+                        *span,
+                    ));
+                }
+            }
+            
+            // Type check remaining arguments
+            for arg in &arg_exprs[1..] {
+                self.visit_expr(arg)?;
+            }
+            
+            return Ok(Type::String);
         }
 
         // Check argument count
