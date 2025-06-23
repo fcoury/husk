@@ -78,6 +78,7 @@ pub enum TokenKind {
     DblDot,
     DblDotEquals,
     Underscore,
+    Bang,
     Error(String),
     Eof,
 }
@@ -144,6 +145,7 @@ impl fmt::Display for TokenKind {
             TokenKind::DblDot => "..",
             TokenKind::DblDotEquals => "..=",
             TokenKind::Underscore => "_",
+            TokenKind::Bang => "!",
             TokenKind::Error(s) => s,
             TokenKind::Eof => "EOF",
         };
@@ -348,6 +350,7 @@ impl Lexer {
                     self.create_token(TokenKind::Underscore)
                 }
             }
+            Some('!') => self.create_token(TokenKind::Bang),
             Some(c) => {
                 if c.is_alphabetic() {
                     let token = self.read_identifier_or_type();

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt},
+    parser::{Expr, Operator, Stmt, UnaryOp},
     span::Span,
     types::{Type, TypeEnvironment},
 };
@@ -233,6 +233,31 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
             Operator::Equals | Operator::LessThan | Operator::GreaterThan | Operator::LessThanEquals | Operator::GreaterThanEquals => {
                 // For now, allow comparison of any types (will refine later)
+                Ok(Type::Bool)
+            }
+        }
+    }
+
+    fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<Type> {
+        let expr_type = self.visit_expr(expr)?;
+        
+        match op {
+            UnaryOp::Neg => {
+                if !self.is_numeric_type(&expr_type) {
+                    return Err(Error::new_semantic(
+                        format!("Unary negation requires numeric type, found {}", expr_type.to_string()),
+                        *_span,
+                    ));
+                }
+                Ok(expr_type)
+            }
+            UnaryOp::Not => {
+                if expr_type != Type::Bool {
+                    return Err(Error::new_semantic(
+                        format!("Logical NOT requires bool type, found {}", expr_type.to_string()),
+                        *_span,
+                    ));
+                }
                 Ok(Type::Bool)
             }
         }
@@ -1423,5 +1448,51 @@ mod tests {
             }
         "#;
         assert!(analyze_code(code).is_ok());
+    }
+
+    #[test]
+    fn test_unary_negation_types() {
+        // Valid: negate int
+        assert!(analyze_code("let x = -5;").is_ok());
+        
+        // Valid: negate float
+        assert!(analyze_code("let x = -3.14;").is_ok());
+        
+        // Invalid: negate bool
+        let err = analyze_code("let x = -true;").unwrap_err();
+        assert!(err.to_string().contains("Unary negation requires numeric type"));
+        
+        // Invalid: negate string
+        let err = analyze_code("let x = -\"hello\";").unwrap_err();
+        assert!(err.to_string().contains("Unary negation requires numeric type"));
+    }
+
+    #[test]
+    fn test_unary_not_types() {
+        // Valid: NOT bool
+        assert!(analyze_code("let x = !true;").is_ok());
+        assert!(analyze_code("let x = !false;").is_ok());
+        
+        // Invalid: NOT int
+        let err = analyze_code("let x = !5;").unwrap_err();
+        assert!(err.to_string().contains("Logical NOT requires bool type"));
+        
+        // Invalid: NOT string
+        let err = analyze_code("let x = !\"hello\";").unwrap_err();
+        assert!(err.to_string().contains("Logical NOT requires bool type"));
+    }
+
+    #[test]
+    fn test_unary_in_expressions() {
+        // Negation in arithmetic
+        assert!(analyze_code("let x = 5 + -3;").is_ok());
+        assert!(analyze_code("let x = -5 * 2;").is_ok());
+        
+        // NOT in boolean expressions
+        assert!(analyze_code("let x = !true == false;").is_ok());
+        
+        // Double negation
+        assert!(analyze_code("let x = --5;").is_ok());
+        assert!(analyze_code("let x = !!true;").is_ok());
     }
 }

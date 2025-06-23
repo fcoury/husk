@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt},
+    parser::{Expr, Operator, Stmt, UnaryOp},
     span::Span,
 };
 
@@ -516,6 +516,32 @@ impl AstVisitor<Value> for InterpreterVisitor {
         let left_val = self.visit_expr(left)?;
         let right_val = self.visit_expr(right)?;
         self.evaluate_binary_op(left_val, op, right_val, *span)
+    }
+
+    fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, span: &Span) -> Result<Value> {
+        let value = self.visit_expr(expr)?;
+        
+        match op {
+            UnaryOp::Neg => {
+                match value {
+                    Value::Int(n) => Ok(Value::Int(-n)),
+                    Value::Float(f) => Ok(Value::Float(-f)),
+                    _ => Err(Error::new_runtime(
+                        format!("Cannot negate non-numeric value: {:?}", value),
+                        *span,
+                    )),
+                }
+            }
+            UnaryOp::Not => {
+                match value {
+                    Value::Bool(b) => Ok(Value::Bool(!b)),
+                    _ => Err(Error::new_runtime(
+                        format!("Cannot apply logical NOT to non-boolean value: {:?}", value),
+                        *span,
+                    )),
+                }
+            }
+        }
     }
 
     fn visit_assign(&mut self, left: &Expr, right: &Expr, span: &Span) -> Result<Value> {
@@ -1472,4 +1498,70 @@ mod tests {
     }
 
     // Note: Anonymous functions are not currently supported in Husk
+
+    // Unary operator tests
+    #[test]
+    fn test_unary_negation() {
+        // Integer negation
+        assert_eq!(run_test("-5").unwrap(), Value::Int(-5));
+        assert_eq!(run_test("-(-10)").unwrap(), Value::Int(10));
+        
+        // Float negation
+        assert_eq!(run_test("-3.14").unwrap(), Value::Float(-3.14));
+        assert_eq!(run_test("-(-2.5)").unwrap(), Value::Float(2.5));
+        
+        // Double negation
+        assert_eq!(run_test("--5").unwrap(), Value::Int(5));
+    }
+
+    #[test]
+    fn test_unary_not() {
+        // Boolean NOT
+        assert_eq!(run_test("!true").unwrap(), Value::Bool(false));
+        assert_eq!(run_test("!false").unwrap(), Value::Bool(true));
+        
+        // Double NOT
+        assert_eq!(run_test("!!true").unwrap(), Value::Bool(true));
+        assert_eq!(run_test("!!false").unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_unary_in_expressions() {
+        // Negation in arithmetic
+        assert_eq!(run_test("5 + -3").unwrap(), Value::Int(2));
+        assert_eq!(run_test("-5 * 2").unwrap(), Value::Int(-10));
+        assert_eq!(run_test("10 / -2").unwrap(), Value::Int(-5));
+        
+        // NOT in boolean expressions
+        assert_eq!(run_test("!true == false").unwrap(), Value::Bool(true));
+        assert_eq!(run_test("!(5 > 3)").unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_unary_with_variables() {
+        let program = r#"
+            let x = 10;
+            let y = -x;
+            y
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Int(-10));
+        
+        let program = r#"
+            let flag = true;
+            let opposite = !flag;
+            opposite
+        "#;
+        assert_eq!(run_test(program).unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_unary_errors() {
+        // Cannot negate non-numeric - caught by semantic analyzer
+        let err = run_test("-true").unwrap_err();
+        assert!(err.to_string().contains("Unary negation requires numeric type"));
+        
+        // Cannot NOT non-boolean - caught by semantic analyzer
+        let err = run_test("!5").unwrap_err();
+        assert!(err.to_string().contains("Logical NOT requires bool type"));
+    }
 }

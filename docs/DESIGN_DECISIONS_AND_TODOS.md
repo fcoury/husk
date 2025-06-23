@@ -43,12 +43,12 @@ This document tracks design decisions made during development and features that 
 - **Example**: `x += 1` instead of `x = x + 1`
 - **Notes**: Should also consider `*=`, `/=`, `%=` for completeness
 
-#### 4. Unary Operators
+#### 4. Unary Operators (Implemented)
 - **Features**: `-` (negation), `!` (logical NOT)
-- **Current Status**: Not implemented
-- **Impact**: Cannot express negative numbers or boolean negation
-- **Example**: `-1`, `!condition`
-- **Workaround**: Currently tests use positive numbers like `999` instead of `-1`
+- **Current Status**: ✅ Implemented
+- **Impact**: Can now express negative numbers and boolean negation
+- **Example**: `-1`, `!condition`, `--5` (double negation)
+- **Notes**: Supports chaining and works in all expression contexts
 
 #### 5. Method Call Syntax
 - **Features**: Automatic `self` passing for method calls like `object.method()`
