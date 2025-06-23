@@ -469,6 +469,30 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(String::new())
     }
     
+    fn visit_async_function(&mut self, name: &str, params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
+        let params_str = params
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        
+        let body_str = self.generate_body(body)?;
+        
+        Ok(format!(
+            "{}async function {}({}) {{\n{}{}}}",
+            self.indent(),
+            name,
+            params_str,
+            body_str,
+            self.indent()
+        ))
+    }
+    
+    fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
+        let expr_str = self.visit_expr(expr)?;
+        Ok(format!("await {}", expr_str))
+    }
+    
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
         // For now, transpile to ES6 imports
         let module_path = match &path.prefix {

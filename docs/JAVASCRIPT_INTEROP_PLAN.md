@@ -373,10 +373,25 @@ export declare function add(a: number, b: number): number;
 - Optional parameters are not yet supported
 - Union types are not yet implemented
 
-### Phase 2: Async Programming (Weeks 4-5)
-1. Async/await syntax and semantics
-2. Promise type integration
-3. Error handling for async functions
+### Phase 2: Async Programming (Weeks 4-5) ✅
+1. Async/await syntax and semantics ✅
+2. Promise type integration (partial - basic async works)
+3. Error handling for async functions (pending)
+
+**Completed:**
+- Added Async token to lexer
+- Implemented async function parsing with AsyncFunction AST node
+- Added Rust-style .await postfix operator parsing
+- Created Expr::Await variant for await expressions
+- Updated visitor pattern with visit_async_function and visit_await methods
+- Added semantic analysis for async context tracking (in_async_function field)
+- Implemented validation ensuring .await only used inside async functions
+- Added appropriate error messages for async/await in interpreter mode
+- Implemented transpilation to JavaScript async/await syntax
+- Created comprehensive test suite for all async/await scenarios
+- Documented future interpreter async support plans
+
+**Note:** Transpiler-only implementation as agreed. Interpreter returns clear error messages when async/await is used.
 
 ### Phase 3: Advanced Features (Weeks 6-8)
 1. Closure/lambda syntax

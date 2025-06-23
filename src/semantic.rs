@@ -17,6 +17,7 @@ pub struct SemanticVisitor {
     match_bound_vars: HashMap<String, Type>,
     loop_depth: u32,
     imported_names: HashMap<String, Type>,
+    in_async_function: bool,
 }
 
 impl SemanticVisitor {
@@ -29,6 +30,7 @@ impl SemanticVisitor {
             match_bound_vars: HashMap::new(),
             loop_depth: 0,
             imported_names: HashMap::new(),
+            in_async_function: false,
         };
         visitor.init_standard_library();
         visitor
@@ -1245,6 +1247,37 @@ impl AstVisitor<Type> for SemanticVisitor {
             self.process_extern_item(item, "")?;
         }
         Ok(Type::Unit)
+    }
+    
+    fn visit_async_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
+        // Track that we're in an async function
+        let prev_async = self.in_async_function;
+        self.in_async_function = true;
+        
+        // Process the function similar to regular functions
+        let result = self.visit_function(name, params, return_type, body, span);
+        
+        // Restore async context
+        self.in_async_function = prev_async;
+        
+        result
+    }
+    
+    fn visit_await(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
+        // Check that we're in an async function
+        if !self.in_async_function {
+            return Err(Error::new_semantic(
+                ".await can only be used inside async functions",
+                span.clone(),
+            ));
+        }
+        
+        // Type check the expression
+        let expr_type = self.visit_expr(expr)?;
+        
+        // For now, just return the expression type
+        // In the future, we'll check for Promise type and unwrap it
+        Ok(expr_type)
     }
     
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<Type> {

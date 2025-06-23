@@ -281,6 +281,20 @@ mod tests {
         fn visit_extern_mod(&mut self, name: &str, _items: &[crate::parser::ExternItem], _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("extern_mod_{}", name))
         }
+        
+        fn visit_async_function(&mut self, name: &str, _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("async_function_{}", name))?;
+            for stmt in body {
+                self.visit_stmt(stmt)?;
+            }
+            Ok("visited_async_function".to_string())
+        }
+        
+        fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String, Self::Error> {
+            self.track("await")?;
+            self.visit_expr(expr)?;
+            Ok("visited_await".to_string())
+        }
     }
 
     #[test]
