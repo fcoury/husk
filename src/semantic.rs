@@ -338,7 +338,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<Type> {
         // Handle method calls with dot notation
-        let (func_name, adjusted_args) = if name.contains('.') {
+        let (func_name, arg_exprs, _needs_self) = if name.contains('.') {
             let (target_var, method_name) = name.split_once('.').unwrap();
             
             // Get the type of the target variable
@@ -349,8 +349,24 @@ impl AstVisitor<Type> for SemanticVisitor {
                 ))?;
             
             // Extract struct name from the type
-            let struct_name = match target_type {
-                Type::Struct { name, .. } => name.clone(),
+            let (struct_name, _struct_type) = match target_type {
+                Type::Struct { name, .. } => {
+                    // Get the actual struct fields
+                    let fields = self.structs.get(name)
+                        .ok_or_else(|| Error::new_semantic(
+                            format!("Struct '{}' not found", name),
+                            *span,
+                        ))?;
+                    
+                    let field_vec: Vec<(String, Type)> = fields.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    
+                    (name.clone(), Type::Struct {
+                        name: name.clone(),
+                        fields: field_vec,
+                    })
+                },
                 _ => return Err(Error::new_semantic(
                     format!("{} is not a struct instance", target_var),
                     *span,
@@ -360,10 +376,13 @@ impl AstVisitor<Type> for SemanticVisitor {
             // Build the full method name
             let full_method_name = format!("{}::{}", struct_name, method_name);
             
-            // For type checking, we don't need to evaluate the target, just check types
-            (full_method_name, args)
+            // Create a synthetic expression for the self argument
+            let mut args_with_self = vec![Expr::Identifier(target_var.to_string(), *span)];
+            args_with_self.extend(args.iter().cloned());
+            
+            (full_method_name, args_with_self, true)
         } else {
-            (name.to_string(), args)
+            (name.to_string(), args.to_vec(), false)
         };
         
         // Check if it's a method call or regular function
@@ -378,29 +397,40 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // Special handling for print/println - they accept any arguments
         if func_name == "print" || func_name == "println" {
-            for arg in adjusted_args {
+            for arg in &arg_exprs {
                 self.visit_expr(arg)?;
             }
             return Ok(Type::Unit);
         }
 
         // Check argument count
-        if adjusted_args.len() != param_types.len() {
+        if arg_exprs.len() != param_types.len() {
             return Err(Error::new_semantic(
                 format!(
                     "Function '{}' expects {} arguments, but {} were provided",
                     func_name,
                     param_types.len(),
-                    adjusted_args.len()
+                    arg_exprs.len()
                 ),
                 *span,
             ));
         }
 
         // Check argument types
-        for (i, (arg, (_, expected_type))) in adjusted_args.iter().zip(param_types.iter()).enumerate() {
+        for (i, (arg, (param_name, expected_type))) in arg_exprs.iter().zip(param_types.iter()).enumerate() {
             let arg_type = self.visit_expr(arg)?;
-            if arg_type != *expected_type {
+            
+            // Special handling for self parameters - only check struct name compatibility
+            let types_compatible = if param_name == "self" {
+                match (&arg_type, expected_type) {
+                    (Type::Struct { name: name1, .. }, Type::Struct { name: name2, .. }) => name1 == name2,
+                    _ => arg_type.is_assignable_to(expected_type),
+                }
+            } else {
+                arg_type.is_assignable_to(expected_type)
+            };
+            
+            if !types_compatible {
                 return Err(Error::new_semantic(
                     format!(
                         "Function '{}' argument {} type mismatch: expected {}, found {}",
@@ -567,9 +597,20 @@ impl AstVisitor<Type> for SemanticVisitor {
                     ));
                 }
 
-                for (i, (arg, (_, expected_type))) in args.iter().zip(param_types.iter()).enumerate() {
+                for (i, (arg, (param_name, expected_type))) in args.iter().zip(param_types.iter()).enumerate() {
                     let arg_type = self.visit_expr(arg)?;
-                    if arg_type != *expected_type {
+                    
+                    // Special handling for self parameters - only check struct name compatibility
+                    let types_compatible = if param_name == "self" {
+                        match (&arg_type, expected_type) {
+                            (Type::Struct { name: name1, .. }, Type::Struct { name: name2, .. }) => name1 == name2,
+                            _ => arg_type.is_assignable_to(expected_type),
+                        }
+                    } else {
+                        arg_type.is_assignable_to(expected_type)
+                    };
+                    
+                    if !types_compatible {
                         return Err(Error::new_semantic(
                             format!(
                                 "Method '{}' argument {} type mismatch: expected {}, found {}",
@@ -605,11 +646,24 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Convert parameter types
         let param_types: Vec<(String, Type)> = params
             .iter()
-            .map(|(name, type_str)| {
-                (
-                    name.clone(),
-                    Type::from_string(type_str).unwrap_or(Type::Unknown),
-                )
+            .map(|(param_name, type_str)| {
+                // Special handling for 'self' parameter
+                if param_name == "self" && name.contains("::") {
+                    // Extract struct name from method name
+                    let struct_name = name.split("::").next().unwrap();
+                    (
+                        param_name.clone(),
+                        Type::Struct {
+                            name: struct_name.to_string(),
+                            fields: vec![], // Fields will be filled in by struct definition
+                        },
+                    )
+                } else {
+                    (
+                        param_name.clone(),
+                        Type::from_string(type_str).unwrap_or(Type::Unknown),
+                    )
+                }
             })
             .collect();
         
@@ -728,7 +782,16 @@ impl AstVisitor<Type> for SemanticVisitor {
                 let is_instance_method = !params.is_empty() && params[0].0 == "self";
                 
                 if is_instance_method {
-                    // Skip 'self' parameter for instance methods
+                    // For instance methods, add the struct type as the first parameter
+                    param_types.push((
+                        "self".to_string(),
+                        Type::Struct {
+                            name: struct_name.to_string(),
+                            fields: vec![], // Fields will be filled in by the struct definition
+                        },
+                    ));
+                    
+                    // Then add remaining parameters
                     for (param_name, param_type_str) in params.iter().skip(1) {
                         param_types.push((
                             param_name.clone(),
