@@ -1,4 +1,7 @@
 mod environment;
+mod environment_tests;
+mod integration_tests;
+mod type_tests;
 
 pub use environment::TypeEnvironment;
 

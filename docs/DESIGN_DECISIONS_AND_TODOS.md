@@ -160,6 +160,13 @@ This document tracks design decisions made during development and features that 
 - Includes mock visitor for testing visitor behavior
 - Added 26 tests covering all AST node types
 
+### 4. Type System Unit Tests (Implemented)
+- **Status**: ✅ Implemented
+- Added comprehensive unit tests for Type enum and TypeEnvironment
+- Added integration tests showing type system interactions
+- Tests cover type equality, assignability, display, and parsing
+- Added 34 tests covering all type system functionality
+
 ## Documentation
 
 ### 1. Language Reference
