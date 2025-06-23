@@ -21,7 +21,7 @@ fetch_data()
     #[test]
     fn test_await_interpreter_error() {
         let code = r#"
-extern fn fetch(url: string) -> string;
+extern fn fetch(url: string) -> Promise<string>;
 
 async fn main() -> string {
     let result = fetch("url").await;
@@ -41,7 +41,7 @@ main()
     #[test]
     fn test_await_outside_async_error() {
         let code = r#"
-extern fn fetch(url: string) -> string;
+extern fn fetch(url: string) -> Promise<string>;
 
 fn regular_function() {
     let result = fetch("url").await;
@@ -58,7 +58,7 @@ fn regular_function() {
     #[test]
     fn test_async_function_transpile() {
         let code = r#"
-extern fn fetch(url: string) -> string;
+extern fn fetch(url: string) -> Promise<string>;
 
 async fn fetch_user(id: int) -> string {
     let response = fetch("/api/users").await;
@@ -74,8 +74,8 @@ async fn fetch_user(id: int) -> string {
     #[test]
     fn test_nested_await_transpile() {
         let code = r#"
-extern fn fetch_data() -> string;
-extern fn transform(data: string) -> string;
+extern fn fetch_data() -> Promise<string>;
+extern fn transform(data: string) -> Promise<string>;
 
 async fn process_data() -> string {
     let data = fetch_data().await;
@@ -93,7 +93,7 @@ async fn process_data() -> string {
     #[test]
     fn test_await_chain_transpile() {
         let code = r#"
-extern fn fetch(url: string) -> string;
+extern fn fetch(url: string) -> Promise<string>;
 
 async fn chain_example() -> string {
     let result = fetch("/api").await;

@@ -347,9 +347,14 @@ mod tests {
                 values: array<int>
             }
             
+            struct AdvancedConfig {
+                config: Config,
+                level: int
+            }
+            
             enum Settings {
                 Basic(Config),
-                Advanced(Config, int)
+                Advanced(AdvancedConfig)
             }
             
             let config = Config {
@@ -359,21 +364,18 @@ mod tests {
             
             let settings = Settings::Basic(config);
             
-            match settings {
-                Settings::Basic(cfg) => {
-                    // Try to access invalid array index and wrong field
-                    cfg.values[10] + cfg.invalid_field
-                },
-                Settings::Advanced(cfg, level) => {
-                    cfg.values[0] + level
-                }
-            }
+            let result = match settings {
+                Settings::Basic(cfg) => cfg.values[10] + cfg.invalid_field
+                Settings::Advanced(adv_cfg) => adv_cfg.config.values[0] + adv_cfg.level
+            };
+            result
         "#;
         
         let error = run_program_expect_error(program).unwrap();
         assert!(error.to_string().contains("bounds") ||
                 error.to_string().contains("field") ||
-                error.to_string().contains("index"));
+                error.to_string().contains("index") ||
+                error.to_string().contains("No field"));
     }
 
     /// Test transpiler error scenarios (if transpiler is available)

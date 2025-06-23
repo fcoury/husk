@@ -33,6 +33,7 @@ pub enum Expr {
     },
     Block(Vec<Stmt>, Span),
     If(Box<Expr>, Vec<Stmt>, Vec<Stmt>, Span),
+    Match(Box<Expr>, Vec<(Expr, Vec<Stmt>)>, Span),
     Await(Box<Expr>, Span),
 }
 
@@ -185,6 +186,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::Match(expr, arms, _) => {
+                if let Expr::Match(other_expr, other_arms, _) = other {
+                    expr == other_expr && arms == other_arms
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -225,6 +233,7 @@ impl Expr {
             Expr::Block(_, span) => span.clone(),
             Expr::If(_, _, _, span) => span.clone(),
             Expr::Await(_, span) => span.clone(),
+            Expr::Match(_, _, span) => span.clone(),
         }
     }
 }
@@ -310,6 +319,9 @@ impl fmt::Display for Expr {
                 write!(f, "if ... {{ ... }}")  // Simple representation for now
             }
             Expr::Await(expr, _) => write!(f, "{}.await", expr),
+            Expr::Match(_expr, _arms, _) => {
+                write!(f, "match ... {{ ... }}")  // Simple representation for now
+            }
         }
     }
 }
@@ -795,6 +807,32 @@ impl Parser {
                         self.current_token().span,
                     ))?;
                 
+                // Check for generic type parameters <T, U>
+                let mut generic_params = Vec::new();
+                if self.current_token().kind == TokenKind::LessThan {
+                    self.advance(); // Consume '<'
+                    
+                    while self.current_token().kind != TokenKind::GreaterThan {
+                        let type_param = self.consume_identifier("type parameter")?
+                            .ok_or_else(|| Error::new_parse(
+                                "Expected type parameter name".to_string(),
+                                self.current_token().span,
+                            ))?;
+                        generic_params.push(type_param);
+                        
+                        if self.current_token().kind == TokenKind::Comma {
+                            self.advance(); // Consume ','
+                        } else if self.current_token().kind != TokenKind::GreaterThan {
+                            return Err(Error::new_parse(
+                                "Expected ',' or '>' in generic type parameters".to_string(),
+                                self.current_token().span,
+                            ));
+                        }
+                    }
+                    
+                    self.advance(); // Consume '>'
+                }
+                
                 self.expect_token(TokenKind::LParen)?;
                 let params = self.parse_function_params()?;
                 self.expect_token(TokenKind::RParen)?;
@@ -802,7 +840,10 @@ impl Parser {
                 // Parse return type
                 let return_type = if self.current_token().kind == TokenKind::Arrow {
                     self.advance(); // Consume '->'
-                    self.consume_type().unwrap_or_else(|| "Unknown".to_string())
+                    self.consume_type().ok_or_else(|| Error::new_parse(
+                        "Expected return type after '->'".to_string(),
+                        self.current_token().span,
+                    ))?
                 } else {
                     "unit".to_string()
                 };
@@ -848,13 +889,42 @@ impl Parser {
                         self.current_token().span,
                     ))?;
                 
+                // Check for generic type parameters <T, U>
+                let mut generic_params = Vec::new();
+                if self.current_token().kind == TokenKind::LessThan {
+                    self.advance(); // Consume '<'
+                    
+                    while self.current_token().kind != TokenKind::GreaterThan {
+                        let type_param = self.consume_identifier("type parameter")?
+                            .ok_or_else(|| Error::new_parse(
+                                "Expected type parameter name".to_string(),
+                                self.current_token().span,
+                            ))?;
+                        generic_params.push(type_param);
+                        
+                        if self.current_token().kind == TokenKind::Comma {
+                            self.advance(); // Consume ','
+                        } else if self.current_token().kind != TokenKind::GreaterThan {
+                            return Err(Error::new_parse(
+                                "Expected ',' or '>' in generic type parameters".to_string(),
+                                self.current_token().span,
+                            ));
+                        }
+                    }
+                    
+                    self.advance(); // Consume '>'
+                }
+                
                 self.expect_token(TokenKind::LParen)?;
                 let params = self.parse_function_params()?;
                 self.expect_token(TokenKind::RParen)?;
                 
                 let return_type = if self.current_token().kind == TokenKind::Arrow {
                     self.advance(); // Consume '->'
-                    self.consume_type().unwrap_or_else(|| "Unknown".to_string())
+                    self.consume_type().ok_or_else(|| Error::new_parse(
+                        "Expected return type after '->'".to_string(),
+                        self.current_token().span,
+                    ))?
                 } else {
                     "unit".to_string()
                 };
@@ -864,13 +934,47 @@ impl Parser {
                 Ok(ExternItem::Function(name, params, return_type))
             }
             TokenKind::Identifier(s) if s == "type" => {
-                // type Name;
+                // type Name<T, U>;
                 self.advance(); // Consume 'type'
-                let name = self.consume_identifier("extern type")?
+                let mut name = self.consume_identifier("extern type")?
                     .ok_or_else(|| Error::new_parse(
                         "Expected identifier after 'type'".to_string(),
                         self.current_token().span,
                     ))?;
+                
+                // Check for generic type parameters <T, U>
+                if self.current_token().kind == TokenKind::LessThan {
+                    name.push('<');
+                    self.advance(); // Consume '<'
+                    
+                    let mut first = true;
+                    while self.current_token().kind != TokenKind::GreaterThan {
+                        if !first {
+                            name.push_str(", ");
+                        }
+                        first = false;
+                        
+                        let type_param = self.consume_identifier("type parameter")?
+                            .ok_or_else(|| Error::new_parse(
+                                "Expected type parameter name".to_string(),
+                                self.current_token().span,
+                            ))?;
+                        name.push_str(&type_param);
+                        
+                        if self.current_token().kind == TokenKind::Comma {
+                            self.advance(); // Consume ','
+                        } else if self.current_token().kind != TokenKind::GreaterThan {
+                            return Err(Error::new_parse(
+                                "Expected ',' or '>' in generic type parameters".to_string(),
+                                self.current_token().span,
+                            ));
+                        }
+                    }
+                    
+                    name.push('>');
+                    self.advance(); // Consume '>'
+                }
+                
                 self.expect_token(TokenKind::Semicolon)?;
                 Ok(ExternItem::Type(name))
             }
@@ -1394,6 +1498,55 @@ impl Parser {
 
         Ok(Stmt::Match(expr, arms, Span::new(start_span, end_span)))
     }
+    
+    fn parse_match_expression(&mut self) -> Result<Expr> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'match'
+
+        let expr = Box::new(self.parse_expression()?);
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after match expression".to_string(),
+                self.current_token().span,
+            ));
+        }
+
+        self.advance(); // Consume '{'
+
+        let mut arms = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            let pattern = self.parse_match_pattern()?;
+
+            if self.current_token().kind != TokenKind::FatArrow {
+                return Err(Error::new_parse(
+                    format!(
+                        "expected `=>` after pattern, found `{}`",
+                        self.current_token().kind
+                    ),
+                    self.current_token().span,
+                ));
+            }
+            self.advance(); // Consume '=>'
+
+            let body = if self.current_token().kind == TokenKind::LBrace {
+                self.parse_block()?
+            } else {
+                vec![Stmt::Expression(self.parse_expression()?, false)]
+            };
+
+            arms.push((pattern, body));
+
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            }
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+
+        Ok(Expr::Match(expr, arms, Span::new(start_span, end_span)))
+    }
 
     fn parse_match_pattern(&mut self) -> Result<Expr> {
         match &self.current_token().kind {
@@ -1591,8 +1744,47 @@ impl Parser {
                 Some(result)
             }
             TokenKind::Identifier(name) => {
-                let result = name.clone();
+                let mut result = name.clone();
                 self.advance(); // Consume identifier
+                
+                // Check for generic type parameters (e.g., Promise<T>)
+                if self.current_token().kind == TokenKind::LessThan {
+                    self.advance(); // Consume '<'
+                    result.push('<');
+                    
+                    // Allow multiple generic parameters separated by commas
+                    let mut first = true;
+                    loop {
+                        if !first {
+                            if self.current_token().kind == TokenKind::Comma {
+                                self.advance(); // Consume ','
+                                result.push_str(", ");
+                            } else {
+                                break;
+                            }
+                        }
+                        first = false;
+                        
+                        if let Some(inner_type) = self.consume_type() {
+                            result.push_str(&inner_type);
+                        } else {
+                            return None;
+                        }
+                        
+                        // Check if we have more parameters
+                        if self.current_token().kind != TokenKind::Comma {
+                            break;
+                        }
+                    }
+                    
+                    if self.current_token().kind == TokenKind::GreaterThan {
+                        self.advance(); // Consume '>'
+                        result.push('>');
+                    } else {
+                        return None; // Expected '>'
+                    }
+                }
+                
                 Some(result)
             }
             TokenKind::Function => {
@@ -2063,6 +2255,7 @@ impl Parser {
                 Ok(expr)
             }
             TokenKind::If => self.parse_if_expression(),
+            TokenKind::Match => self.parse_match_expression(),
             TokenKind::Underscore => {
                 self.advance(); // Consume '_'
                 Ok(Expr::Identifier("_".to_string(), span))

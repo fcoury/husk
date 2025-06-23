@@ -1254,13 +1254,52 @@ impl AstVisitor<Type> for SemanticVisitor {
         let prev_async = self.in_async_function;
         self.in_async_function = true;
         
-        // Process the function similar to regular functions
-        let result = self.visit_function(name, params, return_type, body, span);
+        // Convert parameter types
+        let param_types: Vec<(String, Type)> = params
+            .iter()
+            .map(|(param_name, type_str)| {
+                (
+                    param_name.clone(),
+                    Type::from_string(type_str).unwrap_or(Type::Unknown),
+                )
+            })
+            .collect();
+
+        // Parse return type and wrap in Promise
+        let inner_return_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+        let async_return_type = Type::Promise(Box::new(inner_return_type.clone()));
+        
+        // Store function signature with Promise return type
+        self.functions.insert(
+            name.to_string(),
+            (param_types.clone(), async_return_type.clone(), span.clone()),
+        );
+
+        // Create a new scope for the function body
+        self.type_env.push_scope();
+
+        // Add parameters to the new scope
+        for (param_name, param_type) in &param_types {
+            self.type_env.define(param_name.clone(), param_type.clone());
+        }
+
+        // Analyze function body
+        for stmt in body {
+            self.visit_stmt(stmt)?;
+        }
+
+        // Pop the function scope
+        self.type_env.pop_scope();
         
         // Restore async context
         self.in_async_function = prev_async;
         
-        result
+        Ok(Type::Unit)
+    }
+    
+    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Type> {
+        // For now, use the same implementation as visit_match
+        self.visit_match(expr, arms, span)
     }
     
     fn visit_await(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
@@ -1275,9 +1314,15 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Type check the expression
         let expr_type = self.visit_expr(expr)?;
         
-        // For now, just return the expression type
-        // In the future, we'll check for Promise type and unwrap it
-        Ok(expr_type)
+        // Check if the expression is a Promise and unwrap it
+        match &expr_type {
+            Type::Promise(inner) => Ok((**inner).clone()),
+            Type::Unknown => Ok(Type::Unknown), // Allow unknown types for extern functions
+            _ => Err(Error::new_semantic(
+                format!(".await can only be used on Promise types, found {}", expr_type.to_string()),
+                span.clone(),
+            )),
+        }
     }
     
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<Type> {

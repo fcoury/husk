@@ -24,6 +24,15 @@ mod extern_test;
 #[cfg(test)]
 mod async_test;
 
+#[cfg(test)]
+mod promise_type_test;
+
+#[cfg(test)]
+mod test_generic_extern;
+
+#[cfg(test)]
+mod generic_extern_comprehensive_test;
+
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;

@@ -1354,6 +1354,11 @@ impl AstVisitor<Value> for InterpreterVisitor {
         ))
     }
     
+    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Value> {
+        // Use the same implementation as visit_match
+        self.visit_match(expr, arms, span)
+    }
+    
     fn visit_await(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
         Err(Error::new_runtime(
             ".await is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",

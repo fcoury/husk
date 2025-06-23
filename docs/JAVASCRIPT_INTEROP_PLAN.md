@@ -179,9 +179,9 @@ Instead of separate .d.hk files, Husk uses an `extern` keyword to declare extern
 extern fn parseInt(s: string) -> int;
 extern fn setTimeout(callback: fn(), delay: int) -> int;
 
-// Note: Generic types like Promise<T> are not yet supported
-// Use string or create specific type aliases for now
-extern fn fetch(url: string) -> string; // Will be Promise<Response> when generics are implemented
+// Generic types are now supported in extern declarations
+extern fn fetch(url: string) -> Promise<Response>;
+extern fn map<T, U>(arr: array<T>, mapper: fn(T) -> U) -> array<U>;
 ```
 
 #### Module Declarations
@@ -398,6 +398,15 @@ export declare function add(a: number, b: number): number;
 2. Template literals
 3. Spread operator
 4. Generic type parameters
+
+**Completed:**
+- Basic generic type parsing for extern declarations (Promise<T>, Map<K,V>, etc.)
+- Support for generic functions in extern declarations (fn map<T,U>(...))
+- Support for generic types in extern type declarations (type Map<K,V>)
+- Nested generic type support (Promise<array<T>>, Map<string, Promise<T>>)
+- Comprehensive test coverage for generic parsing scenarios
+
+**Note:** This covers generic type parsing in extern declarations only. Full generic support for Husk types and functions is planned for future phases.
 
 ### Phase 4: Ecosystem Integration (Weeks 9-10)
 1. Build system (husk.toml)

@@ -290,6 +290,18 @@ mod tests {
             Ok("visited_async_function".to_string())
         }
         
+        fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], _span: &Span) -> Result<String, Self::Error> {
+            self.track("match_expr")?;
+            self.visit_expr(expr)?;
+            for (pattern, stmts) in arms {
+                self.visit_expr(pattern)?;
+                for stmt in stmts {
+                    self.visit_stmt(stmt)?;
+                }
+            }
+            Ok("visited_match_expr".to_string())
+        }
+        
         fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String, Self::Error> {
             self.track("await")?;
             self.visit_expr(expr)?;
