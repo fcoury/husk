@@ -501,7 +501,15 @@ export declare function add(a: number, b: number): number;
 ## Testing Strategy
 
 ### Unit Tests
-- Parser tests for new syntax
+- Parser tests for new syntax ✅
+  - Comprehensive test suite added to parser.rs covering:
+    - Type casting (`as` operator)
+    - Qualified type names (e.g., `express::Request`)
+    - Extern declarations (extern fn, extern mod)
+    - Async/await syntax
+    - Closure/lambda expressions
+    - Method calls on primitive types
+    - Format! macro
 - Type checker tests for external types
 - Transpiler output validation
 

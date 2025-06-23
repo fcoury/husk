@@ -1326,7 +1326,7 @@ impl Parser {
                 self.advance();
                 
                 // Check for 'as' alias
-                let alias = if self.current_token().kind == TokenKind::Identifier(String::from("as")) {
+                let alias = if self.current_token().kind == TokenKind::As {
                     self.advance(); // Consume 'as'
                     
                     if let TokenKind::Identifier(alias_name) = &self.current_token().kind {
@@ -4013,6 +4013,431 @@ mod tests {
             assert_eq!(items, &UseItems::All);
         } else {
             panic!("Expected Use statement");
+        }
+    }
+
+    // ===== New Syntax Feature Tests =====
+
+    #[test]
+    fn test_parse_type_cast_simple() {
+        let ast = parse("42 as int;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Cast(inner, target_type, _), _) => {
+                assert!(matches!(**inner, Expr::Int(42, _)));
+                assert_eq!(target_type, "int");
+            }
+            _ => panic!("Expected Cast expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_cast_chain() {
+        let ast = parse("3.14 as int as float;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Cast(inner, target_type, _), _) => {
+                assert_eq!(target_type, "float");
+                match &**inner {
+                    Expr::Cast(inner2, target_type2, _) => {
+                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.14));
+                        assert_eq!(target_type2, "int");
+                    }
+                    _ => panic!("Expected nested Cast expression"),
+                }
+            }
+            _ => panic!("Expected Cast expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_cast_in_expression() {
+        let ast = parse("x + (y as int) * 2;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(expr, _) => {
+                match expr {
+                    Expr::BinaryOp(left, op, right, _) => {
+                        assert!(matches!(**left, Expr::Identifier(ref name, _) if name == "x"));
+                        assert!(matches!(op, Operator::Plus));
+                        match &**right {
+                            Expr::BinaryOp(left2, op2, right2, _) => {
+                                assert!(matches!(op2, Operator::Multiply));
+                                assert!(matches!(**right2, Expr::Int(2, _)));
+                                match &**left2 {
+                                    Expr::Cast(inner, target_type, _) => {
+                                        assert!(matches!(**inner, Expr::Identifier(ref name, _) if name == "y"));
+                                        assert_eq!(target_type, "int");
+                                    }
+                                    _ => panic!("Expected Cast expression"),
+                                }
+                            }
+                            _ => panic!("Expected BinaryOp"),
+                        }
+                    }
+                    _ => panic!("Expected BinaryOp"),
+                }
+            }
+            _ => panic!("Expected Expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_qualified_type_in_function() {
+        let ast = parse("fn handler(req: express::Request, res: express::Response) {}");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Function(_, name, _, params, _, _, _) => {
+                assert_eq!(name, "handler");
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].0, "req");
+                assert_eq!(params[0].1, "express::Request");
+                assert_eq!(params[1].0, "res");
+                assert_eq!(params[1].1, "express::Response");
+            }
+            _ => panic!("Expected Function statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_qualified_return_type() {
+        let ast = parse("fn create_app() -> framework::Application {}");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Function(_, name, _, _, return_type, _, _) => {
+                assert_eq!(name, "create_app");
+                assert_eq!(return_type, "framework::Application");
+            }
+            _ => panic!("Expected Function statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_extern_fn() {
+        let ast = parse("extern fn parseInt(s: string) -> int;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::ExternFunction(name, generics, params, return_type, _) => {
+                assert_eq!(name, "parseInt");
+                assert_eq!(generics.len(), 0);
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0].0, "s");
+                assert_eq!(params[0].1, "string");
+                assert_eq!(return_type, "int");
+            }
+            _ => panic!("Expected ExternFunction statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_extern_fn_generic() {
+        let ast = parse("extern fn map<T, U>(arr: array<T>, f: fn(T) -> U) -> array<U>;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::ExternFunction(name, generics, params, return_type, _) => {
+                assert_eq!(name, "map");
+                assert_eq!(generics.len(), 2);
+                assert_eq!(generics[0], "T");
+                assert_eq!(generics[1], "U");
+                assert_eq!(params.len(), 2);
+                assert_eq!(return_type, "array<U>");
+            }
+            _ => panic!("Expected ExternFunction statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_extern_mod() {
+        let input = r#"
+        extern mod express {
+            type Application;
+            fn express() -> Application;
+            impl Application {
+                fn listen(port: int);
+            }
+        }
+        "#;
+        let ast = parse(input);
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::ExternMod(name, declarations, _) => {
+                assert_eq!(name, "express");
+                assert_eq!(declarations.len(), 3);
+                
+                // Check type declaration
+                match &declarations[0] {
+                    ExternItem::Type(type_name, generics) => {
+                        assert_eq!(type_name, "Application");
+                        assert_eq!(generics.len(), 0);
+                    }
+                    _ => panic!("Expected Type declaration"),
+                }
+                
+                // Check function declaration
+                match &declarations[1] {
+                    ExternItem::Function(fn_name, _, _, return_type) => {
+                        assert_eq!(fn_name, "express");
+                        assert_eq!(return_type, "Application");
+                    }
+                    _ => panic!("Expected Function declaration"),
+                }
+                
+                // Check impl block
+                match &declarations[2] {
+                    ExternItem::Impl(impl_type, methods) => {
+                        assert_eq!(impl_type, "Application");
+                        assert_eq!(methods.len(), 1);
+                        match &methods[0] {
+                            ExternItem::Function(method_name, _, _, _) => {
+                                assert_eq!(method_name, "listen");
+                            }
+                            _ => panic!("Expected method Function"),
+                        }
+                    }
+                    _ => panic!("Expected Impl declaration"),
+                }
+            }
+            _ => panic!("Expected ExternMod statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_async_function() {
+        let ast = parse("async fn fetch_data() -> string {}");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::AsyncFunction(_, name, _, _, return_type, _, _) => {
+                assert_eq!(name, "fetch_data");
+                assert_eq!(return_type, "string");
+            }
+            _ => panic!("Expected AsyncFunction statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_await_expression() {
+        let ast = parse("fetch(url).await;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Await(inner, _), _) => {
+                match &**inner {
+                    Expr::FunctionCall(name, _, _) => {
+                        assert_eq!(name, "fetch");
+                    }
+                    _ => panic!("Expected FunctionCall inside Await"),
+                }
+            }
+            _ => panic!("Expected Await expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_await_chain() {
+        let ast = parse("fetch(url).await.json().await;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Await(inner, _), _) => {
+                match &**inner {
+                    Expr::MethodCall(obj, method, _, _) => {
+                        assert_eq!(method, "json");
+                        match &**obj {
+                            Expr::Await(inner2, _) => {
+                                match &**inner2 {
+                                    Expr::FunctionCall(name, _, _) => {
+                                        assert_eq!(name, "fetch");
+                                    }
+                                    _ => panic!("Expected FunctionCall"),
+                                }
+                            }
+                            _ => panic!("Expected Await"),
+                        }
+                    }
+                    _ => panic!("Expected MethodCall"),
+                }
+            }
+            _ => panic!("Expected Await expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_simple_closure() {
+        let ast = parse("|x| x * 2");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Closure(params, return_type, body, _), _) => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0].0, "x");
+                assert!(params[0].1.is_none());
+                assert!(return_type.is_none());
+                match &**body {
+                    Expr::BinaryOp(left, op, right, _) => {
+                        assert!(matches!(**left, Expr::Identifier(ref name, _) if name == "x"));
+                        assert!(matches!(op, Operator::Multiply));
+                        assert!(matches!(**right, Expr::Int(2, _)));
+                    }
+                    _ => panic!("Expected BinaryOp in closure body"),
+                }
+            }
+            _ => panic!("Expected Closure expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_typed_closure() {
+        let ast = parse("|x: int, y: int| -> int { x + y }");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Closure(params, return_type, _body, _), _) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].0, "x");
+                assert_eq!(params[0].1.as_ref().unwrap(), "int");
+                assert_eq!(params[1].0, "y");
+                assert_eq!(params[1].1.as_ref().unwrap(), "int");
+                assert_eq!(return_type.as_ref().unwrap(), "int");
+            }
+            _ => panic!("Expected Closure expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_method_call_simple() {
+        let ast = parse("str.len();");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::MethodCall(obj, method, args, _), _) => {
+                assert!(matches!(**obj, Expr::Identifier(ref name, _) if name == "str"));
+                assert_eq!(method, "len");
+                assert_eq!(args.len(), 0);
+            }
+            _ => panic!("Expected MethodCall expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_method_call_with_args() {
+        let ast = parse("text.split(\",\");");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::MethodCall(obj, method, args, _), _) => {
+                assert!(matches!(**obj, Expr::Identifier(ref name, _) if name == "text"));
+                assert_eq!(method, "split");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(args[0], Expr::String(ref s, _) if s == ","));
+            }
+            _ => panic!("Expected MethodCall expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_chained_method_calls() {
+        let ast = parse("input.trim().toLowerCase();");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::MethodCall(obj, method, args, _), _) => {
+                assert_eq!(method, "toLowerCase");
+                assert_eq!(args.len(), 0);
+                match &**obj {
+                    Expr::MethodCall(obj2, method2, args2, _) => {
+                        assert!(matches!(**obj2, Expr::Identifier(ref name, _) if name == "input"));
+                        assert_eq!(method2, "trim");
+                        assert_eq!(args2.len(), 0);
+                    }
+                    _ => panic!("Expected nested MethodCall"),
+                }
+            }
+            _ => panic!("Expected MethodCall expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_format_macro_simple() {
+        let ast = parse("format!(\"Hello, {}!\", name);");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::FunctionCall(name, args, _), _) => {
+                assert_eq!(name, "format!");
+                assert_eq!(args.len(), 2);
+                assert!(matches!(args[0], Expr::String(ref s, _) if s == "Hello, {}!"));
+                assert!(matches!(args[1], Expr::Identifier(ref n, _) if n == "name"));
+            }
+            _ => panic!("Expected FunctionCall for format! macro"),
+        }
+    }
+
+    #[test]
+    fn test_parse_format_macro_multiple_args() {
+        let ast = parse("format!(\"{} + {} = {}\", a, b, a + b);");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::FunctionCall(name, args, _), _) => {
+                assert_eq!(name, "format!");
+                assert_eq!(args.len(), 4);
+                assert!(matches!(args[0], Expr::String(ref s, _) if s == "{} + {} = {}"));
+                assert!(matches!(args[1], Expr::Identifier(ref n, _) if n == "a"));
+                assert!(matches!(args[2], Expr::Identifier(ref n, _) if n == "b"));
+                assert!(matches!(args[3], Expr::BinaryOp(_, _, _, _)));
+            }
+            _ => panic!("Expected FunctionCall for format! macro"),
+        }
+    }
+
+    #[test]
+    fn test_parse_method_chain_with_cast() {
+        let ast = parse("value.toString().len() as float;");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Cast(inner, target_type, _), _) => {
+                assert_eq!(target_type, "float");
+                match &**inner {
+                    Expr::MethodCall(obj, method, _, _) => {
+                        assert_eq!(method, "len");
+                        match &**obj {
+                            Expr::MethodCall(obj2, method2, _, _) => {
+                                assert_eq!(method2, "toString");
+                                assert!(matches!(**obj2, Expr::Identifier(ref n, _) if n == "value"));
+                            }
+                            _ => panic!("Expected nested MethodCall"),
+                        }
+                    }
+                    _ => panic!("Expected MethodCall"),
+                }
+            }
+            _ => panic!("Expected Cast expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_extern_type_in_closure() {
+        let ast = parse("|req: express::Request, res: express::Response| res.send(\"OK\")");
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Expression(Expr::Closure(params, _, _, _), _) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].1.as_ref().unwrap(), "express::Request");
+                assert_eq!(params[1].1.as_ref().unwrap(), "express::Response");
+            }
+            _ => panic!("Expected Closure expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_async_closure() {
+        // Async closures are not yet supported, so let's test a regular closure
+        let input = r#"
+        let fetch_user = |id: int| {
+            let response = fetch(format!("/api/users/{}", id));
+            response.json()
+        };
+        "#;
+        let ast = parse(input);
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Let(name, expr, _) => {
+                assert_eq!(name, "fetch_user");
+                // Verify it's a closure
+                assert!(matches!(expr, Expr::Closure(_, _, _, _)));
+            }
+            _ => panic!("Expected Let statement"),
         }
     }
 }
