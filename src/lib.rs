@@ -33,6 +33,9 @@ mod test_generic_extern;
 #[cfg(test)]
 mod generic_extern_comprehensive_test;
 
+#[cfg(test)]
+mod closure_test;
+
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;

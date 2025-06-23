@@ -79,6 +79,7 @@ pub enum TokenKind {
     BangEquals,
     DblAmpersand,
     DblPipe,
+    Pipe,
     Colon,
     DblColon,
     Dot,
@@ -153,6 +154,7 @@ impl fmt::Display for TokenKind {
             TokenKind::BangEquals => "!=",
             TokenKind::DblAmpersand => "&&",
             TokenKind::DblPipe => "||",
+            TokenKind::Pipe => "|",
             TokenKind::Colon => ":",
             TokenKind::DblColon => "::",
             TokenKind::Dot => ".",
@@ -385,7 +387,7 @@ impl Lexer {
                     self.read_char();
                     self.create_token(TokenKind::DblPipe)
                 } else {
-                    self.create_token(TokenKind::Error("Unexpected character: |".to_string()))
+                    self.create_token(TokenKind::Pipe)
                 }
             }
             Some(c) => {

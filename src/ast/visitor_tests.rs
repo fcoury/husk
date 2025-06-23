@@ -307,6 +307,12 @@ mod tests {
             self.visit_expr(expr)?;
             Ok("visited_await".to_string())
         }
+        
+        fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("closure_{}_params", params.len()))?;
+            self.visit_expr(body)?;
+            Ok("visited_closure".to_string())
+        }
     }
 
     #[test]

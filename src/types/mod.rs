@@ -71,6 +71,25 @@ impl Type {
             // Promise covariance
             (Type::Promise(a), Type::Promise(b)) => a.is_assignable_to(b),
             
+            // Function types - check parameters and return type
+            (Type::Function { params: params1, return_type: ret1 }, 
+             Type::Function { params: params2, return_type: ret2 }) => {
+                // Check same number of parameters
+                if params1.len() != params2.len() {
+                    return false;
+                }
+                
+                // Check each parameter is assignable
+                for (p1, p2) in params1.iter().zip(params2.iter()) {
+                    if !p1.is_assignable_to(p2) {
+                        return false;
+                    }
+                }
+                
+                // Check return type is assignable
+                ret1.is_assignable_to(ret2)
+            },
+            
             // Struct types are compatible if they have the same name and field structure
             (Type::Struct { name: name1, fields: fields1 }, Type::Struct { name: name2, fields: fields2 }) => {
                 name1 == name2 && fields1 == fields2
@@ -122,6 +141,29 @@ impl Type {
             s if s.starts_with("Promise<") && s.ends_with(">") => {
                 let inner = &s[8..s.len()-1];
                 Type::from_string(inner).map(|t| Type::Promise(Box::new(t)))
+            },
+            s if s.starts_with("fn(") && s.contains(") ->") => {
+                // Parse function type: fn(int, string) -> bool
+                let paren_end = s.find(") ->").unwrap();
+                let params_str = &s[3..paren_end];
+                let return_str = &s[paren_end + 4..].trim();
+                
+                // Parse parameters
+                let mut params = Vec::new();
+                if !params_str.is_empty() {
+                    for param_str in params_str.split(',') {
+                        let param_type = Type::from_string(param_str.trim())?;
+                        params.push(param_type);
+                    }
+                }
+                
+                // Parse return type
+                let return_type = Type::from_string(return_str)?;
+                
+                Some(Type::Function {
+                    params,
+                    return_type: Box::new(return_type),
+                })
             },
             // For now, treat any other string as a struct/enum name
             _ => Some(Type::Struct { 

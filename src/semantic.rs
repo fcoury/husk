@@ -497,6 +497,19 @@ impl AstVisitor<Type> for SemanticVisitor {
                 self.visit_expr(arg)?;
             }
             return Ok(Type::Unknown);
+        } else if let Some(var_type) = self.type_env.lookup(&func_name) {
+            // Check if it's a variable containing a function/closure
+            match var_type {
+                Type::Function { params, return_type } => {
+                    (params.iter().map(|t| ("_".to_string(), t.clone())).collect(), (**return_type).clone())
+                }
+                _ => {
+                    return Err(Error::new_semantic(
+                        format!("'{}' is not a function", func_name),
+                        *span,
+                    ));
+                }
+            }
         } else {
             return Err(Error::new_semantic(
                 format!("Function '{}' not found", func_name),
@@ -1323,6 +1336,56 @@ impl AstVisitor<Type> for SemanticVisitor {
                 span.clone(),
             )),
         }
+    }
+    
+    fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<Type> {
+        // Enter a new scope for the closure
+        self.type_env.push_scope();
+        
+        // Process parameters and add them to the scope
+        let mut param_types = Vec::new();
+        for (param_name, param_type_str) in params {
+            let param_type = if let Some(type_str) = param_type_str {
+                Type::from_string(type_str).unwrap_or(Type::Unknown)
+            } else {
+                Type::Unknown // Type inference not implemented yet
+            };
+            
+            self.type_env.define(param_name.clone(), param_type.clone());
+            param_types.push(param_type);
+        }
+        
+        // Type check the body
+        let body_type = self.visit_expr(body)?;
+        
+        // Check return type if specified
+        let actual_return_type = if let Some(ret_type_str) = ret_type {
+            let expected_type = Type::from_string(ret_type_str).unwrap_or(Type::Unknown);
+            
+            if !body_type.is_assignable_to(&expected_type) {
+                return Err(Error::new_semantic(
+                    format!(
+                        "Closure body returns {} but expected {}",
+                        body_type.to_string(),
+                        expected_type.to_string()
+                    ),
+                    body.span(),
+                ));
+            }
+            
+            expected_type
+        } else {
+            body_type
+        };
+        
+        // Exit the closure scope
+        self.type_env.pop_scope();
+        
+        // Return the function type
+        Ok(Type::Function {
+            params: param_types,
+            return_type: Box::new(actual_return_type),
+        })
     }
     
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<Type> {
