@@ -172,6 +172,12 @@ The `pub` keyword marks items as exported. Without `pub`, items are module-priva
 - Parser recognizes pub modifier on functions, structs, and enums
 - Transpiler converts use statements to appropriate JavaScript imports
 - Interpreter shows clear error message for external packages
+- Module loading infrastructure implemented:
+  - Module struct with path and exports tracking
+  - Path resolution for all prefix types (local::, self::, super::)
+  - Module caching to avoid reloading
+  - Context tracking (current file and project root)
+  - Tests for error cases
 
 ### Phase 2: Type Declaration Support
 1. Parse `.d.hk` files

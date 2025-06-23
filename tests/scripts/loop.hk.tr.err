@@ -1,0 +1,16 @@
+[stdin]:11
+    break;
+    ^^^^^
+A 'break' statement can only be used within an enclosing iteration or switch statement
+
+SyntaxError: Illegal break statement
+    at makeContextifyScript (node:internal/vm:194:14)
+    at compileScript (node:internal/process/execution:393:10)
+    at evalTypeScript (node:internal/process/execution:261:22)
+    at node:internal/main/eval_stdin:51:5
+    at ReadStream.<anonymous> (node:internal/process/execution:206:5)
+    at ReadStream.emit (node:events:507:28)
+    at endReadableNT (node:internal/streams/readable:1701:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+Node.js v24.2.0

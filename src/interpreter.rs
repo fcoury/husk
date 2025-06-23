@@ -1,11 +1,14 @@
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix},
+    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, Parser},
+    lexer::Lexer,
     span::Span,
 };
 
@@ -168,11 +171,21 @@ pub fn stdlib_println(args: &[Value]) -> Result<Value> {
     Ok(Value::Unit)
 }
 
+/// Represents a loaded module with its exports
+#[derive(Clone, Debug)]
+pub struct Module {
+    pub _path: PathBuf,
+    pub exports: IndexMap<String, Value>,
+}
+
 /// Interpreter implemented using the visitor pattern
 pub struct InterpreterVisitor {
     environment: IndexMap<String, Value>,
     global_environment: IndexMap<String, Value>,
     control_flow: ControlFlow,
+    module_cache: HashMap<PathBuf, Module>,
+    current_file: Option<PathBuf>,
+    project_root: Option<PathBuf>,
 }
 
 impl InterpreterVisitor {
@@ -181,6 +194,22 @@ impl InterpreterVisitor {
             environment: IndexMap::new(),
             global_environment: IndexMap::new(),
             control_flow: ControlFlow::Normal,
+            module_cache: HashMap::new(),
+            current_file: None,
+            project_root: None,
+        };
+        visitor.init_standard_library();
+        visitor
+    }
+
+    pub fn with_context(current_file: Option<PathBuf>, project_root: Option<PathBuf>) -> Self {
+        let mut visitor = InterpreterVisitor {
+            environment: IndexMap::new(),
+            global_environment: IndexMap::new(),
+            control_flow: ControlFlow::Normal,
+            module_cache: HashMap::new(),
+            current_file,
+            project_root,
         };
         visitor.init_standard_library();
         visitor
@@ -270,6 +299,128 @@ impl InterpreterVisitor {
     /// Pop a scope
     fn pop_scope(&mut self, old_env: IndexMap<String, Value>) {
         self.environment = old_env;
+    }
+
+    /// Resolve a module path based on the use prefix
+    fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
+        let module_path = path.segments.join("/") + ".hk";
+        
+        match path.prefix {
+            UsePrefix::Local => {
+                // local:: - from project root
+                match &self.project_root {
+                    Some(root) => Ok(root.join(&module_path)),
+                    None => Err(Error::new_runtime(
+                        "Cannot use local:: imports without project root context".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            UsePrefix::Self_ => {
+                // self:: - from current file's directory
+                match &self.current_file {
+                    Some(current) => {
+                        let parent = current.parent().ok_or_else(|| {
+                            Error::new_runtime(
+                                "Current file has no parent directory".to_string(),
+                                *span,
+                            )
+                        })?;
+                        Ok(parent.join(&module_path))
+                    }
+                    None => Err(Error::new_runtime(
+                        "Cannot use self:: imports without current file context".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            UsePrefix::Super(count) => {
+                // super:: - from parent directory
+                match &self.current_file {
+                    Some(current) => {
+                        let mut parent = current.parent().ok_or_else(|| {
+                            Error::new_runtime(
+                                "Current file has no parent directory".to_string(),
+                                *span,
+                            )
+                        })?;
+                        
+                        // Go up 'count' directories
+                        for _ in 0..count {
+                            parent = parent.parent().ok_or_else(|| {
+                                Error::new_runtime(
+                                    "Too many super:: levels, reached filesystem root".to_string(),
+                                    *span,
+                                )
+                            })?;
+                        }
+                        
+                        Ok(parent.join(&module_path))
+                    }
+                    None => Err(Error::new_runtime(
+                        "Cannot use super:: imports without current file context".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            UsePrefix::None => {
+                // Should have been caught earlier
+                Err(Error::new_runtime(
+                    "External packages not supported in interpreter".to_string(),
+                    *span,
+                ))
+            }
+        }
+    }
+
+    /// Load a module from disk or cache
+    fn load_module(&mut self, module_path: &Path, span: &Span) -> Result<Module> {
+        // Check cache first
+        if let Some(module) = self.module_cache.get(module_path) {
+            return Ok(module.clone());
+        }
+
+        // Read the file
+        let contents = std::fs::read_to_string(module_path).map_err(|e| {
+            Error::new_runtime(
+                format!("Failed to read module '{}': {}", module_path.display(), e),
+                *span,
+            )
+        })?;
+
+        // Parse the module
+        let mut lexer = Lexer::new(contents);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse().map_err(|e| {
+            Error::new_runtime(
+                format!("Failed to parse module '{}': {}", module_path.display(), e),
+                *span,
+            )
+        })?;
+
+        // Create a new interpreter for the module with its context
+        let mut module_interpreter = InterpreterVisitor::with_context(
+            Some(module_path.to_path_buf()),
+            self.project_root.clone(),
+        );
+
+        // Execute the module
+        module_interpreter.interpret(&stmts)?;
+
+        // Collect exports (for now, just collect all top-level items marked with pub)
+        // TODO: Properly track pub exports during parsing/execution
+        let exports = IndexMap::new();
+
+        let module = Module {
+            _path: module_path.to_path_buf(),
+            exports,
+        };
+
+        // Cache the module
+        self.module_cache.insert(module_path.to_path_buf(), module.clone());
+
+        Ok(module)
     }
 
     /// Evaluate a binary operation
@@ -1155,7 +1306,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_use(&mut self, path: &UsePath, _items: &UseItems, span: &Span) -> Result<Value> {
+    fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Value> {
         // Check if it's an external package
         if path.prefix == UsePrefix::None {
             return Err(Error::new_runtime(
@@ -1168,8 +1319,50 @@ impl AstVisitor<Value> for InterpreterVisitor {
             ));
         }
         
-        // TODO: Implement local module loading
-        // For now, just return Unit since we haven't implemented module loading yet
+        // Resolve the module path
+        let module_path = self.resolve_module_path(path, span)?;
+        
+        // Load the module
+        let module = self.load_module(&module_path, span)?;
+        
+        // Import the requested items
+        match items {
+            UseItems::All => {
+                // Import all exports from the module
+                for (name, value) in &module.exports {
+                    self.set_var(name.clone(), value.clone());
+                }
+            }
+            UseItems::Single => {
+                // Import the module itself as a namespace
+                // For now, create a placeholder value
+                // TODO: Implement proper module namespace handling
+                let module_name = path.segments.last()
+                    .ok_or_else(|| Error::new_runtime(
+                        "Empty module path".to_string(),
+                        *span,
+                    ))?;
+                // For now, just set a unit value as placeholder
+                self.set_var(module_name.clone(), Value::Unit);
+            }
+            UseItems::Named(imports) => {
+                // Import specific named items
+                for (import_name, alias) in imports {
+                    let value = module.exports.get(import_name)
+                        .ok_or_else(|| Error::new_runtime(
+                            format!("Module '{}' does not export '{}'", 
+                                module_path.display(), 
+                                import_name
+                            ),
+                            *span,
+                        ))?;
+                    
+                    let local_name = alias.as_ref().unwrap_or(import_name);
+                    self.set_var(local_name.clone(), value.clone());
+                }
+            }
+        }
+        
         Ok(Value::Unit)
     }
 
@@ -1254,6 +1447,29 @@ mod tests {
         
         let mut interpreter = InterpreterVisitor::new();
         interpreter.interpret(&stmts)
+    }
+
+    #[test]
+    fn test_external_package_error() {
+        let result = run_test("use express::express;");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("External package"));
+    }
+
+    #[test]
+    fn test_module_loading_without_context() {
+        // Test that local:: imports fail without project root context
+        let result = run_test("use local::utils::math;");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Cannot use local:: imports without project root context"));
+        
+        // Test that self:: imports fail without current file context
+        let result = run_test("use self::helper;");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Cannot use self:: imports without current file context"));
     }
 
     // Arithmetic operations tests
