@@ -23,7 +23,8 @@
       "Bash(rm:*)",
       "Bash(git restore:*)",
       "Bash(RUST_BACKTRACE=1 cargo test interpreter::tests::test_struct_method 2 >& 1)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }
