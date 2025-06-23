@@ -31,6 +31,7 @@ pub enum Expr {
         type_annotation: TypeAnnotationRef,
     },
     Block(Vec<Stmt>, Span),
+    If(Box<Expr>, Vec<Stmt>, Vec<Stmt>, Span),
 }
 
 impl PartialEq for Expr {
@@ -161,6 +162,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::If(cond, then_block, else_block, _) => {
+                if let Expr::If(other_cond, other_then, other_else, _) = other {
+                    cond == other_cond && then_block == other_then && else_block == other_else
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -198,6 +206,7 @@ impl Expr {
             Expr::Range(_, _, _, span) => span.clone(),
             Expr::EnumVariantOrMethodCall { span, .. } => span.clone(),
             Expr::Block(_, span) => span.clone(),
+            Expr::If(_, _, _, span) => span.clone(),
         }
     }
 }
@@ -278,6 +287,9 @@ impl fmt::Display for Expr {
             Expr::Block(_stmts, _) => {
                 write!(f, "{{ ... }}")  // Simple representation for now
             }
+            Expr::If(_cond, _then, _else, _) => {
+                write!(f, "if ... {{ ... }}")  // Simple representation for now
+            }
         }
     }
 }
@@ -286,7 +298,6 @@ impl fmt::Display for Expr {
 pub enum Stmt {
     Let(String, Expr, Span),
     Function(String, Vec<(String, String)>, String, Vec<Stmt>, Span),
-    If(Expr, Vec<Stmt>, Vec<Stmt>, Span),
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
     Expression(Expr, bool), // Second bool indicates if there's a semicolon
     Struct(String, Vec<(String, String)>, Span),
@@ -355,7 +366,6 @@ impl Parser {
             TokenKind::Enum => self.parse_enum(),
             TokenKind::Let => self.parse_let_statement(),
             TokenKind::Function => self.parse_function(),
-            TokenKind::If => self.parse_if_statement(),
             TokenKind::Match => self.parse_match_statement(),
             TokenKind::For => self.parse_for_loop(),
             TokenKind::While => self.parse_while_statement(),
@@ -726,11 +736,12 @@ impl Parser {
         ))
     }
 
-    fn parse_if_statement(&mut self) -> Result<Stmt> {
+
+    fn parse_if_expression(&mut self) -> Result<Expr> {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'if'
 
-        let condition = self.parse_expression()?;
+        let condition = Box::new(self.parse_expression()?);
 
         if self.current_token().kind != TokenKind::LBrace {
             return Err(Error::new_parse(
@@ -755,7 +766,7 @@ impl Parser {
 
             if self.current_token().kind != TokenKind::LBrace {
                 return Err(Error::new_parse(
-                    "Expected '{' after else condition".to_string(),
+                    "Expected '{' after else".to_string(),
                     self.current_token().span,
                 ));
             }
@@ -773,13 +784,14 @@ impl Parser {
             self.advance(); // Consume '}'
         }
 
-        return Ok(Stmt::If(
+        Ok(Expr::If(
             condition,
             then_block,
             else_block,
             Span::new(start_span, end_span),
-        ));
+        ))
     }
+
 
     fn parse_match_statement(&mut self) -> Result<Stmt> {
         let start_span = self.current_token().span.start;
@@ -1198,6 +1210,23 @@ impl Parser {
                 }
             }
             TokenKind::LBrace => self.parse_block_expression(),
+            TokenKind::LParen => {
+                self.advance(); // Consume '('
+                let expr = self.parse_expression()?;
+                if self.current_token().kind != TokenKind::RParen {
+                    return Err(Error::new_parse(
+                        "Expected ')' after expression".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.advance(); // Consume ')'
+                Ok(expr)
+            }
+            TokenKind::If => self.parse_if_expression(),
+            TokenKind::Underscore => {
+                self.advance(); // Consume '_'
+                Ok(Expr::Identifier("_".to_string(), span))
+            }
             _ => Err(Error::new_parse(
                 "Invalid primary expression".to_string(),
                 span,
@@ -1531,15 +1560,18 @@ mod tests {
 
         assert_eq!(
             ast[0],
-            Stmt::If(
-                Expr::Bool(true, Span::new(16, 20)),
-                vec![Stmt::Let(
-                    "x".to_string(),
-                    Expr::Int(5, Span::new(47, 48)),
-                    Span::new(39, 49),
-                )],
-                vec![],
-                Span::new(13, 63),
+            Stmt::Expression(
+                Expr::If(
+                    Box::new(Expr::Bool(true, Span::new(16, 20))),
+                    vec![Stmt::Let(
+                        "x".to_string(),
+                        Expr::Int(5, Span::new(47, 48)),
+                        Span::new(39, 49),
+                    )],
+                    vec![],
+                    Span::new(13, 63),
+                ),
+                false
             )
         );
     }
@@ -1560,19 +1592,22 @@ mod tests {
 
         assert_eq!(
             ast[0],
-            Stmt::If(
-                Expr::Bool(true, Span::new(16, 20)),
-                vec![Stmt::Let(
-                    "x".to_string(),
-                    Expr::Int(5, Span::new(47, 48)),
-                    Span::new(39, 49),
-                )],
-                vec![Stmt::Let(
-                    "y".to_string(),
-                    Expr::Int(10, Span::new(95, 97)),
-                    Span::new(87, 98),
-                )],
-                Span::new(13, 112),
+            Stmt::Expression(
+                Expr::If(
+                    Box::new(Expr::Bool(true, Span::new(16, 20))),
+                    vec![Stmt::Let(
+                        "x".to_string(),
+                        Expr::Int(5, Span::new(47, 48)),
+                        Span::new(39, 49),
+                    )],
+                    vec![Stmt::Let(
+                        "y".to_string(),
+                        Expr::Int(10, Span::new(95, 97)),
+                        Span::new(87, 98),
+                    )],
+                    Span::new(13, 112),
+                ),
+                false
             )
         );
     }
@@ -1791,16 +1826,19 @@ mod tests {
 
         assert_eq!(
             ast[0],
-            Stmt::If(
-                Expr::BinaryOp(
-                    Box::new(Expr::Identifier("x".to_string(), Span::new(16, 17))),
-                    Operator::Equals,
-                    Box::new(Expr::Identifier("y".to_string(), Span::new(21, 22))),
-                    Span::new(16, 20),
+            Stmt::Expression(
+                Expr::If(
+                    Box::new(Expr::BinaryOp(
+                        Box::new(Expr::Identifier("x".to_string(), Span::new(16, 17))),
+                        Operator::Equals,
+                        Box::new(Expr::Identifier("y".to_string(), Span::new(21, 22))),
+                        Span::new(16, 20),
+                    )),
+                    vec![Stmt::Expression(Expr::Int(1, Span::new(41, 42)), false)],
+                    vec![Stmt::Expression(Expr::Int(0, Span::new(80, 81)), false)],
+                    Span::new(13, 95),
                 ),
-                vec![Stmt::Expression(Expr::Int(1, Span::new(41, 42)), false)],
-                vec![Stmt::Expression(Expr::Int(0, Span::new(80, 81)), false)],
-                Span::new(13, 95),
+                false
             )
         );
     }

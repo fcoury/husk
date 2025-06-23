@@ -19,7 +19,11 @@
       "Bash(cp:*)",
       "Bash(./test.sh)",
       "Bash(./tests/scripts/test.sh:*)",
-      "Bash(./target/debug/husk compile:*)"
+      "Bash(./target/debug/husk compile:*)",
+      "Bash(rm:*)",
+      "Bash(git restore:*)",
+      "Bash(RUST_BACKTRACE=1 cargo test interpreter::tests::test_struct_method 2 >& 1)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

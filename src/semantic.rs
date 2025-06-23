@@ -730,45 +730,6 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_if(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<Type> {
-        // Check condition is boolean
-        let condition_type = self.visit_expr(condition)?;
-        if condition_type != Type::Bool {
-            return Err(Error::new_semantic(
-                format!("If condition must be boolean, found {}", condition_type.to_string()),
-                condition.span(),
-            ));
-        }
-
-        // Analyze then block and get its type (without creating new scope)
-        let then_type = self.visit_statements_no_scope(then_block)?;
-
-        // If there's no else block, the if expression can only return Unit
-        if else_block.is_empty() {
-            // If then block returns non-Unit, this is an error for expression context
-            if then_type != Type::Unit {
-                return Err(Error::new_semantic(
-                    format!("If expression without else branch cannot return non-unit type {}", then_type.to_string()),
-                    *_span,
-                ));
-            }
-            return Ok(Type::Unit);
-        }
-
-        // Analyze else block and get its type (without creating new scope)
-        let else_type = self.visit_statements_no_scope(else_block)?;
-
-        // Both branches must return the same type for if expression
-        if then_type != else_type {
-            return Err(Error::new_semantic(
-                format!("If expression branches have incompatible types: then returns {}, else returns {}", 
-                        then_type.to_string(), else_type.to_string()),
-                *_span,
-            ));
-        }
-
-        Ok(then_type)
-    }
 
     fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Type> {
         let expr_type = self.visit_expr(expr)?;
@@ -1047,6 +1008,46 @@ impl AstVisitor<Type> for SemanticVisitor {
         self.type_env.pop_scope();
         
         Ok(block_type)
+    }
+
+    fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> Result<Type> {
+        // Check condition is boolean
+        let condition_type = self.visit_expr(condition)?;
+        if condition_type != Type::Bool {
+            return Err(Error::new_semantic(
+                format!("If condition must be boolean, found {}", condition_type.to_string()),
+                condition.span(),
+            ));
+        }
+
+        // Analyze then block and get its type (without creating new scope)
+        let then_type = self.visit_statements_no_scope(then_block)?;
+
+        // If there's no else block, the if expression can only return Unit
+        if else_block.is_empty() {
+            // If then block returns non-Unit, this is an error for expression context
+            if then_type != Type::Unit {
+                return Err(Error::new_semantic(
+                    format!("If expression without else branch cannot return non-unit type {}", then_type.to_string()),
+                    *span,
+                ));
+            }
+            return Ok(Type::Unit);
+        }
+
+        // Analyze else block and get its type (without creating new scope)
+        let else_type = self.visit_statements_no_scope(else_block)?;
+
+        // Both branches must return the same type for if expression
+        if then_type != else_type {
+            return Err(Error::new_semantic(
+                format!("If expression branches have incompatible types: then returns {}, else returns {}", 
+                        then_type.to_string(), else_type.to_string()),
+                *span,
+            ));
+        }
+
+        Ok(then_type)
     }
 }
 
