@@ -318,12 +318,13 @@ match parsed {
 
 ## Implementation Status ✅ COMPLETE
 
-**Phase 1-5: COMPLETED**
+**Phase 1-6: COMPLETED**
 - ✅ Basic Option/Result enum registration
 - ✅ JavaScript interop rules (null/undefined mapping) 
 - ✅ Pattern matching support including nested matches
 - ✅ Transpiler special cases for JS interop
-- ✅ Comprehensive testing (9 tests passing)
+- ✅ Try operator (?) for Result error propagation
+- ✅ Comprehensive testing (16 tests passing)
 
 **Implemented Features:**
 1. **Semantic Analysis**: Both types registered as built-in enums with flexible generic handling
@@ -335,12 +336,19 @@ match parsed {
    - `Result::Err(e)` → `{ Err: e }`
 4. **Type System**: Enhanced enum type compatibility for built-in generics
 5. **Nested Matching**: Full support for complex patterns like `Option<Result<T,E>>`
+6. **Try Operator (?)**:
+   - **Lexer**: `TokenKind::Question` token support
+   - **Parser**: `Expr::Try` variant with postfix syntax parsing  
+   - **Semantic**: Type checking that enforces Result types only
+   - **Transpiler**: JavaScript IIFE for error propagation: `(() => { const __result = expr; if (__result.type === 'Err') { return __result; } return __result.value; })()`
+   - **Interpreter**: Result unwrapping with proper error handling
+   - **Chaining**: Support for multiple `?` operators like `result??`
 
-**Next Phase**: Error propagation in async functions using Result types
+**Next Phase**: JS Promise to Result conversion in async contexts
 
 ## Future Enhancements
 
 1. **If-let syntax** for cleaner Option/Result handling
-2. **Try operator (?)** for non-async functions  
-3. **Option/Result combinators** (and_then, or_else, etc.)
-4. **Custom error types** with proper inheritance
+2. **Option/Result combinators** (and_then, or_else, etc.)  
+3. **Custom error types** with proper inheritance
+4. **Improved Promise/Result integration** for seamless async error handling

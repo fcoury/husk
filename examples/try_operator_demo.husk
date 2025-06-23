@@ -1,0 +1,42 @@
+// Try operator (?) for Result error propagation
+
+// Function that returns a Result
+fn divide(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        Result::Err("Division by zero")
+    } else {
+        Result::Ok(a / b)
+    }
+}
+
+// Function using the try operator for error propagation
+fn calculate() -> Result<int, string> {
+    let x = divide(10, 2)?;  // Unwrap Result::Ok(5) or return early with Err
+    let y = divide(x, 0)?;   // This will return early with Err("Division by zero")
+    Result::Ok(y * 2)        // This line will never be reached
+}
+
+// Manual Result handling without try operator
+fn calculate_manual() -> Result<int, string> {
+    let x_result = divide(10, 2);
+    match x_result {
+        Result::Ok(x) => {
+            let y_result = divide(x, 0);
+            match y_result {
+                Result::Ok(y) => Result::Ok(y * 2)
+                Result::Err(e) => Result::Err(e)
+            }
+        }
+        Result::Err(e) => Result::Err(e)
+    }
+}
+
+// Test the functions
+let result1 = calculate();
+let result2 = calculate_manual();
+
+// Both should return the same error
+match result1 {
+    Result::Ok(value) => "Unexpected success"
+    Result::Err(error) => error
+}

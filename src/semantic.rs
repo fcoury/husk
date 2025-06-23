@@ -1433,6 +1433,26 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
     }
     
+    fn visit_try(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
+        // Type check the expression
+        let expr_type = self.visit_expr(expr)?;
+        
+        // Check if the expression is a Result type and unwrap the Ok type
+        match &expr_type {
+            Type::Enum { name, .. } if name == "Result" => {
+                // For built-in Result type, we assume it has Ok and Err variants
+                // In a proper implementation, we'd track the generic type parameters
+                // For now, return Unknown to allow the operation
+                Ok(Type::Unknown)
+            }
+            Type::Unknown => Ok(Type::Unknown), // Allow unknown types for extern functions
+            _ => Err(Error::new_semantic(
+                format!("? operator can only be used on Result types, found {}", expr_type.to_string()),
+                span.clone(),
+            )),
+        }
+    }
+    
     fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<Type> {
         // Enter a new scope for the closure
         self.type_env.push_scope();

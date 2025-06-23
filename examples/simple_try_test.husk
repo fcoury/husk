@@ -1,0 +1,3 @@
+let ok_result = Result::Ok(42);
+let value = ok_result?;
+value

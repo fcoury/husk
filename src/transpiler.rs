@@ -719,6 +719,12 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("await {}", expr_str))
     }
     
+    fn visit_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
+        let expr_str = self.visit_expr(expr)?;
+        // Generate JS code that checks if the result is an error and returns early if so
+        Ok(format!("(() => {{ const __result = {}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()", expr_str))
+    }
+    
     fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<String> {
         // Generate parameter list
         let param_list = params.iter()

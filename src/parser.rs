@@ -35,6 +35,7 @@ pub enum Expr {
     If(Box<Expr>, Vec<Stmt>, Vec<Stmt>, Span),
     Match(Box<Expr>, Vec<(Expr, Vec<Stmt>)>, Span),
     Await(Box<Expr>, Span),
+    Try(Box<Expr>, Span),
     Closure(Vec<(String, Option<String>)>, Option<String>, Box<Expr>, Span),
 }
 
@@ -187,6 +188,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::Try(expr, _) => {
+                if let Expr::Try(other_expr, _) = other {
+                    expr == other_expr
+                } else {
+                    false
+                }
+            }
             Expr::Match(expr, arms, _) => {
                 if let Expr::Match(other_expr, other_arms, _) = other {
                     expr == other_expr && arms == other_arms
@@ -241,6 +249,7 @@ impl Expr {
             Expr::Block(_, span) => span.clone(),
             Expr::If(_, _, _, span) => span.clone(),
             Expr::Await(_, span) => span.clone(),
+            Expr::Try(_, span) => span.clone(),
             Expr::Match(_, _, span) => span.clone(),
             Expr::Closure(_, _, _, span) => span.clone(),
         }
@@ -328,6 +337,7 @@ impl fmt::Display for Expr {
                 write!(f, "if ... {{ ... }}")  // Simple representation for now
             }
             Expr::Await(expr, _) => write!(f, "{}.await", expr),
+            Expr::Try(expr, _) => write!(f, "{}?", expr),
             Expr::Match(_expr, _arms, _) => {
                 write!(f, "match ... {{ ... }}")  // Simple representation for now
             }
@@ -2216,6 +2226,12 @@ impl Parser {
                         Box::new(index),
                         Span::new(start_span, end_span),
                     );
+                }
+                // Try operator (?)
+                TokenKind::Question => {
+                    self.advance(); // Consume '?'
+                    let end_span = self.current_token().span.start;
+                    left = Expr::Try(Box::new(left), Span::new(start_span, end_span));
                 }
                 _ => break,
             }

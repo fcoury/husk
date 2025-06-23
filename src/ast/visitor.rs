@@ -36,6 +36,7 @@ pub trait AstVisitor<T> {
             }
             Expr::Match(expr, arms, span) => self.visit_match_expr(expr, arms, span),
             Expr::Await(expr, span) => self.visit_await(expr, span),
+            Expr::Try(expr, span) => self.visit_try(expr, span),
             Expr::Closure(params, ret_type, body, span) => self.visit_closure(params, ret_type, body, span),
         }
     }
@@ -113,6 +114,7 @@ pub trait AstVisitor<T> {
     fn visit_async_function(&mut self, name: &str, params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_await(&mut self, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_try(&mut self, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
