@@ -1,4 +1,5 @@
 mod ast;
+mod config;
 mod error;
 mod error_tests;
 mod integration_error_tests;
@@ -54,6 +55,10 @@ mod error_mapping_test;
 #[cfg(test)]
 mod generic_types_test;
 
+#[cfg(test)]
+mod config_test;
+
+pub use config::HuskConfig;
 pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;
