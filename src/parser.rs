@@ -376,7 +376,7 @@ impl fmt::Display for Expr {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stmt {
     Let(String, Expr, Span),
-    Function(String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added generic params
+    Function(bool, String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added visibility flag and generic params
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
     Expression(Expr, bool), // Second bool indicates if there's a semicolon
     Struct(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
@@ -391,7 +391,7 @@ pub enum Stmt {
     Use(UsePath, UseItems, Span),
     ExternFunction(String, Vec<String>, Vec<(String, String)>, String, Span), // Added generic params
     ExternMod(String, Vec<ExternItem>, Span),
-    AsyncFunction(String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added generic params
+    AsyncFunction(bool, String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added visibility flag and generic params
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -515,12 +515,12 @@ impl Parser {
                 }
                 self.parse_use_statement()
             }
-            TokenKind::Function => self.parse_function(),
+            TokenKind::Function => self.parse_function(is_pub),
             TokenKind::Async => {
                 if is_pub {
                     // pub async fn is allowed
                 }
-                self.parse_async_function()
+                self.parse_async_function(is_pub)
             }
             TokenKind::Extern => {
                 if is_pub {
@@ -812,7 +812,7 @@ impl Parser {
         Ok(params)
     }
     
-    fn parse_async_function(&mut self) -> Result<Stmt> {
+    fn parse_async_function(&mut self, is_pub: bool) -> Result<Stmt> {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'async'
         
@@ -824,11 +824,12 @@ impl Parser {
         }
         
         // Parse the function normally
-        let func_stmt = self.parse_function()?;
+        let func_stmt = self.parse_function(is_pub)?;
         
         // Convert Function to AsyncFunction
-        if let Stmt::Function(name, generic_params, params, return_type, body, func_span) = func_stmt {
+        if let Stmt::Function(is_pub, name, generic_params, params, return_type, body, func_span) = func_stmt {
             Ok(Stmt::AsyncFunction(
+                is_pub,
                 name,
                 generic_params,
                 params,
@@ -1675,7 +1676,7 @@ impl Parser {
         }
     }
 
-    fn parse_function(&mut self) -> Result<Stmt> {
+    fn parse_function(&mut self, is_pub: bool) -> Result<Stmt> {
         let start_span = self.current_token().span.start;
 
         // Consume 'fn'
@@ -1778,6 +1779,7 @@ impl Parser {
         let end_span = self.current_token().span.end;
         self.advance(); // Consume '}'
         Ok(Stmt::Function(
+            is_pub,
             name,
             generic_params,
             params,
@@ -2895,6 +2897,7 @@ mod tests {
         assert_eq!(
             ast[0],
             Stmt::Function(
+                false, // Not public
                 "add".to_string(),
                 vec![], // Generic params
                 vec![
@@ -2929,6 +2932,7 @@ mod tests {
         assert_eq!(
             ast[0],
             Stmt::Function(
+                false, // Not public
                 "create_person".to_string(),
                 vec![], // Generic params
                 vec![
@@ -3740,8 +3744,9 @@ mod tests {
         // Test pub function
         let ast = parse("pub fn hello() { println(\"Hello\"); }");
         assert_eq!(ast.len(), 1);
-        // For now, pub is parsed but not stored in AST
-        if let Stmt::Function(name, _, params, ret_type, body, _) = &ast[0] {
+        // Check that pub is properly stored in AST
+        if let Stmt::Function(is_pub, name, _, params, ret_type, body, _) = &ast[0] {
+            assert_eq!(*is_pub, true);
             assert_eq!(name, "hello");
             assert_eq!(params.len(), 0);
             assert_eq!(ret_type, "void");

@@ -430,7 +430,7 @@ export declare function add(a: number, b: number): number;
 ### Phase 4: Ecosystem Integration (Weeks 9-10)
 1. Build system (husk.toml) ✅
 2. Package.json generation ✅ (via husk.toml)
-3. npm package resolution
+3. npm package resolution ✅
 4. TypeScript declaration generation
 
 **Completed:**
@@ -449,6 +449,15 @@ export declare function add(a: number, b: number): number;
 - Implemented configuration validation with helpful error messages
 - Added automatic husk.toml file discovery in project hierarchy
 - Comprehensive test suite covering all configuration parsing scenarios
+- **npm package resolution**: Implemented comprehensive npm package resolution system
+  - Created `PackageResolver` with support for external npm packages, local path dependencies, and git dependencies
+  - Added package.json parsing with module type detection (ESM/CJS/UMD)
+  - Implemented intelligent import statement generation based on package type
+  - Integrated package resolver into both semantic analyzer and transpiler
+  - Added proper error handling for missing packages with clear "run npm install" messages  
+  - Enhanced CLI transpilation to use package resolution by default
+  - Supports scoped packages, subpath imports, and export validation
+  - Falls back gracefully to basic import generation when package resolution is unavailable
 
 ### Phase 5: Optimizations (Weeks 11-12)
 1. Source map generation

@@ -1,17 +1,30 @@
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
+    package_resolver::PackageResolver,
     parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
     span::Span,
 };
 
 pub struct JsTranspiler {
     indent_level: usize,
+    package_resolver: Option<PackageResolver>,
 }
 
 impl JsTranspiler {
     pub fn new() -> Self {
-        Self { indent_level: 0 }
+        Self { 
+            indent_level: 0,
+            package_resolver: None,
+        }
+    }
+
+    /// Create a new transpiler with package resolution enabled
+    pub fn with_package_resolver() -> Result<Self> {
+        Ok(Self {
+            indent_level: 0,
+            package_resolver: Some(PackageResolver::from_current_dir()?),
+        })
     }
     
     pub fn generate(&mut self, stmts: &[Stmt]) -> Result<String> {
@@ -264,6 +277,54 @@ impl JsTranspiler {
 
 impl AstVisitor<String> for JsTranspiler {
     type Error = Error;
+
+    /// Override visit_stmt to handle function visibility
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<String> {
+        match stmt {
+            // Handle function statements with visibility
+            Stmt::Function(is_pub, name, generic_params, params, return_type, body, span) => {
+                let function_code = self.visit_function(name, generic_params, params, return_type, body, span)?;
+                if *is_pub {
+                    Ok(format!("export {}", function_code))
+                } else {
+                    Ok(function_code)
+                }
+            }
+            // Handle async function statements with visibility  
+            Stmt::AsyncFunction(is_pub, name, generic_params, params, return_type, body, span) => {
+                let function_code = self.visit_async_function(name, generic_params, params, return_type, body, span)?;
+                if *is_pub {
+                    Ok(format!("export {}", function_code))
+                } else {
+                    Ok(function_code)
+                }
+            }
+            // Delegate all other statements to the default implementation
+            _ => {
+                // Use the default visitor implementation for all other statement types
+                match stmt {
+                    Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
+                    Stmt::Struct(name, generic_params, fields, span) => self.visit_struct(name, generic_params, fields, span),
+                    Stmt::Enum(name, generic_params, variants, span) => self.visit_enum(name, generic_params, variants, span),
+                    Stmt::Impl(struct_name, methods, span) => self.visit_impl(struct_name, methods, span),
+                    Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
+                    Stmt::ForLoop(variable, iterable, body, span) => self.visit_for_loop(variable, iterable, body, span),
+                    Stmt::While(condition, body, span) => self.visit_while(condition, body, span),
+                    Stmt::Loop(body, span) => self.visit_loop(body, span),
+                    Stmt::Break(span) => self.visit_break(span),
+                    Stmt::Continue(span) => self.visit_continue(span),
+                    Stmt::Return(expr, span) => self.visit_return(expr.as_ref(), span),
+                    Stmt::Expression(expr, has_semicolon) => self.visit_expression_stmt(expr, *has_semicolon),
+                    Stmt::Use(path, items, span) => self.visit_use(path, items, span),
+                    Stmt::ExternFunction(name, generic_params, params, return_type, span) => {
+                        self.visit_extern_function(name, generic_params, params, return_type, span)
+                    }
+                    Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
+                    _ => unreachable!("All statement types should be handled above")
+                }
+            }
+        }
+    }
 
     // ===== Expression visit methods =====
     
@@ -810,58 +871,49 @@ impl AstVisitor<String> for JsTranspiler {
     }
     
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
-        // For now, transpile to ES6 imports
-        let module_path = match &path.prefix {
+        match &path.prefix {
             UsePrefix::None => {
-                // External package - use as is
-                path.segments.join("/")
-            }
-            UsePrefix::Local => {
-                // From project root
-                format!("./{}", path.segments.join("/"))
-            }
-            UsePrefix::Self_ => {
-                // Current directory
-                format!("./{}", path.segments.join("/"))
-            }
-            UsePrefix::Super(count) => {
-                // Parent directories
-                let mut prefix = String::new();
-                for _ in 0..*count {
-                    prefix.push_str("../");
-                }
-                format!("{}{}", prefix, path.segments.join("/"))
-            }
-        };
-        
-        let import_stmt = match items {
-            UseItems::All => {
-                format!("import * from '{}'", module_path)
-            }
-            UseItems::Single => {
-                if path.segments.len() > 1 {
-                    let last = path.segments.last().unwrap();
-                    format!("import {{ {} }} from '{}'", last, module_path)
-                } else {
-                    format!("import '{}'", module_path)
-                }
-            }
-            UseItems::Named(items) => {
-                let imports = items.iter()
-                    .map(|(name, alias)| {
-                        if let Some(alias) = alias {
-                            format!("{} as {}", name, alias)
-                        } else {
-                            name.clone()
+                // External package - use package resolver if available
+                if let Some(ref mut resolver) = self.package_resolver {
+                    let package_name = &path.segments[0];
+                    let subpath_string = if path.segments.len() > 1 {
+                        Some(path.segments[1..].join("/"))
+                    } else {
+                        None
+                    };
+                    let subpath = subpath_string.as_ref().map(|s| s.as_str());
+                    
+                    match resolver.resolve_package(package_name) {
+                        Ok(resolved_package) => {
+                            // Extract import names 
+                            let import_names = match items {
+                                UseItems::Named(imports) => {
+                                    imports.iter().map(|(name, alias)| {
+                                        alias.as_ref().unwrap_or(name).clone()
+                                    }).collect()
+                                }
+                                UseItems::Single => vec![package_name.clone()],
+                                UseItems::All => vec!["*".to_string()],
+                            };
+                            
+                            let import_statement = resolver.generate_import_statement(&resolved_package, &import_names, subpath);
+                            Ok(import_statement)
                         }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("import {{ {} }} from '{}'", imports, module_path)
+                        Err(_) => {
+                            // Fall back to basic import generation if package resolution fails
+                            self.generate_basic_import(path, items)
+                        }
+                    }
+                } else {
+                    // No package resolver - fall back to basic import handling
+                    self.generate_basic_import(path, items)
+                }
             }
-        };
-        
-        Ok(import_stmt)
+            _ => {
+                // Local imports - use basic generation
+                self.generate_basic_import(path, items)
+            }
+        }
     }
 
     fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<String> {
@@ -890,7 +942,7 @@ impl AstVisitor<String> for JsTranspiler {
         let mut output = String::new();
         
         for method in methods {
-            let Stmt::Function(name, _, params, _return_type, body, _) = method else {
+            let Stmt::Function(_, name, _, params, _return_type, body, _) = method else {
                 return Err(Error::new_transpile(
                     "Impl methods must be function definitions",
                     *span,
@@ -992,6 +1044,78 @@ impl AstVisitor<String> for JsTranspiler {
         
         result.push_str("\n})()");
         Ok(result)
+    }
+}
+
+impl JsTranspiler {
+    /// Generate basic import statement without package resolution
+    fn generate_basic_import(&self, path: &UsePath, items: &UseItems) -> Result<String> {
+        let module_path = match &path.prefix {
+            UsePrefix::None => {
+                // External package - use as is
+                path.segments.join("/")
+            }
+            UsePrefix::Local => {
+                // From project root - add .js extension for ES modules
+                let base_path = path.segments.join("/");
+                if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
+                    format!("./{}", base_path)
+                } else {
+                    format!("./{}.js", base_path)
+                }
+            }
+            UsePrefix::Self_ => {
+                // Current directory - add .js extension for ES modules  
+                let base_path = path.segments.join("/");
+                if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
+                    format!("./{}", base_path)
+                } else {
+                    format!("./{}.js", base_path)
+                }
+            }
+            UsePrefix::Super(count) => {
+                // Parent directories - add .js extension for ES modules
+                let mut prefix = String::new();
+                for _ in 0..*count {
+                    prefix.push_str("../");
+                }
+                let base_path = path.segments.join("/");
+                if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
+                    format!("{}{}", prefix, base_path)
+                } else {
+                    format!("{}{}.js", prefix, base_path)
+                }
+            }
+        };
+        
+        let import_stmt = match items {
+            UseItems::All => {
+                format!("import * from '{}'", module_path)
+            }
+            UseItems::Single => {
+                if path.segments.len() > 1 {
+                    let last = path.segments.last().unwrap();
+                    format!("import {{ {} }} from '{}'", last, module_path)
+                } else {
+                    format!("import '{}'", module_path)
+                }
+            }
+            UseItems::Named(items) => {
+                let imports = items.iter()
+                    .map(|(name, alias)| {
+                        if let Some(alias) = alias {
+                            format!("{} as {}", name, alias)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("import {{ {} }} from '{}'", imports, module_path)
+            }
+        };
+        
+        Ok(import_stmt)
     }
 }
 
@@ -1380,7 +1504,7 @@ mod tests {
         let mut transpiler = JsTranspiler::new();
         
         for stmt in &program {
-            if let Stmt::Function(_, _, _, _, _, _) = stmt {
+            if let Stmt::Function(_, _, _, _, _, _, _) = stmt {
                 let result = transpiler.visit_stmt(stmt).unwrap();
                 assert!(result.contains("function factorial(n)"));
                 assert!(result.contains("return 1;"));
@@ -1421,5 +1545,57 @@ mod tests {
     fn test_transpile_unary_with_parentheses() {
         assert_eq!(transpile_expr("-(5 + 3)").unwrap(), "(-(5 + 3))");
         assert_eq!(transpile_expr("!(x > 5)").unwrap(), "(!(x > 5))");
+    }
+
+    #[test]
+    fn test_transpile_local_imports() {
+        // Test that local imports get .js extension for ES modules
+        // Single segment path does side-effect import
+        let mut lexer = Lexer::new("use local::utils;".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+        
+        if let Stmt::Use(_, _, _) = &stmts[0] {
+            let result = transpiler.visit_stmt(&stmts[0]).unwrap();
+            assert_eq!(result, "import './utils.js'");
+        }
+
+        // Test self:: imports
+        let mut lexer = Lexer::new("use self::components;".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+        
+        if let Stmt::Use(_, _, _) = &stmts[0] {
+            let result = transpiler.visit_stmt(&stmts[0]).unwrap();
+            assert_eq!(result, "import './components.js'");
+        }
+
+        // Test super:: imports
+        let mut lexer = Lexer::new("use super::shared;".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+        
+        if let Stmt::Use(_, _, _) = &stmts[0] {
+            let result = transpiler.visit_stmt(&stmts[0]).unwrap();
+            assert_eq!(result, "import '../shared.js'");
+        }
+
+        // Test multi-segment path with named import
+        let mut lexer = Lexer::new("use local::modules::auth;".to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+        
+        if let Stmt::Use(_, _, _) = &stmts[0] {
+            let result = transpiler.visit_stmt(&stmts[0]).unwrap();
+            assert_eq!(result, "import { auth } from './modules/auth.js'");
+        }
     }
 }

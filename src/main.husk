@@ -1,0 +1,11 @@
+use local::utils::{log, formatDate};
+
+fn main() {
+    println("Hello from Husk!");
+    log("Application started");
+    let today = formatDate("2023-12-25");
+    println(today);
+}
+
+// Call main function for entry point
+main();

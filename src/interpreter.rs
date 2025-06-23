@@ -1233,7 +1233,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
         // Register methods
         for method in methods {
-            if let Stmt::Function(method_name, _, params, _, body, _) = method {
+            if let Stmt::Function(_, method_name, _, params, _, body, _) = method {
                 let func = Value::Function(Function::UserDefined(
                     method_name.clone(),
                     params.clone(),

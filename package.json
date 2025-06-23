@@ -1,0 +1,17 @@
+{
+  "author": "Your Name",
+  "dependencies": {
+    "express": "^4.18.0",
+    "lodash": "^4.17.21"
+  },
+  "description": "Sample Husk application",
+  "main": "dist/index.js",
+  "name": "my-husk-app",
+  "scripts": {
+    "build": "husk build",
+    "dev": "husk dev",
+    "start": "husk run"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}

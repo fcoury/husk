@@ -485,7 +485,7 @@ mod tests {
             ), false),
         ];
         
-        let stmt = Stmt::Function("add".to_string(), vec![], params, "int".to_string(), body, span);
+        let stmt = Stmt::Function(false, "add".to_string(), vec![], params, "int".to_string(), body, span);
         let result = visitor.visit_stmt(&stmt);
         
         assert_eq!(result, Ok("visited_function".to_string()));

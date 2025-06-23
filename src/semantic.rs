@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
+    package_resolver::PackageResolver,
     parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
     span::Span,
     types::{Type, TypeEnvironment},
@@ -18,6 +19,7 @@ pub struct SemanticVisitor {
     loop_depth: u32,
     imported_names: HashMap<String, Type>,
     in_async_function: bool,
+    package_resolver: Option<PackageResolver>,
 }
 
 impl SemanticVisitor {
@@ -31,9 +33,17 @@ impl SemanticVisitor {
             loop_depth: 0,
             imported_names: HashMap::new(),
             in_async_function: false,
+            package_resolver: None,
         };
         visitor.init_standard_library();
         visitor
+    }
+
+    /// Create a new semantic visitor with package resolution enabled
+    pub fn with_package_resolver() -> Result<Self> {
+        let mut visitor = Self::new();
+        visitor.package_resolver = Some(PackageResolver::from_current_dir()?);
+        Ok(visitor)
     }
     
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
@@ -1006,7 +1016,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], _span: &Span) -> Result<Type> {
         for method in methods {
-            if let Stmt::Function(name, _, params, return_type, body, method_span) = method {
+            if let Stmt::Function(_, name, _, params, return_type, body, method_span) = method {
                 // Convert parameter types
                 let mut param_types: Vec<(String, Type)> = vec![];
                 
@@ -1537,37 +1547,83 @@ impl AstVisitor<Type> for SemanticVisitor {
         })
     }
     
-    fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<Type> {
-        // For now, just validate that external packages are not used in interpreter mode
-        // In the future, this will handle module resolution and type loading
-        if path.prefix == UsePrefix::None {
-            // External package - we'll need to check if we're in transpiler mode later
-            // For now, just accept it
-        }
-        
-        // TODO: Properly implement module loading and type resolution
-        // For now, register imported names as having unknown type to avoid "not found" errors
-        match items {
-            UseItems::Named(imports) => {
-                for (import_name, alias) in imports {
-                    let local_name = alias.as_ref().unwrap_or(import_name);
-                    // Track as imported name with Unknown type for now
-                    self.imported_names.insert(local_name.clone(), Type::Unknown);
+    fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Type> {
+        match &path.prefix {
+            UsePrefix::None => {
+                // External package - use package resolver if available
+                if let Some(ref mut resolver) = self.package_resolver {
+                    let package_name = &path.segments[0];
+                    
+                    match resolver.resolve_package(package_name) {
+                        Ok(_resolved_package) => {
+                            // Register imported names as Unknown for now
+                            // In a full implementation, we'd load type definitions
+                            match items {
+                                UseItems::Named(imports) => {
+                                    for (import_name, alias) in imports {
+                                        let name_to_register = alias.as_ref().unwrap_or(import_name);
+                                        self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                                    }
+                                }
+                                UseItems::All => {
+                                    // For wildcard imports, we can't pre-register names
+                                }
+                                UseItems::Single => {
+                                    // Register the package name itself
+                                    self.imported_names.insert(package_name.clone(), Type::Unknown);
+                                }
+                            }
+                            Ok(Type::Unit)
+                        }
+                        Err(e) => {
+                            Err(Error::new_semantic(
+                                format!("Failed to resolve package '{}': {}", package_name, e),
+                                *span,
+                            ))
+                        }
+                    }
+                } else {
+                    // No package resolver - register as Unknown to avoid errors
+                    match items {
+                        UseItems::Named(imports) => {
+                            for (import_name, alias) in imports {
+                                let name_to_register = alias.as_ref().unwrap_or(import_name);
+                                self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                            }
+                        }
+                        UseItems::Single => {
+                            if let Some(module_name) = path.segments.last() {
+                                self.imported_names.insert(module_name.clone(), Type::Unknown);
+                            }
+                        }
+                        UseItems::All => {
+                            // Can't pre-register wildcard imports
+                        }
+                    }
+                    Ok(Type::Unit)
                 }
             }
-            UseItems::Single => {
-                // Import the module itself - register last segment
-                if let Some(module_name) = path.segments.last() {
-                    self.imported_names.insert(module_name.clone(), Type::Unknown);
+            _ => {
+                // Local imports - register as Unknown for now
+                match items {
+                    UseItems::Named(imports) => {
+                        for (import_name, alias) in imports {
+                            let name_to_register = alias.as_ref().unwrap_or(import_name);
+                            self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                        }
+                    }
+                    UseItems::Single => {
+                        if let Some(module_name) = path.segments.last() {
+                            self.imported_names.insert(module_name.clone(), Type::Unknown);
+                        }
+                    }
+                    UseItems::All => {
+                        // Can't pre-register wildcard imports
+                    }
                 }
-            }
-            UseItems::All => {
-                // Can't know what's imported without loading the module
-                // This is a limitation of the current implementation
+                Ok(Type::Unit)
             }
         }
-        
-        Ok(Type::Unit)
     }
 
     fn visit_block(&mut self, stmts: &[Stmt], _span: &Span) -> Result<Type> {
