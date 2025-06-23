@@ -1,7 +1,7 @@
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt},
+    parser::{Expr, Operator, Stmt, UnaryOp},
     span::Span,
 };
 
@@ -156,6 +156,14 @@ impl AstVisitor<String> for JsTranspiler {
             Operator::GreaterThanEquals => ">=",
         };
         Ok(format!("({} {} {})", left_str, op_str, right_str))
+    }
+
+    fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<String> {
+        let expr_str = self.visit_expr(expr)?;
+        match op {
+            UnaryOp::Neg => Ok(format!("(-{})", expr_str)),
+            UnaryOp::Not => Ok(format!("(!{})", expr_str)),
+        }
     }
 
     fn visit_assign(&mut self, left: &Expr, right: &Expr, _span: &Span) -> Result<String> {
@@ -971,5 +979,38 @@ mod tests {
                 break;
             }
         }
+    }
+
+    #[test]
+    fn test_transpile_unary_negation() {
+        assert_eq!(transpile_expr("-5").unwrap(), "(-5)");
+        assert_eq!(transpile_expr("-3.14").unwrap(), "(-3.14)");
+        assert_eq!(transpile_expr("-x").unwrap(), "(-x)");
+    }
+
+    #[test]
+    fn test_transpile_unary_not() {
+        assert_eq!(transpile_expr("!true").unwrap(), "(!true)");
+        assert_eq!(transpile_expr("!false").unwrap(), "(!false)");
+        assert_eq!(transpile_expr("!flag").unwrap(), "(!flag)");
+    }
+
+    #[test]
+    fn test_transpile_unary_double() {
+        assert_eq!(transpile_expr("--5").unwrap(), "(-(-5))");
+        assert_eq!(transpile_expr("!!true").unwrap(), "(!(!true))");
+    }
+
+    #[test]
+    fn test_transpile_unary_in_expressions() {
+        assert_eq!(transpile_expr("5 + -3").unwrap(), "(5 + (-3))");
+        assert_eq!(transpile_expr("-5 * 2").unwrap(), "((-5) * 2)");
+        assert_eq!(transpile_expr("!true == false").unwrap(), "((!true) === false)");
+    }
+
+    #[test]
+    fn test_transpile_unary_with_parentheses() {
+        assert_eq!(transpile_expr("-(5 + 3)").unwrap(), "(-(5 + 3))");
+        assert_eq!(transpile_expr("!(x > 5)").unwrap(), "(!(x > 5))");
     }
 }

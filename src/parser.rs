@@ -17,6 +17,7 @@ pub enum Expr {
     ArrayIndex(Box<Expr>, Box<Expr>, Span),
     Identifier(String, Span),
     BinaryOp(Box<Expr>, Operator, Box<Expr>, Span),
+    UnaryOp(UnaryOp, Box<Expr>, Span),
     FunctionCall(String, Vec<Expr>, Span),
     StructInit(String, Vec<(String, Expr)>, Span),
     MemberAccess(Box<Expr>, String, Span),
@@ -89,6 +90,13 @@ impl PartialEq for Expr {
             Expr::BinaryOp(left, op, right, _) => {
                 if let Expr::BinaryOp(other_left, other_op, other_right, _) = other {
                     left == other_left && op == other_op && right == other_right
+                } else {
+                    false
+                }
+            }
+            Expr::UnaryOp(op, expr, _) => {
+                if let Expr::UnaryOp(other_op, other_expr, _) = other {
+                    op == other_op && expr == other_expr
                 } else {
                     false
                 }
@@ -196,6 +204,7 @@ impl Expr {
             Expr::Bool(_, span) => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
+            Expr::UnaryOp(_, _, span) => span.clone(),
             Expr::FunctionCall(_, _, span) => span.clone(),
             Expr::StructInit(_, _, span) => span.clone(),
             Expr::MemberAccess(_, _, span) => span.clone(),
@@ -238,6 +247,7 @@ impl fmt::Display for Expr {
             }
             Expr::Identifier(name, _) => write!(f, "{}", name),
             Expr::BinaryOp(left, op, right, _) => write!(f, "({} {:?} {})", left, op, right),
+            Expr::UnaryOp(op, expr, _) => write!(f, "({:?} {})", op, expr),
             Expr::FunctionCall(name, args, _) => {
                 write!(
                     f,
@@ -323,6 +333,12 @@ pub enum Operator {
     GreaterThan,
     LessThanEquals,
     GreaterThanEquals,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOp {
+    Neg,  // -
+    Not,  // !
 }
 
 pub struct Parser {
@@ -1067,7 +1083,7 @@ impl Parser {
 
     fn parse_expression(&mut self) -> Result<Expr> {
         let start_span = self.current_token().span.start;
-        let mut left = self.parse_primary_expression()?;
+        let mut left = self.parse_unary_expression()?;
 
         loop {
             match self.current_token().kind {
@@ -1085,7 +1101,7 @@ impl Parser {
                         _ => unreachable!(),
                     };
                     self.advance();
-                    let right = self.parse_primary_expression()?;
+                    let right = self.parse_unary_expression()?;
                     let end_span = right.span().end;
                     left = Expr::CompoundAssign(
                         Box::new(left),
@@ -1100,10 +1116,10 @@ impl Parser {
 
         while let Some(op) = self.parse_operator() {
             let start_span = left.span().start;
-            let end_span = self.current_token().span.end;
 
             self.advance(); // Consume operator
-            let right = self.parse_primary_expression()?;
+            let right = self.parse_unary_expression()?;
+            let end_span = right.span().end;
             left = Expr::BinaryOp(
                 Box::new(left),
                 op,
@@ -1146,6 +1162,26 @@ impl Parser {
             inclusive,
             Span::new(start_span, end_span),
         ))
+    }
+
+    fn parse_unary_expression(&mut self) -> Result<Expr> {
+        let start_span = self.current_token().span.start;
+        
+        match self.current_token().kind {
+            TokenKind::Minus => {
+                self.advance(); // Consume '-'
+                let expr = self.parse_unary_expression()?; // Allow chaining like --5
+                let end_span = expr.span().end;
+                Ok(Expr::UnaryOp(UnaryOp::Neg, Box::new(expr), Span::new(start_span, end_span)))
+            }
+            TokenKind::Bang => {
+                self.advance(); // Consume '!'
+                let expr = self.parse_unary_expression()?; // Allow chaining like !!true
+                let end_span = expr.span().end;
+                Ok(Expr::UnaryOp(UnaryOp::Not, Box::new(expr), Span::new(start_span, end_span)))
+            }
+            _ => self.parse_primary_expression(),
+        }
     }
 
     fn parse_primary_expression(&mut self) -> Result<Expr> {
@@ -2494,5 +2530,78 @@ mod tests {
     fn parse_method_call() {
         let code = "Point::new(3, 4)";
         println!("{:?}", parse(code));
+    }
+
+    fn create_parser_for_expr(input: &str) -> Parser {
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        Parser::new(tokens)
+    }
+
+    #[test]
+    fn test_unary_negation() {
+        let mut parser = create_parser_for_expr("-5");
+        let expr = parser.parse_unary_expression().unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp(UnaryOp::Neg, Box::new(Expr::Int(5, Span::new(1, 2))), Span::new(0, 2))
+        );
+    }
+
+    #[test]
+    fn test_unary_negation_float() {
+        let mut parser = create_parser_for_expr("-3.14");
+        let expr = parser.parse_unary_expression().unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp(UnaryOp::Neg, Box::new(Expr::Float(3.14, Span::new(1, 5))), Span::new(0, 5))
+        );
+    }
+
+    #[test]
+    fn test_unary_not() {
+        let mut parser = create_parser_for_expr("!true");
+        let expr = parser.parse_unary_expression().unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp(UnaryOp::Not, Box::new(Expr::Bool(true, Span::new(1, 5))), Span::new(0, 5))
+        );
+    }
+
+    #[test]
+    fn test_unary_double_negation() {
+        let mut parser = create_parser_for_expr("--5");
+        let expr = parser.parse_unary_expression().unwrap();
+        assert_eq!(
+            expr,
+            Expr::UnaryOp(
+                UnaryOp::Neg,
+                Box::new(Expr::UnaryOp(
+                    UnaryOp::Neg,
+                    Box::new(Expr::Int(5, Span::new(2, 3))),
+                    Span::new(1, 3)
+                )),
+                Span::new(0, 3)
+            )
+        );
+    }
+
+    #[test]
+    fn test_unary_in_expression() {
+        let mut parser = create_parser_for_expr("2 + -3");
+        let expr = parser.parse_expression().unwrap();
+        assert_eq!(
+            expr,
+            Expr::BinaryOp(
+                Box::new(Expr::Int(2, Span::new(0, 1))),
+                Operator::Plus,
+                Box::new(Expr::UnaryOp(
+                    UnaryOp::Neg,
+                    Box::new(Expr::Int(3, Span::new(5, 6))),
+                    Span::new(4, 6)
+                )),
+                Span::new(0, 3)
+            )
+        );
     }
 }
