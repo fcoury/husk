@@ -19,6 +19,7 @@ pub enum Type {
     // Composite types
     Array(Box<Type>),
     Range,
+    Tuple(Vec<Type>),
 
     // User-defined types
     Struct {
@@ -68,6 +69,14 @@ impl Type {
             // Array covariance
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
             
+            // Tuple type checking
+            (Type::Tuple(types1), Type::Tuple(types2)) => {
+                if types1.len() != types2.len() {
+                    return false;
+                }
+                types1.iter().zip(types2.iter()).all(|(t1, t2)| t1.is_assignable_to(t2))
+            },
+            
             // Promise covariance
             (Type::Promise(a), Type::Promise(b)) => a.is_assignable_to(b),
             
@@ -116,6 +125,13 @@ impl Type {
             Type::String => "string".to_string(),
             Type::Array(inner) => format!("array<{}>", inner.to_string()),
             Type::Range => "range".to_string(),
+            Type::Tuple(types) => {
+                let types_str = types.iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({})", types_str)
+            },
             Type::Struct { name, .. } => name.clone(),
             Type::Enum { name, .. } => name.clone(),
             Type::Function { params, return_type } => {

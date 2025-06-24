@@ -1,0 +1,17 @@
+// Test tuple patterns in match expressions
+
+fn classify_point(x: int, y: int) -> string {
+    match (x, y) {
+        (0, 0) => "origin",
+        (0, _) => "on y-axis", 
+        (_, 0) => "on x-axis",
+        _ => "elsewhere"
+    }
+}
+
+fn main() {
+    println(format!("(0, 0): {}", classify_point(0, 0)));
+    println(format!("(0, 5): {}", classify_point(0, 5)));
+    println(format!("(3, 0): {}", classify_point(3, 0)));
+    println(format!("(3, 4): {}", classify_point(3, 4)));
+}

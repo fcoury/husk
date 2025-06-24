@@ -30,6 +30,7 @@ pub enum Value {
     Bool(bool),
     String(String),
     Array(Vec<Value>),
+    Tuple(Vec<Value>),
     Range(Option<i64>, Option<i64>, bool),
     Function(Function),
     Struct(String, IndexMap<String, String>),
@@ -49,6 +50,10 @@ impl fmt::Display for Value {
             Value::Array(elements) => {
                 let elements_str: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[{}]", elements_str.join(", "))
+            }
+            Value::Tuple(elements) => {
+                let elements_str: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                write!(f, "({})", elements_str.join(", "))
             }
             Value::Range(start, end, inclusive) => {
                 let start_str = start
@@ -95,6 +100,7 @@ impl Value {
             Value::Bool(_) => "bool".to_string(),
             Value::String(_) => "string".to_string(),
             Value::Array(_) => "array".to_string(),
+            Value::Tuple(_) => "tuple".to_string(),
             Value::Range(_, _, _) => "range".to_string(),
             Value::Function(_) => "function".to_string(),
             Value::Struct(name, _) => format!("struct {name}"),
@@ -735,6 +741,14 @@ impl AstVisitor<Value> for InterpreterVisitor {
             values.push(self.visit_expr(element)?);
         }
         Ok(Value::Array(values))
+    }
+
+    fn visit_tuple(&mut self, elements: &[Expr], _span: &Span) -> Result<Value> {
+        let mut values = Vec::new();
+        for element in elements {
+            values.push(self.visit_expr(element)?);
+        }
+        Ok(Value::Tuple(values))
     }
 
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, span: &Span) -> Result<Value> {
