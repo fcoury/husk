@@ -1,0 +1,71 @@
+enum Command {
+    Process {
+        input: string,
+        output: string,
+    },
+    Help,
+}
+
+fn parse_args(args: array<string>) -> Result<Command, string> {
+    if args.len() < 2 {
+        return Err("Not enough arguments");
+    }
+    
+    match args[1] {
+        "process" => {
+            if args.len() < 4 {
+                return Err("Process command requires input and output paths");
+            }
+            Ok(Command::Process { 
+                input: args[2], 
+                output: args[3] 
+            })
+        }
+        "help" => Ok(Command::Help),
+        _ => Err(format!("Unknown command: {}", args[1]))
+    }
+}
+
+fn process_command(cmd: Command) -> Result<(), string> {
+    match cmd {
+        Command::Process { input: input, output: output } => {
+            if input.len() == 0 {
+                return Err("Input path cannot be empty");
+            }
+            if output.len() == 0 {
+                return Err("Output path cannot be empty");
+            }
+            println(format!("Processing from {} to {}", input, output));
+            Ok(())
+        }
+        Command::Help => {
+            println("Usage: cli <command> [args]");
+            println("Commands:");
+            println("  process <input> <output>  - Process a file");
+            println("  help                      - Show this help");
+            Ok(())
+        }
+    }
+}
+
+fn main() {
+    let args = ["cli", "process", "input.txt", "output.txt"];
+    
+    let result = parse_args(args);
+    match result {
+        Ok(cmd) => {
+            let process_result = process_command(cmd);
+            match process_result {
+                Ok(()) => {
+                    println("Command completed successfully");
+                }
+                Err(e) => {
+                    println(format!("Error: {}", e));
+                }
+            }
+        }
+        Err(msg) => {
+            println(format!("Error: {}", msg));
+        }
+    }
+}

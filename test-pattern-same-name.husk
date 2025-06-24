@@ -1,0 +1,10 @@
+enum Test {
+    Data { value: string }
+}
+
+fn main() {
+    let t = Test::Data { value: "hello" };
+    match t {
+        Test::Data { value: value } => println(value)
+    }
+}

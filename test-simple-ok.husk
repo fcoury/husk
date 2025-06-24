@@ -1,0 +1,7 @@
+fn main() {
+    let r = Ok("hello");
+    match r {
+        Ok(v) => println(v),
+        Err(e) => println(e)
+    }
+}
