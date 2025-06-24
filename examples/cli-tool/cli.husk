@@ -115,7 +115,7 @@ impl Command {
                 }
                 return Ok(());
             }
-            Command::Help => return Ok(()),
+            Command::Help => return Ok(());
         }
     }
     

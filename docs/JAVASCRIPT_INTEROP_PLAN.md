@@ -928,23 +928,25 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ✅ **Multiple pattern support**: Fixed `".js" | "js" =>` syntax by converting to separate match arms
 - ✅ **Struct field pub modifiers**: Removed unsupported `pub` modifiers from struct fields  
 - ✅ **Method resolution for local types**: Logger::new() and similar static methods now work correctly
+- ✅ **Struct-like enum pattern parsing**: Fixed parser bug where `match cmd { ... }` was incorrectly treated as struct initialization
 
-**Remaining Blockers:**
-- ❌ **Struct-like enum pattern parsing with imports**: Parser fails with "Expected ':' after field name" when parsing `Command::Process { input: input, output: output, options: options }` in files with local module imports
+**Remaining Issues:**
 - ❌ **Rest patterns in destructuring**: `{ input, output, .. }` syntax not supported - must use explicit field listing
 - ❌ **Shorthand field syntax**: `{ input, output }` not supported - must use `{ input: input, output: output }`
+- ❌ **Method resolution for generic types**: `Vec<string>::len()` not supported yet
+- ❌ **Type inference for struct-like enum patterns**: Semantic analyzer reports "Pattern type mismatch: expected Command, found unit"
 
-**Technical Details:**
-- The enum pattern parsing issue specifically occurs when local imports (`use local::`) are present
-- Simple enum patterns work fine: `Command::Help =>`
-- Complex struct-like patterns fail: `Command::Process { input: input, output: output, options: options } =>`
-- Error location: character 20 in the pattern, pointing to the first `:` after `input`
-- This suggests a parser state issue when processing imports followed by pattern matching
+**Parser Fix Details:**
+- **Root Cause**: The `lookahead_for_struct_initialization` function failed to check if the preceding token was `match`
+- **Solution**: Added `TokenKind::Match` to the list of tokens that prevent struct initialization interpretation
+- **Result**: Parser now correctly parses `match cmd {` as the start of match arms, not struct initialization
+- **Code Location**: Modified `lookahead_for_struct_initialization` in parser.rs to include match token check
 
 **Current State:**
-- CLI tool files have been cleaned up to remove multiple patterns and pub field modifiers
-- Core parsing still blocked by struct-like enum pattern issue with imports
-- All syntax fixes have been applied, but fundamental parser limitation remains
+- Parser successfully handles struct-like enum patterns in match expressions
+- CLI tool files can now be parsed without syntax errors
+- Semantic analysis phase needs work for proper type inference
+- Basic transpilation possible but blocked by semantic errors
 
 ### Next Steps
 1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
@@ -952,9 +954,11 @@ The transpiler was incorrectly including the imported item name in the module pa
 3. ~~Fix use statements with :: syntax for external modules~~ ✅ DONE!
 4. ~~Enforce comma rules for match arms~~ ✅ DONE!
 5. ~~Fix multiple pattern syntax and struct field pub modifiers~~ ✅ DONE!
-6. **Fix struct-like enum pattern parsing with local imports** 🔄 HIGH PRIORITY
-7. Implement rest patterns (`..`) and shorthand field syntax
-8. Complete comprehensive CLI tool example
+6. ~~Fix struct-like enum pattern parsing~~ ✅ DONE!
+7. Fix type inference for struct-like enum patterns in semantic analyzer
+8. Implement method resolution for generic types (Vec<T>, etc.)
+9. Implement rest patterns (`..`) and shorthand field syntax
+10. Complete comprehensive CLI tool example
 
 ## Conclusion
 
