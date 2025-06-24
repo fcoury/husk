@@ -1,0 +1,19 @@
+// Test object literal with await
+
+extern fn fetch(url: string, options: Object) -> Promise<Response>;
+extern type Object;
+extern type Promise<T>;
+extern type Response;
+
+async fn test() {
+    // Await with object literal as variable
+    let options = { method: "GET" };
+    let r1 = fetch("url", options).await;
+    
+    // Await with inline object literal
+    let r2 = fetch("url", { method: "POST", headers: { "Content-Type": "application/json" } }).await;
+}
+
+fn main() {
+    println("Test object literal with await");
+}

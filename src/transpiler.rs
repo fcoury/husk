@@ -1213,6 +1213,28 @@ impl AstVisitor<String> for JsTranspiler {
             }).collect::<Vec<_>>().join(", ")
         ))
     }
+
+    fn visit_object_literal(&mut self, fields: &[(String, Expr)], _span: &Span) -> Result<String> {
+        let mut field_strings = Vec::new();
+        
+        for (key, value) in fields {
+            let value_str = self.visit_expr(value)?;
+            
+            // Check if the key needs to be quoted (if it's not a valid JS identifier)
+            let key_str = if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') 
+                && key.chars().next().map_or(false, |c| c.is_alphabetic() || c == '_' || c == '$') {
+                // Valid identifier, no quotes needed
+                key.clone()
+            } else {
+                // Need to quote the key
+                format!("\"{}\"", key.replace('\"', "\\\""))
+            };
+            
+            field_strings.push(format!("{}: {}", key_str, value_str));
+        }
+        
+        Ok(format!("{{ {} }}", field_strings.join(", ")))
+    }
 }
 
 impl JsTranspiler {

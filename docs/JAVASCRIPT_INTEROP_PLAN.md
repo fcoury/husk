@@ -809,12 +809,12 @@ Successfully built a CLI tool example to test JavaScript interop features:
 - ❌ **Multiple patterns in match arms**: `"a" | "b" | "c" =>` not supported
 - ❌ **Tuple destructuring in for loops**: `for (key, value) in map` not supported
 - ✅ **Local module imports**: ~~`use local::module` not implemented~~ NOW WORKING!
-- ❌ **Object literal syntax**: `{ key: value }` for JavaScript API options not supported
+- ✅ **Object literal syntax**: ~~`{ key: value }` for JavaScript API options not supported~~ NOW WORKING!
 - ❌ **Reference operator**: `&` for borrowing not implemented (removed from scope)
 - ❌ **Mutable variables**: `mut` keyword not implemented (removed from scope)
 - ✅ **Proper Result/Option JS format**: ~~Currently generates `{ Ok: value }` instead of `{ type: 'Ok', value }`~~ NOW FIXED!
-- ❌ **Escape sequences in strings**: `\n`, `\t`, `\"` not supported in string literals
-- ⏳ **Tuple patterns in match**: `match (x, y) { ... }` - tuple expressions work, but pattern matching not yet supported
+- ✅ **Escape sequences in strings**: ~~`\n`, `\t`, `\"` not supported in string literals~~ NOW WORKING!
+- ✅ **Tuple patterns in match**: ~~`match (x, y) { ... }` - tuple expressions work, but pattern matching not yet supported~~ NOW FULLY WORKING!
 - ✅ **Method calls with self**: ~~Methods require explicit self argument (e.g., `counter.increment(counter)`)~~ NOW FIXED!
 
 **Current State:**

@@ -1,0 +1,27 @@
+// Simple test for object literal syntax
+
+fn main() {
+    // Simple object literal
+    let person = { name: "Alice", age: 30 };
+    println("Created object literal");
+    
+    // Nested object literal  
+    let config = {
+        server: {
+            host: "localhost",
+            port: 8080
+        },
+        debug: true
+    };
+    println("Created nested object literal");
+    
+    // Object with various types
+    let mixed = {
+        string: "hello",
+        number: 42,
+        float: 3.14,
+        bool: true,
+        array: [1, 2, 3]
+    };
+    println("Created mixed object literal");
+}

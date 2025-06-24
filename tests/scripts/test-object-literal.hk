@@ -1,0 +1,60 @@
+// Test object literal syntax for JavaScript interop
+// This test demonstrates the object literal syntax we want to support
+
+extern fn fetch(url: string, options: Object) -> Promise<Response>;
+extern fn JSON_stringify(value: Object, replacer: Object, space: int) -> string;
+extern fn mkdir(path: string, options: Object) -> Promise<void>;
+
+extern type Object;
+extern type Promise<T>;
+extern type Response;
+
+async fn testFetch() {
+    // Object literal with string values
+    let response = await fetch("https://api.example.com/data", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer token123"
+        },
+        body: JSON_stringify({ name: "John", age: 30 }, null, 2)
+    });
+}
+
+async fn testFilesystem() {
+    // Object literal with boolean values
+    await mkdir("/tmp/test", { recursive: true });
+}
+
+fn testNested() {
+    // Nested object literals
+    let config = {
+        server: {
+            host: "localhost",
+            port: 3000,
+            ssl: false
+        },
+        database: {
+            url: "postgres://localhost:5432/mydb",
+            pool: {
+                min: 2,
+                max: 10
+            }
+        }
+    };
+}
+
+fn testMixed() {
+    // Mixed types in object literal
+    let options = {
+        name: "Test",
+        count: 42,
+        enabled: true,
+        items: ["a", "b", "c"],
+        nested: { x: 1, y: 2 }
+    };
+}
+
+fn main() {
+    println("Object literal tests");
+}

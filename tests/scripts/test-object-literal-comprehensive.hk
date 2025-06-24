@@ -1,0 +1,68 @@
+// Comprehensive test for object literal syntax
+
+extern fn processOptions(opts: Object) -> void;
+extern type Object;
+
+fn main() {
+    // Basic object literal
+    let person = {
+        name: "Alice",
+        age: 30,
+        active: true
+    };
+    processOptions(person);
+    
+    // Nested object literal
+    let config = {
+        server: {
+            host: "localhost",
+            port: 8080,
+            ssl: false
+        },
+        database: {
+            url: "postgres://localhost:5432/mydb",
+            pool: {
+                min: 2,
+                max: 10,
+                timeout: 5000
+            }
+        },
+        features: ["auth", "api", "websocket"]
+    };
+    processOptions(config);
+    
+    // Object with various expression values
+    let x = 10;
+    let y = 20;
+    let dynamic = {
+        sum: x + y,
+        product: x * y,
+        message: format!("Values: {} and {}", x, y),
+        array: [1, 2, 3],
+        tuple: (x, y),
+        condition: x > 5
+    };
+    processOptions(dynamic);
+    
+    // Inline object literal in function call
+    processOptions({
+        inline: true,
+        direct: "call",
+        nested: {
+            level: 2,
+            items: ["a", "b", "c"]
+        }
+    });
+    
+    // Object with keywords as keys
+    let keywords = {
+        type: "special",
+        string: "value",
+        int: 42,
+        bool: true,
+        float: 3.14
+    };
+    processOptions(keywords);
+    
+    println("Object literal tests completed");
+}
