@@ -1,0 +1,12 @@
+enum Cmd {
+    A { x: int },
+}
+
+fn main() {
+    match 1 {
+        Cmd::A { x } => {
+            println("x");
+        }
+        _ => println("other")
+    }
+}

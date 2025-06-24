@@ -1,0 +1,8 @@
+fn main() {
+    let x = 42;
+    
+    match x {
+        42 => println("Found 42"),
+        _ => println("Other")
+    }
+}

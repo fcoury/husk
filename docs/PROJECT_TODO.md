@@ -94,6 +94,8 @@ This document tracks the current development tasks for the Husk programming lang
 
 ### In Progress 🚧
 - 🚧 Fix pattern parsing to correctly handle struct patterns vs expression parsing
+  - Fixed match block parsing to properly consume braces
+  - Investigating issue where `match variable` fails but `match literal` works with enum patterns
 - 🚧 Build example CLI tool using Node.js APIs
 
 ### Pending 📋

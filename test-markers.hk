@@ -1,0 +1,14 @@
+// Line 1
+enum Command {
+    Process { input: string },
+}
+// Line 5
+fn main() {
+    let cmd = 42; // Line 7
+    match cmd { // Line 8
+        Command::Process { input } => { // Line 9
+            println("process"); // Line 10
+        }, // Line 11
+        _ => println("other") // Line 12
+    } // Line 13
+} // Line 14

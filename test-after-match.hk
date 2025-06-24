@@ -1,0 +1,12 @@
+enum Command {
+    Process { input: string },
+}
+
+fn main() {
+    let cmd = 42;
+    match cmd {
+        1 => println("one"),
+        2 => println("two")
+    }
+    println("after match");
+}

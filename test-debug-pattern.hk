@@ -1,0 +1,7 @@
+enum Command {
+    Process { input: string },
+}
+
+fn main() {
+    println("Testing enum pattern");
+}
