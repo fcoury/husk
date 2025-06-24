@@ -1,0 +1,10 @@
+// Test escape sequences in string literals
+
+fn main() {
+    println("Starting escape sequence test");
+    println("Line 1\nLine 2");
+    println("Tab\there");
+    println("Quote: \"Hello\"");
+    println("Backslash: \\");
+    println("Done");
+}
