@@ -44,6 +44,7 @@ pub trait AstVisitor<T> {
             Expr::MethodCall(object, method, args, span) => self.visit_method_call(object, method, args, span),
             Expr::Cast(expr, target_type, span) => self.visit_cast(expr, target_type, span),
             Expr::StructPattern(variant, fields, span) => self.visit_struct_pattern(variant, fields, span),
+            Expr::ObjectLiteral(fields, span) => self.visit_object_literal(fields, span),
         }
     }
 
@@ -132,6 +133,7 @@ pub trait AstVisitor<T> {
     fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_cast(&mut self, expr: &Expr, target_type: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_object_literal(&mut self, fields: &[(String, Expr)], span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
     

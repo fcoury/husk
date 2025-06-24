@@ -43,6 +43,7 @@ pub enum Expr {
     MethodCall(Box<Expr>, String, Vec<Expr>, Span), // object.method(args)
     Cast(Box<Expr>, String, Span), // expr as type
     StructPattern(String, Vec<(String, Option<String>)>, Span), // EnumVariant::Name { field1: var1, field2, ... }
+    ObjectLiteral(Vec<(String, Expr)>, Span), // { key: value, ... }
 }
 
 impl PartialEq for Expr {
@@ -253,6 +254,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::ObjectLiteral(fields, _) => {
+                if let Expr::ObjectLiteral(other_fields, _) = other {
+                    fields == other_fields
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -302,6 +310,7 @@ impl Expr {
             Expr::MethodCall(_, _, _, span) => span.clone(),
             Expr::Cast(_, _, span) => span.clone(),
             Expr::StructPattern(_, _, span) => span.clone(),
+            Expr::ObjectLiteral(_, span) => span.clone(),
         }
     }
 }
@@ -443,6 +452,12 @@ impl fmt::Display for Expr {
                     }
                 }).collect();
                 write!(f, "{} {{ {} }}", variant, field_strings.join(", "))
+            }
+            Expr::ObjectLiteral(fields, _) => {
+                let field_strings: Vec<String> = fields.iter().map(|(key, value)| {
+                    format!("{}: {}", key, value)
+                }).collect();
+                write!(f, "{{ {} }}", field_strings.join(", "))
             }
         }
     }
@@ -858,6 +873,116 @@ impl Parser {
         self.advance(); // Consume '}'
         
         Ok(Expr::Block(statements, Span::new(start_span, end_span)))
+    }
+
+    fn parse_object_literal_or_block(&mut self) -> Result<Expr> {
+        let start_span = self.current_token().span.start;
+        let start_position = self.position;
+        
+        // Look ahead to determine if this is an object literal or a block
+        self.advance(); // Consume '{'
+        
+        // Empty braces could be either an empty object {} or empty block {}
+        // We'll treat it as an empty block for backward compatibility
+        if self.current_token().kind == TokenKind::RBrace {
+            let end_span = self.current_token().span.end;
+            self.advance(); // Consume '}'
+            return Ok(Expr::Block(vec![], Span::new(start_span, end_span)));
+        }
+        
+        // Check if this looks like an object literal
+        // Object literal starts with: identifier/string/type-keyword followed by colon
+        let is_object_literal = match &self.current_token().kind {
+            TokenKind::Identifier(_) | TokenKind::String(_) | TokenKind::Type(_) => {
+                // Look ahead for colon
+                let next_position = self.position + 1;
+                if next_position < self.tokens.len() {
+                    self.tokens[next_position].kind == TokenKind::Colon
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+        
+        if is_object_literal {
+            // Parse as object literal
+            let mut fields = Vec::new();
+            
+            loop {
+                // Parse key
+                let key = match &self.current_token().kind {
+                    TokenKind::Identifier(name) => {
+                        let key = name.clone();
+                        self.advance();
+                        key
+                    }
+                    TokenKind::String(value) => {
+                        let key = value.clone();
+                        self.advance();
+                        key
+                    }
+                    TokenKind::Type(type_name) => {
+                        // Allow type keywords as object keys (e.g., { string: "value" })
+                        let key = type_name.clone();
+                        self.advance();
+                        key
+                    }
+                    _ => {
+                        return Err(Error::new_parse(
+                            "Expected identifier or string as object key".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                };
+                
+                // Expect colon
+                if self.current_token().kind != TokenKind::Colon {
+                    return Err(Error::new_parse(
+                        "Expected ':' after object key".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.advance(); // Consume ':'
+                
+                // Parse value
+                let value = self.parse_expression()?;
+                fields.push((key, value));
+                
+                // Check for comma or end
+                match self.current_token().kind {
+                    TokenKind::Comma => {
+                        self.advance(); // Consume ','
+                        // Allow trailing comma
+                        if self.current_token().kind == TokenKind::RBrace {
+                            break;
+                        }
+                    }
+                    TokenKind::RBrace => break,
+                    _ => {
+                        return Err(Error::new_parse(
+                            "Expected ',' or '}' in object literal".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                }
+            }
+            
+            if self.current_token().kind != TokenKind::RBrace {
+                return Err(Error::new_parse(
+                    "Expected '}' after object literal".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            let end_span = self.current_token().span.end;
+            self.advance(); // Consume '}'
+            
+            Ok(Expr::ObjectLiteral(fields, Span::new(start_span, end_span)))
+        } else {
+            // Reset position and parse as block
+            self.position = start_position;
+            self.parse_block_expression()
+        }
     }
 
     fn expect_token(&mut self, expected: TokenKind) -> Result<()> {
@@ -2729,7 +2854,7 @@ impl Parser {
                     }
                 }
             }
-            TokenKind::LBrace => self.parse_block_expression(),
+            TokenKind::LBrace => self.parse_object_literal_or_block(),
             TokenKind::LParen => {
                 let start_span = span;
                 self.advance(); // Consume '('
@@ -4857,6 +4982,74 @@ mod tests {
                 assert_eq!(name, "fetch_user");
                 // Verify it's a closure
                 assert!(matches!(expr, Expr::Closure(_, _, _, _)));
+            }
+            _ => panic!("Expected Let statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_object_literal() {
+        // Test simple object literal
+        let input = r#"let obj = { name: "John", age: 30 };"#;
+        let ast = parse(input);
+        assert_eq!(ast.len(), 1);
+        match &ast[0] {
+            Stmt::Let(name, expr, _) => {
+                assert_eq!(name, "obj");
+                match expr {
+                    Expr::ObjectLiteral(fields, _) => {
+                        assert_eq!(fields.len(), 2);
+                        assert_eq!(fields[0].0, "name");
+                        assert_eq!(fields[1].0, "age");
+                    }
+                    _ => panic!("Expected ObjectLiteral"),
+                }
+            }
+            _ => panic!("Expected Let statement"),
+        }
+
+        // Test nested object literal
+        let input2 = r#"let config = { server: { host: "localhost", port: 3000 }, debug: true };"#;
+        let ast2 = parse(input2);
+        assert_eq!(ast2.len(), 1);
+        match &ast2[0] {
+            Stmt::Let(name, expr, _) => {
+                assert_eq!(name, "config");
+                match expr {
+                    Expr::ObjectLiteral(fields, _) => {
+                        assert_eq!(fields.len(), 2);
+                        assert_eq!(fields[0].0, "server");
+                        // Check nested object
+                        match &fields[0].1 {
+                            Expr::ObjectLiteral(nested_fields, _) => {
+                                assert_eq!(nested_fields.len(), 2);
+                                assert_eq!(nested_fields[0].0, "host");
+                                assert_eq!(nested_fields[1].0, "port");
+                            }
+                            _ => panic!("Expected nested ObjectLiteral"),
+                        }
+                        assert_eq!(fields[1].0, "debug");
+                    }
+                    _ => panic!("Expected ObjectLiteral"),
+                }
+            }
+            _ => panic!("Expected Let statement"),
+        }
+
+        // Test empty object literal
+        let input3 = "let empty = {};";
+        let ast3 = parse(input3);
+        assert_eq!(ast3.len(), 1);
+        match &ast3[0] {
+            Stmt::Let(name, expr, _) => {
+                assert_eq!(name, "empty");
+                match expr {
+                    Expr::Block(stmts, _) => {
+                        // Empty {} is parsed as empty block for backward compatibility
+                        assert_eq!(stmts.len(), 0);
+                    }
+                    _ => panic!("Expected Block for empty braces"),
+                }
             }
             _ => panic!("Expected Let statement"),
         }

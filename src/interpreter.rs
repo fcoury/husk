@@ -1863,12 +1863,22 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], span: &Span) -> Result<Value> {
+    fn visit_struct_pattern(&mut self, _variant: &str, _fields: &[(String, Option<String>)], span: &Span) -> Result<Value> {
         // Struct patterns are used for pattern matching in match expressions
         // In the interpreter, this should not be directly evaluated as an expression
         // It should only be used in the context of pattern matching
         Err(Error::new_runtime(
             "Struct patterns can only be used in match expressions".to_string(),
+            span.clone(),
+        ))
+    }
+
+    fn visit_object_literal(&mut self, _fields: &[(String, Expr)], span: &Span) -> Result<Value> {
+        // Object literals are primarily for JavaScript interop
+        // In the interpreter, we don't have a direct object type
+        // For now, we'll return an error suggesting to use the transpiler
+        Err(Error::new_runtime(
+            "Object literals are only supported in transpiler mode for JavaScript interop. Use structs for data structures in interpreter mode.".to_string(),
             span.clone(),
         ))
     }

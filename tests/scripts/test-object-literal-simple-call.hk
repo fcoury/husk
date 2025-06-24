@@ -1,0 +1,13 @@
+// Simple test for object literal in function call
+
+extern fn test_func(options: Object) -> void;
+extern type Object;
+
+fn main() {
+    // Test object literal as function argument
+    test_func({ foo: "bar", baz: 42 });
+    
+    // Test in variable first
+    let opts = { key: "value" };
+    test_func(opts);
+}

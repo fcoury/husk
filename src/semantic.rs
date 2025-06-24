@@ -1986,7 +1986,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
     }
 
-    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], _span: &Span) -> Result<Type> {
+    fn visit_struct_pattern(&mut self, _variant: &str, _fields: &[(String, Option<String>)], _span: &Span) -> Result<Type> {
         // Struct patterns are used for pattern matching
         // We need to validate that the variant exists and has the required fields
         // For now, we'll just return Unit type since patterns don't have runtime values
@@ -1996,6 +1996,20 @@ impl AstVisitor<Type> for SemanticVisitor {
         // TODO: Add field variables to scope for the match arm
         
         Ok(Type::Unit)
+    }
+
+    fn visit_object_literal(&mut self, fields: &[(String, Expr)], _span: &Span) -> Result<Type> {
+        // Object literals are untyped JavaScript objects
+        // We type-check all the field values but return a generic Object type
+        
+        for (_key, value) in fields {
+            // Type-check each value expression
+            self.visit_expr(value)?;
+        }
+        
+        // Return a generic Object type
+        // In the future, we could support more specific object types
+        Ok(Type::Unknown)
     }
 }
 
