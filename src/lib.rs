@@ -114,7 +114,7 @@ pub fn execute_script_with_context(
     let ast = parser.parse()?;
 
     // Use visitor pattern for semantic analysis
-    let mut analyzer = SemanticVisitor::new();
+    let mut analyzer = SemanticVisitor::with_context(current_file.clone(), project_root.clone());
     analyzer.analyze(&ast)?;
 
     // Use visitor pattern for interpretation with context

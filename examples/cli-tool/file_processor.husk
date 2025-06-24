@@ -8,11 +8,11 @@ extern type Buffer;
 extern type Stats;
 
 pub struct ProcessingOptions {
-    pub minify: bool,
-    pub transform_type: Option<string>,
-    pub file_filter: Option<string>,
-    pub verbose: bool,
-    pub preserve_structure: bool,
+    minify: bool,
+    transform_type: Option<string>,
+    file_filter: Option<string>,
+    verbose: bool,
+    preserve_structure: bool,
 }
 
 impl ProcessingOptions {

@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
+    lexer::Lexer,
     package_resolver::PackageResolver,
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
+    parser::{Expr, Operator, Parser, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
     span::Span,
     types::{Type, TypeEnvironment},
 };
@@ -20,6 +22,9 @@ pub struct SemanticVisitor {
     imported_names: HashMap<String, Type>,
     in_async_function: bool,
     package_resolver: Option<PackageResolver>,
+    current_file: Option<PathBuf>,
+    project_root: Option<PathBuf>,
+    analyzed_modules: HashMap<PathBuf, ()>, // Cache to avoid circular imports
 }
 
 impl SemanticVisitor {
@@ -34,6 +39,9 @@ impl SemanticVisitor {
             imported_names: HashMap::new(),
             in_async_function: false,
             package_resolver: None,
+            current_file: None,
+            project_root: None,
+            analyzed_modules: HashMap::new(),
         };
         visitor.init_standard_library();
         visitor
@@ -44,6 +52,227 @@ impl SemanticVisitor {
         let mut visitor = Self::new();
         visitor.package_resolver = Some(PackageResolver::from_current_dir()?);
         Ok(visitor)
+    }
+
+    /// Create a new semantic visitor with file context for local module resolution
+    pub fn with_context(current_file: Option<PathBuf>, project_root: Option<PathBuf>) -> Self {
+        let mut visitor = Self::new();
+        visitor.current_file = current_file;
+        visitor.project_root = project_root;
+        visitor
+    }
+
+    /// Resolve the path for a local module
+    fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
+        let module_path = path.segments.join("/") + ".husk";
+        
+        match path.prefix {
+            UsePrefix::Local => {
+                // local:: - from project root or current file's directory
+                match &self.project_root {
+                    Some(root) => Ok(root.join(&module_path)),
+                    None => {
+                        // If no project root, try current file's directory
+                        match &self.current_file {
+                            Some(current) => {
+                                let parent = current.parent().ok_or_else(|| {
+                                    Error::new_semantic(
+                                        "Current file has no parent directory".to_string(),
+                                        *span,
+                                    )
+                                })?;
+                                Ok(parent.join(&module_path))
+                            }
+                            None => Ok(PathBuf::from(&module_path))
+                        }
+                    }
+                }
+            }
+            UsePrefix::Self_ => {
+                // self:: - from current file's directory
+                match &self.current_file {
+                    Some(current) => {
+                        let parent = current.parent().ok_or_else(|| {
+                            Error::new_semantic(
+                                "Current file has no parent directory".to_string(),
+                                *span,
+                            )
+                        })?;
+                        Ok(parent.join(&module_path))
+                    }
+                    None => Err(Error::new_semantic(
+                        "Cannot use self:: imports without current file context".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            UsePrefix::Super(count) => {
+                // super:: - from parent directory
+                match &self.current_file {
+                    Some(current) => {
+                        let mut parent = current.parent().ok_or_else(|| {
+                            Error::new_semantic(
+                                "Current file has no parent directory".to_string(),
+                                *span,
+                            )
+                        })?;
+                        
+                        // Go up 'count' directories
+                        for _ in 0..count {
+                            parent = parent.parent().ok_or_else(|| {
+                                Error::new_semantic(
+                                    "Too many super:: levels, reached filesystem root".to_string(),
+                                    *span,
+                                )
+                            })?;
+                        }
+                        
+                        Ok(parent.join(&module_path))
+                    }
+                    None => Err(Error::new_semantic(
+                        "Cannot use super:: imports without current file context".to_string(),
+                        *span,
+                    )),
+                }
+            }
+            UsePrefix::None => {
+                // Should have been caught earlier
+                Err(Error::new_semantic(
+                    "External packages not supported for local module analysis".to_string(),
+                    *span,
+                ))
+            }
+        }
+    }
+
+    /// Analyze a local module and extract type information
+    fn analyze_local_module(&mut self, module_path: &Path, span: &Span) -> Result<()> {
+        // Avoid circular imports
+        if self.analyzed_modules.contains_key(module_path) {
+            return Ok(());
+        }
+        
+        // Mark as being analyzed
+        self.analyzed_modules.insert(module_path.to_path_buf(), ());
+
+        // Read the file
+        let contents = std::fs::read_to_string(module_path).map_err(|e| {
+            Error::new_semantic(
+                format!("Failed to read module '{}': {}", module_path.display(), e),
+                *span,
+            )
+        })?;
+
+        // Parse the module
+        let mut lexer = Lexer::new(contents);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let stmts = parser.parse().map_err(|e| {
+            Error::new_semantic(
+                format!("Failed to parse module '{}': {}", module_path.display(), e),
+                *span,
+            )
+        })?;
+
+        // Create a new semantic analyzer for the module
+        let mut module_analyzer = SemanticVisitor::with_context(
+            Some(module_path.to_path_buf()),
+            self.project_root.clone(),
+        );
+
+        // Analyze the module and extract type information
+        for stmt in &stmts {
+            module_analyzer.analyze_module_item(stmt)?;
+        }
+
+        // Import the extracted types into our current analyzer
+        self.merge_module_types(&module_analyzer);
+
+        Ok(())
+    }
+
+    /// Analyze a single module item to extract type information
+    fn analyze_module_item(&mut self, stmt: &Stmt) -> Result<()> {
+        match stmt {
+            Stmt::Struct(name, _generics, fields, _span) => {
+                let mut field_types = HashMap::new();
+                for (field_name, field_type) in fields {
+                    field_types.insert(field_name.clone(), 
+                        Type::from_string(field_type).unwrap_or(Type::Unknown));
+                }
+                self.structs.insert(name.clone(), field_types.clone());
+                
+                // Add constructor function
+                let params: Vec<(String, Type)> = fields.iter()
+                    .map(|(field_name, type_str)| (field_name.clone(), 
+                        Type::from_string(type_str).unwrap_or(Type::Unknown)))
+                    .collect();
+                
+                let struct_type = Type::Struct {
+                    name: name.clone(),
+                    fields: params.clone(),
+                };
+                
+                self.functions.insert(
+                    format!("{}::new", name),
+                    (params, struct_type, Span::default()),
+                );
+            }
+            Stmt::Enum(name, _generics, variants, _span) => {
+                let mut variant_types = HashMap::new();
+                for variant in variants {
+                    match variant {
+                        crate::parser::EnumVariant::Unit(variant_name) => {
+                            variant_types.insert(variant_name.clone(), None);
+                        }
+                        crate::parser::EnumVariant::Tuple(variant_name, type_str) => {
+                            let variant_type = Type::from_string(type_str).unwrap_or(Type::Unknown);
+                            variant_types.insert(variant_name.clone(), Some(variant_type));
+                        }
+                        crate::parser::EnumVariant::Struct(variant_name, _fields) => {
+                            // For now, treat struct variants as having no associated type
+                            variant_types.insert(variant_name.clone(), None);
+                        }
+                    }
+                }
+                self.enums.insert(name.clone(), variant_types);
+            }
+            Stmt::Function(_visibility, name, _generics, params, return_type, _body, _span) => {
+                let param_types: Vec<(String, Type)> = params.iter()
+                    .map(|(param_name, param_type)| (
+                        param_name.clone(),
+                        Type::from_string(param_type).unwrap_or(Type::Unknown)
+                    ))
+                    .collect();
+                let ret_type = if return_type.is_empty() {
+                    Type::Unit
+                } else {
+                    Type::from_string(return_type).unwrap_or(Type::Unknown)
+                };
+                self.functions.insert(name.clone(), (param_types, ret_type, Span::default()));
+            }
+            // For other statements, just ignore them for now
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Merge type information from a module analyzer into the current one
+    fn merge_module_types(&mut self, module_analyzer: &SemanticVisitor) {
+        // Merge structs
+        for (name, fields) in &module_analyzer.structs {
+            self.structs.insert(name.clone(), fields.clone());
+        }
+
+        // Merge enums
+        for (name, variants) in &module_analyzer.enums {
+            self.enums.insert(name.clone(), variants.clone());
+        }
+
+        // Merge functions
+        for (name, (params, ret_type, span)) in &module_analyzer.functions {
+            self.functions.insert(name.clone(), (params.clone(), ret_type.clone(), *span));
+        }
     }
     
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
@@ -1740,17 +1969,58 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
             }
             _ => {
-                // Local imports - register as Unknown for now
+                // Local imports - analyze the module to extract type information
+                let module_path = self.resolve_module_path(path, span)?;
+                self.analyze_local_module(&module_path, span)?;
+                
+                // Now register the imported names based on what we found
                 match items {
                     UseItems::Named(imports) => {
                         for (import_name, alias) in imports {
                             let name_to_register = alias.as_ref().unwrap_or(import_name);
-                            self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                            
+                            // Check if it's a struct/enum/function we know about
+                            let imported_type = if let Some(fields) = self.structs.get(import_name) {
+                                Type::Struct {
+                                    name: import_name.clone(),
+                                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                                }
+                            } else if let Some(variants) = self.enums.get(import_name) {
+                                Type::Enum {
+                                    name: import_name.clone(),
+                                    variants: variants.clone(),
+                                }
+                            } else if self.functions.contains_key(import_name) {
+                                let (_, ret_type, _) = self.functions.get(import_name).unwrap();
+                                ret_type.clone()
+                            } else {
+                                Type::Unknown
+                            };
+                            
+                            self.imported_names.insert(name_to_register.clone(), imported_type);
                         }
                     }
                     UseItems::Single => {
                         if let Some(module_name) = path.segments.last() {
-                            self.imported_names.insert(module_name.clone(), Type::Unknown);
+                            // For single imports, check if it's a known type
+                            let imported_type = if let Some(fields) = self.structs.get(module_name) {
+                                Type::Struct {
+                                    name: module_name.clone(),
+                                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                                }
+                            } else if let Some(variants) = self.enums.get(module_name) {
+                                Type::Enum {
+                                    name: module_name.clone(),
+                                    variants: variants.clone(),
+                                }
+                            } else if self.functions.contains_key(module_name) {
+                                let (_, ret_type, _) = self.functions.get(module_name).unwrap();
+                                ret_type.clone()
+                            } else {
+                                Type::Unknown
+                            };
+                            
+                            self.imported_names.insert(module_name.clone(), imported_type);
                         }
                     }
                     UseItems::All => {
