@@ -285,6 +285,28 @@ impl JsTranspiler {
                 
                 (format!("({})", conditions.join(" && ")), bindings)
             }
+            Expr::StructPattern(variant, fields, _) => {
+                // Handle struct-like enum patterns (e.g., Command::Process { input, output })
+                // Convert :: to . for JavaScript
+                let js_variant = variant.replace("::", ".");
+                
+                // Check if it's the right variant
+                let condition = if variant.contains("::") {
+                    format!("_matched instanceof {}", js_variant)
+                } else {
+                    // For plain struct patterns without enum
+                    "_matched && typeof _matched === 'object'".to_string()
+                };
+                
+                // Generate bindings for fields
+                let mut bindings = String::new();
+                for (field_name, opt_var_name) in fields {
+                    let var_name = opt_var_name.as_ref().unwrap_or(field_name);
+                    bindings.push_str(&format!("const {} = _matched.{};\n", var_name, field_name));
+                }
+                
+                (condition, bindings)
+            }
             _ => ("true".to_string(), String::new()),
         }
     }
@@ -302,18 +324,20 @@ impl JsTranspiler {
         
         // Generate variant constructors
         for variant in variants {
-            let variant_name = match variant {
-                crate::parser::EnumVariant::Unit(name) => name,
-                crate::parser::EnumVariant::Tuple(name, _) => name,
-                crate::parser::EnumVariant::Struct(name, _) => name,
+            let (variant_name, is_unit) = match variant {
+                crate::parser::EnumVariant::Unit(name) => (name, true),
+                crate::parser::EnumVariant::Tuple(name, _) => (name, false),
+                crate::parser::EnumVariant::Struct(name, _) => (name, false),
             };
             
             output.push_str(&format!("{}.{} = class extends {} {{", name, variant_name, name));
             output.push_str(&format!("constructor(value) {{ super('{}', value); }}", variant_name));
             output.push_str("};\n");
             
-            // Generate static instance for variants without data
-            output.push_str(&format!("{}.{} = new {}.{}();\n", name, variant_name, name, variant_name));
+            // Generate static instance only for unit variants (variants without data)
+            if is_unit {
+                output.push_str(&format!("{}.{} = new {}.{}();\n", name, variant_name, name, variant_name));
+            }
         }
         
         output
@@ -545,11 +569,14 @@ impl AstVisitor<String> for JsTranspiler {
     }
 
     fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], _span: &Span) -> Result<String> {
+        // Convert :: to . for JavaScript
+        let js_name = name.replace("::", ".");
+        
         let mut result = String::new();
         result.push_str("(function() {");
         result.push_str(&format!(
             "const __INSTANCE__ = Object.create({}.prototype);",
-            name
+            js_name
         ));
         
         for (field_name, field_expr) in fields {
