@@ -134,7 +134,7 @@ impl FileProcessor {
             if file_stats.isFile() {
                 // Process individual file
                 match self.process_file(input_file_path, output_file_path, logger).await {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(_) => {
                         // Continue processing other files even if one fails
                         continue;
@@ -181,16 +181,28 @@ impl FileProcessor {
         let transform_type = self.options.transform_type.clone().unwrap_or(file_ext);
         
         match transform_type.as_str() {
-            ".js" | "js" => {
+            ".js" => {
                 result = self.transform_javascript(result)?;
             }
-            ".css" | "css" => {
+            "js" => {
+                result = self.transform_javascript(result)?;
+            }
+            ".css" => {
                 result = self.transform_css(result)?;
             }
-            ".html" | "html" => {
+            "css" => {
+                result = self.transform_css(result)?;
+            }
+            ".html" => {
                 result = self.transform_html(result)?;
             }
-            ".json" | "json" => {
+            "html" => {
+                result = self.transform_html(result)?;
+            }
+            ".json" => {
+                result = self.transform_json(result)?;
+            }
+            "json" => {
                 result = self.transform_json(result)?;
             }
             _ => {
@@ -260,19 +272,37 @@ impl FileProcessor {
         let result = content;
         
         match file_type.as_str() {
-            ".js" | "js" => {
+            ".js" => {
                 // Remove single-line comments
                 result = self.remove_js_comments(result);
                 // Remove extra whitespace
                 result = self.compress_whitespace(result);
             }
-            ".css" | "css" => {
+            "js" => {
+                // Remove single-line comments
+                result = self.remove_js_comments(result);
+                // Remove extra whitespace
+                result = self.compress_whitespace(result);
+            }
+            ".css" => {
                 // Remove CSS comments
                 result = self.remove_css_comments(result);
                 // Remove extra whitespace
                 result = self.compress_whitespace(result);
             }
-            ".html" | "html" => {
+            "css" => {
+                // Remove CSS comments
+                result = self.remove_css_comments(result);
+                // Remove extra whitespace
+                result = self.compress_whitespace(result);
+            }
+            ".html" => {
+                // Remove HTML comments
+                result = self.remove_html_comments(result);
+                // Remove extra whitespace between tags
+                result = self.compress_html_whitespace(result);
+            }
+            "html" => {
                 // Remove HTML comments
                 result = self.remove_html_comments(result);
                 // Remove extra whitespace between tags
@@ -358,13 +388,13 @@ pub async fn get_file_info(file_path: string) -> Result<FileInfo, string> {
 }
 
 pub struct FileInfo {
-    pub path: string,
-    pub name: string,
-    pub extension: string,
-    pub size: int,
-    pub is_file: bool,
-    pub is_directory: bool,
-    pub modified_time: string, // In practice would be Date type
+    path: string,
+    name: string,
+    extension: string,
+    size: int,
+    is_file: bool,
+    is_directory: bool,
+    modified_time: string, // In practice would be Date type
 }
 
 impl FileInfo {

@@ -922,14 +922,39 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ✅ Type checking validates method arguments properly  
 - ✅ Local module system now fully functional for multi-file projects
 
+### Current CLI Tool Syntax Issues (December 24, 2024) 🔄
+
+**Fixed Issues:**
+- ✅ **Multiple pattern support**: Fixed `".js" | "js" =>` syntax by converting to separate match arms
+- ✅ **Struct field pub modifiers**: Removed unsupported `pub` modifiers from struct fields  
+- ✅ **Method resolution for local types**: Logger::new() and similar static methods now work correctly
+
+**Remaining Blockers:**
+- ❌ **Struct-like enum pattern parsing with imports**: Parser fails with "Expected ':' after field name" when parsing `Command::Process { input: input, output: output, options: options }` in files with local module imports
+- ❌ **Rest patterns in destructuring**: `{ input, output, .. }` syntax not supported - must use explicit field listing
+- ❌ **Shorthand field syntax**: `{ input, output }` not supported - must use `{ input: input, output: output }`
+
+**Technical Details:**
+- The enum pattern parsing issue specifically occurs when local imports (`use local::`) are present
+- Simple enum patterns work fine: `Command::Help =>`
+- Complex struct-like patterns fail: `Command::Process { input: input, output: output, options: options } =>`
+- Error location: character 20 in the pattern, pointing to the first `:` after `input`
+- This suggests a parser state issue when processing imports followed by pattern matching
+
+**Current State:**
+- CLI tool files have been cleaned up to remove multiple patterns and pub field modifiers
+- Core parsing still blocked by struct-like enum pattern issue with imports
+- All syntax fixes have been applied, but fundamental parser limitation remains
+
 ### Next Steps
 1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
 2. ~~Fix pattern parsing issue where match with variable fails but literal works~~ ✅ DONE!
 3. ~~Fix use statements with :: syntax for external modules~~ ✅ DONE!
 4. ~~Enforce comma rules for match arms~~ ✅ DONE!
-5. **Fix local module type inference for CLI tool completion** 🔄 IN PROGRESS
-6. Add support for missing syntactic features (shorthand fields, multiple patterns, etc.)
-7. Complete comprehensive CLI tool example
+5. ~~Fix multiple pattern syntax and struct field pub modifiers~~ ✅ DONE!
+6. **Fix struct-like enum pattern parsing with local imports** 🔄 HIGH PRIORITY
+7. Implement rest patterns (`..`) and shorthand field syntax
+8. Complete comprehensive CLI tool example
 
 ## Conclusion
 

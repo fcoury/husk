@@ -58,7 +58,7 @@ impl CliArgs {
         };
         
         Ok(CliArgs {
-            command: Command::Process { input, output, options }
+            command: Command::Process { input: input, output: output, options: options }
         })
     }
     
@@ -70,7 +70,7 @@ impl CliArgs {
         let path = args[2].clone();
         
         Ok(CliArgs {
-            command: Command::Analyze { path }
+            command: Command::Analyze { path: path }
         })
     }
     
@@ -82,7 +82,7 @@ impl CliArgs {
         let directory = args[2].clone();
         
         Ok(CliArgs {
-            command: Command::Watch { directory }
+            command: Command::Watch { directory: directory }
         })
     }
 }
@@ -91,7 +91,7 @@ impl CliArgs {
 impl Command {
     pub fn validate(self) -> Result<(), string> {
         match self {
-            Command::Process { input, output, .. } => {
+            Command::Process { input: input, output: output, options: options } => {
                 if input.len() == 0 {
                     return Err("Input path cannot be empty");
                 }
@@ -103,13 +103,13 @@ impl Command {
                 }
                 return Ok(());
             }
-            Command::Analyze { path } => {
+            Command::Analyze { path: path } => {
                 if path.len() == 0 {
                     return Err("Analysis path cannot be empty");
                 }
                 return Ok(());
             }
-            Command::Watch { directory } => {
+            Command::Watch { directory: directory } => {
                 if directory.len() == 0 {
                     return Err("Watch directory cannot be empty");
                 }
@@ -121,9 +121,9 @@ impl Command {
     
     pub fn description(self) -> string {
         match self {
-            Command::Process { .. } => "Process files from input to output location",
-            Command::Analyze { .. } => "Analyze directory structure and file statistics",
-            Command::Watch { .. } => "Watch directory for file system changes",
+            Command::Process { input: input, output: output, options: options } => "Process files from input to output location",
+            Command::Analyze { path: path } => "Analyze directory structure and file statistics",
+            Command::Watch { directory: directory } => "Watch directory for file system changes",
             Command::Help => "Display help information",
         }
     }
