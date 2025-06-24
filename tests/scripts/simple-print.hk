@@ -1,0 +1,5 @@
+println("Hello from top level");
+
+fn main() {
+    println("Hello from main");
+}

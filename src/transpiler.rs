@@ -346,7 +346,16 @@ impl AstVisitor<String> for JsTranspiler {
     }
 
     fn visit_string(&mut self, value: &str, _span: &Span) -> Result<String> {
-        Ok(format!("\"{}\"", value))
+        // Escape special characters for JavaScript string literals
+        let escaped = value
+            .replace('\\', "\\\\")  // Backslash must be escaped first
+            .replace('\"', "\\\"")  // Escape double quotes
+            .replace('\n', "\\n")   // Escape newlines
+            .replace('\r', "\\r")   // Escape carriage returns
+            .replace('\t', "\\t")   // Escape tabs
+            .replace('\0', "\\0");  // Escape null bytes
+        
+        Ok(format!("\"{}\"", escaped))
     }
 
     fn visit_bool(&mut self, value: bool, _span: &Span) -> Result<String> {

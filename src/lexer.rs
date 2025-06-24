@@ -482,16 +482,40 @@ impl Lexer {
     }
 
     fn read_string(&mut self) -> Token {
-        self.read_char();
-        let position = self.position;
+        self.read_char(); // Skip opening quote
+        let mut string = String::new();
+        
         while let Some(c) = self.ch {
             if c == '"' {
                 break;
+            } else if c == '\\' {
+                // Handle escape sequences
+                self.read_char(); // Consume backslash
+                match self.ch {
+                    Some('n') => string.push('\n'),
+                    Some('t') => string.push('\t'),
+                    Some('r') => string.push('\r'),
+                    Some('\\') => string.push('\\'),
+                    Some('"') => string.push('"'),
+                    Some('\'') => string.push('\''),
+                    Some('0') => string.push('\0'),
+                    Some(ch) => {
+                        // Unknown escape sequence, just include as-is
+                        string.push('\\');
+                        string.push(ch);
+                    }
+                    None => {
+                        // String ended with backslash
+                        string.push('\\');
+                        break;
+                    }
+                }
+            } else {
+                string.push(c);
             }
             self.read_char();
         }
 
-        let string = self.input[position..self.position].to_string();
         self.create_token(TokenKind::String(string))
     }
 

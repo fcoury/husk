@@ -1,0 +1,5 @@
+// Test escape sequences in string literals
+println("Line 1\nLine 2");
+println("Tab\there");
+println("Quote: \"Hello\"");
+println("Backslash: \\");

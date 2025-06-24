@@ -812,14 +812,17 @@ Successfully built a CLI tool example to test JavaScript interop features:
 - ❌ **Object literal syntax**: `{ key: value }` for JavaScript API options not supported
 - ❌ **Reference operator**: `&` for borrowing not implemented (removed from scope)
 - ❌ **Mutable variables**: `mut` keyword not implemented (removed from scope)
-- ❌ **Proper Result/Option JS format**: Currently generates `{ Ok: value }` instead of `{ type: 'Ok', value }`
+- ✅ **Proper Result/Option JS format**: ~~Currently generates `{ Ok: value }` instead of `{ type: 'Ok', value }`~~ NOW FIXED!
 - ❌ **Escape sequences in strings**: `\n`, `\t`, `\"` not supported in string literals
-- ❌ **Tuple patterns in match**: `match (x, y) { ... }` not supported
-- ❌ **Method calls with self**: Methods require explicit self argument (e.g., `counter.increment(counter)`)
+- ⏳ **Tuple patterns in match**: `match (x, y) { ... }` - tuple expressions work, but pattern matching not yet supported
+- ✅ **Method calls with self**: ~~Methods require explicit self argument (e.g., `counter.increment(counter)`)~~ NOW FIXED!
 
 **Current State:**
 - Basic transpilation pipeline is functional
 - Simple async Husk programs can be compiled to JavaScript
+- Tuple expressions are supported: `let t = (1, 2, 3)`
+- Tuples transpile to JavaScript arrays
+- Full tuple pattern matching in match expressions requires additional work
 - Generated JavaScript runs successfully with Node.js
 - ✅ Local module imports now working! (`use local::module_name` generates correct ES6 imports)
 - Can compile multi-file projects with proper import/export statements
