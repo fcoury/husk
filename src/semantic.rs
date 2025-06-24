@@ -25,6 +25,7 @@ pub struct SemanticVisitor {
     current_file: Option<PathBuf>,
     project_root: Option<PathBuf>,
     analyzed_modules: HashMap<PathBuf, ()>, // Cache to avoid circular imports
+    current_impl_type: Option<String>, // Track the current type being impl'd for Self resolution
 }
 
 impl SemanticVisitor {
@@ -42,6 +43,7 @@ impl SemanticVisitor {
             current_file: None,
             project_root: None,
             analyzed_modules: HashMap::new(),
+            current_impl_type: None,
         };
         visitor.init_standard_library();
         visitor
@@ -1052,12 +1054,27 @@ impl AstVisitor<Type> for SemanticVisitor {
     fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> Result<Type> {
         // This handles both enum variant construction and method calls
         if let Expr::Identifier(type_name, _) = target {
+            // Handle Self:: calls
+            let resolved_type_name = if type_name == "Self" {
+                match &self.current_impl_type {
+                    Some(impl_type) => impl_type.clone(),
+                    None => {
+                        return Err(Error::new_semantic(
+                            "Self can only be used inside impl blocks".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+            } else {
+                type_name.clone()
+            };
+            
             // Check if it's an imported type - but don't return Unknown yet!
             // We still need to check for method calls on imported types
-            let _is_imported = self.imported_names.contains_key(type_name);
+            let _is_imported = self.imported_names.contains_key(&resolved_type_name);
             
             // Check if it's an enum variant
-            if let Some(enum_variants) = self.enums.get(type_name).cloned() {
+            if let Some(enum_variants) = self.enums.get(&resolved_type_name).cloned() {
                 if let Some(variant_type) = enum_variants.get(call) {
                     match variant_type {
                         Some(associated_type) => {
@@ -1065,20 +1082,20 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' expects 1 argument, but {} were provided",
-                                        type_name, call, args.len()
+                                        resolved_type_name, call, args.len()
                                     ),
                                     *span,
                                 ));
                             }
                             let arg_type = self.visit_expr(&args[0])?;
                             // For built-in generic enums (Option, Result), accept any type
-                            if (type_name == "Option" || type_name == "Result") && *associated_type == Type::Unknown {
+                            if (resolved_type_name == "Option" || resolved_type_name == "Result") && *associated_type == Type::Unknown {
                                 // Accept any type for generic built-in enums
                             } else if arg_type != *associated_type {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' expects {}, found {}",
-                                        type_name, call, associated_type.to_string(), arg_type.to_string()
+                                        resolved_type_name, call, associated_type.to_string(), arg_type.to_string()
                                     ),
                                     *span,
                                 ));
@@ -1089,7 +1106,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' takes no arguments, but {} were provided",
-                                        type_name, call, args.len()
+                                        resolved_type_name, call, args.len()
                                     ),
                                     *span,
                                 ));
@@ -1097,14 +1114,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                         }
                     }
                     return Ok(Type::Enum {
-                        name: type_name.clone(),
+                        name: resolved_type_name.clone(),
                         variants: HashMap::new(), // Variants stored separately
                     });
                 }
             }
 
             // Check if it's a method call
-            let method_name = format!("{}::{}", type_name, call);
+            let method_name = format!("{}::{}", resolved_type_name, call);
             if let Some((param_types, return_type, _)) = self.functions.get(&method_name).cloned() {
                 // Check arguments
                 if args.len() != param_types.len() {
@@ -1318,8 +1335,12 @@ impl AstVisitor<Type> for SemanticVisitor {
     }
 
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], _span: &Span) -> Result<Type> {
+        // Set current impl type for Self resolution
+        self.current_impl_type = Some(struct_name.to_string());
+        
+        // First pass: register all method signatures
         for method in methods {
-            if let Stmt::Function(_, name, _, params, return_type, body, method_span) = method {
+            if let Stmt::Function(_, name, _, params, return_type, _body, method_span) = method {
                 // Convert parameter types
                 let mut param_types: Vec<(String, Type)> = vec![];
                 
@@ -1360,7 +1381,12 @@ impl AstVisitor<Type> for SemanticVisitor {
                     format!("{}::{}", struct_name, name),
                     (param_types.clone(), ret_type.clone(), *method_span),
                 );
-                
+            }
+        }
+        
+        // Second pass: analyze method bodies
+        for method in methods {
+            if let Stmt::Function(_, name, _, params, return_type, body, method_span) = method {
                 // Now analyze the method body just like a regular function
                 self.visit_function(
                     &format!("{}::{}", struct_name, name),
@@ -1373,6 +1399,9 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
         }
 
+        // Clear current impl type
+        self.current_impl_type = None;
+        
         Ok(Type::Unit)
     }
 

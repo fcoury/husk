@@ -180,7 +180,7 @@ impl FileProcessor {
         let file_ext = extname(file_path);
         let transform_type = self.options.transform_type.clone().unwrap_or(file_ext);
         
-        match transform_type.as_str() {
+        match transform_type {
             ".js" => {
                 result = self.transform_javascript(result)?;
             }
@@ -271,7 +271,7 @@ impl FileProcessor {
         // Simple minification (remove extra whitespace and comments)
         let result = content;
         
-        match file_type.as_str() {
+        match file_type {
             ".js" => {
                 // Remove single-line comments
                 result = self.remove_js_comments(result);

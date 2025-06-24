@@ -953,25 +953,33 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ✅ All syntax issues resolved (multiple patterns, pub modifiers, return semicolons)
 - ✅ Parser successfully handles all language constructs
 - ✅ Semantic analysis passes (no type errors for basic constructs)
-- 🔄 Minor adjustments needed for string methods (clone, as_str)
+- ✅ String method issues resolved (removed unnecessary clone/as_str calls)
+- ✅ Self:: method resolution implemented for impl blocks
 
 **Remaining Tasks:**
-- ❌ **Type inference for enum patterns**: Pattern matching needs better type inference
-- ❌ **String method support**: Need to add clone() or adjust code to not use it
+- 🔄 **Type inference for Result/Option**: Match arms returning implicit Result types need better inference
 - ❌ **Rest patterns**: `{ input, output, .. }` syntax not yet supported
 - ❌ **Shorthand fields**: `{ input, output }` syntax not yet supported
 
-**Parser Fix Details:**
-- **Root Cause**: The `lookahead_for_struct_initialization` function failed to check if the preceding token was `match`
-- **Solution**: Added `TokenKind::Match` to the list of tokens that prevent struct initialization interpretation
-- **Result**: Parser now correctly parses `match cmd {` as the start of match arms, not struct initialization
-- **Code Location**: Modified `lookahead_for_struct_initialization` in parser.rs to include match token check
+**Technical Fix Details:**
+
+1. **Parser Lookahead Fix**:
+   - **Root Cause**: The `lookahead_for_struct_initialization` function failed to check if the preceding token was `match`
+   - **Solution**: Added `TokenKind::Match` to the list of tokens that prevent struct initialization interpretation
+   - **Result**: Parser now correctly parses `match cmd {` as the start of match arms, not struct initialization
+   - **Code Location**: Modified `lookahead_for_struct_initialization` in parser.rs to include match token check
+
+2. **Self:: Method Resolution**:
+   - **Root Cause**: `Self::method()` calls were not resolved because the semantic analyzer didn't track the current impl type
+   - **Solution**: Added `current_impl_type: Option<String>` to track which type is being implemented
+   - **Implementation**: Modified `visit_impl` to use two-pass approach - first register all method signatures, then analyze bodies
+   - **Result**: `Self::parse_process_command(args)` now correctly resolves to `CliArgs::parse_process_command(args)`
 
 **Current State:**
 - Parser successfully handles struct-like enum patterns in match expressions
 - CLI tool files can now be parsed without syntax errors
-- Semantic analysis phase needs work for proper type inference
-- Basic transpilation possible but blocked by semantic errors
+- Self:: method resolution working inside impl blocks
+- Minor type inference issues remain for implicit Result types
 
 ### Next Steps
 1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
@@ -982,8 +990,8 @@ The transpiler was incorrectly including the imported item name in the module pa
 6. ~~Fix struct-like enum pattern parsing~~ ✅ DONE!
 7. ~~Implement method resolution for generic types (Vec<T>, etc.)~~ ✅ DONE!
 8. ~~Fix struct field type mismatch for imported enum types~~ ✅ DONE!
-9. Fix type inference for struct-like enum patterns in semantic analyzer (HIGH PRIORITY)
-10. Implement string methods (clone, as_str) or adjust CLI tool code
+9. ~~Fix Self:: method resolution in impl blocks~~ ✅ DONE!
+10. Fix type inference for implicit Result/Option variants in match arms (HIGH PRIORITY)
 11. Test CLI tool transpilation to JavaScript
 12. Implement rest patterns (`..`) and shorthand field syntax
 13. Complete comprehensive CLI tool example
