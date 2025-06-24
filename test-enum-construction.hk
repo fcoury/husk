@@ -1,0 +1,8 @@
+enum Command {
+    Process { input: string },
+}
+
+fn main() {
+    let cmd = Command::Process { input: "test" };
+    println("Created command");
+}

@@ -1,0 +1,13 @@
+enum Command {
+    Process { input: string },
+}
+
+fn main() {
+    let cmd = Command::Process { input: "test" };
+    
+    match cmd {
+        Command::Process { input } => {
+            println("Got: {}", input);
+        },
+    }
+}
