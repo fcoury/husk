@@ -971,10 +971,11 @@ The transpiler was incorrectly including the imported item name in the module pa
 4. ~~Enforce comma rules for match arms~~ ✅ DONE!
 5. ~~Fix multiple pattern syntax and struct field pub modifiers~~ ✅ DONE!
 6. ~~Fix struct-like enum pattern parsing~~ ✅ DONE!
-7. Fix type inference for struct-like enum patterns in semantic analyzer
-8. Implement method resolution for generic types (Vec<T>, etc.)
-9. Implement rest patterns (`..`) and shorthand field syntax
-10. Complete comprehensive CLI tool example
+7. ~~Implement method resolution for generic types (Vec<T>, etc.)~~ ✅ DONE!
+8. Fix struct field type mismatch for imported enum types (HIGH PRIORITY)
+9. Fix type inference for struct-like enum patterns in semantic analyzer
+10. Implement rest patterns (`..`) and shorthand field syntax
+11. Complete comprehensive CLI tool example
 
 ## Conclusion
 
