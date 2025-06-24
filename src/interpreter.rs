@@ -1304,6 +1304,33 @@ impl AstVisitor<Value> for InterpreterVisitor {
                         false
                     }
                 }
+                Expr::StructPattern(pattern_name, fields, _) => {
+                    if let Value::StructInstance(struct_name, struct_fields) = &match_value {
+                        if pattern_name == struct_name {
+                            // Check if all pattern fields exist in struct and bind variables
+                            let mut all_fields_match = true;
+                            for (field_name, var_name) in fields {
+                                if field_name == ".." {
+                                    // Rest pattern - skip remaining fields
+                                    continue;
+                                }
+                                if let Some(field_value) = struct_fields.get(field_name) {
+                                    // Bind the field value to the variable name (or field name if no variable)
+                                    let bind_name = var_name.as_ref().unwrap_or(field_name);
+                                    self.set_var(bind_name.clone(), field_value.clone());
+                                } else {
+                                    all_fields_match = false;
+                                    break;
+                                }
+                            }
+                            all_fields_match
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
                 _ => {
                     // Direct value comparison
                     let pattern_val = self.visit_expr(pattern)?;

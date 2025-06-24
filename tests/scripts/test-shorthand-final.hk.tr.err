@@ -1,0 +1,43 @@
+warning: unused variable: `variant_type`
+    --> src/semantic.rs:1009:29
+     |
+1009 |                 if let Some(variant_type) = enum_variants.get(variant_name) {
+     |                             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_variant_type`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `struct_name`
+    --> src/semantic.rs:1635:53
+     |
+1635 | ...                   Expr::StructPattern(struct_name, fields, _) => {
+     |                                           ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_struct_name`
+
+warning: unused variable: `name`
+    --> src/semantic.rs:1639:73
+     |
+1639 | ...                   if let Some(Some(Type::Struct { name, fields: struct_fields })) = enum_variants.get(call) {
+     |                                                       ^^^^ help: try ignoring the field: `name: _`
+
+warning: unused variable: `struct_name`
+    --> src/semantic.rs:1850:61
+     |
+1850 | ...                   Expr::StructPattern(struct_name, fields, _) => {
+     |                                           ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_struct_name`
+
+warning: fields `name`, `dependencies`, and `peer_dependencies` are never read
+  --> src/package_resolver.rs:49:9
+   |
+48 | pub struct PackageJson {
+   |            ----------- fields in this struct
+49 |     pub name: Option<String>,
+   |         ^^^^
+...
+56 |     pub dependencies: Option<HashMap<String, String>>,
+   |         ^^^^^^^^^^^^
+57 |     #[serde(rename = "peerDependencies")]
+58 |     pub peer_dependencies: Option<HashMap<String, String>>,
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = note: `PackageJson` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` on by default
+

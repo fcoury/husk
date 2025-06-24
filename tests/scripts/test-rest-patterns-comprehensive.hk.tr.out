@@ -1,0 +1,5 @@
+=== Testing Rest Patterns ===
+Server at localhost:8080
+Debug mode: true, Host: localhost
+2D point: (10, 20)
+All rest pattern tests completed!

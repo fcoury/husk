@@ -1,0 +1,21 @@
+struct Config {
+    host: string,
+    port: int,
+    debug: bool,
+}
+
+let config = Config {
+    host: "localhost",
+    port: 8080,
+    debug: true,
+};
+
+println("Testing rest patterns");
+
+// Test rest patterns - need default case for single match
+let result = match config {
+    Config { host, port, .. } => format!("Server: {}:{}", host, port),
+};
+
+println(result);
+println("Rest pattern test completed");
