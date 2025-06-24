@@ -1,0 +1,34 @@
+enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+struct Logger {
+    level: LogLevel,
+}
+
+impl Logger {
+    fn new(level: LogLevel) -> Logger {
+        Logger { level: level }
+    }
+    
+    fn info(self, message: string) {
+        match self.level {
+            LogLevel::Debug => println(format!("[INFO] {}", message)),
+            LogLevel::Info => println(format!("[INFO] {}", message)),
+            LogLevel::Warn => (),
+            LogLevel::Error => ()
+        }
+    }
+    
+    fn error(self, message: string) {
+        match self.level {
+            LogLevel::Debug => println(format!("[ERROR] {}", message)),
+            LogLevel::Info => println(format!("[ERROR] {}", message)),
+            LogLevel::Warn => println(format!("[ERROR] {}", message)),
+            LogLevel::Error => println(format!("[ERROR] {}", message))
+        }
+    }
+}

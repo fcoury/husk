@@ -258,10 +258,27 @@ impl SemanticVisitor {
                 for method in methods {
                     if let Stmt::Function(_visibility, method_name, _generics, params, return_type, _body, _method_span) = method {
                         let param_types: Vec<(String, Type)> = params.iter()
-                            .map(|(param_name, param_type)| (
-                                param_name.clone(),
-                                self.resolve_type_from_module(param_type)
-                            ))
+                            .map(|(param_name, param_type)| {
+                                let resolved_type = if param_name == "self" {
+                                    // For self parameter, use the struct type
+                                    if let Some(fields) = self.structs.get(struct_name) {
+                                        Type::Struct {
+                                            name: struct_name.to_string(),
+                                            fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                                        }
+                                    } else if let Some(variants) = self.enums.get(struct_name) {
+                                        Type::Enum {
+                                            name: struct_name.to_string(),
+                                            variants: variants.clone(),
+                                        }
+                                    } else {
+                                        Type::Unknown
+                                    }
+                                } else {
+                                    self.resolve_type_from_module(param_type)
+                                };
+                                (param_name.clone(), resolved_type)
+                            })
                             .collect();
                         let ret_type = if return_type.is_empty() {
                             Type::Unit
@@ -579,10 +596,17 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         match self.type_env.lookup(name) {
             Some(var_type) => Ok(var_type.clone()),
-            None => Err(Error::new_semantic(
-                format!("Variable '{}' not found in scope", name),
-                *span,
-            )),
+            None => {
+                // Check if it's an imported type
+                if let Some(imported_type) = self.imported_names.get(name) {
+                    Ok(imported_type.clone())
+                } else {
+                    Err(Error::new_semantic(
+                        format!("Variable '{}' not found in scope", name),
+                        *span,
+                    ))
+                }
+            }
         }
     }
 
