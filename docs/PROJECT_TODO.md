@@ -59,8 +59,15 @@ This document tracks the current development tasks for the Husk programming lang
 
 ### Language Features
 - ✅ Support implicit Result/Option variants (Ok, Err, Some, None) without prefix
-- ⏳ Fix return statement parsing inside if blocks
+- ✅ Fix return statement parsing inside if blocks (fixed async function issue)
 - ⏳ Fix transpiler to generate correct Result/Option JavaScript objects
+- ⏳ Add support for object literal syntax { key: value } for JavaScript interop
+- ✅ Fix statement parsing inside if blocks (return, let, etc.)
+- ⏳ Add support for mut keyword for mutable variables
+- ⏳ Fix type inference for implicit Result/Option variants
+- ⏳ Implement shorthand field syntax for struct and enum initialization
+- ⏳ Support multiple patterns with | in match arms
+- ⏳ Support tuple destructuring in for loops
 
 ### Build System
 - ✅ Implement build command for project compilation
@@ -102,6 +109,14 @@ This document tracks the current development tasks for the Husk programming lang
   - Fixed match block parsing to properly consume braces
   - Investigating issue where `match variable` fails but `match literal` works with enum patterns
 - 🚧 Build example CLI tool using Node.js APIs
+  - ✅ Created CLI tool structure with multiple modules
+  - ✅ Implemented extern type declarations
+  - ✅ Added Node.js module imports
+  - ✅ Fixed statement parsing inside if blocks (async function issue)
+  - ✅ Basic transpilation to JavaScript working
+  - ✅ Generated JavaScript runs with Node.js
+  - ⏳ Add object literal support for Node.js API options
+  - ⏳ Fix local module imports
 
 ### Pending 📋
 - 📋 Show clear error for external packages in interpreter mode
@@ -118,6 +133,23 @@ This document tracks the current development tasks for the Husk programming lang
 - 📋 Add error case tests for undefined built-in methods
 - 📋 Add error case tests for circular module dependencies
 - 📋 Create Express web server example in Husk
+
+## Discovered Issues During CLI Tool Development
+
+### Parser Issues
+- ⏳ Fix statement parsing inside if blocks (return statements fail with "Invalid expression statement")
+- ⏳ Fix pattern matching where `match variable` fails but `match literal` works
+- ⏳ Add support for reference operator `&` for borrowing syntax  
+- ⏳ Add support for `mut` keyword for mutable variables
+
+### JavaScript Interop Issues  
+- ⏳ Add support for object literal syntax `{ key: value }` for Node.js API options
+- ⏳ Fix transpiler to generate correct Result/Option JavaScript objects (currently generates `{ Err: value }` instead of `{ type: 'Err', value: value }`)
+- ⏳ Fix use statements with `::` for external modules (e.g., `use fs::promises::readFile`)
+- ⏳ Support local module imports (`use local::module_name`)
+
+### Type System Issues
+- ⏳ Fix type inference for implicit Result/Option variants (Ok/Err without Result:: prefix)
 
 ## Low Priority Tasks
 

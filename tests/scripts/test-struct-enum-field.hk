@@ -1,0 +1,23 @@
+// Test struct with enum variant field
+
+enum Status {
+    Active { since: string },
+    Inactive,
+}
+
+struct User {
+    name: string,
+    status: Status,
+}
+
+fn test() -> User {
+    User {
+        name: "Alice",
+        status: Status::Active { since: "2024-01-01" }
+    }
+}
+
+fn main() {
+    let user = test();
+    println(format!("User: {}", user.name));
+}

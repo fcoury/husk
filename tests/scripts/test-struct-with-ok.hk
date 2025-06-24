@@ -1,0 +1,19 @@
+// Test struct with Ok result
+
+struct Response {
+    result: Result<string, string>,
+}
+
+fn test() -> Response {
+    Response {
+        result: Ok("success")
+    }
+}
+
+fn main() {
+    let resp = test();
+    match resp.result {
+        Ok(msg) => println(format!("Success: {}", msg)),
+        Err(msg) => println(format!("Error: {}", msg)),
+    }
+}

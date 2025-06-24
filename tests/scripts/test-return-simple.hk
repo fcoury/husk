@@ -1,0 +1,19 @@
+// Simple test for return statements
+
+fn test_simple() -> int {
+    return 42;
+}
+
+fn test_result() -> Result<(), string> {
+    return Ok(());
+}
+
+fn main() {
+    let x = test_simple();
+    println(format!("Result: {}", x));
+    
+    match test_result() {
+        Ok(()) => println("test_result passed"),
+        Err(msg) => println(format!("test_result failed: {}", msg)),
+    }
+}

@@ -1,0 +1,29 @@
+// Test empty if block followed by return
+
+fn test1() -> Result<(), string> {
+    let x = true;
+    if x {
+        // Empty block
+    }
+    return Ok(());
+}
+
+fn test2() -> Result<(), string> {
+    let x = false;
+    if !x {
+        // TODO: something
+    }
+    return Ok(());
+}
+
+fn main() {
+    match test1() {
+        Ok(()) => println("test1 passed"),
+        Err(msg) => println(format!("test1 failed: {}", msg)),
+    }
+    
+    match test2() {
+        Ok(()) => println("test2 passed"), 
+        Err(msg) => println(format!("test2 failed: {}", msg)),
+    }
+}

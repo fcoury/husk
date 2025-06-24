@@ -24,7 +24,7 @@ pub struct CliArgs {
 impl CliArgs {
     pub fn parse(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 2 {
-            return Result::Ok(CliArgs { command: Command::Help });
+            return Ok(CliArgs { command: Command::Help });
         }
         
         let command_name = args[1].clone();
@@ -33,14 +33,16 @@ impl CliArgs {
             "process" => Self::parse_process_command(args),
             "analyze" => Self::parse_analyze_command(args),
             "watch" => Self::parse_watch_command(args),
-            "help" | "--help" | "-h" => Result::Ok(CliArgs { command: Command::Help }),
-            _ => Result::Err(format!("Unknown command: {}", command_name)),
+            "help" => Ok(CliArgs { command: Command::Help }),
+            "--help" => Ok(CliArgs { command: Command::Help }),
+            "-h" => Ok(CliArgs { command: Command::Help }),
+            _ => Err(format!("Unknown command: {}", command_name)),
         }
     }
     
     fn parse_process_command(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 4 {
-            return Result::Err("process command requires: husk-cli process <input> <output>");
+            return Err("process command requires: husk-cli process <input> <output>");
         }
         
         let input = args[2].clone();
@@ -62,7 +64,7 @@ impl CliArgs {
                         options.transform_type = Some(args[i + 1].clone());
                         i = i + 1;
                     } else {
-                        return Result::Err("--transform requires a value");
+                        return Err("--transform requires a value");
                     }
                 },
                 "--filter" => {
@@ -70,46 +72,49 @@ impl CliArgs {
                         options.file_filter = Some(args[i + 1].clone());
                         i = i + 1;
                     } else {
-                        return Result::Err("--filter requires a pattern");
+                        return Err("--filter requires a pattern");
                     }
                 },
-                "--verbose" | "-v" => {
+                "--verbose" => {
+                    options.verbose = true;
+                },
+                "-v" => {
                     options.verbose = true;
                 },
                 _ => {
-                    return Result::Err(format!("Unknown option: {}", arg));
+                    return Err("Unknown option");
                 }
             }
             
             i = i + 1;
         }
         
-        Result::Ok(CliArgs {
-            command: Command::Process { input, output, options }
+        Ok(CliArgs {
+            command: Command::Process { input: input, output: output, options: options }
         })
     }
     
     fn parse_analyze_command(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 3 {
-            return Result::Err("analyze command requires: husk-cli analyze <path>");
+            return Err("analyze command requires: husk-cli analyze <path>");
         }
         
         let path = args[2].clone();
         
-        Result::Ok(CliArgs {
-            command: Command::Analyze { path }
+        Ok(CliArgs {
+            command: Command::Analyze { path: path }
         })
     }
     
     fn parse_watch_command(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 3 {
-            return Result::Err("watch command requires: husk-cli watch <directory>");
+            return Err("watch command requires: husk-cli watch <directory>");
         }
         
         let directory = args[2].clone();
         
-        Result::Ok(CliArgs {
-            command: Command::Watch { directory }
+        Ok(CliArgs {
+            command: Command::Watch { directory: directory }
         })
     }
 }
@@ -120,29 +125,29 @@ impl Command {
         match self {
             Command::Process { input, output, .. } => {
                 if input.len() == 0 {
-                    return Result::Err("Input path cannot be empty");
+                    return Err("Input path cannot be empty");
                 }
                 if output.len() == 0 {
-                    return Result::Err("Output path cannot be empty");
+                    return Err("Output path cannot be empty");
                 }
                 if input == output {
-                    return Result::Err("Input and output paths cannot be the same");
+                    return Err("Input and output paths cannot be the same");
                 }
-                Result::Ok(())
+    return Ok(());
             },
             Command::Analyze { path } => {
                 if path.len() == 0 {
-                    return Result::Err("Analysis path cannot be empty");
+                    return Err("Analysis path cannot be empty");
                 }
-                Result::Ok(())
+    return Ok(());
             },
             Command::Watch { directory } => {
                 if directory.len() == 0 {
-                    return Result::Err("Watch directory cannot be empty");
+                    return Err("Watch directory cannot be empty");
                 }
-                Result::Ok(())
+    return Ok(());
             },
-            Command::Help => Result::Ok(()),
+            Command::Help => return Ok(()),
         }
     }
     

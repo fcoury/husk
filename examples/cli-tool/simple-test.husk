@@ -1,0 +1,28 @@
+// Simple test without local modules
+
+use fs::promises::{readFile, writeFile};
+use process;
+
+pub async fn main() -> Result<(), string> {
+    println("Starting simple test");
+    
+    let args = process.argv;
+    if args.len() < 3 {
+        println("Usage: node main.js <file>");
+        return Err("Not enough arguments");
+    }
+    
+    let filename = args[2].clone();
+    println(format!("Reading file: {}", filename));
+    
+    match readFile(filename, "utf8").await {
+        Ok(content) => {
+            println(format!("File content length: {}", content.len()));
+            return Ok(());
+        },
+        Err(error) => {
+            println(format!("Error reading file: {}", error));
+            return Err("Failed to read file");
+        }
+    }
+}

@@ -1,0 +1,19 @@
+// Test shorthand field syntax
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn test() -> Point {
+    let x = 10;
+    let y = 20;
+    
+    // Test shorthand syntax in struct
+    Point { x, y }
+}
+
+fn main() {
+    let p = test();
+    println(format!("Point: ({}, {})", p.x, p.y));
+}

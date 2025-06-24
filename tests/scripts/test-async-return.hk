@@ -1,0 +1,13 @@
+// Test async function with return statements
+
+async fn test_async_empty_if() -> Result<(), string> {
+    let x = false;
+    if !x {
+        // Empty block
+    }
+    return Ok(());
+}
+
+async fn test_async_simple() -> Result<(), string> {
+    return Ok(());
+}

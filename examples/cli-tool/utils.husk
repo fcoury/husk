@@ -18,7 +18,7 @@ pub struct Logger {
 impl Logger {
     pub fn new(level: LogLevel) -> Logger {
         Logger {
-            level,
+            level: level,
             timestamp: true,
             prefix: "[husk-cli]",
         }
@@ -26,9 +26,9 @@ impl Logger {
     
     pub fn with_prefix(level: LogLevel, prefix: string) -> Logger {
         Logger {
-            level,
+            level: level,
             timestamp: true,
-            prefix,
+            prefix: prefix,
         }
     }
     
@@ -150,18 +150,18 @@ pub fn format_duration(ms: int) -> string {
 
 pub fn validate_path(path: string) -> Result<string, string> {
     if path.len() == 0 {
-        return Result::Err("Path cannot be empty");
+        return Err("Path cannot be empty");
     }
     
     // Check for invalid characters (simplified)
     let invalid_chars = ["<", ">", ":", "\"", "|", "?", "*"];
     for char in invalid_chars {
         if path.contains(char) {
-            return Result::Err(format!("Path contains invalid character: {}", char));
+            return Err("Path contains invalid character");
         }
     }
     
-    Result::Ok(path)
+    Ok(path)
 }
 
 pub fn normalize_path(path: string) -> string {
@@ -245,7 +245,7 @@ impl Timer {
     pub fn start(name: string) -> Timer {
         Timer {
             start_time: Self::current_time_ms(),
-            name,
+            name: name,
         }
     }
     
