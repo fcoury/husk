@@ -1,0 +1,29 @@
+// Test how Result and Option are transpiled to JavaScript
+
+fn test_result() -> Result<int, string> {
+    Ok(42)
+}
+
+fn test_error() -> Result<int, string> {
+    Err("Something went wrong")
+}
+
+fn test_option() -> Option<string> {
+    Some("Hello")
+}
+
+fn test_none() -> Option<string> {
+    None
+}
+
+fn main() {
+    let ok_result = test_result();
+    let err_result = test_error();
+    let some_option = test_option();
+    let none_option = test_none();
+    
+    println(format!("Ok result: {:?}", ok_result));
+    println(format!("Err result: {:?}", err_result));
+    println(format!("Some option: {:?}", some_option));
+    println(format!("None option: {:?}", none_option));
+}

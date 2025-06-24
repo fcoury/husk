@@ -529,11 +529,13 @@ impl AstVisitor<String> for JsTranspiler {
         // Special handling for built-in Option type
         if target_str == "Option" {
             match call {
-                "None" => return Ok("null".to_string()),
+                "None" => return Ok("{ type: 'None', value: null }".to_string()),
                 "Some" => {
                     if !args.is_empty() {
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(arg_str); // Option::Some(x) -> x
+                        return Ok(format!("{{ type: 'Some', value: {} }}", arg_str));
+                    } else {
+                        return Ok("{ type: 'Some', value: undefined }".to_string());
                     }
                 }
                 _ => {}
@@ -546,13 +548,17 @@ impl AstVisitor<String> for JsTranspiler {
                 "Ok" => {
                     if !args.is_empty() {
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ Ok: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Ok', value: {} }}", arg_str));
+                    } else {
+                        return Ok("{ type: 'Ok', value: undefined }".to_string());
                     }
                 }
                 "Err" => {
                     if !args.is_empty() {
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ Err: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Err', value: {} }}", arg_str));
+                    } else {
+                        return Ok("{ type: 'Err', value: undefined }".to_string());
                     }
                 }
                 _ => {}
