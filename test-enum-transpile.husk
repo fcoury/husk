@@ -1,0 +1,14 @@
+enum Command {
+    Exit,
+    Process { input: string, output: string },
+}
+
+fn main() {
+    let cmd1 = Command::Exit;
+    let cmd2 = Command::Process { input: "test.txt", output: "out.txt" };
+    
+    match cmd2 {
+        Command::Exit => println("Exit"),
+        Command::Process { input, output } => println(format!("Process {} to {}", input, output))
+    }
+}
