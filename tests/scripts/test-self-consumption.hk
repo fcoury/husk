@@ -1,0 +1,24 @@
+// Test if self is consumed in method calls
+struct Counter {
+    value: int,
+}
+
+impl Counter {
+    fn increment(self) -> int {
+        self.value + 1
+    }
+    
+    fn get_value(self) -> int {
+        self.value
+    }
+}
+
+fn main() {
+    let counter = Counter { value: 0 };
+    let incremented = counter.increment();
+    println(format!("Incremented: {}", incremented));
+    
+    // Try to use counter again - would fail in Rust
+    let value = counter.get_value();
+    println(format!("Value: {}", value));
+}

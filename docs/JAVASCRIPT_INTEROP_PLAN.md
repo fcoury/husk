@@ -808,23 +808,39 @@ Successfully built a CLI tool example to test JavaScript interop features:
 - ❌ **Shorthand field syntax**: `{ x, y }` not supported (must use `{ x: x, y: y }`)
 - ❌ **Multiple patterns in match arms**: `"a" | "b" | "c" =>` not supported
 - ❌ **Tuple destructuring in for loops**: `for (key, value) in map` not supported
-- ❌ **Local module imports**: `use local::module` not implemented
+- ✅ **Local module imports**: ~~`use local::module` not implemented~~ NOW WORKING!
 - ❌ **Object literal syntax**: `{ key: value }` for JavaScript API options not supported
-- ❌ **Reference operator**: `&` for borrowing not implemented
-- ❌ **Mutable variables**: `mut` keyword not implemented
+- ❌ **Reference operator**: `&` for borrowing not implemented (removed from scope)
+- ❌ **Mutable variables**: `mut` keyword not implemented (removed from scope)
 - ❌ **Proper Result/Option JS format**: Currently generates `{ Ok: value }` instead of `{ type: 'Ok', value }`
+- ❌ **Escape sequences in strings**: `\n`, `\t`, `\"` not supported in string literals
+- ❌ **Tuple patterns in match**: `match (x, y) { ... }` not supported
+- ❌ **Method calls with self**: Methods require explicit self argument (e.g., `counter.increment(counter)`)
 
 **Current State:**
 - Basic transpilation pipeline is functional
 - Simple async Husk programs can be compiled to JavaScript
 - Generated JavaScript runs successfully with Node.js
-- Main blocker for full CLI tool is lack of local module support
+- ✅ Local module imports now working! (`use local::module_name` generates correct ES6 imports)
+- Can compile multi-file projects with proper import/export statements
+
+### Local Module Import Implementation Details
+
+**What was implemented:**
+- Fixed `generate_basic_import` in transpiler.rs to properly handle local imports
+- For `use local::math::add`, now correctly generates `import { add } from './math.js'`
+- Public functions in modules are exported as `export function name()`
+- Module path resolution works with proper `.js` extensions added
+
+**Key fix:**
+The transpiler was incorrectly including the imported item name in the module path. For example, `use local::math::add` was generating `import { add } from './math/add.js'` instead of the correct `import { add } from './math.js'`.
 
 ### Next Steps
-1. Implement local module imports to enable multi-file projects
+1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
 2. Fix Result/Option JavaScript object format for proper interop
-3. Add support for missing syntactic features (shorthand fields, multiple patterns, etc.)
-4. Complete CLI tool example with all features working
+3. Fix method calls to not require explicit self argument
+4. Add support for missing syntactic features (shorthand fields, multiple patterns, etc.)
+5. Complete CLI tool example with all features working
 
 ## Conclusion
 
