@@ -978,6 +978,30 @@ impl AstVisitor<Type> for SemanticVisitor {
     }
 
     fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], span: &Span) -> Result<Type> {
+        // Check if this is an enum variant construction (e.g., Command::Process { ... })
+        if let Some((enum_name, variant_name)) = name.split_once("::") {
+            // Check if it's an enum variant
+            if let Some(enum_variants) = self.enums.get(enum_name) {
+                if let Some(variant_type) = enum_variants.get(variant_name) {
+                    // For struct-like enum variants, we need to check fields
+                    // For now, just visit all field expressions and return the enum type
+                    for (_, field_expr) in fields {
+                        self.visit_expr(field_expr)?;
+                    }
+                    
+                    return Ok(Type::Enum {
+                        name: enum_name.to_string(),
+                        variants: HashMap::new(),
+                    });
+                }
+                
+                return Err(Error::new_semantic(
+                    format!("Enum '{}' has no variant '{}'", enum_name, variant_name),
+                    *span,
+                ));
+            }
+        }
+        
         let struct_fields = match self.structs.get(name) {
             Some(fields) => fields.clone(),
             None => {
@@ -1023,7 +1047,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             };
 
             let field_type = self.visit_expr(field_expr)?;
-            if field_type != expected_type {
+            if !field_type.is_assignable_to(&expected_type) {
                 return Err(Error::new_semantic(
                     format!(
                         "Struct '{}' field '{}' type mismatch: expected {}, found {}",
@@ -1214,25 +1238,61 @@ impl AstVisitor<Type> for SemanticVisitor {
             .map(|(param_name, type_str)| {
                 // Special handling for 'self' parameter
                 if param_name == "self" && name.contains("::") {
-                    // Extract struct name from method name
-                    let struct_name = name.split("::").next().unwrap();
-                    (
-                        param_name.clone(),
+                    // Extract type name from method name
+                    let type_name = name.split("::").next().unwrap();
+                    
+                    // Check if it's a struct or enum
+                    let self_type = if self.structs.contains_key(type_name) {
                         Type::Struct {
-                            name: struct_name.to_string(),
+                            name: type_name.to_string(),
                             fields: vec![], // Fields will be filled in by struct definition
-                        },
-                    )
+                        }
+                    } else if self.enums.contains_key(type_name) {
+                        Type::Enum {
+                            name: type_name.to_string(),
+                            variants: HashMap::new(), // Variants stored separately
+                        }
+                    } else {
+                        Type::Unknown
+                    };
+                    
+                    (param_name.clone(), self_type)
                 } else {
-                    (
-                        param_name.clone(),
-                        Type::from_string(type_str).unwrap_or(Type::Unknown),
-                    )
+                    // Check if the type is a registered enum
+                    let param_type = if self.enums.contains_key(type_str) {
+                        Type::Enum {
+                            name: type_str.to_string(),
+                            variants: HashMap::new(), // Variants stored separately
+                        }
+                    } else if self.structs.contains_key(type_str) {
+                        Type::Struct {
+                            name: type_str.to_string(),
+                            fields: vec![], // Fields stored separately
+                        }
+                    } else {
+                        // Fall back to Type::from_string for built-in types
+                        Type::from_string(type_str).unwrap_or(Type::Unknown)
+                    };
+                    
+                    (param_name.clone(), param_type)
                 }
             })
             .collect();
         
-        let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+        // Parse return type, checking for registered enums
+        let ret_type = if self.enums.contains_key(return_type) {
+            Type::Enum {
+                name: return_type.to_string(),
+                variants: HashMap::new(), // Variants stored separately
+            }
+        } else if self.structs.contains_key(return_type) {
+            Type::Struct {
+                name: return_type.to_string(),
+                fields: vec![], // Fields stored separately
+            }
+        } else {
+            Type::from_string(return_type).unwrap_or(Type::Unknown)
+        };
         
         // Register function signature BEFORE analyzing body to support recursion
         self.functions.insert(
@@ -1248,15 +1308,24 @@ impl AstVisitor<Type> for SemanticVisitor {
         for (param_name, param_type) in &param_types {
             // Special handling for 'self' parameter in methods
             if param_name == "self" {
-                // Extract struct name from method name (e.g., "Point::new" -> "Point")
-                if let Some(struct_name) = name.split("::").next() {
-                    self.type_env.define(
-                        "self".to_string(),
+                // Extract type name from method name (e.g., "Point::new" -> "Point")
+                if let Some(type_name) = name.split("::").next() {
+                    // Check if it's a struct or enum
+                    let self_type = if self.structs.contains_key(type_name) {
                         Type::Struct {
-                            name: struct_name.to_string(),
+                            name: type_name.to_string(),
                             fields: vec![],
-                        },
-                    );
+                        }
+                    } else if self.enums.contains_key(type_name) {
+                        Type::Enum {
+                            name: type_name.to_string(),
+                            variants: HashMap::new(),
+                        }
+                    } else {
+                        Type::Unknown
+                    };
+                    
+                    self.type_env.define("self".to_string(), self_type);
                 }
             } else {
                 self.type_env.define(param_name.clone(), param_type.clone());
@@ -1374,14 +1443,22 @@ impl AstVisitor<Type> for SemanticVisitor {
                 let is_instance_method = !params.is_empty() && params[0].0 == "self";
                 
                 if is_instance_method {
-                    // For instance methods, add the struct type as the first parameter
-                    param_types.push((
-                        "self".to_string(),
+                    // For instance methods, add the appropriate type as the first parameter
+                    let self_type = if self.structs.contains_key(struct_name) {
                         Type::Struct {
                             name: struct_name.to_string(),
                             fields: vec![], // Fields will be filled in by the struct definition
-                        },
-                    ));
+                        }
+                    } else if self.enums.contains_key(struct_name) {
+                        Type::Enum {
+                            name: struct_name.to_string(),
+                            variants: HashMap::new(), // Variants stored separately
+                        }
+                    } else {
+                        Type::Unknown
+                    };
+                    
+                    param_types.push(("self".to_string(), self_type));
                     
                     // Then add remaining parameters
                     for (param_name, param_type_str) in params.iter().skip(1) {
@@ -1587,6 +1664,68 @@ impl AstVisitor<Type> for SemanticVisitor {
                         return Err(Error::new_semantic(
                             format!("Cannot match tuple pattern against non-tuple type {}", 
                                 expr_type.to_string()),
+                            pattern.span(),
+                        ));
+                    }
+                }
+                Expr::StructPattern(pattern_name, fields, _) => {
+                    // Handle struct-like enum variant patterns (e.g., Command::Process { input, output })
+                    if has_wildcard {
+                        return Err(Error::new_semantic(
+                            format!("Unreachable pattern: wildcard already covers this case at arm {}", wildcard_position.unwrap()),
+                            pattern.span(),
+                        ));
+                    }
+                    
+                    // Check if this is an enum variant pattern
+                    if let Some((enum_type_name, variant_name)) = pattern_name.split_once("::") {
+                        // Verify it matches the expression type
+                        if let Type::Enum { name, .. } = &expr_type {
+                            if name != enum_type_name {
+                                return Err(Error::new_semantic(
+                                    format!("Pattern type mismatch: expected {}, found {}", 
+                                        expr_type.to_string(), enum_type_name),
+                                    pattern.span(),
+                                ));
+                            }
+                            
+                            // Track this variant as matched
+                            matched_variants.insert(variant_name.to_string());
+                            
+                            // Look up the variant's field types
+                            let field_types = if let Some(enum_variants) = self.enums.get(enum_type_name) {
+                                if let Some(Some(Type::Struct { fields, .. })) = enum_variants.get(variant_name) {
+                                    // Convert Vec<(String, Type)> to HashMap for easy lookup
+                                    fields.iter().cloned().collect::<HashMap<String, Type>>()
+                                } else {
+                                    HashMap::new()
+                                }
+                            } else {
+                                HashMap::new()
+                            };
+                            
+                            // Bind variables from the struct pattern fields
+                            for (field_name, opt_var_name) in fields {
+                                let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
+                                
+                                if let Some(var_name) = opt_var_name {
+                                    // Field bound to a different variable name
+                                    self.match_bound_vars.insert(var_name.clone(), field_type);
+                                } else {
+                                    // Shorthand: field name is also the variable name
+                                    self.match_bound_vars.insert(field_name.clone(), field_type);
+                                }
+                            }
+                        } else {
+                            return Err(Error::new_semantic(
+                                format!("Cannot match enum pattern against non-enum type {}", 
+                                    expr_type.to_string()),
+                                pattern.span(),
+                            ));
+                        }
+                    } else {
+                        return Err(Error::new_semantic(
+                            format!("Invalid struct pattern: {}", pattern_name),
                             pattern.span(),
                         ));
                     }
@@ -2341,6 +2480,14 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
             Type::Struct { name, .. } => {
                 // For struct methods, prepend 'self' (the object) as the first argument
+                let mut method_args = vec![object.clone()];
+                method_args.extend_from_slice(args);
+                
+                let target_expr = Expr::Identifier(name.clone(), *span);
+                self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
+            }
+            Type::Enum { name, .. } => {
+                // For enum methods, prepend 'self' (the object) as the first argument
                 let mut method_args = vec![object.clone()];
                 method_args.extend_from_slice(args);
                 

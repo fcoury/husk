@@ -1,0 +1,11 @@
+enum Command {
+    Process {
+        input: string,
+        output: string,
+    },
+    Help,
+}
+
+fn test() {
+    let cmd = Command::Process { input: "in", output: "out" };
+}
