@@ -1183,6 +1183,63 @@ impl AstVisitor<Type> for SemanticVisitor {
                         }
                     }
                 }
+                Expr::Tuple(elements, _) => {
+                    // Handle tuple patterns
+                    if has_wildcard {
+                        return Err(Error::new_semantic(
+                            format!("Unreachable pattern: wildcard already covers this case at arm {}", wildcard_position.unwrap()),
+                            pattern.span(),
+                        ));
+                    }
+                    
+                    // Check that the expression being matched is also a tuple
+                    if let Type::Tuple(elem_types) = &expr_type {
+                        if elements.len() != elem_types.len() {
+                            return Err(Error::new_semantic(
+                                format!("Tuple pattern has {} elements but expression has {}", 
+                                    elements.len(), elem_types.len()),
+                                pattern.span(),
+                            ));
+                        }
+                        
+                        // Check each element of the tuple pattern
+                        for (i, (elem_pattern, elem_type)) in elements.iter().zip(elem_types.iter()).enumerate() {
+                            match elem_pattern {
+                                Expr::Identifier(name, _) if name == "_" => {
+                                    // Wildcard, no binding needed
+                                }
+                                Expr::Identifier(name, _) => {
+                                    // Bind the variable to the element type
+                                    self.match_bound_vars.insert(name.clone(), elem_type.clone());
+                                }
+                                Expr::Int(_, _) | Expr::String(_, _) | Expr::Bool(_, _) => {
+                                    // Literal patterns - just check type compatibility
+                                    let literal_type = self.visit_expr(elem_pattern)?;
+                                    if literal_type != *elem_type {
+                                        return Err(Error::new_semantic(
+                                            format!("Pattern type mismatch at tuple element {}: expected {}, found {}", 
+                                                i, elem_type.to_string(), literal_type.to_string()),
+                                            elem_pattern.span(),
+                                        ));
+                                    }
+                                }
+                                _ => {
+                                    // For now, other nested patterns are not supported
+                                    return Err(Error::new_semantic(
+                                        format!("Unsupported pattern in tuple at element {}", i),
+                                        elem_pattern.span(),
+                                    ));
+                                }
+                            }
+                        }
+                    } else {
+                        return Err(Error::new_semantic(
+                            format!("Cannot match tuple pattern against non-tuple type {}", 
+                                expr_type.to_string()),
+                            pattern.span(),
+                        ));
+                    }
+                }
                 _ => {
                     // For now, other patterns just check type compatibility
                     let pattern_type = self.visit_expr(pattern)?;

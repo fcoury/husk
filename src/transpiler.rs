@@ -141,10 +141,12 @@ impl JsTranspiler {
             let is_last = i == stmts.len() - 1;
             
             // Check if this is a control flow statement that shouldn't be returned
-            let is_control_flow = stmt_str.contains("break") || stmt_str.contains("continue") || stmt_str.contains("return");
+            let is_control_flow = matches!(stmt, Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return(_, _));
             
-            // Check if this is an expression statement without semicolon (should be returned)
-            let should_return = is_last && !is_control_flow && matches!(stmt, Stmt::Expression(_, false));
+            // Check if this is an expression statement without semicolon or a match expression (should be returned)
+            let should_return = is_last && !is_control_flow && 
+                (matches!(stmt, Stmt::Expression(_, false)) || matches!(stmt, Stmt::Match(_, _, _)));
+            
             
             if should_return {
                 result.push_str(&format!("return {};", stmt_str));
@@ -245,6 +247,43 @@ impl JsTranspiler {
                         format!("const {} = _matched;\n", var_name),
                     )
                 }
+            }
+            Expr::Tuple(patterns, _) => {
+                // Handle tuple patterns
+                let mut conditions = vec!["Array.isArray(_matched)".to_string()];
+                conditions.push(format!("_matched.length === {}", patterns.len()));
+                
+                let mut bindings = String::new();
+                
+                for (i, pattern) in patterns.iter().enumerate() {
+                    match pattern {
+                        Expr::Identifier(name, _) if name == "_" => {
+                            // Wildcard pattern, no condition or binding needed
+                        }
+                        Expr::Identifier(name, _) => {
+                            // Bind the element to a variable
+                            bindings.push_str(&format!("const {} = _matched[{}];\n", name, i));
+                        }
+                        Expr::Int(value, _) => {
+                            // Match against literal int
+                            conditions.push(format!("_matched[{}] === {}", i, value));
+                        }
+                        Expr::String(value, _) => {
+                            // Match against literal string
+                            conditions.push(format!("_matched[{}] === \"{}\"", i, value));
+                        }
+                        Expr::Bool(value, _) => {
+                            // Match against literal bool
+                            conditions.push(format!("_matched[{}] === {}", i, value));
+                        }
+                        _ => {
+                            // For nested patterns, we'd need more complex handling
+                            // For now, just match anything
+                        }
+                    }
+                }
+                
+                (format!("({})", conditions.join(" && ")), bindings)
             }
             _ => ("true".to_string(), String::new()),
         }
