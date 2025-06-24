@@ -1,0 +1,14 @@
+// Simplified utils for testing local imports
+
+pub fn log_info(message: string) {
+    println(format!("[INFO] {}", message));
+}
+
+pub fn log_error(message: string) {
+    println(format!("[ERROR] {}", message));
+}
+
+pub fn normalize_path(path: string) -> string {
+    // Simple normalization - just return as-is for now
+    path
+}

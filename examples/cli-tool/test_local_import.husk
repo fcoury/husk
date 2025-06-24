@@ -1,0 +1,11 @@
+// Test local imports
+use local::simple_utils::{log_info, log_error, normalize_path};
+
+pub fn main() {
+    log_info("Testing local imports");
+    
+    let path = normalize_path("//home//user//file.txt");
+    log_info(format!("Normalized path: {}", path));
+    
+    log_error("This is an error message");
+}

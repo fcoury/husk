@@ -1154,14 +1154,25 @@ impl AstVisitor<String> for JsTranspiler {
 impl JsTranspiler {
     /// Generate basic import statement without package resolution
     fn generate_basic_import(&self, path: &UsePath, items: &UseItems) -> Result<String> {
+        // For local imports with Single item, we need to separate the module path from the import
+        let (module_segments, import_name) = match (&path.prefix, items) {
+            (UsePrefix::Local | UsePrefix::Self_ | UsePrefix::Super(_), UseItems::Single) if path.segments.len() > 1 => {
+                // Split off the last segment as the import name
+                let mut segs = path.segments.clone();
+                let import = segs.pop().unwrap();
+                (segs, Some(import))
+            }
+            _ => (path.segments.clone(), None),
+        };
+        
         let module_path = match &path.prefix {
             UsePrefix::None => {
                 // External package - use as is
-                path.segments.join("/")
+                module_segments.join("/")
             }
             UsePrefix::Local => {
                 // From project root - add .js extension for ES modules
-                let base_path = path.segments.join("/");
+                let base_path = module_segments.join("/");
                 if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
                     format!("./{}", base_path)
                 } else {
@@ -1170,7 +1181,7 @@ impl JsTranspiler {
             }
             UsePrefix::Self_ => {
                 // Current directory - add .js extension for ES modules  
-                let base_path = path.segments.join("/");
+                let base_path = module_segments.join("/");
                 if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
                     format!("./{}", base_path)
                 } else {
@@ -1183,7 +1194,7 @@ impl JsTranspiler {
                 for _ in 0..*count {
                     prefix.push_str("../");
                 }
-                let base_path = path.segments.join("/");
+                let base_path = module_segments.join("/");
                 if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
                     format!("{}{}", prefix, base_path)
                 } else {
@@ -1197,11 +1208,16 @@ impl JsTranspiler {
                 format!("import * from '{}'", module_path)
             }
             UseItems::Single => {
-                if path.segments.len() > 1 {
-                    let last = path.segments.last().unwrap();
-                    format!("import {{ {} }} from '{}'", last, module_path)
-                } else {
+                if let Some(import) = import_name {
+                    // We split off the import name above
+                    format!("import {{ {} }} from '{}'", import, module_path)
+                } else if path.segments.len() == 1 && path.prefix == UsePrefix::None {
+                    // Single external package import
                     format!("import '{}'", module_path)
+                } else {
+                    // Local single module import
+                    let module_name = module_segments.last().unwrap_or(&String::new()).clone();
+                    format!("import {{ {} }} from '{}'", module_name, module_path)
                 }
             }
             UseItems::Named(items) => {

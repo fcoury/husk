@@ -63,11 +63,13 @@ This document tracks the current development tasks for the Husk programming lang
 - ⏳ Fix transpiler to generate correct Result/Option JavaScript objects
 - ⏳ Add support for object literal syntax { key: value } for JavaScript interop
 - ✅ Fix statement parsing inside if blocks (return, let, etc.)
-- ⏳ Add support for mut keyword for mutable variables
 - ⏳ Fix type inference for implicit Result/Option variants
 - ⏳ Implement shorthand field syntax for struct and enum initialization
 - ⏳ Support multiple patterns with | in match arms
 - ⏳ Support tuple destructuring in for loops
+- ⏳ Support tuple patterns in match expressions (e.g., `match (x, y) { ... }`)
+- ⏳ Add support for escape sequences in string literals (`\n`, `\t`, `\"`, `\\`)
+- ⏳ Enforce comma rules for match arms (comma required after expressions, no comma after blocks)
 
 ### Build System
 - ✅ Implement build command for project compilation
@@ -139,14 +141,15 @@ This document tracks the current development tasks for the Husk programming lang
 ### Parser Issues
 - ⏳ Fix statement parsing inside if blocks (return statements fail with "Invalid expression statement")
 - ⏳ Fix pattern matching where `match variable` fails but `match literal` works
-- ⏳ Add support for reference operator `&` for borrowing syntax  
-- ⏳ Add support for `mut` keyword for mutable variables
+
+### Semantic Analysis Issues
+- ⏳ Fix method calls to not require self as explicit argument (e.g., `counter.increment()` should work)
 
 ### JavaScript Interop Issues  
 - ⏳ Add support for object literal syntax `{ key: value }` for Node.js API options
 - ⏳ Fix transpiler to generate correct Result/Option JavaScript objects (currently generates `{ Err: value }` instead of `{ type: 'Err', value: value }`)
 - ⏳ Fix use statements with `::` for external modules (e.g., `use fs::promises::readFile`)
-- ⏳ Support local module imports (`use local::module_name`)
+- ✅ Support local module imports (`use local::module_name`)
 
 ### Type System Issues
 - ⏳ Fix type inference for implicit Result/Option variants (Ok/Err without Result:: prefix)

@@ -121,7 +121,7 @@ impl CliArgs {
 
 // Command validation helpers
 impl Command {
-    pub fn validate(&self) -> Result<(), string> {
+    pub fn validate(self) -> Result<(), string> {
         match self {
             Command::Process { input, output, .. } => {
                 if input.len() == 0 {
@@ -151,7 +151,7 @@ impl Command {
         }
     }
     
-    pub fn description(&self) -> string {
+    pub fn description(self) -> string {
         match self {
             Command::Process { .. } => "Process files from input to output location",
             Command::Analyze { .. } => "Analyze directory structure and file statistics",
