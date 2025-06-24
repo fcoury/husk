@@ -27,7 +27,7 @@ impl CliArgs {
             return Ok(CliArgs { command: Command::Help });
         }
         
-        let command_name = args[1].clone();
+        let command_name = args[1];
         
         match command_name.as_str() {
             "process" => Self::parse_process_command(args),

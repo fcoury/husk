@@ -1261,7 +1261,13 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Convert and store fields
         let mut struct_fields = HashMap::new();
         for (field_name, field_type_str) in fields {
-            let field_type = Type::from_string(field_type_str).unwrap_or(Type::Unknown);
+            // First try to look up the type in the type environment
+            let field_type = if let Some(registered_type) = self.type_env.lookup(field_type_str) {
+                registered_type.clone()
+            } else {
+                // Fall back to Type::from_string for built-in types
+                Type::from_string(field_type_str).unwrap_or(Type::Unknown)
+            };
             struct_fields.insert(field_name.clone(), field_type);
         }
 

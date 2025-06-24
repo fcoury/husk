@@ -936,6 +936,12 @@ The transpiler was incorrectly including the imported item name in the module pa
 - **Solution**: Added pattern matching for `Vec<T>` that maps it to `Type::Array(Box<T>)`
 - **Impact**: Generic collections like `Vec<T>` now support all array methods (len, push, pop)
 
+**3. Struct Field Type Resolution Fixed:**
+- ✅ **Enum type resolution**: Fixed struct fields with enum types being incorrectly typed as structs
+- **Root Cause**: `Type::from_string` defaulted unknown types to `Type::Struct` instead of looking them up
+- **Solution**: Modified struct visitor to check type environment before falling back to `Type::from_string`
+- **Impact**: Struct fields can now correctly reference user-defined enums and other custom types
+
 ### Current CLI Tool Implementation Status (December 24, 2024) 🔄
 
 **Completed Fixes:**
@@ -950,7 +956,7 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ❌ **Shorthand field syntax**: `{ input, output }` not supported - must use `{ input: input, output: output }`
 - ✅ **Method resolution for generic types**: Fixed! `Vec<T>` now correctly maps to `Type::Array` enabling method calls
 - ❌ **Type inference for struct-like enum patterns**: Semantic analyzer reports "Pattern type mismatch: expected Command, found unit"
-- ❌ **Struct field type mismatch**: Imported enum types don't match in struct initialization
+- ✅ **Struct field type mismatch**: Fixed! Struct fields now correctly resolve enum types from type environment
 
 **Parser Fix Details:**
 - **Root Cause**: The `lookahead_for_struct_initialization` function failed to check if the preceding token was `match`
