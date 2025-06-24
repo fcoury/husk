@@ -1,0 +1,9 @@
+use local::utils::{Logger, LogLevel};
+
+fn main() {
+    let logger = Logger::new(LogLevel::Info);
+    logger.info("Application started");
+    
+    let error_logger = Logger::new(LogLevel::Error);
+    error_logger.error("Something went wrong");
+}

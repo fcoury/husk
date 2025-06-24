@@ -1,0 +1,26 @@
+// Local Logger implementation
+enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+struct Logger {
+    level: LogLevel,
+}
+
+impl Logger {
+    fn new(level: LogLevel) -> Logger {
+        Logger { level: level }
+    }
+    
+    fn info(self, message: string) {
+        println(format!("[INFO] {}", message));
+    }
+}
+
+fn main() {
+    let logger = Logger::new(LogLevel::Info);
+    logger.info("Testing instance method");
+}
