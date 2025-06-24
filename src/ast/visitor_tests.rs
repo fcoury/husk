@@ -67,6 +67,10 @@ mod tests {
             self.track(&format!("bool_{}", value))
         }
 
+        fn visit_unit(&mut self, _span: &Span) -> Result<String, Self::Error> {
+            self.track("unit")
+        }
+
         fn visit_string(&mut self, value: &str, _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("string_{}", value))
         }
@@ -197,7 +201,7 @@ mod tests {
             self.track(&format!("struct_{}", name))
         }
 
-        fn visit_enum(&mut self, name: &str, _generic_params: &[String], _variants: &[(String, String)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_enum(&mut self, name: &str, _generic_params: &[String], _variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<String, Self::Error> {
             self.track(&format!("enum_{}", name))
         }
 
@@ -339,6 +343,16 @@ mod tests {
             self.track(&format!("cast_{}", target_type))?;
             self.visit_expr(expr)?;
             Ok("visited_cast".to_string())
+        }
+
+        fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("struct_pattern_{}_{}", variant, fields.len()))?;
+            Ok("visited_struct_pattern".to_string())
+        }
+        
+        fn visit_extern_type(&mut self, name: &str, generic_params: &[String], _span: &Span) -> Result<String, Self::Error> {
+            self.track(&format!("extern_type_{}_{}", name, generic_params.len()))?;
+            Ok("visited_extern_type".to_string())
         }
     }
 

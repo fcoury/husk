@@ -1,5 +1,5 @@
 use crate::{
-    parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems, ExternItem},
+    parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems, ExternItem, EnumVariant},
     span::Span,
 };
 
@@ -15,6 +15,7 @@ pub trait AstVisitor<T> {
             Expr::Int(value, span) => self.visit_int(*value, span),
             Expr::Float(value, span) => self.visit_float(*value, span),
             Expr::Bool(value, span) => self.visit_bool(*value, span),
+            Expr::Unit(span) => self.visit_unit(span),
             Expr::String(value, span) => self.visit_string(value, span),
             Expr::Identifier(name, span) => self.visit_identifier(name, span),
             Expr::Array(elements, span) => self.visit_array(elements, span),
@@ -41,6 +42,7 @@ pub trait AstVisitor<T> {
             Expr::Closure(params, ret_type, body, span) => self.visit_closure(params, ret_type, body, span),
             Expr::MethodCall(object, method, args, span) => self.visit_method_call(object, method, args, span),
             Expr::Cast(expr, target_type, span) => self.visit_cast(expr, target_type, span),
+            Expr::StructPattern(variant, fields, span) => self.visit_struct_pattern(variant, fields, span),
         }
     }
 
@@ -48,6 +50,7 @@ pub trait AstVisitor<T> {
     fn visit_int(&mut self, value: i64, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_float(&mut self, value: f64, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_bool(&mut self, value: bool, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_unit(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_string(&mut self, value: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_identifier(&mut self, name: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_array(&mut self, elements: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
@@ -91,6 +94,9 @@ pub trait AstVisitor<T> {
                 self.visit_extern_function(name, generic_params, params, return_type, span)
             }
             Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
+            Stmt::ExternType(name, generic_params, span) => {
+                self.visit_extern_type(name, generic_params, span)
+            }
             Stmt::AsyncFunction(_is_pub, name, generic_params, params, return_type, body, span) => {
                 self.visit_async_function(name, generic_params, params, return_type, body, span)
             }
@@ -101,7 +107,7 @@ pub trait AstVisitor<T> {
     fn visit_let(&mut self, name: &str, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_function(&mut self, name: &str, generic_params: &[String], params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_struct(&mut self, name: &str, generic_params: &[String], fields: &[(String, String)], span: &Span) -> std::result::Result<T, Self::Error>;
-    fn visit_enum(&mut self, name: &str, generic_params: &[String], variants: &[(String, String)], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_enum(&mut self, name: &str, generic_params: &[String], variants: &[EnumVariant], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
@@ -114,6 +120,7 @@ pub trait AstVisitor<T> {
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_extern_function(&mut self, name: &str, generic_params: &[String], params: &[(String, String)], return_type: &str, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_extern_mod(&mut self, name: &str, items: &[ExternItem], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_extern_type(&mut self, name: &str, generic_params: &[String], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_async_function(&mut self, name: &str, generic_params: &[String], params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_await(&mut self, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
@@ -122,6 +129,7 @@ pub trait AstVisitor<T> {
     fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_cast(&mut self, expr: &Expr, target_type: &str, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], span: &Span) -> std::result::Result<T, Self::Error>;
 
     // ===== Helper methods =====
     

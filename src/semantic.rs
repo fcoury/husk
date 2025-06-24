@@ -263,6 +263,10 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Bool)
     }
 
+    fn visit_unit(&mut self, _span: &Span) -> Result<Type> {
+        Ok(Type::Unit)
+    }
+
     fn visit_string(&mut self, _value: &str, _span: &Span) -> Result<Type> {
         Ok(Type::String)
     }
@@ -989,7 +993,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[(String, String)], _span: &Span) -> Result<Type> {
+    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<Type> {
         // Register enum type
         self.type_env.define(
             name.to_string(),
@@ -1001,13 +1005,30 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // Convert and store variants
         let mut enum_variants = HashMap::new();
-        for (variant_name, variant_type_str) in variants {
-            let variant_type = if variant_type_str == "unit" {
-                None
-            } else {
-                Some(Type::from_string(variant_type_str).unwrap_or(Type::Unknown))
-            };
-            enum_variants.insert(variant_name.to_string(), variant_type);
+        for variant in variants {
+            match variant {
+                crate::parser::EnumVariant::Unit(name) => {
+                    enum_variants.insert(name.clone(), None);
+                }
+                crate::parser::EnumVariant::Tuple(name, type_str) => {
+                    let variant_type = Type::from_string(type_str).unwrap_or(Type::Unknown);
+                    enum_variants.insert(name.clone(), Some(variant_type));
+                }
+                crate::parser::EnumVariant::Struct(name, fields) => {
+                    // For struct variants, we'll create a struct type
+                    let struct_fields: Vec<(String, crate::types::Type)> = fields
+                        .iter()
+                        .map(|(field_name, field_type_str)| {
+                            (field_name.clone(), crate::types::Type::from_string(field_type_str).unwrap_or(crate::types::Type::Unknown))
+                        })
+                        .collect();
+                    
+                    enum_variants.insert(name.clone(), Some(crate::types::Type::Struct {
+                        name: name.clone(),
+                        fields: struct_fields,
+                    }));
+                }
+            }
         }
 
         self.enums.insert(name.to_string(), enum_variants);
@@ -1365,6 +1386,14 @@ impl AstVisitor<Type> for SemanticVisitor {
         for item in items {
             self.process_extern_item(item, "")?;
         }
+        Ok(Type::Unit)
+    }
+    
+    fn visit_extern_type(&mut self, name: &str, _generic_params: &[String], _span: &Span) -> Result<Type> {
+        // Register the extern type in our type system
+        // For now, treat all extern types as Unknown/Any since they're from external systems
+        self.type_env.define(name.to_string(), Type::Unknown);
+        self.imported_names.insert(name.to_string(), Type::Unknown);
         Ok(Type::Unit)
     }
     
@@ -1867,6 +1896,18 @@ impl AstVisitor<Type> for SemanticVisitor {
             // For now, allow other casts and let runtime/transpiler handle them
             _ => Ok(target),
         }
+    }
+
+    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], _span: &Span) -> Result<Type> {
+        // Struct patterns are used for pattern matching
+        // We need to validate that the variant exists and has the required fields
+        // For now, we'll just return Unit type since patterns don't have runtime values
+        
+        // TODO: Validate that the variant exists in the enum/struct definitions
+        // TODO: Validate that all fields exist in the variant
+        // TODO: Add field variables to scope for the match arm
+        
+        Ok(Type::Unit)
     }
 }
 

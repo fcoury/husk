@@ -43,6 +43,10 @@ This document tracks the current development tasks for the Husk programming lang
 - ✅ Fix all compilation errors from generic type parameter changes
 - ✅ Allow using extern types in function signatures
 - ✅ Implement type casting (as operator)
+- ✅ Add support for extern type declarations syntax (extern type Buffer;)
+- ✅ Fix unit type parsing in async function return types (Result<(), string>)
+- ✅ Implement struct destructuring in match patterns with field renaming
+- ✅ Add support for struct-like enum variants in enum definitions
 
 ### Built-in Methods
 - ✅ Implement built-in methods for strings (.len(), .trim(), etc)
@@ -88,6 +92,7 @@ This document tracks the current development tasks for the Husk programming lang
 ## Medium Priority Tasks
 
 ### In Progress 🚧
+- 🚧 Add support for struct-like enum variant construction (Command::Process { ... })
 - 🚧 Build example CLI tool using Node.js APIs
 
 ### Pending 📋
@@ -152,7 +157,7 @@ This document tracks the current development tasks for the Husk programming lang
 
 ## Progress Summary
 
-**Completed**: 65+ tasks across core language features, type system, build tools, and testing infrastructure
+**Completed**: 69+ tasks across core language features, type system, build tools, and testing infrastructure
 
 **In Progress**: CLI tool example with Node.js API integration
 
@@ -160,5 +165,5 @@ This document tracks the current development tasks for the Husk programming lang
 
 ---
 
-*Last Updated: 2024-06-23*
-*Generated from active todo list during JavaScript interop implementation*
+*Last Updated: 2024-06-24*
+*Generated from active todo list during struct destructuring and enum variant implementation*
