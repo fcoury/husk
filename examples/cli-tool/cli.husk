@@ -58,7 +58,7 @@ impl CliArgs {
             match arg.as_str() {
                 "--minify" => {
                     options.minify = true;
-                },
+                }
                 "--transform" => {
                     if i + 1 < args.len() {
                         options.transform_type = Some(args[i + 1].clone());
@@ -66,7 +66,7 @@ impl CliArgs {
                     } else {
                         return Err("--transform requires a value");
                     }
-                },
+                }
                 "--filter" => {
                     if i + 1 < args.len() {
                         options.file_filter = Some(args[i + 1].clone());
@@ -74,13 +74,13 @@ impl CliArgs {
                     } else {
                         return Err("--filter requires a pattern");
                     }
-                },
+                }
                 "--verbose" => {
                     options.verbose = true;
-                },
+                }
                 "-v" => {
                     options.verbose = true;
-                },
+                }
                 _ => {
                     return Err("Unknown option");
                 }
@@ -133,20 +133,20 @@ impl Command {
                 if input == output {
                     return Err("Input and output paths cannot be the same");
                 }
-    return Ok(());
-            },
+                return Ok(());
+            }
             Command::Analyze { path } => {
                 if path.len() == 0 {
                     return Err("Analysis path cannot be empty");
                 }
-    return Ok(());
-            },
+                return Ok(());
+            }
             Command::Watch { directory } => {
                 if directory.len() == 0 {
                     return Err("Watch directory cannot be empty");
                 }
-    return Ok(());
-            },
+                return Ok(());
+            }
             Command::Help => return Ok(()),
         }
     }

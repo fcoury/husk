@@ -1,0 +1,38 @@
+// Test case demonstrating the match pattern issue
+// Where literal patterns are incorrectly flagged as duplicates of binding patterns
+
+enum Value {
+    Number(int),
+    Text(string),
+}
+
+fn test_specific_then_general() -> string {
+    let val = Value::Number(42);
+    
+    // This should work: specific literal patterns followed by general binding
+    match val {
+        Value::Number(0) => "Zero",
+        Value::Number(42) => "The answer",
+        Value::Number(n) => format!("Other number: {}", n),
+        Value::Text(s) => format!("Text: {}", s),
+    }
+}
+
+fn test_multiple_literals() -> string {
+    let val = Value::Number(10);
+    
+    // This should also work: multiple specific literals
+    match val {
+        Value::Number(0) => "Zero",
+        Value::Number(1) => "One", 
+        Value::Number(2) => "Two",
+        Value::Number(42) => "The answer",
+        Value::Number(n) => format!("Other: {}", n),
+        Value::Text(_) => "Some text",
+    }
+}
+
+fn main() {
+    println("Test 1: {}", test_specific_then_general());
+    println("Test 2: {}", test_multiple_literals());
+}
