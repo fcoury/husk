@@ -1757,6 +1757,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                             
                             // Bind variables from the struct pattern fields
                             for (field_name, opt_var_name) in fields {
+                                // Skip the special ".." rest pattern marker
+                                if field_name == ".." {
+                                    continue;
+                                }
+                                
                                 let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
                                 
                                 if let Some(var_name) = opt_var_name {
@@ -1775,10 +1780,48 @@ impl AstVisitor<Type> for SemanticVisitor {
                             ));
                         }
                     } else {
-                        return Err(Error::new_semantic(
-                            format!("Invalid struct pattern: {}", pattern_name),
-                            pattern.span(),
-                        ));
+                        // Handle plain struct patterns (e.g., Config { host, port, .. })
+                        if let Type::Struct { name, .. } = &expr_type {
+                            if name != pattern_name {
+                                return Err(Error::new_semantic(
+                                    format!("Pattern type mismatch: expected {}, found {}", 
+                                        expr_type.to_string(), pattern_name),
+                                    pattern.span(),
+                                ));
+                            }
+                            
+                            // Look up the struct's field types
+                            let field_types = if let Some(struct_fields) = self.structs.get(pattern_name) {
+                                // struct_fields is already HashMap<String, Type>
+                                struct_fields.clone()
+                            } else {
+                                HashMap::new()
+                            };
+                            
+                            // Bind variables from the struct pattern fields
+                            for (field_name, opt_var_name) in fields {
+                                // Skip the special ".." rest pattern marker
+                                if field_name == ".." {
+                                    continue;
+                                }
+                                
+                                let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
+                                
+                                if let Some(var_name) = opt_var_name {
+                                    // Field bound to a different variable name
+                                    self.match_bound_vars.insert(var_name.clone(), field_type);
+                                } else {
+                                    // Shorthand: field name is also the variable name
+                                    self.match_bound_vars.insert(field_name.clone(), field_type);
+                                }
+                            }
+                        } else {
+                            return Err(Error::new_semantic(
+                                format!("Cannot match struct pattern {} against non-struct type {}", 
+                                    pattern_name, expr_type.to_string()),
+                                pattern.span(),
+                            ));
+                        }
                     }
                 }
                 Expr::FunctionCall(name, args, _) => {
@@ -1909,7 +1952,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(first_arm_type.clone())
     }
 
-    fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<Type> {
+    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<Type> {
         let iterable_type = self.visit_expr(iterable)?;
 
         // Create new scope for loop
@@ -1928,8 +1971,58 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
         };
 
-        // Add loop variable to scope
-        self.type_env.define(variable.to_string(), element_type);
+        // Handle different pattern types
+        match pattern {
+            Expr::Identifier(name, _) => {
+                // Simple identifier case
+                self.type_env.define(name.clone(), element_type);
+            }
+            Expr::Tuple(elements, _) => {
+                // Tuple destructuring case
+                match element_type {
+                    Type::Tuple(ref tuple_types) => {
+                        if elements.len() != tuple_types.len() {
+                            self.type_env.pop_scope();
+                            return Err(Error::new_semantic(
+                                format!("Tuple pattern has {} elements but iterable contains tuples with {} elements", 
+                                    elements.len(), tuple_types.len()),
+                                pattern.span(),
+                            ));
+                        }
+                        
+                        // Bind each tuple element to its corresponding variable
+                        for (elem_pattern, elem_type) in elements.iter().zip(tuple_types.iter()) {
+                            match elem_pattern {
+                                Expr::Identifier(name, _) => {
+                                    self.type_env.define(name.clone(), elem_type.clone());
+                                }
+                                _ => {
+                                    self.type_env.pop_scope();
+                                    return Err(Error::new_semantic(
+                                        "Only identifiers are supported in tuple patterns".to_string(),
+                                        elem_pattern.span(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        self.type_env.pop_scope();
+                        return Err(Error::new_semantic(
+                            format!("Cannot destructure non-tuple type {} in for loop", element_type.to_string()),
+                            pattern.span(),
+                        ));
+                    }
+                }
+            }
+            _ => {
+                self.type_env.pop_scope();
+                return Err(Error::new_semantic(
+                    "Only identifiers and tuples are supported in for loop patterns".to_string(),
+                    pattern.span(),
+                ));
+            }
+        }
 
         // Track loop depth for break/continue
         self.loop_depth += 1;

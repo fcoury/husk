@@ -1061,10 +1061,122 @@ if command == "process" {
 12. ~~Fix enum pattern matching type inference~~ ✅ DONE!
 13. ~~Test CLI tool transpilation to JavaScript~~ ✅ DONE!
 14. ~~Validate generated JavaScript can run with Node.js~~ ✅ DONE!
-15. Fix transpiler enum variant construction syntax (Command::Process → Command.Process)
-16. Implement instance method calls for imported types (logger.info())
-17. Implement rest patterns (`..`) and shorthand field syntax
-18. Complete comprehensive CLI tool example
+15. ~~Fix transpiler enum variant construction syntax (Command::Process → Command.Process)~~ ✅ DONE!
+16. ~~Implement instance method calls for imported types (logger.info())~~ ✅ DONE!
+17. ~~Implement rest patterns (`..`) and shorthand field syntax~~ ✅ DONE!
+18. ~~Implement tuple destructuring in for loops~~ ✅ DONE!
+19. ~~Complete comprehensive CLI tool example~~ ✅ DONE!
+
+## New Language Features (Recently Implemented)
+
+### 1. Shorthand Field Syntax
+
+Allows for more concise struct and enum variant initialization when variable names match field names:
+
+```husk
+// Traditional syntax
+let x = 10;
+let y = 20;
+let point = Point { x: x, y: y };
+
+// Shorthand syntax (NEW)
+let x = 10;
+let y = 20;
+let point = Point { x, y };  // Equivalent to above
+
+// Works with enum variants too
+let task = "coding";
+let progress = 75;
+let status = Status::Working { task, progress };
+```
+
+**JavaScript Output:**
+```javascript
+let point = (function() {
+    const __INSTANCE__ = Object.create(Point.prototype);
+    __INSTANCE__.x = x;
+    __INSTANCE__.y = y;
+    return __INSTANCE__;
+})();
+```
+
+### 2. Rest Patterns in Struct Destructuring
+
+Enables partial destructuring of structs and enum variants with `..` to ignore remaining fields:
+
+```husk
+struct Config {
+    host: string,
+    port: int,
+    debug: bool,
+    timeout: int,
+}
+
+fn main() {
+    let config = Config { 
+        host: "localhost", 
+        port: 8080, 
+        debug: true, 
+        timeout: 30 
+    };
+    
+    // Extract only the fields we care about
+    match config {
+        Config { host, port, .. } => {  // Ignore debug and timeout
+            println(format!("Server at {}:{}", host, port));
+        }
+    }
+}
+```
+
+**JavaScript Output:**
+```javascript
+if (_matched && typeof _matched === 'object') {
+    const host = _matched.host;
+    const port = _matched.port;
+    // .. fields are automatically ignored
+    void (println(`Server at ${host}:${port}`));
+}
+```
+
+### 3. Tuple Destructuring in For Loops
+
+Supports destructuring assignment in for loop iteration variables:
+
+```husk
+fn main() {
+    let pairs = [(1, "one"), (2, "two"), (3, "three")];
+    
+    // Destructure tuples directly in the for loop
+    for (number, word) in pairs {
+        println(format!("{}: {}", number, word));
+    }
+    
+    let coordinates = [(0, 0), (1, 2), (3, 4)];
+    for (x, y) in coordinates {
+        println(format!("Point at ({}, {})", x, y));
+    }
+}
+```
+
+**JavaScript Output:**
+```javascript
+for (const [number, word] of pairs) {
+    void (println(`${number}: ${word}`));
+}
+
+for (const [x, y] of coordinates) {
+    void (println(`Point at (${x}, ${y})`));
+}
+```
+
+### Benefits
+
+These features bring Husk closer to modern language ergonomics while maintaining:
+- **Type Safety**: All patterns are statically type-checked
+- **JavaScript Compatibility**: Clean, idiomatic JavaScript output
+- **Zero Runtime Cost**: Destructuring is handled at compile time
+- **Familiar Syntax**: Similar to Rust, JavaScript ES6, and other modern languages
 
 ## Conclusion
 
