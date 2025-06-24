@@ -57,7 +57,7 @@ impl Logger {
             LogLevel::Error => {
                 // Write to stderr for errors
                 Process.stderr.write(formatted);
-            },
+            }
             _ => {
                 // Write to stdout for other levels
                 println(formatted);

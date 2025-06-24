@@ -1,6 +1,6 @@
 // CLI argument parsing and command definitions
 
-use local::file_processor::ProcessingOptions;
+use local::file_processor::{ProcessingOptions};
 
 pub enum Command {
     Process {
@@ -18,7 +18,7 @@ pub enum Command {
 }
 
 pub struct CliArgs {
-    pub command: Command,
+    command: Command,
 }
 
 impl CliArgs {
@@ -49,48 +49,16 @@ impl CliArgs {
         let output = args[3].clone();
         
         // Parse additional options
-        let options = ProcessingOptions::default();
-        let i = 4;
-        
-        while i < args.len() {
-            let arg = args[i].clone();
-            
-            match arg.as_str() {
-                "--minify" => {
-                    options.minify = true;
-                }
-                "--transform" => {
-                    if i + 1 < args.len() {
-                        options.transform_type = Some(args[i + 1].clone());
-                        i = i + 1;
-                    } else {
-                        return Err("--transform requires a value");
-                    }
-                }
-                "--filter" => {
-                    if i + 1 < args.len() {
-                        options.file_filter = Some(args[i + 1].clone());
-                        i = i + 1;
-                    } else {
-                        return Err("--filter requires a pattern");
-                    }
-                }
-                "--verbose" => {
-                    options.verbose = true;
-                }
-                "-v" => {
-                    options.verbose = true;
-                }
-                _ => {
-                    return Err("Unknown option");
-                }
-            }
-            
-            i = i + 1;
-        }
+        let options = ProcessingOptions {
+            minify: false,
+            transform_type: None,
+            file_filter: None,
+            verbose: false,
+            preserve_structure: true,
+        };
         
         Ok(CliArgs {
-            command: Command::Process { input: input, output: output, options: options }
+            command: Command::Process { input, output, options }
         })
     }
     
@@ -102,7 +70,7 @@ impl CliArgs {
         let path = args[2].clone();
         
         Ok(CliArgs {
-            command: Command::Analyze { path: path }
+            command: Command::Analyze { path }
         })
     }
     
@@ -114,7 +82,7 @@ impl CliArgs {
         let directory = args[2].clone();
         
         Ok(CliArgs {
-            command: Command::Watch { directory: directory }
+            command: Command::Watch { directory }
         })
     }
 }
