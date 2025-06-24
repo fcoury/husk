@@ -469,6 +469,32 @@ impl SemanticVisitor {
             variants.insert("Err".to_string(), Some(Type::Unknown));
             variants
         });
+        
+        // Register implicit variant constructors as functions
+        // These return generic Result/Option types that will be inferred from context
+        self.functions.insert("Ok".to_string(), (
+            vec![("value".to_string(), Type::Unknown)],
+            Type::Enum { name: "Result".to_string(), variants: HashMap::new() },
+            Span::default()
+        ));
+        
+        self.functions.insert("Err".to_string(), (
+            vec![("error".to_string(), Type::Unknown)],
+            Type::Enum { name: "Result".to_string(), variants: HashMap::new() },
+            Span::default()
+        ));
+        
+        self.functions.insert("Some".to_string(), (
+            vec![("value".to_string(), Type::Unknown)],
+            Type::Enum { name: "Option".to_string(), variants: HashMap::new() },
+            Span::default()
+        ));
+        
+        self.functions.insert("None".to_string(), (
+            vec![],
+            Type::Enum { name: "Option".to_string(), variants: HashMap::new() },
+            Span::default()
+        ));
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
@@ -1613,11 +1639,20 @@ impl AstVisitor<Type> for SemanticVisitor {
         for (i, arm_type) in arm_types.iter().enumerate().skip(1) {
             // If either type is Unknown, allow it (for generic types)
             if *arm_type != Type::Unknown && *first_arm_type != Type::Unknown && arm_type != first_arm_type {
-                return Err(Error::new_semantic(
-                    format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}", 
-                            first_arm_type.to_string(), i, arm_type.to_string()),
-                    *span,
-                ));
+                // Special case: if both are the same enum type but one has more specific type info, allow it
+                match (first_arm_type, arm_type) {
+                    (Type::Enum { name: name1, .. }, Type::Enum { name: name2, .. }) if name1 == name2 => {
+                        // Same enum type (e.g., both Result), allow even if generic parameters differ
+                        continue;
+                    }
+                    _ => {
+                        return Err(Error::new_semantic(
+                            format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}", 
+                                    first_arm_type.to_string(), i, arm_type.to_string()),
+                            *span,
+                        ));
+                    }
+                }
             }
         }
 
