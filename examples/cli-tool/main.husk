@@ -159,9 +159,9 @@ fn parse_args(argv: Vec<string>) -> Result<CliArgs, string> {
         return Ok(CliArgs { command: Command::Help });
     }
     
-    let command = argv[2].clone();
+    let command = argv[2];
     
-    match command.as_str() {
+    match command {
         "process" => {
             if argv.len() < 5 {
                 return Err("process command requires input and output paths");

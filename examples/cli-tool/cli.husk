@@ -29,7 +29,7 @@ impl CliArgs {
         
         let command_name = args[1];
         
-        match command_name.as_str() {
+        match command_name {
             "process" => Self::parse_process_command(args),
             "analyze" => Self::parse_analyze_command(args),
             "watch" => Self::parse_watch_command(args),
@@ -40,13 +40,13 @@ impl CliArgs {
         }
     }
     
-    fn parse_process_command(args: Vec<string>) -> Result<CliArgs, string> {
+    pub fn parse_process_command(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 4 {
             return Err("process command requires: husk-cli process <input> <output>");
         }
         
-        let input = args[2].clone();
-        let output = args[3].clone();
+        let input = args[2];
+        let output = args[3];
         
         // Parse additional options
         let options = ProcessingOptions {
@@ -62,24 +62,24 @@ impl CliArgs {
         })
     }
     
-    fn parse_analyze_command(args: Vec<string>) -> Result<CliArgs, string> {
+    pub fn parse_analyze_command(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 3 {
             return Err("analyze command requires: husk-cli analyze <path>");
         }
         
-        let path = args[2].clone();
+        let path = args[2];
         
         Ok(CliArgs {
             command: Command::Analyze { path: path }
         })
     }
     
-    fn parse_watch_command(args: Vec<string>) -> Result<CliArgs, string> {
+    pub fn parse_watch_command(args: Vec<string>) -> Result<CliArgs, string> {
         if args.len() < 3 {
             return Err("watch command requires: husk-cli watch <directory>");
         }
         
-        let directory = args[2].clone();
+        let directory = args[2];
         
         Ok(CliArgs {
             command: Command::Watch { directory: directory }
