@@ -1593,8 +1593,9 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                         // Bind variables from enum variant
                         if !args.is_empty() {
-                            if let Expr::Identifier(var_name, _) = &args[0] {
-                                if var_name != "_" {  // Don't bind wildcards
+                            match &args[0] {
+                                Expr::Identifier(var_name, _) if var_name != "_" => {
+                                    // Simple identifier binding
                                     if let Some(enum_variants) = self.enums.get(enum_type) {
                                         if let Some(Some(variant_type)) = enum_variants.get(call) {
                                             // For built-in generic enums with Unknown type, infer from usage context
@@ -1606,6 +1607,32 @@ impl AstVisitor<Type> for SemanticVisitor {
                                             }
                                         }
                                     }
+                                }
+                                Expr::StructPattern(struct_name, fields, _) => {
+                                    // Nested struct pattern (e.g., Ok(Command::Process { input, output }))
+                                    // First, verify the type matches
+                                    if let Some(enum_variants) = self.enums.get(enum_type) {
+                                        if let Some(Some(Type::Struct { name, fields: struct_fields })) = enum_variants.get(call) {
+                                            // Convert Vec<(String, Type)> to HashMap for easy lookup
+                                            let field_types: HashMap<String, Type> = struct_fields.iter().cloned().collect();
+                                            
+                                            // Bind variables from the struct pattern fields
+                                            for (field_name, opt_var_name) in fields {
+                                                let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
+                                                
+                                                if let Some(var_name) = opt_var_name {
+                                                    // Field bound to a different variable name
+                                                    self.match_bound_vars.insert(var_name.clone(), field_type);
+                                                } else {
+                                                    // Shorthand: field name is also the variable name
+                                                    self.match_bound_vars.insert(field_name.clone(), field_type);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    // Other patterns (literals, etc.) don't bind variables
                                 }
                             }
                         }
@@ -1728,6 +1755,66 @@ impl AstVisitor<Type> for SemanticVisitor {
                             format!("Invalid struct pattern: {}", pattern_name),
                             pattern.span(),
                         ));
+                    }
+                }
+                Expr::FunctionCall(name, args, _) => {
+                    // Handle implicit Result/Option constructors (Ok, Err, Some, None)
+                    if matches!(name.as_str(), "Ok" | "Err" | "Some" | "None") {
+                        // Determine which enum we're dealing with
+                        let (enum_name, variant_name) = match name.as_str() {
+                            "Ok" | "Err" => ("Result", name.as_str()),
+                            "Some" | "None" => ("Option", name.as_str()),
+                            _ => unreachable!(),
+                        };
+                        
+                        // Check if we're matching the right enum type
+                        match &expr_type {
+                            Type::Enum { name: matched_enum, .. } if matched_enum == enum_name => {
+                                // Track this variant as matched
+                                matched_variants.insert(variant_name.to_string());
+                                
+                                // Bind variables from the argument
+                                if !args.is_empty() {
+                                    match &args[0] {
+                                        Expr::Identifier(var_name, _) if var_name != "_" => {
+                                            // Simple identifier binding
+                                            self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                        }
+                                        Expr::StructPattern(struct_name, fields, _) => {
+                                            // Nested struct pattern (e.g., Ok(Command::Process { input, output }))
+                                            // We need to infer the type from context or use Unknown
+                                            for (field_name, opt_var_name) in fields {
+                                                if let Some(var_name) = opt_var_name {
+                                                    self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                                } else {
+                                                    self.match_bound_vars.insert(field_name.clone(), Type::Unknown);
+                                                }
+                                            }
+                                        }
+                                        _ => {
+                                            // Other patterns don't bind variables
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                return Err(Error::new_semantic(
+                                    format!("Cannot match {} pattern against type {}", 
+                                        name, expr_type.to_string()),
+                                    pattern.span(),
+                                ));
+                            }
+                        }
+                    } else {
+                        // Regular function call patterns - just check type compatibility
+                        let pattern_type = self.visit_expr(pattern)?;
+                        if pattern_type != expr_type {
+                            return Err(Error::new_semantic(
+                                format!("Pattern type mismatch: expected {}, found {}", 
+                                    expr_type.to_string(), pattern_type.to_string()),
+                                pattern.span(),
+                            ));
+                        }
                     }
                 }
                 _ => {
