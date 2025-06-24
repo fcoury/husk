@@ -1,0 +1,9 @@
+// Test simple tuple creation and display
+
+fn main() {
+    let point = (3, 4);
+    println("Point created");
+    
+    let triple = (1, 2, 3);
+    println("Triple created");
+}

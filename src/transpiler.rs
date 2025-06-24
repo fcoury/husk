@@ -593,6 +593,16 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("[{}]", elements_str))
     }
 
+    fn visit_tuple(&mut self, elements: &[Expr], _span: &Span) -> Result<String> {
+        // In JavaScript, we'll represent tuples as arrays
+        let elements_str = elements
+            .iter()
+            .map(|elem| self.visit_expr(elem))
+            .collect::<Result<Vec<_>>>()?
+            .join(", ");
+        Ok(format!("[{}]", elements_str))
+    }
+
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, _span: &Span) -> Result<String> {
         let array_str = self.visit_expr(array)?;
         

@@ -25,6 +25,7 @@ pub enum Expr {
     Assign(Box<Expr>, Box<Expr>, Span),
     CompoundAssign(Box<Expr>, Operator, Box<Expr>, Span),
     Range(Option<Box<Expr>>, Option<Box<Expr>>, bool, Span),
+    Tuple(Vec<Expr>, Span),
     EnumVariantOrMethodCall {
         target: Box<Expr>,
         call: String,
@@ -80,6 +81,13 @@ impl PartialEq for Expr {
             }
             Expr::Array(elements, _) => {
                 if let Expr::Array(other_elements, _) = other {
+                    elements == other_elements
+                } else {
+                    false
+                }
+            }
+            Expr::Tuple(elements, _) => {
+                if let Expr::Tuple(other_elements, _) = other {
                     elements == other_elements
                 } else {
                     false
@@ -282,6 +290,7 @@ impl Expr {
             Expr::Array(_, span) => span.clone(),
             Expr::ArrayIndex(_, _, span) => span.clone(),
             Expr::Range(_, _, _, span) => span.clone(),
+            Expr::Tuple(_, span) => span.clone(),
             Expr::EnumVariantOrMethodCall { span, .. } => span.clone(),
             Expr::Block(_, span) => span.clone(),
             Expr::If(_, _, _, span) => span.clone(),
@@ -364,6 +373,17 @@ impl fmt::Display for Expr {
                 )
             }
             Expr::ArrayIndex(array, index, _) => write!(f, "{}[{}]", array, index),
+            Expr::Tuple(elements, _) => {
+                write!(
+                    f,
+                    "({})",
+                    elements
+                        .iter()
+                        .map(|element| element.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
             Expr::Range(start, end, inclusive, _) => {
                 if *inclusive {
                     write!(f, "{:?}..={:?}", start, end)?;
@@ -2681,16 +2701,45 @@ impl Parser {
                     return Ok(Expr::Unit(Span::new(start_span.start, end_span)));
                 }
                 
-                // Otherwise, parse as parenthesized expression
-                let expr = self.parse_expression()?;
-                if self.current_token().kind != TokenKind::RParen {
-                    return Err(Error::new_parse(
-                        "Expected ')' after expression".to_string(),
-                        self.current_token().span,
-                    ));
+                // Parse first expression
+                let first_expr = self.parse_expression()?;
+                
+                // Check if this is a tuple
+                if self.current_token().kind == TokenKind::Comma {
+                    let mut elements = vec![first_expr];
+                    
+                    while self.current_token().kind == TokenKind::Comma {
+                        self.advance(); // Consume ','
+                        
+                        // Allow trailing comma
+                        if self.current_token().kind == TokenKind::RParen {
+                            break;
+                        }
+                        
+                        elements.push(self.parse_expression()?);
+                    }
+                    
+                    if self.current_token().kind != TokenKind::RParen {
+                        return Err(Error::new_parse(
+                            "Expected ')' after tuple elements".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    let end_span = self.current_token().span.end;
+                    self.advance(); // Consume ')'
+                    
+                    Ok(Expr::Tuple(elements, Span::new(start_span.start, end_span)))
+                } else {
+                    // Single parenthesized expression
+                    if self.current_token().kind != TokenKind::RParen {
+                        return Err(Error::new_parse(
+                            "Expected ')' after expression".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    self.advance(); // Consume ')'
+                    Ok(first_expr)
                 }
-                self.advance(); // Consume ')'
-                Ok(expr)
             }
             TokenKind::If => self.parse_if_expression(),
             TokenKind::Match => self.parse_match_expression(),

@@ -310,6 +310,14 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Array(Box::new(first_type)))
     }
 
+    fn visit_tuple(&mut self, elements: &[Expr], _span: &Span) -> Result<Type> {
+        let mut element_types = Vec::new();
+        for element in elements {
+            element_types.push(self.visit_expr(element)?);
+        }
+        Ok(Type::Tuple(element_types))
+    }
+
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, span: &Span) -> Result<Type> {
         let array_type = self.visit_expr(array)?;
         let index_type = self.visit_expr(index)?;

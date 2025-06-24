@@ -21,6 +21,7 @@ pub trait AstVisitor<T> {
             Expr::Array(elements, span) => self.visit_array(elements, span),
             Expr::ArrayIndex(array, index, span) => self.visit_array_index(array, index, span),
             Expr::Range(start, end, inclusive, span) => self.visit_range(start.as_deref(), end.as_deref(), *inclusive, span),
+            Expr::Tuple(elements, span) => self.visit_tuple(elements, span),
             Expr::BinaryOp(left, op, right, span) => self.visit_binary_op(left, op, right, span),
             Expr::UnaryOp(op, expr, span) => self.visit_unary_op(op, expr, span),
             Expr::Assign(left, right, span) => self.visit_assign(left, right, span),
@@ -56,6 +57,7 @@ pub trait AstVisitor<T> {
     fn visit_array(&mut self, elements: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_range(&mut self, start: Option<&Expr>, end: Option<&Expr>, inclusive: bool, span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_tuple(&mut self, elements: &[Expr], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_assign(&mut self, left: &Expr, right: &Expr, span: &Span) -> std::result::Result<T, Self::Error>;
