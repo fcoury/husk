@@ -1240,70 +1240,138 @@ impl AstVisitor<String> for JsTranspiler {
 impl JsTranspiler {
     /// Generate basic import statement without package resolution
     fn generate_basic_import(&self, path: &UsePath, items: &UseItems) -> Result<String> {
-        // For local imports with Single item, we need to separate the module path from the import
-        let (module_segments, import_name) = match (&path.prefix, items) {
-            (UsePrefix::Local | UsePrefix::Self_ | UsePrefix::Super(_), UseItems::Single) if path.segments.len() > 1 => {
-                // Split off the last segment as the import name
-                let mut segs = path.segments.clone();
-                let import = segs.pop().unwrap();
-                (segs, Some(import))
+        // Handle special cases for Node.js built-in modules
+        let (final_module_path, final_items) = if path.prefix == UsePrefix::None && !path.segments.is_empty() {
+            let base_module = &path.segments[0];
+            
+            if is_nodejs_builtin(base_module) && path.segments.len() > 1 {
+                match base_module.as_str() {
+                    "fs" => {
+                        if path.segments.len() >= 2 && path.segments[1] == "promises" {
+                            // fs::promises is a valid submodule
+                            if path.segments.len() > 2 {
+                                // fs::promises::{readFile} - import from fs/promises
+                                ("fs/promises".to_string(), items.clone())
+                            } else {
+                                // fs::promises - import fs/promises as a whole
+                                ("fs/promises".to_string(), items.clone())
+                            }
+                        } else if path.segments.len() == 3 && path.segments[1] == "constants" {
+                            // fs::constants::F_OK - import F_OK from fs
+                            match items {
+                                UseItems::Single => {
+                                    let import_name = path.segments[2].clone();
+                                    ("fs".to_string(), UseItems::Named(vec![(import_name.clone(), None)]))
+                                }
+                                UseItems::Named(_) => {
+                                    // Already named imports, use as is but from 'fs'
+                                    ("fs".to_string(), items.clone())
+                                }
+                                _ => ("fs".to_string(), items.clone())
+                            }
+                        } else {
+                            // Other fs submodules - import from fs directly
+                            ("fs".to_string(), items.clone())
+                        }
+                    }
+                    "path" | "crypto" | "util" | "stream" | "os" | "process" => {
+                        // These modules export everything directly
+                        if path.segments.len() == 2 && matches!(items, UseItems::Single) {
+                            // e.g., path::join - import { join } from 'path'
+                            let import_name = path.segments[1].clone();
+                            (base_module.clone(), UseItems::Named(vec![(import_name, None)]))
+                        } else if path.segments.len() > 2 {
+                            // e.g., process::env::NODE_ENV would be invalid, but handle gracefully
+                            (base_module.clone(), items.clone())
+                        } else {
+                            (base_module.clone(), items.clone())
+                        }
+                    }
+                    _ => {
+                        // For other modules, use the default behavior
+                        let module_segments = path.segments.clone();
+                        (module_segments.join("/"), items.clone())
+                    }
+                }
+            } else {
+                // Non-builtin or single-segment paths
+                let module_segments = path.segments.clone();
+                (module_segments.join("/"), items.clone())
             }
-            _ => (path.segments.clone(), None),
+        } else {
+            // Local imports - handle the path construction
+            let (module_segments, import_name) = match (&path.prefix, items) {
+                (UsePrefix::Local | UsePrefix::Self_ | UsePrefix::Super(_), UseItems::Single) if path.segments.len() > 1 => {
+                    // Split off the last segment as the import name
+                    let mut segs = path.segments.clone();
+                    let import = segs.pop().unwrap();
+                    (segs, Some(import))
+                }
+                _ => (path.segments.clone(), None),
+            };
+            
+            let module_path = match &path.prefix {
+                UsePrefix::None => {
+                    // Should not reach here, but handle it
+                    module_segments.join("/")
+                }
+                UsePrefix::Local => {
+                    // From project root - add .js extension for ES modules
+                    let base_path = module_segments.join("/");
+                    if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
+                        format!("./{}", base_path)
+                    } else {
+                        format!("./{}.js", base_path)
+                    }
+                }
+                UsePrefix::Self_ => {
+                    // Current directory - add .js extension for ES modules  
+                    let base_path = module_segments.join("/");
+                    if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
+                        format!("./{}", base_path)
+                    } else {
+                        format!("./{}.js", base_path)
+                    }
+                }
+                UsePrefix::Super(count) => {
+                    // Parent directories - add .js extension for ES modules
+                    let mut prefix = String::new();
+                    for _ in 0..*count {
+                        prefix.push_str("../");
+                    }
+                    let base_path = module_segments.join("/");
+                    if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
+                        format!("{}{}", prefix, base_path)
+                    } else {
+                        format!("{}{}.js", prefix, base_path)
+                    }
+                }
+            };
+            
+            // For local imports, reconstruct items if we split off the import name
+            let final_items = if let Some(name) = import_name {
+                UseItems::Named(vec![(name, None)])
+            } else {
+                items.clone()
+            };
+            
+            (module_path, final_items)
         };
         
-        let module_path = match &path.prefix {
-            UsePrefix::None => {
-                // External package - use as is
-                module_segments.join("/")
-            }
-            UsePrefix::Local => {
-                // From project root - add .js extension for ES modules
-                let base_path = module_segments.join("/");
-                if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                    format!("./{}", base_path)
-                } else {
-                    format!("./{}.js", base_path)
-                }
-            }
-            UsePrefix::Self_ => {
-                // Current directory - add .js extension for ES modules  
-                let base_path = module_segments.join("/");
-                if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                    format!("./{}", base_path)
-                } else {
-                    format!("./{}.js", base_path)
-                }
-            }
-            UsePrefix::Super(count) => {
-                // Parent directories - add .js extension for ES modules
-                let mut prefix = String::new();
-                for _ in 0..*count {
-                    prefix.push_str("../");
-                }
-                let base_path = module_segments.join("/");
-                if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                    format!("{}{}", prefix, base_path)
-                } else {
-                    format!("{}{}.js", prefix, base_path)
-                }
-            }
-        };
-        
-        let import_stmt = match items {
+        // Generate the import statement
+        let import_stmt = match &final_items {
             UseItems::All => {
-                format!("import * from '{}'", module_path)
+                format!("import * from '{}'", final_module_path)
             }
             UseItems::Single => {
-                if let Some(import) = import_name {
-                    // We split off the import name above
-                    format!("import {{ {} }} from '{}'", import, module_path)
-                } else if path.segments.len() == 1 && path.prefix == UsePrefix::None {
+                if path.segments.len() == 1 && path.prefix == UsePrefix::None {
                     // Single external package import
-                    format!("import '{}'", module_path)
+                    format!("import '{}'", final_module_path)
                 } else {
-                    // Local single module import
-                    let module_name = module_segments.last().unwrap_or(&String::new()).clone();
-                    format!("import {{ {} }} from '{}'", module_name, module_path)
+                    // This shouldn't happen after our transformations above
+                    // But handle it gracefully
+                    let module_name = path.segments.last().unwrap_or(&String::new()).clone();
+                    format!("import {{ {} }} from '{}'", module_name, final_module_path)
                 }
             }
             UseItems::Named(items) => {
@@ -1317,13 +1385,12 @@ impl JsTranspiler {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("import {{ {} }} from '{}'", imports, module_path)
+                format!("import {{ {} }} from '{}'", imports, final_module_path)
             }
         };
         
         Ok(import_stmt)
-    }
-}
+    }}
 
 #[cfg(test)]
 mod tests {

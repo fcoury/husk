@@ -1726,7 +1726,9 @@ impl Parser {
             }
             self.advance(); // Consume '=>'
 
-            let body = if self.current_token().kind == TokenKind::LBrace {
+            let is_block_arm = self.current_token().kind == TokenKind::LBrace;
+            
+            let body = if is_block_arm {
                 self.advance(); // Consume '{'
                 let stmts = self.parse_block()?;
                 self.advance(); // Consume '}'
@@ -1743,8 +1745,32 @@ impl Parser {
 
             arms.push((pattern, body));
 
-            if self.current_token().kind == TokenKind::Comma {
-                self.advance(); // Consume ','
+            // Check comma rules
+            if self.current_token().kind != TokenKind::RBrace {
+                // Not the last arm - check comma rules
+                if is_block_arm {
+                    // Block expression - comma should NOT be present
+                    if self.current_token().kind == TokenKind::Comma {
+                        return Err(Error::new_parse(
+                            "Unexpected comma after block expression in match arm".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                } else {
+                    // Non-block expression - comma is required
+                    if self.current_token().kind != TokenKind::Comma {
+                        return Err(Error::new_parse(
+                            "Expected comma after match arm expression".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    self.advance(); // Consume ','
+                }
+            } else {
+                // Last arm - consume optional comma
+                if self.current_token().kind == TokenKind::Comma {
+                    self.advance();
+                }
             }
         }
 
@@ -1856,7 +1882,9 @@ impl Parser {
             }
             self.advance(); // Consume '=>'
 
-            let body = if self.current_token().kind == TokenKind::LBrace {
+            let is_block_arm = self.current_token().kind == TokenKind::LBrace;
+            
+            let body = if is_block_arm {
                 self.advance(); // Consume '{'
                 let stmts = self.parse_block()?;
                 self.advance(); // Consume '}'
@@ -1873,8 +1901,32 @@ impl Parser {
 
             arms.push((pattern, body));
 
-            if self.current_token().kind == TokenKind::Comma {
-                self.advance(); // Consume ','
+            // Check comma rules
+            if self.current_token().kind != TokenKind::RBrace {
+                // Not the last arm - check comma rules
+                if is_block_arm {
+                    // Block expression - comma should NOT be present
+                    if self.current_token().kind == TokenKind::Comma {
+                        return Err(Error::new_parse(
+                            "Unexpected comma after block expression in match arm".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                } else {
+                    // Non-block expression - comma is required
+                    if self.current_token().kind != TokenKind::Comma {
+                        return Err(Error::new_parse(
+                            "Expected comma after match arm expression".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    self.advance(); // Consume ','
+                }
+            } else {
+                // Last arm - consume optional comma
+                if self.current_token().kind == TokenKind::Comma {
+                    self.advance();
+                }
             }
         }
 

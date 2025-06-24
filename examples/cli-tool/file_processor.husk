@@ -102,8 +102,8 @@ impl FileProcessor {
                 if self.options.verbose {
                     logger.info(format!("Processed: {}", basename(input_path)));
                 }
-    return Ok(());
-            },
+                return Ok(());
+            }
             Err(error) => {
                 self.error_count = self.error_count + 1;
                 logger.error(format!("Failed to process {}: {}", input_path, error));
@@ -183,16 +183,16 @@ impl FileProcessor {
         match transform_type.as_str() {
             ".js" | "js" => {
                 result = self.transform_javascript(result)?;
-            },
+            }
             ".css" | "css" => {
                 result = self.transform_css(result)?;
-            },
+            }
             ".html" | "html" => {
                 result = self.transform_html(result)?;
-            },
+            }
             ".json" | "json" => {
                 result = self.transform_json(result)?;
-            },
+            }
             _ => {
                 // No transformation for unknown file types
             }
@@ -265,19 +265,19 @@ impl FileProcessor {
                 result = self.remove_js_comments(result);
                 // Remove extra whitespace
                 result = self.compress_whitespace(result);
-            },
+            }
             ".css" | "css" => {
                 // Remove CSS comments
                 result = self.remove_css_comments(result);
                 // Remove extra whitespace
                 result = self.compress_whitespace(result);
-            },
+            }
             ".html" | "html" => {
                 // Remove HTML comments
                 result = self.remove_html_comments(result);
                 // Remove extra whitespace between tags
                 result = self.compress_html_whitespace(result);
-            },
+            }
             _ => {
                 // Generic whitespace compression
                 result = self.compress_whitespace(result);

@@ -21,17 +21,17 @@ pub async fn main() -> Result<(), string> {
     match args.command {
         Command::Process { input, output, options } => {
             process_files(input, output, options, logger).await
-        },
+        }
         Command::Analyze { path } => {
             analyze_directory(path, logger).await
-        },
+        }
         Command::Watch { directory } => {
             watch_directory(directory, logger).await
-        },
+        }
         Command::Help => {
             show_help();
             return Ok(());
-        },
+        }
     }
 }
 
@@ -172,7 +172,7 @@ fn parse_args(argv: Vec<string>) -> Result<CliArgs, string> {
             Ok(CliArgs {
                 command: Command::Process { input: input, output: output, options: options }
             })
-        },
+        }
         "analyze" => {
             if argv.len() < 4 {
                 return Err("analyze command requires a path");
@@ -181,7 +181,7 @@ fn parse_args(argv: Vec<string>) -> Result<CliArgs, string> {
             Ok(CliArgs {
                 command: Command::Analyze { path: path }
             })
-        },
+        }
         "watch" => {
             if argv.len() < 4 {
                 return Err("watch command requires a directory path");
@@ -190,16 +190,16 @@ fn parse_args(argv: Vec<string>) -> Result<CliArgs, string> {
             Ok(CliArgs {
                 command: Command::Watch { directory: directory }
             })
-        },
+        }
         "help" => {
             Ok(CliArgs { command: Command::Help })
-        },
+        }
         "--help" => {
             Ok(CliArgs { command: Command::Help })
-        },
+        }
         "-h" => {
             Ok(CliArgs { command: Command::Help })
-        },
+        }
         _ => {
             Err(format!("Unknown command: {}", command))
         }

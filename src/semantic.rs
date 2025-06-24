@@ -1107,7 +1107,9 @@ impl AstVisitor<Type> for SemanticVisitor {
         let expr_type = self.visit_expr(expr)?;
 
         // For enum matching, track which variants have been matched
+        // We need to distinguish between exhaustive patterns (with bindings) and specific patterns (with literals)
         let mut matched_variants = std::collections::HashSet::new();
+        let mut exhaustive_variants = std::collections::HashSet::new(); // Variants with binding patterns
         let mut has_wildcard = false;
         let mut wildcard_position = None;
         let enum_name = match &expr_type {
@@ -1154,28 +1156,48 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                         }
 
-                        // Check for duplicate patterns
-                        if matched_variants.contains(call) {
+                        // Check if this pattern has already been exhaustively matched
+                        if exhaustive_variants.contains(call) {
                             return Err(Error::new_semantic(
-                                format!("Duplicate pattern: enum variant '{}::{}' already matched", enum_type, call),
+                                format!("Unreachable pattern: enum variant '{}::{}' already has a catch-all pattern", enum_type, call),
                                 pattern.span(),
                             ));
                         }
 
-                        // Track this variant as matched
+                        // Check if this is a binding pattern or a literal pattern
+                        let is_exhaustive = if args.is_empty() {
+                            // Unit variant is always exhaustive
+                            true
+                        } else {
+                            // Check if the argument is a binding (variable) or a literal
+                            matches!(&args[0], Expr::Identifier(name, _) if name != "_")
+                        };
+
+                        if is_exhaustive {
+                            // This pattern catches all values for this variant
+                            exhaustive_variants.insert(call.clone());
+                        } else {
+                            // This is a specific pattern (literal or wildcard)
+                            // Only check for exact duplicate patterns
+                            // Note: In a complete implementation, we'd track the specific literal values
+                        }
+
+                        // Track this variant as matched (for exhaustiveness checking)
                         matched_variants.insert(call.clone());
 
                         // Bind variables from enum variant
                         if !args.is_empty() {
                             if let Expr::Identifier(var_name, _) = &args[0] {
-                                if let Some(enum_variants) = self.enums.get(enum_type) {
-                                    if let Some(Some(variant_type)) = enum_variants.get(call) {
-                                        // For built-in generic enums with Unknown type, infer from usage context
-                                        if (enum_type == "Option" || enum_type == "Result") && *variant_type == Type::Unknown {
-                                            // For now, bind as Unknown and let type inference figure it out
-                                            self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
-                                        } else {
-                                            self.match_bound_vars.insert(var_name.clone(), variant_type.clone());
+                                if var_name != "_" {  // Don't bind wildcards
+                                    if let Some(enum_variants) = self.enums.get(enum_type) {
+                                        if let Some(Some(variant_type)) = enum_variants.get(call) {
+                                            // For built-in generic enums with Unknown type, infer from usage context
+                                            if (enum_type == "Option" || enum_type == "Result") && *variant_type == Type::Unknown {
+                                                // For now, bind as Unknown and let type inference figure it out
+                                                self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                            } else {
+                                                self.match_bound_vars.insert(var_name.clone(), variant_type.clone());
+                                            }
                                         }
                                     }
                                 }

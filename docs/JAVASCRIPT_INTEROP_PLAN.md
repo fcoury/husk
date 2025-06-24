@@ -838,12 +838,74 @@ Successfully built a CLI tool example to test JavaScript interop features:
 **Key fix:**
 The transpiler was incorrectly including the imported item name in the module path. For example, `use local::math::add` was generating `import { add } from './math/add.js'` instead of the correct `import { add } from './math.js'`.
 
+## Recent Progress (December 2024)
+
+### High-Priority Tasks Completed ✅
+
+**1. Fixed Pattern Parsing Issue** ✅
+- **Problem**: Match expressions with variables failed but literals worked due to incorrect duplicate pattern detection
+- **Solution**: Enhanced semantic analyzer to distinguish between exhaustive patterns (with variable bindings) and specific patterns (with literals)
+- **Code**: Added `exhaustive_variants` HashSet in semantic.rs to track patterns with variable bindings
+- **Test**: Created comprehensive test demonstrating Value::Number(0), Value::Number(42), and Value::Number(n) patterns all work correctly
+
+**2. Fixed Use Statements with :: Syntax** ✅
+- **Problem**: `fs::constants::F_OK` was generating `import { F_OK } from 'fs/constants/F_OK'` (incorrect)
+- **Solution**: Enhanced transpiler with special handling for Node.js built-in modules
+- **Results**: 
+  - `fs::promises::{readFile, writeFile}` → `import { readFile, writeFile } from 'fs/promises';`
+  - `fs::constants::F_OK` → `import { F_OK } from 'fs';` (correct - from main fs module)
+  - `path::{join, dirname}` → `import { join, dirname } from 'path';`
+- **Code**: Completely rewrote `generate_basic_import()` function in transpiler.rs
+
+**3. Enforced Comma Rules for Match Arms** ✅
+- **Problem**: Parser accepted invalid commas after blocks and missing commas after expressions
+- **Solution**: Implemented proper comma validation in both `parse_match_statement` and `parse_match_expression`
+- **Rules**: 
+  - Expression arms MUST have comma (unless last arm): `1 => "one",`
+  - Block arms MUST NOT have comma: `1 => { println("one") }`
+- **Errors**: Clear error messages for violations
+- **Code**: Added `is_block_arm` detection logic to parser.rs
+
+**4. CLI Tool Progress** 🔄
+- **Fixed**: All comma rule violations in CLI tool files (main.husk, cli.husk, file_processor.husk)
+- **Verified**: Transpiler correctly generates JavaScript imports for Node.js APIs
+- **Blocker**: Type inference issue with local module imports (Logger type inferred as `?`)
+
+### Technical Improvements ✅
+
+**Object Literal Syntax** ✅ (Previously completed)
+- `{ key: value }` syntax fully working for JavaScript API compatibility
+- Supports type keywords as object keys
+
+**Match Pattern Improvements** ✅
+- Tuple destructuring: `match (x, y) { (1, 2) => ... }`
+- Enum variant destructuring: `match cmd { Command::Process { input, output } => ... }`
+- Literal vs binding pattern distinction
+
+**Import System Robustness** ✅
+- Node.js built-in module special handling
+- Proper ES6 module generation
+- Local module import support
+
+### Current Blockers for CLI Tool
+
+1. **Local Module Type Inference** 🚫
+   - `Logger::new(LogLevel::Info)` results in type `?` 
+   - Affects method calls: `logger.info("message")` fails with "Cannot call method 'info' on type ?"
+   - Need to enhance semantic analyzer's handling of local module imports
+
+2. **Method Resolution for Local Types** 🚫
+   - Related to above - imported types don't resolve their methods properly
+   - May need updates to type environment for imported names
+
 ### Next Steps
 1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
-2. Fix Result/Option JavaScript object format for proper interop
-3. Fix method calls to not require explicit self argument
-4. Add support for missing syntactic features (shorthand fields, multiple patterns, etc.)
-5. Complete CLI tool example with all features working
+2. ~~Fix pattern parsing issue where match with variable fails but literal works~~ ✅ DONE!
+3. ~~Fix use statements with :: syntax for external modules~~ ✅ DONE!
+4. ~~Enforce comma rules for match arms~~ ✅ DONE!
+5. **Fix local module type inference for CLI tool completion** 🔄 IN PROGRESS
+6. Add support for missing syntactic features (shorthand fields, multiple patterns, etc.)
+7. Complete comprehensive CLI tool example
 
 ## Conclusion
 
