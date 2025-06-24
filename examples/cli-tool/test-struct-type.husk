@@ -1,0 +1,12 @@
+pub enum MyEnum {
+    Variant1,
+    Variant2,
+}
+
+pub struct MyStruct {
+    field: MyEnum,
+}
+
+fn test() -> MyStruct {
+    MyStruct { field: MyEnum::Variant1 }
+}
