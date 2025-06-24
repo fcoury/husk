@@ -1,0 +1,3 @@
+Pure shorthand: Point(10, 20)
+Regular syntax: Point(30, 40)
+All shorthand field tests completed!

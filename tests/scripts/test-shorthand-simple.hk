@@ -1,0 +1,11 @@
+struct Point {
+    x: int,
+    y: int,
+}
+
+fn main() {
+    let x = 10;
+    let y = 20;
+    let p = Point { x, y };
+    println(format!("Point: ({}, {})", p.x, p.y));
+}

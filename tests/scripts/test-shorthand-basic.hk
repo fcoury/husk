@@ -1,0 +1,20 @@
+struct Point {
+    x: int,
+    y: int,
+}
+
+println("Starting test");
+
+let x = 10;
+let y = 20;
+println("Variables created");
+
+let p1 = Point { x, y };
+println("Shorthand struct created");
+
+println(format!("Pure shorthand: Point({}, {})", p1.x, p1.y));
+
+let p2 = Point { x: 30, y: 40 };
+println(format!("Regular syntax: Point({}, {})", p2.x, p2.y));
+
+println("Test completed");

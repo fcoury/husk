@@ -1,0 +1,49 @@
+// Test rest patterns in struct destructuring
+
+struct Config {
+    host: string,
+    port: int,
+    debug: bool,
+    timeout: int,
+}
+
+struct Point {
+    x: int,
+    y: int,
+    z: int,
+}
+
+// Test rest patterns in struct destructuring
+let config = Config {
+    host: "localhost",
+    port: 8080,
+    debug: true,
+    timeout: 30,
+};
+
+println("=== Testing Rest Patterns ===");
+
+// Test extracting specific fields and ignoring rest
+match config {
+    Config { host, port, .. } => {
+        println(format!("Server at {}:{}", host, port));
+    }
+}
+
+// Test different field order with rest patterns
+match config {
+    Config { debug, host, .. } => {
+        println(format!("Debug mode: {}, Host: {}", debug, host));
+    }
+}
+
+// Test with different struct
+let point = Point { x: 10, y: 20, z: 30 };
+
+match point {
+    Point { x, y, .. } => {
+        println(format!("2D point: ({}, {})", x, y));
+    }
+}
+
+println("All rest pattern tests completed!");
