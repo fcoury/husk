@@ -13,6 +13,7 @@ pub enum Expr {
     Float(f64, Span),
     String(String, Span),
     Bool(bool, Span),
+    Unit(Span),
     Array(Vec<Expr>, Span),
     ArrayIndex(Box<Expr>, Box<Expr>, Span),
     Identifier(String, Span),
@@ -40,6 +41,7 @@ pub enum Expr {
     Closure(Vec<(String, Option<String>)>, Option<String>, Box<Expr>, Span),
     MethodCall(Box<Expr>, String, Vec<Expr>, Span), // object.method(args)
     Cast(Box<Expr>, String, Span), // expr as type
+    StructPattern(String, Vec<(String, Option<String>)>, Span), // EnumVariant::Name { field1: var1, field2, ... }
 }
 
 impl PartialEq for Expr {
@@ -72,6 +74,9 @@ impl PartialEq for Expr {
                 } else {
                     false
                 }
+            }
+            Expr::Unit(_) => {
+                matches!(other, Expr::Unit(_))
             }
             Expr::Array(elements, _) => {
                 if let Expr::Array(other_elements, _) = other {
@@ -233,6 +238,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::StructPattern(variant, fields, _) => {
+                if let Expr::StructPattern(other_variant, other_fields, _) = other {
+                    variant == other_variant && fields == other_fields
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -258,6 +270,7 @@ impl Expr {
             Expr::Float(_, span) => span.clone(),
             Expr::String(_, span) => span.clone(),
             Expr::Bool(_, span) => span.clone(),
+            Expr::Unit(span) => span.clone(),
             Expr::Identifier(_, span) => span.clone(),
             Expr::BinaryOp(_, _, _, span) => span.clone(),
             Expr::UnaryOp(_, _, span) => span.clone(),
@@ -279,6 +292,7 @@ impl Expr {
             Expr::Closure(_, _, _, span) => span.clone(),
             Expr::MethodCall(_, _, _, span) => span.clone(),
             Expr::Cast(_, _, span) => span.clone(),
+            Expr::StructPattern(_, _, span) => span.clone(),
         }
     }
 }
@@ -290,6 +304,7 @@ impl fmt::Display for Expr {
             Expr::Float(value, _) => write!(f, "{}", value),
             Expr::String(value, _) => write!(f, "\"{}\"", value),
             Expr::Bool(value, _) => write!(f, "{}", value),
+            Expr::Unit(_) => write!(f, "()"),
             Expr::EnumVariantOrMethodCall {
                 target, call, args, ..
             } => {
@@ -400,6 +415,15 @@ impl fmt::Display for Expr {
                 )
             }
             Expr::Cast(expr, target_type, _) => write!(f, "{} as {}", expr, target_type),
+            Expr::StructPattern(variant, fields, _) => {
+                let field_strings: Vec<String> = fields.iter().map(|(field, rename)| {
+                    match rename {
+                        Some(var_name) => format!("{}: {}", field, var_name),
+                        None => field.clone(),
+                    }
+                }).collect();
+                write!(f, "{} {{ {} }}", variant, field_strings.join(", "))
+            }
         }
     }
 }
@@ -412,7 +436,7 @@ pub enum Stmt {
     Expression(Expr, bool), // Second bool indicates if there's a semicolon
     Struct(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
     Impl(String, Vec<Stmt>, Span),
-    Enum(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
+    Enum(String, Vec<String>, Vec<EnumVariant>, Span), // Added generic params
     ForLoop(String, Expr, Vec<Stmt>, Span),
     While(Expr, Vec<Stmt>, Span),
     Loop(Vec<Stmt>, Span),
@@ -422,7 +446,15 @@ pub enum Stmt {
     Use(UsePath, UseItems, Span),
     ExternFunction(String, Vec<String>, Vec<(String, String)>, String, Span), // Added generic params
     ExternMod(String, Vec<ExternItem>, Span),
+    ExternType(String, Vec<String>, Span), // name, generic params, span
     AsyncFunction(bool, String, Vec<String>, Vec<(String, String)>, String, Vec<Stmt>, Span), // Added visibility flag and generic params
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EnumVariant {
+    Unit(String),                                    // Simple variant: Color
+    Tuple(String, String),                          // Tuple variant: Color(string)  
+    Struct(String, Vec<(String, String)>),          // Struct variant: Color { r: int, g: int, b: int }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -928,8 +960,23 @@ impl Parser {
                 
                 Ok(Stmt::ExternMod(name, items, start_span))
             }
+            TokenKind::Identifier(s) if s == "type" => {
+                // extern type Name<T, U>;
+                self.advance(); // Consume 'type'
+                let name = self.consume_identifier("extern type")?
+                    .ok_or_else(|| Error::new_parse(
+                        "Expected type name after 'type'".to_string(),
+                        self.current_token().span,
+                    ))?;
+                
+                // Parse generic type parameters <T, U>
+                let generic_params = self.parse_generic_parameters()?;
+                
+                self.expect_token(TokenKind::Semicolon)?;
+                Ok(Stmt::ExternType(name, generic_params, start_span))
+            }
             _ => Err(Error::new_parse(
-                "Expected 'fn' or 'mod' after 'extern'".to_string(),
+                "Expected 'fn', 'mod', or 'type' after 'extern'".to_string(),
                 self.current_token().span,
             )),
         }
@@ -1120,7 +1167,8 @@ impl Parser {
                     )
                 })?;
 
-            let variant_type = if self.current_token().kind == TokenKind::LParen {
+            let variant = if self.current_token().kind == TokenKind::LParen {
+                // Tuple variant: Color(string)
                 self.advance(); // Consume '('
                 let variant_type = self.consume_type().unwrap();
                 if self.current_token().kind != TokenKind::RParen {
@@ -1130,11 +1178,54 @@ impl Parser {
                     ));
                 }
                 self.advance(); // Consume ')'
-                variant_type
+                EnumVariant::Tuple(variant_name, variant_type)
+            } else if self.current_token().kind == TokenKind::LBrace {
+                // Struct variant: Color { r: int, g: int, b: int }
+                self.advance(); // Consume '{'
+                
+                let mut fields = Vec::new();
+                while self.current_token().kind != TokenKind::RBrace {
+                    let field_name = self.consume_identifier("enum struct field")?.ok_or_else(|| {
+                        Error::new_parse(
+                            "Expected field name in enum struct variant".to_string(),
+                            self.current_token().span,
+                        )
+                    })?;
+                    
+                    if self.current_token().kind != TokenKind::Colon {
+                        return Err(Error::new_parse(
+                            "Expected ':' after field name in enum struct variant".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                    self.advance(); // Consume ':'
+                    
+                    let field_type = self.consume_type().ok_or_else(|| {
+                        Error::new_parse(
+                            "Expected field type after ':' in enum struct variant".to_string(),
+                            self.current_token().span,
+                        )
+                    })?;
+                    
+                    fields.push((field_name, field_type));
+                    
+                    if self.current_token().kind == TokenKind::Comma {
+                        self.advance(); // Consume ','
+                    } else if self.current_token().kind != TokenKind::RBrace {
+                        return Err(Error::new_parse(
+                            "Expected ',' or '}' in enum struct variant".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
+                }
+                
+                self.advance(); // Consume '}'
+                EnumVariant::Struct(variant_name, fields)
             } else {
-                "unit".to_string()
+                // Unit variant: Color
+                EnumVariant::Unit(variant_name)
             };
-            variants.push((variant_name, variant_type));
+            variants.push(variant);
 
             if self.current_token().kind == TokenKind::Comma {
                 self.advance(); // Consume ','
@@ -1668,6 +1759,54 @@ impl Parser {
                             span: Span::new(start_span.start, self.current_token().span.end),
                             type_annotation: TypeAnnotation::new(),
                         })
+                    } else if self.current_token().kind == TokenKind::LBrace {
+                        // Parse struct destructuring pattern: EnumName::Variant { field1, field2: renamed, ... }
+                        self.advance(); // Consume '{'
+                        
+                        let mut fields = Vec::new();
+                        
+                        while self.current_token().kind != TokenKind::RBrace {
+                            let field_name = self.consume_identifier("struct pattern field")?.ok_or_else(|| {
+                                Error::new_parse(
+                                    "Expected field name in struct pattern".to_string(),
+                                    self.current_token().span,
+                                )
+                            })?;
+                            
+                            let var_name = if self.current_token().kind == TokenKind::Colon {
+                                self.advance(); // Consume ':'
+                                Some(self.consume_identifier("struct pattern variable")?.ok_or_else(|| {
+                                    Error::new_parse(
+                                        "Expected variable name after ':' in struct pattern".to_string(),
+                                        self.current_token().span,
+                                    )
+                                })?)
+                            } else {
+                                None
+                            };
+                            
+                            fields.push((field_name, var_name));
+                            
+                            if self.current_token().kind == TokenKind::Comma {
+                                self.advance(); // Consume ','
+                            } else if self.current_token().kind != TokenKind::RBrace {
+                                return Err(Error::new_parse(
+                                    "Expected ',' or '}' in struct pattern".to_string(),
+                                    self.current_token().span,
+                                ));
+                            }
+                        }
+                        
+                        self.advance(); // Consume '}'
+                        
+                        // Create the full variant name including the enum prefix
+                        let full_variant = format!("{}::{}", target.to_string(), call);
+                        
+                        Ok(Expr::StructPattern(
+                            full_variant,
+                            fields,
+                            Span::new(start_span.start, self.current_token().span.end),
+                        ))
                     } else {
                         Ok(Expr::EnumVariantOrMethodCall {
                             target,
@@ -1886,6 +2025,18 @@ impl Parser {
                 }
                 
                 Some(result)
+            }
+            TokenKind::LParen => {
+                // Handle unit type ()
+                self.advance(); // Consume '('
+                if self.current_token().kind == TokenKind::RParen {
+                    self.advance(); // Consume ')'
+                    Some("()".to_string())
+                } else {
+                    // This might be a parenthesized type expression or tuple type
+                    // For now, we don't support these, so return None
+                    None
+                }
             }
             TokenKind::Function => {
                 // Parse function type: fn() or fn(params) -> return_type
@@ -2441,7 +2592,17 @@ impl Parser {
             }
             TokenKind::LBrace => self.parse_block_expression(),
             TokenKind::LParen => {
+                let start_span = span;
                 self.advance(); // Consume '('
+                
+                // Check for unit value ()
+                if self.current_token().kind == TokenKind::RParen {
+                    let end_span = self.current_token().span.end;
+                    self.advance(); // Consume ')'
+                    return Ok(Expr::Unit(Span::new(start_span.start, end_span)));
+                }
+                
+                // Otherwise, parse as parenthesized expression
                 let expr = self.parse_expression()?;
                 if self.current_token().kind != TokenKind::RParen {
                     return Err(Error::new_parse(

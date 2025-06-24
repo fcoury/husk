@@ -250,7 +250,7 @@ impl JsTranspiler {
         }
     }
 
-    fn generate_enum(&self, name: &str, variants: &[(String, String)]) -> String {
+    fn generate_enum(&self, name: &str, variants: &[crate::parser::EnumVariant]) -> String {
         let mut output = String::new();
         
         // Generate base enum class
@@ -262,13 +262,19 @@ impl JsTranspiler {
         output.push_str("}\n");
         
         // Generate variant constructors
-        for (variant, _) in variants {
-            output.push_str(&format!("{}.{} = class extends {} {{", name, variant, name));
-            output.push_str(&format!("constructor(value) {{ super('{}', value); }}", variant));
+        for variant in variants {
+            let variant_name = match variant {
+                crate::parser::EnumVariant::Unit(name) => name,
+                crate::parser::EnumVariant::Tuple(name, _) => name,
+                crate::parser::EnumVariant::Struct(name, _) => name,
+            };
+            
+            output.push_str(&format!("{}.{} = class extends {} {{", name, variant_name, name));
+            output.push_str(&format!("constructor(value) {{ super('{}', value); }}", variant_name));
             output.push_str("};\n");
             
             // Generate static instance for variants without data
-            output.push_str(&format!("{}.{} = new {}.{}();\n", name, variant, name, variant));
+            output.push_str(&format!("{}.{} = new {}.{}();\n", name, variant_name, name, variant_name));
         }
         
         output
@@ -320,6 +326,9 @@ impl AstVisitor<String> for JsTranspiler {
                         self.visit_extern_function(name, generic_params, params, return_type, span)
                     }
                     Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
+                    Stmt::ExternType(name, generic_params, span) => {
+                        self.visit_extern_type(name, generic_params, span)
+                    }
                     _ => unreachable!("All statement types should be handled above")
                 }
             }
@@ -342,6 +351,10 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_bool(&mut self, value: bool, _span: &Span) -> Result<String> {
         Ok(value.to_string())
+    }
+
+    fn visit_unit(&mut self, _span: &Span) -> Result<String> {
+        Ok("void 0".to_string()) // JavaScript representation of unit/void
     }
 
     fn visit_identifier(&mut self, name: &str, _span: &Span) -> Result<String> {
@@ -778,6 +791,12 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(String::new())
     }
     
+    fn visit_extern_type(&mut self, _name: &str, _generic_params: &[String], _span: &Span) -> Result<String> {
+        // Extern type declarations don't generate any JavaScript code
+        // They're only used for type checking
+        Ok(String::new())
+    }
+    
     fn visit_async_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
         let params_str = params
             .iter()
@@ -934,7 +953,7 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(result)
     }
 
-    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[(String, String)], _span: &Span) -> Result<String> {
+    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<String> {
         Ok(self.generate_enum(name, variants))
     }
 
@@ -1109,6 +1128,20 @@ impl AstVisitor<String> for JsTranspiler {
                 Ok(expr_str)
             }
         }
+    }
+
+    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], _span: &Span) -> Result<String> {
+        // Struct patterns are used for pattern matching and should not generate standalone JavaScript
+        // They are only meaningful in the context of match expressions
+        // For now, we'll generate a comment indicating this is a pattern
+        Ok(format!("/* struct pattern: {} {{ {} }} */", variant, 
+            fields.iter().map(|(field, rename)| {
+                match rename {
+                    Some(var_name) => format!("{}: {}", field, var_name),
+                    None => field.clone(),
+                }
+            }).collect::<Vec<_>>().join(", ")
+        ))
     }
 }
 

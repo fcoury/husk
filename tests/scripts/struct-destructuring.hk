@@ -1,0 +1,54 @@
+// Test struct destructuring patterns in match expressions
+
+enum Command {
+    Process { input: string, output: string, verbose: bool },
+    Analyze { path: string, depth: int },
+    Help,
+}
+
+struct Config {
+    debug: bool,
+    timeout: int,
+}
+
+fn main() {
+    let cmd = Command::Process { 
+        input: "input.txt", 
+        output: "output.txt", 
+        verbose: true 
+    };
+    
+    match cmd {
+        Command::Process { input, output, verbose } => {
+            println("Processing from {} to {}", input, output);
+            if verbose {
+                println("Verbose mode enabled");
+            }
+        },
+        Command::Analyze { path: dir, depth } => {
+            println("Analyzing directory {} with depth {}", dir, depth);
+        },
+        Command::Help => {
+            println("Help requested");
+        },
+    }
+    
+    let config = Config { debug: true, timeout: 30 };
+    
+    // Test with field renaming
+    match config {
+        Config { debug: is_debug, timeout: max_time } => {
+            println("Debug: {}, Timeout: {}", is_debug, max_time);
+        },
+    }
+    
+    // Test with partial destructuring
+    match cmd {
+        Command::Process { input, .. } => {
+            println("Input file: {}", input);
+        },
+        _ => {
+            println("Other command");
+        },
+    }
+}

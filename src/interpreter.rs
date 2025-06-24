@@ -716,6 +716,10 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Bool(value))
     }
 
+    fn visit_unit(&mut self, _span: &Span) -> Result<Value> {
+        Ok(Value::Unit)
+    }
+
     fn visit_string(&mut self, value: &str, _span: &Span) -> Result<Value> {
         Ok(Value::String(value.to_string()))
     }
@@ -1204,10 +1208,21 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[(String, String)], _span: &Span) -> Result<Value> {
+    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<Value> {
         let mut variant_map = IndexMap::new();
-        for (variant_name, variant_type) in variants {
-            variant_map.insert(variant_name.clone(), variant_type.clone());
+        for variant in variants {
+            match variant {
+                crate::parser::EnumVariant::Unit(name) => {
+                    variant_map.insert(name.clone(), "unit".to_string());
+                }
+                crate::parser::EnumVariant::Tuple(name, type_name) => {
+                    variant_map.insert(name.clone(), type_name.clone());
+                }
+                crate::parser::EnumVariant::Struct(name, _fields) => {
+                    // For struct variants, we'll store them as a special struct type
+                    variant_map.insert(name.clone(), format!("struct_{}", name));
+                }
+            }
         }
         let enum_value = Value::Enum(name.to_string(), variant_map);
         self.set_var(name.to_string(), enum_value.clone());
@@ -1462,6 +1477,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
     
     fn visit_extern_mod(&mut self, _name: &str, _items: &[ExternItem], _span: &Span) -> Result<Value> {
         // Extern declarations are no-op in interpreter mode
+        // They're only used for type checking external APIs
+        Ok(Value::Unit)
+    }
+    
+    fn visit_extern_type(&mut self, _name: &str, _generic_params: &[String], _span: &Span) -> Result<Value> {
+        // Extern type declarations are no-op in interpreter mode
         // They're only used for type checking external APIs
         Ok(Value::Unit)
     }
@@ -1814,6 +1835,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Ok(value)
             }
         }
+    }
+
+    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], span: &Span) -> Result<Value> {
+        // Struct patterns are used for pattern matching in match expressions
+        // In the interpreter, this should not be directly evaluated as an expression
+        // It should only be used in the context of pattern matching
+        Err(Error::new_runtime(
+            "Struct patterns can only be used in match expressions".to_string(),
+            span.clone(),
+        ))
     }
 }
 
