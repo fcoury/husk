@@ -160,6 +160,11 @@ impl Type {
                 let inner = &s[6..s.len()-1];
                 Type::from_string(inner).map(|t| Type::Array(Box::new(t)))
             },
+            s if s.starts_with("Vec<") && s.ends_with(">") => {
+                // Vec<T> is an alias for array<T>
+                let inner = &s[4..s.len()-1];
+                Type::from_string(inner).map(|t| Type::Array(Box::new(t)))
+            },
             s if s.starts_with("Promise<") && s.ends_with(">") => {
                 let inner = &s[8..s.len()-1];
                 Type::from_string(inner).map(|t| Type::Promise(Box::new(t)))

@@ -922,19 +922,35 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ✅ Type checking validates method arguments properly  
 - ✅ Local module system now fully functional for multi-file projects
 
-### Current CLI Tool Syntax Issues (December 24, 2024) 🔄
+### Major Fixes Completed (December 24, 2024) ✅
 
-**Fixed Issues:**
-- ✅ **Multiple pattern support**: Fixed `".js" | "js" =>` syntax by converting to separate match arms
-- ✅ **Struct field pub modifiers**: Removed unsupported `pub` modifiers from struct fields  
-- ✅ **Method resolution for local types**: Logger::new() and similar static methods now work correctly
+**1. Critical Parser Bug Fixed:**
 - ✅ **Struct-like enum pattern parsing**: Fixed parser bug where `match cmd { ... }` was incorrectly treated as struct initialization
+- **Root Cause**: The `lookahead_for_struct_initialization` function failed to check if the preceding token was `match`
+- **Solution**: Added `TokenKind::Match` to the list of tokens that prevent struct initialization interpretation
+- **Impact**: Parser now correctly handles complex enum patterns like `Command::Process { input: input, output: output } =>`
+
+**2. Generic Type Method Resolution Fixed:**
+- ✅ **Vec<T> method calls**: Fixed method resolution for generic types like `Vec<string>::len()`
+- **Root Cause**: `Type::from_string` didn't recognize `Vec<T>` as an array type
+- **Solution**: Added pattern matching for `Vec<T>` that maps it to `Type::Array(Box<T>)`
+- **Impact**: Generic collections like `Vec<T>` now support all array methods (len, push, pop)
+
+### Current CLI Tool Implementation Status (December 24, 2024) 🔄
+
+**Completed Fixes:**
+- ✅ **Multiple pattern support**: Converted `".js" | "js" =>` to separate match arms
+- ✅ **Struct field pub modifiers**: Removed unsupported `pub` modifiers from struct fields  
+- ✅ **Method resolution for local types**: Logger::new() and similar static methods work correctly
+- ✅ **Struct-like enum pattern parsing**: Fixed critical parser bug
+- ✅ **Return statement semicolons**: Fixed semicolon requirement in match arms
 
 **Remaining Issues:**
 - ❌ **Rest patterns in destructuring**: `{ input, output, .. }` syntax not supported - must use explicit field listing
 - ❌ **Shorthand field syntax**: `{ input, output }` not supported - must use `{ input: input, output: output }`
-- ❌ **Method resolution for generic types**: `Vec<string>::len()` not supported yet
+- ✅ **Method resolution for generic types**: Fixed! `Vec<T>` now correctly maps to `Type::Array` enabling method calls
 - ❌ **Type inference for struct-like enum patterns**: Semantic analyzer reports "Pattern type mismatch: expected Command, found unit"
+- ❌ **Struct field type mismatch**: Imported enum types don't match in struct initialization
 
 **Parser Fix Details:**
 - **Root Cause**: The `lookahead_for_struct_initialization` function failed to check if the preceding token was `match`
