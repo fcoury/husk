@@ -57,6 +57,11 @@ This document tracks the current development tasks for the Husk programming lang
 - ✅ Implement string methods in transpiler
 - ✅ Implement built-in methods for arrays (.len(), .push(), etc)
 
+### Language Features
+- ✅ Support implicit Result/Option variants (Ok, Err, Some, None) without prefix
+- ⏳ Fix return statement parsing inside if blocks
+- ⏳ Fix transpiler to generate correct Result/Option JavaScript objects
+
 ### Build System
 - ✅ Implement build command for project compilation
 

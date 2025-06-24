@@ -150,23 +150,23 @@ pub fn format_duration(ms: int) -> string {
 
 pub fn validate_path(path: string) -> Result<string, string> {
     if path.len() == 0 {
-        return Err("Path cannot be empty");
+        return Result::Err("Path cannot be empty");
     }
     
     // Check for invalid characters (simplified)
     let invalid_chars = ["<", ">", ":", "\"", "|", "?", "*"];
     for char in invalid_chars {
         if path.contains(char) {
-            return Err(format!("Path contains invalid character: {}", char));
+            return Result::Err(format!("Path contains invalid character: {}", char));
         }
     }
     
-    Ok(path)
+    Result::Ok(path)
 }
 
 pub fn normalize_path(path: string) -> string {
     // Simple path normalization
-    let mut normalized = path;
+    let normalized = path;
     
     // Convert backslashes to forward slashes
     normalized = normalized.replace("\\", "/");
@@ -210,7 +210,7 @@ impl FilePattern {
                 // Simplified glob matching
                 if pattern.contains("*") {
                     let parts = pattern.split("*");
-                    let mut current_pos = 0;
+                    let current_pos = 0;
                     
                     for part in parts {
                         if part.len() == 0 {

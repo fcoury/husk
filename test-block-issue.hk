@@ -1,7 +1,0 @@
-fn main() {
-    match 42 {
-        1 => { println("one"); },
-        2 => { println("two"); },
-        _ => { println("other"); }
-    }
-}

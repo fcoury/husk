@@ -892,9 +892,15 @@ impl AstVisitor<String> for JsTranspiler {
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
         match &path.prefix {
             UsePrefix::None => {
+                // Check if it's a Node.js built-in module
+                let package_name = &path.segments[0];
+                if is_nodejs_builtin(package_name) {
+                    // Node.js built-in modules don't need package resolution
+                    return self.generate_basic_import(path, items);
+                }
+                
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
-                    let package_name = &path.segments[0];
                     let subpath_string = if path.segments.len() > 1 {
                         Some(path.segments[1..].join("/"))
                     } else {
@@ -1696,4 +1702,16 @@ mod tests {
             assert_eq!(result, "import { auth } from './modules/auth.js'");
         }
     }
+}
+
+/// Check if a module name is a Node.js built-in module
+fn is_nodejs_builtin(module: &str) -> bool {
+    matches!(module,
+        "assert" | "buffer" | "child_process" | "cluster" | "console" | "constants" |
+        "crypto" | "dgram" | "dns" | "domain" | "events" | "fs" | "http" | "https" |
+        "module" | "net" | "os" | "path" | "perf_hooks" | "process" | "punycode" |
+        "querystring" | "readline" | "repl" | "stream" | "string_decoder" | "sys" |
+        "timers" | "tls" | "tty" | "url" | "util" | "v8" | "vm" | "worker_threads" |
+        "zlib"
+    )
 }
