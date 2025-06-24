@@ -1766,6 +1766,46 @@ impl Parser {
                 self.advance(); // Consume '_'
                 Ok(Expr::Identifier("_".to_string(), span))
             }
+            TokenKind::LParen => {
+                // Parse tuple pattern: (pattern1, pattern2, ...)
+                let start_span = self.current_token().span;
+                self.advance(); // Consume '('
+                
+                let mut patterns = Vec::new();
+                
+                // Check for empty tuple
+                if self.current_token().kind == TokenKind::RParen {
+                    self.advance(); // Consume ')'
+                    return Ok(Expr::Tuple(vec![], Span::new(start_span.start, self.current_token().span.end)));
+                }
+                
+                // Parse patterns
+                loop {
+                    patterns.push(self.parse_match_pattern()?);
+                    
+                    if self.current_token().kind == TokenKind::Comma {
+                        self.advance(); // Consume ','
+                        
+                        // Allow trailing comma
+                        if self.current_token().kind == TokenKind::RParen {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                
+                if self.current_token().kind != TokenKind::RParen {
+                    return Err(Error::new_parse(
+                        "Expected ')' after tuple pattern".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                let end_span = self.current_token().span.end;
+                self.advance(); // Consume ')'
+                
+                Ok(Expr::Tuple(patterns, Span::new(start_span.start, end_span)))
+            }
             TokenKind::Identifier(_) => {
                 let start_span = self.current_token().span;
                 let name = self.consume_identifier("parse_match_pattern")?.unwrap();
