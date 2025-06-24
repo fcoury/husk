@@ -1,4 +1,4 @@
-import { main } from './minimal-test.js';
+import { main } from './minimal-test-new.js';
 
 (async () => {
     try {

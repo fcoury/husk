@@ -1874,9 +1874,12 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
             }
             Type::Struct { name, .. } => {
-                // Original struct method handling
+                // For struct methods, prepend 'self' (the object) as the first argument
+                let mut method_args = vec![object.clone()];
+                method_args.extend_from_slice(args);
+                
                 let target_expr = Expr::Identifier(name.clone(), *span);
-                self.visit_enum_variant_or_method_call(&target_expr, method, args, span)
+                self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
             }
             _ => {
                 Err(Error::new_semantic(

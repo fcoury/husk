@@ -1757,9 +1757,21 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
             Value::Struct(struct_name, _) => {
-                // Delegate to existing method call handling
-                let target = Expr::Identifier(struct_name.clone(), _span.clone());
-                self.visit_enum_variant_or_method_call(&target, method, args, _span)
+                // Look up the method directly
+                let method_name = format!("{}::{}", struct_name, method);
+                if let Some(func) = self.get_var(&method_name) {
+                    // Evaluate all arguments, prepending self as the first one
+                    let mut arg_values = vec![obj_value.clone()];
+                    for arg in args {
+                        arg_values.push(self.visit_expr(arg)?);
+                    }
+                    self.execute_function_call(func, arg_values, *_span)
+                } else {
+                    Err(Error::new_runtime(
+                        format!("Unknown method: {}", method_name),
+                        _span.clone(),
+                    ))
+                }
             }
             _ => {
                 Err(Error::new_runtime(
