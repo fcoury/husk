@@ -1,0 +1,6 @@
+fn main() {
+    match 42 {
+        Command::Process { input } => { println("x"); }
+        _ => { println("y"); }
+    }
+}

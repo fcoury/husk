@@ -1,13 +1,12 @@
 enum Command {
-    Help,
+    Process { input: string },
 }
 
 fn main() {
     let cmd = 42;
-    
     match cmd {
-        Command::Help => {
-            println("Help");
+        Command::Process { input } => {
+            println("Got: {}", input);
         },
         _ => {
             println("Other");

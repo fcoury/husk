@@ -1,0 +1,14 @@
+enum Command {
+    Process { input: string },
+}
+
+fn main() {
+    match 42 {
+        1 => {
+            println("one");
+        },
+        Command::Process { input } => {
+            println("process");
+        }
+    }
+}

@@ -1582,7 +1582,10 @@ impl Parser {
             self.advance(); // Consume '=>'
 
             let body = if self.current_token().kind == TokenKind::LBrace {
-                self.parse_block()?
+                self.advance(); // Consume '{'
+                let stmts = self.parse_block()?;
+                self.advance(); // Consume '}'
+                stmts
             } else {
                 vec![Stmt::Expression(self.parse_expression()?, false)]
             };
@@ -1703,7 +1706,10 @@ impl Parser {
             self.advance(); // Consume '=>'
 
             let body = if self.current_token().kind == TokenKind::LBrace {
-                self.parse_block()?
+                self.advance(); // Consume '{'
+                let stmts = self.parse_block()?;
+                self.advance(); // Consume '}'
+                stmts
             } else {
                 vec![Stmt::Expression(self.parse_expression()?, false)]
             };
