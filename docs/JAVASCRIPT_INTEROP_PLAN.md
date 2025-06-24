@@ -997,7 +997,23 @@ These fixes brought the CLI tool from ~60% to ~90% compatibility. The remaining 
 - CLI tool files parse without syntax errors
 - Self:: method resolution working inside impl blocks
 - Basic Result/Option type inference working for match expressions
-- Some generic type inference limitations remain (Option<T> in struct fields)
+- Enum pattern matching with field type inference completed
+
+### Enum Pattern Matching Type Inference Fix (December 24, 2024) ✅
+
+**Problem**: When matching struct-like enum variants (e.g., `Command::Process { input, output }`), the bound variables were typed as `Type::Unknown`, causing errors like "Cannot call method 'len' on type ?".
+
+**Solution**: 
+1. Modified function parameter type parsing to properly detect and create `Type::Enum` for enum parameters
+2. Added lookup of variant field types in `visit_match` when binding pattern variables
+3. Enhanced enum method call support in `visit_method_call` to handle methods on enum types
+
+**Technical Implementation**:
+- Added enum type checking in `visit_function` parameter parsing
+- Modified struct pattern matching to look up actual field types from enum variant definitions
+- Extended `visit_method_call` to support method calls on `Type::Enum` (not just `Type::Struct`)
+
+**Test Coverage**: 81% (up from 78%) (Option<T> in struct fields)
 
 ### Next Steps
 1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
@@ -1010,11 +1026,12 @@ These fixes brought the CLI tool from ~60% to ~90% compatibility. The remaining 
 8. ~~Fix struct field type mismatch for imported enum types~~ ✅ DONE!
 9. ~~Fix Self:: method resolution in impl blocks~~ ✅ DONE!
 10. ~~Improve Result/Option type inference for match expressions~~ ✅ DONE!
-11. Fix generic type inference for Option<T> in struct fields (HIGH PRIORITY)
-12. Implement instance method calls for imported types (logger.info())
-13. Test CLI tool transpilation to JavaScript
-14. Implement rest patterns (`..`) and shorthand field syntax
-15. Complete comprehensive CLI tool example
+11. ~~Fix generic type inference for Option<T> in struct fields~~ ✅ DONE!
+12. ~~Fix enum pattern matching type inference~~ ✅ DONE!
+13. Test CLI tool transpilation to JavaScript (HIGH PRIORITY)
+14. Implement instance method calls for imported types (logger.info())
+15. Implement rest patterns (`..`) and shorthand field syntax
+16. Complete comprehensive CLI tool example
 
 ## Conclusion
 

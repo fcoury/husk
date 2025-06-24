@@ -1,0 +1,32 @@
+enum Command {
+    Process {
+        input: string,
+        output: string,
+    },
+    Help,
+}
+
+impl Command {
+    fn validate(self) -> Result<(), string> {
+        match self {
+            Command::Process { input, output } => {
+                if input.len() == 0 {
+                    return Err("Input path cannot be empty");
+                }
+                if output.len() == 0 {
+                    return Err("Output path cannot be empty");
+                }
+                Ok(())
+            }
+            Command::Help => Ok(())
+        }
+    }
+}
+
+fn main() {
+    let cmd = Command::Process { input: "in.txt", output: "out.txt" };
+    match cmd.validate() {
+        Ok(()) => println("Valid command"),
+        Err(msg) => println(msg)
+    }
+}
