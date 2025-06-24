@@ -225,8 +225,12 @@ mod tests {
             Ok("visited_match".to_string())
         }
 
-        fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
-            self.track(&format!("for_loop_{}", variable))?;
+        fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+            let pattern_name = match pattern {
+                Expr::Identifier(name, _) => name.clone(),
+                _ => "pattern".to_string(),
+            };
+            self.track(&format!("for_loop_{}", pattern_name))?;
             self.visit_expr(iterable)?;
             for stmt in body {
                 self.visit_stmt(stmt)?;
@@ -533,7 +537,8 @@ mod tests {
             Stmt::Expression(Expr::Identifier("i".to_string(), span), true),
         ];
         
-        let stmt = Stmt::ForLoop("i".to_string(), iterable, body, span);
+        let pattern = Expr::Identifier("i".to_string(), span);
+        let stmt = Stmt::ForLoop(pattern, iterable, body, span);
         let result = visitor.visit_stmt(&stmt);
         
         assert_eq!(result, Ok("visited_for_loop".to_string()));

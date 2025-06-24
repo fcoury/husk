@@ -1328,13 +1328,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
         ))
     }
 
-    fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], span: &Span) -> Result<Value> {
+    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], span: &Span) -> Result<Value> {
         let iter_value = self.visit_expr(iterable)?;
         
         match iter_value {
             Value::Array(elements) => {
                 for element in elements {
-                    self.set_var(variable.to_string(), element);
+                    self.bind_pattern(pattern, element)?;
                     
                     for stmt in body {
                         self.visit_stmt(stmt)?;
@@ -1355,6 +1355,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
             Value::Range(start, end, inclusive) => {
+                // For ranges, we can only bind to simple identifiers
+                let var_name = match pattern {
+                    Expr::Identifier(name, _) => name,
+                    _ => return Err(Error::new_runtime(
+                        "Range-based for loops only support simple identifiers".to_string(),
+                        *span,
+                    )),
+                };
+                
                 let start = start.unwrap_or(0);
                 let end = end.ok_or_else(|| Error::new_runtime(
                     "Cannot iterate over unbounded range".to_string(),
@@ -1368,7 +1377,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 };
                 
                 for i in range {
-                    self.set_var(variable.to_string(), Value::Int(i));
+                    self.set_var(var_name.clone(), Value::Int(i));
                     
                     for stmt in body {
                         self.visit_stmt(stmt)?;
@@ -1881,6 +1890,43 @@ impl AstVisitor<Value> for InterpreterVisitor {
             "Object literals are only supported in transpiler mode for JavaScript interop. Use structs for data structures in interpreter mode.".to_string(),
             span.clone(),
         ))
+    }
+}
+
+impl InterpreterVisitor {
+    fn bind_pattern(&mut self, pattern: &Expr, value: Value) -> Result<()> {
+        match pattern {
+            Expr::Identifier(name, _) => {
+                self.set_var(name.clone(), value);
+                Ok(())
+            }
+            Expr::Tuple(elements, span) => {
+                match value {
+                    Value::Tuple(values) => {
+                        if elements.len() != values.len() {
+                            return Err(Error::new_runtime(
+                                format!("Tuple pattern has {} elements but value has {} elements", 
+                                    elements.len(), values.len()),
+                                *span,
+                            ));
+                        }
+                        
+                        for (elem_pattern, elem_value) in elements.iter().zip(values.into_iter()) {
+                            self.bind_pattern(elem_pattern, elem_value)?;
+                        }
+                        Ok(())
+                    }
+                    _ => Err(Error::new_runtime(
+                        format!("Cannot destructure non-tuple value in pattern"),
+                        *span,
+                    )),
+                }
+            }
+            _ => Err(Error::new_runtime(
+                "Only identifiers and tuples are supported in for loop patterns".to_string(),
+                pattern.span(),
+            )),
+        }
     }
 }
 

@@ -1,0 +1,15 @@
+fn main() {
+    // Test tuple destructuring in for loops
+    let pairs = [(1, "one"), (2, "two"), (3, "three")];
+    
+    for (number, word) in pairs {
+        println(format!("{}: {}", number, word));
+    }
+    
+    // Test with array of tuples
+    let coordinates = [(0, 0), (1, 2), (3, 4)];
+    
+    for (x, y) in coordinates {
+        println(format!("Point at ({}, {})", x, y));
+    }
+}

@@ -472,7 +472,7 @@ pub enum Stmt {
     Struct(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
     Impl(String, Vec<Stmt>, Span),
     Enum(String, Vec<String>, Vec<EnumVariant>, Span), // Added generic params
-    ForLoop(String, Expr, Vec<Stmt>, Span),
+    ForLoop(Expr, Expr, Vec<Stmt>, Span), // pattern, iterable, body, span
     While(Expr, Vec<Stmt>, Span),
     Loop(Vec<Stmt>, Span),
     Break(Span),
@@ -785,16 +785,73 @@ impl Parser {
         let start_span = self.current_token().span;
         self.advance(); // Consume 'for'
 
-        let variable = self.consume_identifier("parse_for_loop")?.ok_or_else(|| {
-            Error::new_parse(
-                "Expected identifier after 'for'".to_string(),
-                self.current_token().span,
-            )
-        })?;
+        // Parse the loop pattern (can be identifier or tuple)
+        let pattern = if self.current_token().kind == TokenKind::LParen {
+            // Parse tuple pattern like (a, b)
+            let start_span = self.current_token().span;
+            self.advance(); // Consume '('
+            
+            // Check for empty tuple
+            if self.current_token().kind == TokenKind::RParen {
+                return Err(Error::new_parse(
+                    "Empty tuple patterns are not allowed in for loops".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            
+            let mut elements = Vec::new();
+            
+            // Parse first identifier
+            let first_id = self.consume_identifier("parse_for_loop")?.ok_or_else(|| {
+                Error::new_parse(
+                    "Expected identifier in tuple pattern".to_string(),
+                    self.current_token().span,
+                )
+            })?;
+            elements.push(Expr::Identifier(first_id, self.current_token().span));
+            
+            // Parse remaining identifiers
+            while self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+                
+                // Allow trailing comma
+                if self.current_token().kind == TokenKind::RParen {
+                    break;
+                }
+                
+                let id = self.consume_identifier("parse_for_loop")?.ok_or_else(|| {
+                    Error::new_parse(
+                        "Expected identifier in tuple pattern".to_string(),
+                        self.current_token().span,
+                    )
+                })?;
+                elements.push(Expr::Identifier(id, self.current_token().span));
+            }
+            
+            if self.current_token().kind != TokenKind::RParen {
+                return Err(Error::new_parse(
+                    "Expected ')' after tuple pattern".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            let end_span = self.current_token().span.end;
+            self.advance(); // Consume ')'
+            
+            Expr::Tuple(elements, Span::new(start_span.start, end_span))
+        } else {
+            // Parse single identifier
+            let variable = self.consume_identifier("parse_for_loop")?.ok_or_else(|| {
+                Error::new_parse(
+                    "Expected identifier or tuple pattern after 'for'".to_string(),
+                    self.current_token().span,
+                )
+            })?;
+            Expr::Identifier(variable, self.current_token().span)
+        };
 
         if self.current_token().kind != TokenKind::In {
             return Err(Error::new_parse(
-                "Expected 'in' after for loop variable".to_string(),
+                "Expected 'in' after for loop pattern".to_string(),
                 self.current_token().span,
             ));
         }
@@ -816,7 +873,7 @@ impl Parser {
         self.advance(); // Consume '}'
 
         Ok(Stmt::ForLoop(
-            variable,
+            pattern,
             iterable,
             body,
             Span::new(start_span.start, end_span.end),
@@ -2064,6 +2121,21 @@ impl Parser {
                         let mut fields = Vec::new();
                         
                         while self.current_token().kind != TokenKind::RBrace {
+                            // Check for rest pattern ..
+                            if self.current_token().kind == TokenKind::DblDot {
+                                self.advance(); // Consume '..'
+                                // .. must be the last element
+                                if self.current_token().kind == TokenKind::Comma {
+                                    return Err(Error::new_parse(
+                                        "Rest pattern '..' must be the last element in struct pattern".to_string(),
+                                        self.current_token().span,
+                                    ));
+                                }
+                                // Mark that we have a rest pattern by adding a special field
+                                fields.push(("..".to_string(), None));
+                                break;
+                            }
+                            
                             let field_name = self.consume_identifier("struct pattern field")?.ok_or_else(|| {
                                 Error::new_parse(
                                     "Expected field name in struct pattern".to_string(),
@@ -2114,6 +2186,66 @@ impl Parser {
                             type_annotation: TypeAnnotation::new(),
                         })
                     }
+                } else if self.current_token().kind == TokenKind::LBrace {
+                    // Plain struct pattern: Config { field1, field2, .. }
+                    self.advance(); // Consume '{'
+                    
+                    let mut fields = Vec::new();
+                    
+                    while self.current_token().kind != TokenKind::RBrace {
+                        // Check for rest pattern ..
+                        if self.current_token().kind == TokenKind::DblDot {
+                            self.advance(); // Consume '..'
+                            // .. must be the last element
+                            if self.current_token().kind == TokenKind::Comma {
+                                return Err(Error::new_parse(
+                                    "Rest pattern '..' must be the last element in struct pattern".to_string(),
+                                    self.current_token().span,
+                                ));
+                            }
+                            // Mark that we have a rest pattern by adding a special field
+                            fields.push(("..".to_string(), None));
+                            break;
+                        }
+                        
+                        let field_name = self.consume_identifier("struct pattern field")?.ok_or_else(|| {
+                            Error::new_parse(
+                                "Expected field name in struct pattern".to_string(),
+                                self.current_token().span,
+                            )
+                        })?;
+                        
+                        let var_name = if self.current_token().kind == TokenKind::Colon {
+                            self.advance(); // Consume ':'
+                            Some(self.consume_identifier("struct pattern variable")?.ok_or_else(|| {
+                                Error::new_parse(
+                                    "Expected variable name after ':' in struct pattern".to_string(),
+                                    self.current_token().span,
+                                )
+                            })?)
+                        } else {
+                            None
+                        };
+                        
+                        fields.push((field_name, var_name));
+                        
+                        if self.current_token().kind == TokenKind::Comma {
+                            self.advance(); // Consume ','
+                        } else if self.current_token().kind != TokenKind::RBrace {
+                            return Err(Error::new_parse(
+                                "Expected ',' or '}' in struct pattern".to_string(),
+                                self.current_token().span,
+                            ));
+                        }
+                    }
+                    
+                    self.advance(); // Consume '}'
+                    
+                    Ok(Expr::StructPattern(
+                        name,
+                        fields,
+                        Span::new(start_span.start, self.current_token().span.end),
+                    ))
                 } else {
                     Ok(target)
                 }
@@ -3134,16 +3266,21 @@ impl Parser {
                     .ok_or_else(|| {
                         Error::new_parse("Expected field name".to_string(), self.current_token().span)
                     })?;
-                if self.current_token().kind != TokenKind::Colon {
-                    eprintln!("DEBUG enum construction: Expected ':' after field name '{}', but got {:?} at span {:?}", 
-                        field_name, self.current_token().kind, self.current_token().span);
+                let field_value = if self.current_token().kind == TokenKind::Colon {
+                    // Regular field syntax: field: expr
+                    self.advance(); // Consume ':'
+                    self.parse_expression()?
+                } else if self.current_token().kind == TokenKind::Comma || self.current_token().kind == TokenKind::RBrace {
+                    // Shorthand field syntax: just field name
+                    // Create an identifier expression with the same name
+                    Expr::Identifier(field_name.clone(), self.current_token().span)
+                } else {
                     return Err(Error::new_parse(
-                        "Expected ':' after field name".to_string(),
+                        "Expected ':', ',' or '}' after field name".to_string(),
                         self.current_token().span,
                     ));
-                }
-                self.advance(); // Consume ':'
-                let field_value = self.parse_expression()?;
+                };
+                
                 fields.push((field_name, field_value));
 
                 if self.current_token().kind == TokenKind::Comma {
@@ -3234,14 +3371,22 @@ impl Parser {
                 .ok_or_else(|| {
                     Error::new_parse("Expected field name".to_string(), self.current_token().span)
                 })?;
-            if self.current_token().kind != TokenKind::Colon {
+            
+            let field_value = if self.current_token().kind == TokenKind::Colon {
+                // Regular field syntax: field: expr
+                self.advance(); // Consume ':'
+                self.parse_expression()?
+            } else if self.current_token().kind == TokenKind::Comma || self.current_token().kind == TokenKind::RBrace {
+                // Shorthand field syntax: just field name
+                // Create an identifier expression with the same name
+                Expr::Identifier(field_name.clone(), self.current_token().span)
+            } else {
                 return Err(Error::new_parse(
-                    "Expected ':' after field name".to_string(),
+                    "Expected ':', ',' or '}' after field name".to_string(),
                     self.current_token().span,
                 ));
-            }
-            self.advance(); // Consume ':'
-            let field_value = self.parse_expression()?;
+            };
+            
             fields.push((field_name, field_value));
 
             if self.current_token().kind == TokenKind::Comma {

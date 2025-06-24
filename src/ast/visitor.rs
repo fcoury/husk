@@ -83,8 +83,8 @@ pub trait AstVisitor<T> {
             Stmt::Enum(name, generic_params, variants, span) => self.visit_enum(name, generic_params, variants, span),
             Stmt::Impl(struct_name, methods, span) => self.visit_impl(struct_name, methods, span),
             Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
-            Stmt::ForLoop(variable, iterable, body, span) => {
-                self.visit_for_loop(variable, iterable, body, span)
+            Stmt::ForLoop(pattern, iterable, body, span) => {
+                self.visit_for_loop(pattern, iterable, body, span)
             }
             Stmt::While(condition, body, span) => self.visit_while(condition, body, span),
             Stmt::Loop(body, span) => self.visit_loop(body, span),
@@ -113,7 +113,7 @@ pub trait AstVisitor<T> {
     fn visit_enum(&mut self, name: &str, generic_params: &[String], variants: &[EnumVariant], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> std::result::Result<T, Self::Error>;
-    fn visit_for_loop(&mut self, variable: &str, iterable: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
+    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_loop(&mut self, body: &[Stmt], span: &Span) -> std::result::Result<T, Self::Error>;
     fn visit_break(&mut self, span: &Span) -> std::result::Result<T, Self::Error>;

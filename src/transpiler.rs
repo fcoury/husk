@@ -301,6 +301,11 @@ impl JsTranspiler {
                 // Generate bindings for fields
                 let mut bindings = String::new();
                 for (field_name, opt_var_name) in fields {
+                    // Skip the special ".." rest pattern marker
+                    if field_name == ".." {
+                        continue;
+                    }
+                    
                     let var_name = opt_var_name.as_ref().unwrap_or(field_name);
                     bindings.push_str(&format!("const {} = _matched.{};\n", var_name, field_name));
                 }
@@ -377,7 +382,7 @@ impl AstVisitor<String> for JsTranspiler {
                     Stmt::Enum(name, generic_params, variants, span) => self.visit_enum(name, generic_params, variants, span),
                     Stmt::Impl(struct_name, methods, span) => self.visit_impl(struct_name, methods, span),
                     Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
-                    Stmt::ForLoop(variable, iterable, body, span) => self.visit_for_loop(variable, iterable, body, span),
+                    Stmt::ForLoop(pattern, iterable, body, span) => self.visit_for_loop(pattern, iterable, body, span),
                     Stmt::While(condition, body, span) => self.visit_while(condition, body, span),
                     Stmt::Loop(body, span) => self.visit_loop(body, span),
                     Stmt::Break(span) => self.visit_break(span),
@@ -798,11 +803,47 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("while (true) {{\n{}\n}}", body_str))
     }
 
-    fn visit_for_loop(&mut self, var: &str, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
+    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
+        // Convert pattern to JavaScript destructuring
+        let pattern_str = match pattern {
+            Expr::Identifier(name, _) => name.clone(),
+            Expr::Tuple(elements, _) => {
+                // Generate tuple destructuring like [a, b]
+                let element_names: Result<Vec<_>> = elements
+                    .iter()
+                    .map(|elem| match elem {
+                        Expr::Identifier(name, _) => Ok(name.clone()),
+                        _ => Err(Error::new_semantic(
+                            "Only identifiers are supported in for loop tuple patterns".to_string(),
+                            elem.span(),
+                        )),
+                    })
+                    .collect();
+                format!("[{}]", element_names?.join(", "))
+            }
+            _ => {
+                return Err(Error::new_semantic(
+                    "Only identifiers and tuples are supported in for loop patterns".to_string(),
+                    pattern.span(),
+                ));
+            }
+        };
+
         match iterable {
             Expr::Range(start, end, inclusive, _) => {
                 match (start, end) {
                     (Some(start_expr), Some(end_expr)) => {
+                        // For ranges, we can only use simple identifiers, not destructuring
+                        let var = match pattern {
+                            Expr::Identifier(name, _) => name,
+                            _ => {
+                                return Err(Error::new_semantic(
+                                    "Range-based for loops only support simple identifiers".to_string(),
+                                    pattern.span(),
+                                ));
+                            }
+                        };
+                        
                         let start_str = self.visit_expr(start_expr)?;
                         let end_str = self.visit_expr(end_expr)?;
                         let op = if *inclusive { "<=" } else { "<" };
@@ -834,7 +875,7 @@ impl AstVisitor<String> for JsTranspiler {
                     .join("\n");
                 self.indent_level -= 1;
                 
-                Ok(format!("for (const {} of {}) {{\n{}\n}}", var, iter_str, body_str))
+                Ok(format!("for (const {} of {}) {{\n{}\n}}", pattern_str, iter_str, body_str))
             }
         }
     }
