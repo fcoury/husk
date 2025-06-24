@@ -241,20 +241,64 @@ impl SemanticVisitor {
                 let param_types: Vec<(String, Type)> = params.iter()
                     .map(|(param_name, param_type)| (
                         param_name.clone(),
-                        Type::from_string(param_type).unwrap_or(Type::Unknown)
+                        self.resolve_type_from_module(param_type)
                     ))
                     .collect();
                 let ret_type = if return_type.is_empty() {
                     Type::Unit
                 } else {
-                    Type::from_string(return_type).unwrap_or(Type::Unknown)
+                    self.resolve_type_from_module(return_type)
                 };
                 self.functions.insert(name.clone(), (param_types, ret_type, Span::default()));
+            }
+            Stmt::Impl(struct_name, methods, _span) => {
+                // Process methods in impl blocks
+                for method in methods {
+                    if let Stmt::Function(_visibility, method_name, _generics, params, return_type, _body, _method_span) = method {
+                        let param_types: Vec<(String, Type)> = params.iter()
+                            .map(|(param_name, param_type)| (
+                                param_name.clone(),
+                                self.resolve_type_from_module(param_type)
+                            ))
+                            .collect();
+                        let ret_type = if return_type.is_empty() {
+                            Type::Unit
+                        } else {
+                            self.resolve_type_from_module(return_type)
+                        };
+                        
+                        // Register as static method with struct name prefix
+                        let full_method_name = format!("{}::{}", struct_name, method_name);
+                        self.functions.insert(full_method_name, (param_types, ret_type, Span::default()));
+                    }
+                }
             }
             // For other statements, just ignore them for now
             _ => {}
         }
         Ok(())
+    }
+
+    /// Resolve a type name to the correct Type enum based on analyzed module information
+    fn resolve_type_from_module(&self, type_name: &str) -> Type {
+        // Check if it's an enum
+        if let Some(variants) = self.enums.get(type_name) {
+            return Type::Enum {
+                name: type_name.to_string(),
+                variants: variants.clone(),
+            };
+        }
+        
+        // Check if it's a struct
+        if let Some(fields) = self.structs.get(type_name) {
+            return Type::Struct {
+                name: type_name.to_string(),
+                fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+            };
+        }
+        
+        // Fall back to Type::from_string for built-in types
+        Type::from_string(type_name).unwrap_or(Type::Unknown)
     }
 
     /// Merge type information from a module analyzer into the current one
@@ -1008,14 +1052,9 @@ impl AstVisitor<Type> for SemanticVisitor {
     fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> Result<Type> {
         // This handles both enum variant construction and method calls
         if let Expr::Identifier(type_name, _) = target {
-            // Check if it's an imported type
-            if self.imported_names.contains_key(type_name) {
-                // Visit arguments for side effects
-                for arg in args {
-                    self.visit_expr(arg)?;
-                }
-                return Ok(Type::Unknown);
-            }
+            // Check if it's an imported type - but don't return Unknown yet!
+            // We still need to check for method calls on imported types
+            let _is_imported = self.imported_names.contains_key(type_name);
             
             // Check if it's an enum variant
             if let Some(enum_variants) = self.enums.get(type_name).cloned() {
@@ -2723,6 +2762,71 @@ mod tests {
         // Double negation
         assert!(analyze_code("let x = --5;").is_ok());
         assert!(analyze_code("let x = !!true;").is_ok());
+    }
+
+    #[test]
+    fn test_static_method_call_type_resolution() {
+        // Test that static method calls return the correct type
+        let code = r#"
+            enum LogLevel {
+                Info,
+                Error,
+            }
+            
+            struct Logger {
+                level: LogLevel,
+            }
+            
+            impl Logger {
+                fn new(level: LogLevel) -> Logger {
+                    Logger { level: level }
+                }
+            }
+            
+            let logger = Logger::new(LogLevel::Info);
+        "#;
+        
+        // This should pass - static method should return Logger type
+        let result = analyze_code(code);
+        assert!(result.is_ok(), "Expected static method call to be valid, but got: {:?}", result);
+        
+        // Now let's also test the specific case where we want to check the return type
+        let mut lexer = Lexer::new(code.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        let mut analyzer = SemanticVisitor::new();
+        
+        // Analyze the code
+        analyzer.analyze(&ast).unwrap();
+        
+        // Debug: Print registered functions
+        println!("DEBUG: Registered functions:");
+        for (name, (params, return_type, _)) in &analyzer.functions {
+            println!("  {}: {:?} -> {:?}", name, params, return_type);
+        }
+        
+        // Debug: Print type environment
+        println!("DEBUG: Type environment for 'logger':");
+        if let Some(logger_type) = analyzer.type_env.lookup("logger") {
+            println!("  logger: {:?}", logger_type);
+        } else {
+            println!("  logger: NOT FOUND");
+        }
+        
+        // Check that Logger is properly registered
+        if let Some(logger_type) = analyzer.type_env.lookup("logger") {
+            match logger_type {
+                Type::Struct { name, .. } => {
+                    assert_eq!(name, "Logger", "Expected logger variable to have Logger type, got struct with name: {}", name);
+                }
+                other => {
+                    panic!("Expected logger variable to have Logger struct type, got: {:?}", other);
+                }
+            }
+        } else {
+            panic!("Logger variable not found in type environment");
+        }
     }
 
     #[test]

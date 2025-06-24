@@ -902,12 +902,25 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ✅ Type information is extracted from imported modules
 - ✅ Semantic analyzer can find and analyze files like `utils.husk` from `use local::utils`
 
-### Current Active Issue: Method Resolution
+### Recently Completed (December 24, 2024) ✅
 
-**Constructor Call Type Inference** 🔄 (In Progress)
-- `Logger::new(LogLevel::Info)` still results in type `?` instead of `Logger`
-- Constructor functions registered as `"Logger::new"` but static method calls may not resolve properly
-- Need to investigate how static method calls (`Type::name`) are handled in semantic analysis
+**Method Resolution for Local Types** ✅
+- **Fixed premature Unknown return**: Removed early return of `Type::Unknown` for imported types in `visit_enum_variant_or_method_call`
+- **Added impl block processing**: Extended `analyze_module_item()` to process `Stmt::Impl` blocks and extract method definitions
+- **Enhanced type resolution**: Created `resolve_type_from_module()` to correctly resolve parameter types based on extracted structs/enums
+- **Improved method registration**: Static methods like `Logger::new` now properly registered with correct parameter and return types
+- **Fixed type checking**: Parameter type mismatches are correctly detected using proper enum vs struct types
+
+**Technical Details**:
+- Constructor calls like `Logger::new(LogLevel::Info)` now correctly resolve to `Type::Struct { name: "Logger" }`
+- Enum variant parameters like `LogLevel::Info` properly typed as `Type::Enum { name: "LogLevel" }`
+- Method arguments correctly type-checked against expected parameter types
+- Eliminated "Cannot call method 'info' on type ?" errors for imported types
+
+**Results**: 
+- ✅ Static method calls work correctly for imported types
+- ✅ Type checking validates method arguments properly  
+- ✅ Local module system now fully functional for multi-file projects
 
 ### Next Steps
 1. ~~Implement local module imports to enable multi-file projects~~ ✅ DONE!
