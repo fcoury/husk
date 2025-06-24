@@ -47,6 +47,7 @@ This document tracks the current development tasks for the Husk programming lang
 - ✅ Fix unit type parsing in async function return types (Result<(), string>)
 - ✅ Implement struct destructuring in match patterns with field renaming
 - ✅ Add support for struct-like enum variants in enum definitions
+- ✅ Add support for struct-like enum variant construction (Command::Process { ... })
 
 ### Built-in Methods
 - ✅ Implement built-in methods for strings (.len(), .trim(), etc)
@@ -92,7 +93,7 @@ This document tracks the current development tasks for the Husk programming lang
 ## Medium Priority Tasks
 
 ### In Progress 🚧
-- 🚧 Add support for struct-like enum variant construction (Command::Process { ... })
+- 🚧 Fix pattern parsing to correctly handle struct patterns vs expression parsing
 - 🚧 Build example CLI tool using Node.js APIs
 
 ### Pending 📋
@@ -157,7 +158,7 @@ This document tracks the current development tasks for the Husk programming lang
 
 ## Progress Summary
 
-**Completed**: 69+ tasks across core language features, type system, build tools, and testing infrastructure
+**Completed**: 70+ tasks across core language features, type system, build tools, and testing infrastructure
 
 **In Progress**: CLI tool example with Node.js API integration
 

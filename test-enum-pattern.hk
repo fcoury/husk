@@ -1,0 +1,16 @@
+enum Command {
+    Process { input: string },
+}
+
+fn main() {
+    let cmd = 42; // dummy value
+    
+    match cmd {
+        Command::Process { input } => {
+            println("Got: {}", input);
+        },
+        _ => {
+            println("Other");
+        }
+    }
+}

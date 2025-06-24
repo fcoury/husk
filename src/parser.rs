@@ -2692,7 +2692,7 @@ impl Parser {
                 Error::new_parse("Expected identifier".to_string(), self.current_token().span)
             })?;
 
-        // Check if there are parentheses for method call
+        // Check if there are parentheses for method call or braces for struct-like enum variant
         if self.current_token().kind == TokenKind::LParen {
             // This is a method call like Type::method(args)
             self.advance(); // Consume '('
@@ -2726,6 +2726,47 @@ impl Parser {
                 span: Span::new(start, end),
                 type_annotation: TypeAnnotation::new(),
             });
+        } else if self.current_token().kind == TokenKind::LBrace {
+            // This is a struct-like enum variant construction like Command::Process { field: value, ... }
+            let mut fields = Vec::new();
+            self.advance(); // Consume '{'
+
+            while self.current_token().kind != TokenKind::RBrace {
+                let field_name = self
+                    .consume_identifier("parse_enum_struct_variant")?
+                    .ok_or_else(|| {
+                        Error::new_parse("Expected field name".to_string(), self.current_token().span)
+                    })?;
+                if self.current_token().kind != TokenKind::Colon {
+                    return Err(Error::new_parse(
+                        "Expected ':' after field name".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                self.advance(); // Consume ':'
+                let field_value = self.parse_expression()?;
+                fields.push((field_name, field_value));
+
+                if self.current_token().kind == TokenKind::Comma {
+                    self.advance(); // Consume ','
+                } else if self.current_token().kind != TokenKind::RBrace {
+                    return Err(Error::new_parse(
+                        "Expected ',' or '}' in field list".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+            }
+            let end = self.current_token().span.end;
+            self.advance(); // Consume '}'
+            
+            // Create a struct-like variant name
+            let variant_name = format!("{}::{}", name, target_name);
+            
+            return Ok(Expr::StructInit(
+                variant_name,
+                fields,
+                Span::new(start, end),
+            ));
         }
 
         // This is a method reference like Type::method (without parentheses)
