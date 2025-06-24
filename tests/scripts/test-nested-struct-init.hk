@@ -1,0 +1,31 @@
+// Test nested struct initialization
+
+enum Command {
+    Process { input: string, output: string },
+    Help,
+}
+
+struct CliArgs {
+    command: Command,
+}
+
+fn test() -> CliArgs {
+    let input = "input.txt";
+    let output = "output.txt";
+    
+    CliArgs {
+        command: Command::Process { input, output }
+    }
+}
+
+fn main() {
+    let args = test();
+    match args.command {
+        Command::Process { input, output } => {
+            println(format!("Process {} -> {}", input, output));
+        },
+        Command::Help => {
+            println("Help");
+        }
+    }
+}

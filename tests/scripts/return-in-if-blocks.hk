@@ -1,0 +1,53 @@
+// Test case for return statements inside if blocks
+
+fn test_return_in_if() -> Result<(), string> {
+    let x = 5;
+    
+    if x > 10 {
+        return Err("x is too large");
+    }
+    
+    if x < 0 {
+        return Err("x is negative");
+    }
+    
+    return Ok(());
+}
+
+fn test_return_in_match() -> Result<int, string> {
+    let value = 42;
+    
+    match value {
+        0 => return Err("value is zero"),
+        42 => return Ok(value),
+        _ => return Err("unknown value"),
+    }
+}
+
+fn test_statements_in_if() -> int {
+    let x = 5;
+    
+    if x > 0 {
+        let y = x * 2;
+        println(format!("y = {}", y));
+        return y;
+    } else {
+        let z = 0;
+        return z;
+    }
+}
+
+fn main() {
+    match test_return_in_if() {
+        Ok(()) => println("test_return_in_if passed"),
+        Err(msg) => println(format!("test_return_in_if failed: {}", msg)),
+    }
+    
+    match test_return_in_match() {
+        Ok(val) => println(format!("test_return_in_match passed: {}", val)),
+        Err(msg) => println(format!("test_return_in_match failed: {}", msg)),
+    }
+    
+    let result = test_statements_in_if();
+    println(format!("test_statements_in_if returned: {}", result));
+}

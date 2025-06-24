@@ -1,7 +1,0 @@
-async fn test(input: string) -> Result<(), string> {
-    let input_exists = true;
-    if !input_exists {
-        return Result::Err("Input path does not exist");
-    }
-    Result::Ok(())
-}

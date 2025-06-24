@@ -1,0 +1,32 @@
+// Test enum variant construction in different contexts
+
+enum Command {
+    Process { input: string, output: string },
+    Help,
+}
+
+fn test() -> Command {
+    let input = "input.txt";
+    let output = "output.txt";
+    
+    // Test direct assignment
+    let cmd = Command::Process { input, output };
+    cmd
+}
+
+fn test2() -> Command {
+    // Test with explicit field names
+    Command::Process { input: "in.txt", output: "out.txt" }
+}
+
+fn main() {
+    let cmd1 = test();
+    let cmd2 = test2();
+    
+    match cmd1 {
+        Command::Process { input, output } => {
+            println(format!("cmd1: {} -> {}", input, output));
+        },
+        Command::Help => println("Help"),
+    }
+}

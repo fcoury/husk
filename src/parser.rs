@@ -1587,7 +1587,13 @@ impl Parser {
                 self.advance(); // Consume '}'
                 stmts
             } else {
-                vec![Stmt::Expression(self.parse_expression()?, false)]
+                // Check if this is a statement keyword (return, break, continue)
+                match self.current_token().kind {
+                    TokenKind::Return | TokenKind::Break | TokenKind::Continue => {
+                        vec![self.parse_statement()?]
+                    }
+                    _ => vec![Stmt::Expression(self.parse_expression()?, false)]
+                }
             };
 
             arms.push((pattern, body));
@@ -1711,7 +1717,13 @@ impl Parser {
                 self.advance(); // Consume '}'
                 stmts
             } else {
-                vec![Stmt::Expression(self.parse_expression()?, false)]
+                // Check if this is a statement keyword (return, break, continue)
+                match self.current_token().kind {
+                    TokenKind::Return | TokenKind::Break | TokenKind::Continue => {
+                        vec![self.parse_statement()?]
+                    }
+                    _ => vec![Stmt::Expression(self.parse_expression()?, false)]
+                }
             };
 
             arms.push((pattern, body));
@@ -2923,6 +2935,7 @@ impl Parser {
             if before_identifier.kind == TokenKind::If
                 || before_identifier.kind == TokenKind::For
                 || before_identifier.kind == TokenKind::In
+                || before_identifier.kind == TokenKind::Bang
                 || is_operator(&before_identifier.kind)
             {
                 return false;

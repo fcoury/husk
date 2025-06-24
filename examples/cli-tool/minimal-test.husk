@@ -1,0 +1,6 @@
+// Minimal async test
+
+pub async fn main() -> Result<(), string> {
+    println("Hello from Husk!");
+    return Ok(());
+}

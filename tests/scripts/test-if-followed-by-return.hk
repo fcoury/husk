@@ -1,0 +1,20 @@
+// Test if block followed by return
+
+fn test1() -> int {
+    if true {
+        println("inside if");
+    }
+    return 42;
+}
+
+async fn test2() -> Result<(), string> {
+    if false {
+        println("inside if");
+    }
+    return Ok(());
+}
+
+fn main() {
+    let x = test1();
+    println(format!("test1 result: {}", x));
+}

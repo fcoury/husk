@@ -1,0 +1,10 @@
+// Test if block with comment followed by return
+
+async fn test() -> Result<(), string> {
+    let x = false;
+    if !x {
+        // TODO: mkdir with recursive option
+        // For now, assuming parent directories exist
+    }
+    return Ok(());
+}
