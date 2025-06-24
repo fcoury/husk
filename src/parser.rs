@@ -1737,6 +1737,47 @@ impl Parser {
             TokenKind::Identifier(_) => {
                 let start_span = self.current_token().span;
                 let name = self.consume_identifier("parse_match_pattern")?.unwrap();
+                
+                // Check for implicit Result/Option variants in patterns
+                match name.as_str() {
+                    "Ok" | "Err" if self.current_token().kind == TokenKind::LParen => {
+                        self.advance(); // Consume '('
+                        let value = self.parse_expression()?;
+                        self.expect_token(TokenKind::RParen)?;
+                        
+                        return Ok(Expr::EnumVariantOrMethodCall {
+                            target: Box::new(Expr::Identifier("Result".to_string(), start_span)),
+                            call: name,
+                            args: vec![value],
+                            span: Span::new(start_span.start, self.current_token().span.end),
+                            type_annotation: TypeAnnotation::new(),
+                        });
+                    }
+                    "Some" if self.current_token().kind == TokenKind::LParen => {
+                        self.advance(); // Consume '('
+                        let value = self.parse_expression()?;
+                        self.expect_token(TokenKind::RParen)?;
+                        
+                        return Ok(Expr::EnumVariantOrMethodCall {
+                            target: Box::new(Expr::Identifier("Option".to_string(), start_span)),
+                            call: name,
+                            args: vec![value],
+                            span: Span::new(start_span.start, self.current_token().span.end),
+                            type_annotation: TypeAnnotation::new(),
+                        });
+                    }
+                    "None" => {
+                        return Ok(Expr::EnumVariantOrMethodCall {
+                            target: Box::new(Expr::Identifier("Option".to_string(), start_span)),
+                            call: name,
+                            args: vec![],
+                            span: start_span,
+                            type_annotation: TypeAnnotation::new(),
+                        });
+                    }
+                    _ => {}
+                }
+                
                 let target = Expr::Identifier(name, start_span);
 
                 if self.current_token().kind == TokenKind::DblColon {
@@ -2588,12 +2629,32 @@ impl Parser {
 
                 // Member access and method calls are handled in parse_postfix_expression
                 match self.current_token().kind {
-                    TokenKind::LParen => self.parse_function_call(name, span),
+                    TokenKind::LParen => {
+                        // Check if this is an implicit Result/Option variant
+                        match name.as_str() {
+                            "Ok" | "Err" => self.parse_implicit_result_variant(name, span),
+                            "Some" | "None" => self.parse_implicit_option_variant(name, span),
+                            _ => self.parse_function_call(name, span),
+                        }
+                    }
                     TokenKind::LBrace if self.lookahead_for_struct_initialization(start_pos) => {
                         self.parse_struct_init(name, span)
                     }
                     TokenKind::DblColon => self.parse_enum_or_method_call_expression(name, span),
-                    _ => Ok(Expr::Identifier(name, span)),
+                    _ => {
+                        // Check if this is None (which doesn't need parentheses)
+                        if name == "None" {
+                            Ok(Expr::EnumVariantOrMethodCall {
+                                target: Box::new(Expr::Identifier("Option".to_string(), span)),
+                                call: name,
+                                args: vec![],
+                                span,
+                                type_annotation: TypeAnnotation::new(),
+                            })
+                        } else {
+                            Ok(Expr::Identifier(name, span))
+                        }
+                    }
                 }
             }
             TokenKind::LBrace => self.parse_block_expression(),
@@ -2686,6 +2747,56 @@ impl Parser {
         }
 
         Ok(expr)
+    }
+
+    fn parse_implicit_result_variant(&mut self, variant: String, span: Span) -> Result<Expr> {
+        self.advance(); // Consume '('
+        
+        // Parse the single argument for Ok/Err
+        let arg = if self.current_token().kind == TokenKind::RParen {
+            // Empty Ok() or Err() - use unit value
+            Expr::Unit(span)
+        } else {
+            self.parse_expression()?
+        };
+        
+        self.expect_token(TokenKind::RParen)?;
+        
+        Ok(Expr::EnumVariantOrMethodCall {
+            target: Box::new(Expr::Identifier("Result".to_string(), span)),
+            call: variant,
+            args: vec![arg],
+            span,
+            type_annotation: TypeAnnotation::new(),
+        })
+    }
+    
+    fn parse_implicit_option_variant(&mut self, variant: String, span: Span) -> Result<Expr> {
+        if variant == "None" {
+            // None doesn't take arguments
+            self.advance(); // Consume '('
+            self.expect_token(TokenKind::RParen)?;
+            Ok(Expr::EnumVariantOrMethodCall {
+                target: Box::new(Expr::Identifier("Option".to_string(), span)),
+                call: variant,
+                args: vec![],
+                span,
+                type_annotation: TypeAnnotation::new(),
+            })
+        } else {
+            // Some(value)
+            self.advance(); // Consume '('
+            let arg = self.parse_expression()?;
+            self.expect_token(TokenKind::RParen)?;
+            
+            Ok(Expr::EnumVariantOrMethodCall {
+                target: Box::new(Expr::Identifier("Option".to_string(), span)),
+                call: variant,
+                args: vec![arg],
+                span,
+                type_annotation: TypeAnnotation::new(),
+            })
+        }
     }
 
     fn parse_enum_or_method_call_expression(&mut self, name: String, span: Span) -> Result<Expr> {

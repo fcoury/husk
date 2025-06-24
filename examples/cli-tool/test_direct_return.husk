@@ -1,0 +1,3 @@
+async fn test() -> Result<(), string> {
+    return Result::Err("error");
+}

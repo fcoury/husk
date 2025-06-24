@@ -1,0 +1,14 @@
+fn test_implicit_result() -> Result<int, string> {
+    let x = 42;
+    if x > 10 {
+        return Result::Err("Too big");
+    }
+    Result::Ok(x)
+}
+
+fn main() {
+    match test_implicit_result() {
+        Result::Ok(value) => println("Got value: {}", value),
+        Result::Err(msg) => println("Got error: {}", msg),
+    }
+}

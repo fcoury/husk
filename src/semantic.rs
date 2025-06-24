@@ -1579,10 +1579,30 @@ impl AstVisitor<Type> for SemanticVisitor {
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Type> {
         match &path.prefix {
             UsePrefix::None => {
+                let package_name = &path.segments[0];
+                
+                // Check if it's a Node.js built-in module
+                if is_nodejs_builtin(package_name) {
+                    // Register imported names as Unknown for Node.js built-ins
+                    match items {
+                        UseItems::Named(imports) => {
+                            for (import_name, alias) in imports {
+                                let name_to_register = alias.as_ref().unwrap_or(import_name);
+                                self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                            }
+                        }
+                        UseItems::Single => {
+                            self.imported_names.insert(package_name.clone(), Type::Unknown);
+                        }
+                        UseItems::All => {
+                            // For wildcard imports, we can't pre-register names
+                        }
+                    }
+                    return Ok(Type::Unit);
+                }
+                
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
-                    let package_name = &path.segments[0];
-                    
                     match resolver.resolve_package(package_name) {
                         Ok(_resolved_package) => {
                             // Register imported names as Unknown for now
@@ -2358,4 +2378,16 @@ mod tests {
         "#).unwrap_err();
         assert!(err.to_string().contains("Compound assignment"));
     }
+}
+
+/// Check if a module name is a Node.js built-in module
+fn is_nodejs_builtin(module: &str) -> bool {
+    matches!(module,
+        "assert" | "buffer" | "child_process" | "cluster" | "console" | "constants" |
+        "crypto" | "dgram" | "dns" | "domain" | "events" | "fs" | "http" | "https" |
+        "module" | "net" | "os" | "path" | "perf_hooks" | "process" | "punycode" |
+        "querystring" | "readline" | "repl" | "stream" | "string_decoder" | "sys" |
+        "timers" | "tls" | "tty" | "url" | "util" | "v8" | "vm" | "worker_threads" |
+        "zlib"
+    )
 }

@@ -1,0 +1,6 @@
+fn test() -> Result<(), string> {
+    if true {
+        return Result::Err("error");
+    }
+    Result::Ok(())
+}

@@ -1,9 +1,0 @@
-fn main() {
-    let cmd = 42;
-    
-    match cmd {
-        1 => println("one")
-    }
-    
-    Command::Process { input: "test" };
-}

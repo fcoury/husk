@@ -1,7 +1,0 @@
-// Test to debug pattern parsing issue
-
-fn main() {
-    match 42 {
-        _ => println("wildcard")
-    }
-}

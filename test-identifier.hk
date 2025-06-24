@@ -1,4 +1,0 @@
-fn main() {
-    let Command = 42;
-    println("Command: {}", Command);
-}

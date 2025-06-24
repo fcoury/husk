@@ -1,0 +1,7 @@
+async fn process_files(input: string) -> Result<(), string> {
+    let input_exists = false;
+    if !input_exists {
+        return Result::Err("Input path does not exist");
+    }
+    Result::Ok(())
+}

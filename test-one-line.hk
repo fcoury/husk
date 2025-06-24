@@ -1,6 +1,0 @@
-enum Command { Process { input: string }, }
-
-fn main() {
-    let cmd = 42;
-    match cmd { Command::Process { input } => { println("process"); }, _ => println("other") }
-}

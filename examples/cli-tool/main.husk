@@ -20,17 +20,17 @@ pub async fn main() -> Result<(), string> {
     
     match args.command {
         Command::Process { input, output, options } => {
-            process_files(input, output, options, &logger).await
+            process_files(input, output, options, logger).await
         },
         Command::Analyze { path } => {
-            analyze_directory(path, &logger).await
+            analyze_directory(path, logger).await
         },
         Command::Watch { directory } => {
-            watch_directory(directory, &logger).await
+            watch_directory(directory, logger).await
         },
         Command::Help => {
             show_help();
-            Ok(())
+            Result::Ok(())
         },
     }
 }
@@ -39,14 +39,14 @@ async fn process_files(
     input: string, 
     output: string, 
     options: ProcessingOptions,
-    logger: &Logger
+    logger: Logger
 ) -> Result<(), string> {
     logger.info(format!("Processing files from {} to {}", input, output));
     
     // Check if input exists
     let input_exists = check_file_exists(input.clone()).await?;
     if !input_exists {
-        return Err(format!("Input path does not exist: {}", input));
+        return Result::Err(format!("Input path does not exist: {}", input));
     }
     
     // Ensure output directory exists
@@ -71,21 +71,21 @@ async fn process_files(
     }
 }
 
-async fn analyze_directory(path: string, logger: &Logger) -> Result<(), string> {
+async fn analyze_directory(path: string, logger: Logger) -> Result<(), string> {
     logger.info(format!("Analyzing directory: {}", path));
     
     let exists = check_file_exists(path.clone()).await?;
     if !exists {
-        return Err(format!("Directory does not exist: {}", path));
+        return Result::Err(format!("Directory does not exist: {}", path));
     }
     
     let stats = stat(path.clone()).await?;
     if !stats.isDirectory() {
-        return Err(format!("Path is not a directory: {}", path));
+        return Result::Err(format!("Path is not a directory: {}", path));
     }
     
     let files = readdir(path.clone()).await?;
-    let mut analysis = DirectoryAnalysis::new();
+    let analysis = DirectoryAnalysis::new();
     
     for file in files {
         let file_path = join(path.clone(), file);
@@ -102,15 +102,15 @@ async fn analyze_directory(path: string, logger: &Logger) -> Result<(), string> 
     }
     
     print_analysis_results(analysis, logger);
-    Ok(())
+    Result::Ok(())
 }
 
-async fn watch_directory(directory: string, logger: &Logger) -> Result<(), string> {
+async fn watch_directory(directory: string, logger: Logger) -> Result<(), string> {
     logger.info(format!("Watching directory for changes: {}", directory));
     
     let exists = check_file_exists(directory.clone()).await?;
     if !exists {
-        return Err(format!("Directory does not exist: {}", directory));
+        return Result::Err(format!("Directory does not exist: {}", directory));
     }
     
     // In a real implementation, would use fs.watch or chokidar
@@ -118,7 +118,7 @@ async fn watch_directory(directory: string, logger: &Logger) -> Result<(), strin
     logger.info("Use Ctrl+C to stop watching");
     
     // Simulate watching (in practice would set up actual file system watchers)
-    let mut count = 0;
+    let count = 0;
     while count < 10 {
         // Wait 2 seconds (simulated)
         await_timeout(2000).await;
@@ -127,15 +127,15 @@ async fn watch_directory(directory: string, logger: &Logger) -> Result<(), strin
     }
     
     logger.info("Watch session completed");
-    Ok(())
+    Result::Ok(())
 }
 
 // Utility functions
 
 async fn check_file_exists(path: string) -> Result<bool, string> {
     match access(path, F_OK).await {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
+        Result::Ok(_) => Result::Ok(true),
+        Result::Err(_) => Result::Ok(false),
     }
 }
 
@@ -144,7 +144,7 @@ async fn ensure_directory_exists(path: string) -> Result<(), string> {
     if !exists {
         mkdir(path, { recursive: true }).await?;
     }
-    Ok(())
+    Result::Ok(())
 }
 
 async fn await_timeout(ms: int) -> () {
@@ -155,7 +155,7 @@ async fn await_timeout(ms: int) -> () {
 fn parse_args(argv: Vec<string>) -> Result<CliArgs, string> {
     // Simple argument parsing - in practice would use a proper CLI library
     if argv.len() < 3 {
-        return Ok(CliArgs { command: Command::Help });
+        return Result::Ok(CliArgs { command: Command::Help });
     }
     
     let command = argv[2].clone();
@@ -163,38 +163,38 @@ fn parse_args(argv: Vec<string>) -> Result<CliArgs, string> {
     match command.as_str() {
         "process" => {
             if argv.len() < 5 {
-                return Err("process command requires input and output paths");
+                return Result::Err("process command requires input and output paths");
             }
             let input = argv[3].clone();
             let output = argv[4].clone();
             let options = ProcessingOptions::default();
-            Ok(CliArgs {
+            Result::Ok(CliArgs {
                 command: Command::Process { input, output, options }
             })
         },
         "analyze" => {
             if argv.len() < 4 {
-                return Err("analyze command requires a path");
+                return Result::Err("analyze command requires a path");
             }
             let path = argv[3].clone();
-            Ok(CliArgs {
+            Result::Ok(CliArgs {
                 command: Command::Analyze { path }
             })
         },
         "watch" => {
             if argv.len() < 4 {
-                return Err("watch command requires a directory path");
+                return Result::Err("watch command requires a directory path");
             }
             let directory = argv[3].clone();
-            Ok(CliArgs {
+            Result::Ok(CliArgs {
                 command: Command::Watch { directory }
             })
         },
         "help" | "--help" | "-h" => {
-            Ok(CliArgs { command: Command::Help })
+            Result::Ok(CliArgs { command: Command::Help })
         },
         _ => {
-            Err(format!("Unknown command: {}", command))
+            Result::Err(format!("Unknown command: {}", command))
         }
     }
 }
@@ -231,7 +231,7 @@ impl DirectoryAnalysis {
         }
     }
     
-    fn add_file(&mut self, extension: string, size: int) {
+    fn add_file(self, extension: string, size: int) {
         self.total_files = self.total_files + 1;
         self.total_size = self.total_size + size;
         
@@ -239,12 +239,12 @@ impl DirectoryAnalysis {
         self.file_types.insert(extension, current_count + 1);
     }
     
-    fn add_directory(&mut self) {
+    fn add_directory(self) {
         self.total_directories = self.total_directories + 1;
     }
 }
 
-fn print_analysis_results(analysis: DirectoryAnalysis, logger: &Logger) {
+fn print_analysis_results(analysis: DirectoryAnalysis, logger: Logger) {
     logger.info("Directory Analysis Results:");
     logger.info(format!("  Total files: {}", analysis.total_files));
     logger.info(format!("  Total directories: {}", analysis.total_directories));
