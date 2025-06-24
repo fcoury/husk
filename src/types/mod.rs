@@ -211,6 +211,34 @@ impl Type {
                     v
                 }
             }),
+            // Handle generic Option<T>
+            s if s.starts_with("Option<") && s.ends_with(">") => {
+                // For now, just return the base Option type
+                // TODO: Track generic type parameters
+                Some(Type::Enum { 
+                    name: "Option".to_string(), 
+                    variants: {
+                        let mut v = HashMap::new();
+                        v.insert("Some".to_string(), Some(Type::Unknown));
+                        v.insert("None".to_string(), None);
+                        v
+                    }
+                })
+            },
+            // Handle generic Result<T, E>
+            s if s.starts_with("Result<") && s.ends_with(">") => {
+                // For now, just return the base Result type
+                // TODO: Track generic type parameters
+                Some(Type::Enum { 
+                    name: "Result".to_string(), 
+                    variants: {
+                        let mut v = HashMap::new();
+                        v.insert("Ok".to_string(), Some(Type::Unknown));
+                        v.insert("Err".to_string(), Some(Type::Unknown));
+                        v
+                    }
+                })
+            },
             // For now, treat any other string as a struct/enum name
             _ => Some(Type::Struct { 
                 name: s.to_string(), 

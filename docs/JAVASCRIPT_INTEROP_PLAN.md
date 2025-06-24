@@ -957,9 +957,10 @@ The transpiler was incorrectly including the imported item name in the module pa
 - ✅ Self:: method resolution implemented for impl blocks
 
 **Remaining Tasks:**
-- 🔄 **Type inference for Result/Option**: Match arms returning implicit Result types need better inference
+- 🔄 **Generic type inference**: Option<string> vs Option type mismatch in struct fields
 - ❌ **Rest patterns**: `{ input, output, .. }` syntax not yet supported
 - ❌ **Shorthand fields**: `{ input, output }` syntax not yet supported
+- ❌ **Instance method calls**: logger.info() not yet working for imported types
 
 **Technical Fix Details:**
 
@@ -974,6 +975,12 @@ The transpiler was incorrectly including the imported item name in the module pa
    - **Solution**: Added `current_impl_type: Option<String>` to track which type is being implemented
    - **Implementation**: Modified `visit_impl` to use two-pass approach - first register all method signatures, then analyze bodies
    - **Result**: `Self::parse_process_command(args)` now correctly resolves to `CliArgs::parse_process_command(args)`
+
+3. **Generic Result/Option Type Handling**:
+   - **Root Cause**: `Result<CliArgs, string>` was being treated as a struct name instead of a generic enum type
+   - **Solution**: Added pattern matching in `Type::from_string` to recognize `Result<...>` and `Option<...>` patterns
+   - **Implementation**: Generic types now resolve to base enum types (full generic parameter tracking is TODO)
+   - **Result**: Match arms with mixed Result types now pass type checking
 
 **Current State:**
 - Parser successfully handles struct-like enum patterns in match expressions
