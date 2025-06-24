@@ -1252,6 +1252,8 @@ impl Parser {
                     Error::new_parse("Expected field name".to_string(), self.current_token().span)
                 })?;
             if self.current_token().kind != TokenKind::Colon {
+                eprintln!("DEBUG parse_struct: Expected ':' after field name '{}', but got {:?} at position {}", 
+                    field_name, self.current_token().kind, self.current_token().span.start);
                 return Err(Error::new_parse(
                     "Expected ':' after field name".to_string(),
                     self.current_token().span,
@@ -2027,7 +2029,7 @@ impl Parser {
                     _ => {}
                 }
                 
-                let target = Expr::Identifier(name, start_span);
+                let target = Expr::Identifier(name.clone(), start_span);
 
                 if self.current_token().kind == TokenKind::DblColon {
                     self.advance(); // Consume '::'
@@ -3133,6 +3135,8 @@ impl Parser {
                         Error::new_parse("Expected field name".to_string(), self.current_token().span)
                     })?;
                 if self.current_token().kind != TokenKind::Colon {
+                    eprintln!("DEBUG enum construction: Expected ':' after field name '{}', but got {:?} at span {:?}", 
+                        field_name, self.current_token().kind, self.current_token().span);
                     return Err(Error::new_parse(
                         "Expected ':' after field name".to_string(),
                         self.current_token().span,
@@ -3202,6 +3206,7 @@ impl Parser {
                 || before_identifier.kind == TokenKind::For
                 || before_identifier.kind == TokenKind::In
                 || before_identifier.kind == TokenKind::Bang
+                || before_identifier.kind == TokenKind::Match  // Add this check!
                 || is_operator(&before_identifier.kind)
             {
                 return false;
@@ -4895,6 +4900,23 @@ mod tests {
             }
             _ => panic!("Expected Closure expression"),
         }
+    }
+
+    #[test]
+    fn test_parse_simple_enum_pattern() {
+        let code = r#"
+            match x {
+                Help => println("help"),
+            }
+        "#;
+        
+        let result = parse(code);
+        if result.is_empty() {
+            panic!("Failed to parse: no AST returned");
+        }
+        
+        // If we get here without panicking, the parse succeeded
+        // The parse() function internally handles errors
     }
 
     #[test]
