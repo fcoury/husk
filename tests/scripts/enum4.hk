@@ -1,13 +1,13 @@
-enum Option {
+enum MyOption {
   None,
   Some(string),
 }
 
 fn main() {
-  let option = Option::Some("Hello");
+  let option = MyOption::Some("Hello");
   match option {
-    None => println("None"),
-    Some(value) => println(value),
+    MyOption::None => println("None"),
+    MyOption::Some(value) => println(value),
   }
 }
 
