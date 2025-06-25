@@ -1,0 +1,22 @@
+struct Counter {
+    value: int,
+}
+
+impl Counter {
+    fn new() -> Counter {
+        Counter { value: 0 }
+    }
+
+    fn increment(self) {
+        self.value += 1;
+    }
+
+    fn get_value(self) -> int {
+        self.value
+    }
+}
+
+let counter = Counter::new();
+println(counter.get_value());
+counter.increment();
+println(counter.get_value());
