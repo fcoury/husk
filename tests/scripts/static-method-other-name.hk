@@ -1,0 +1,17 @@
+struct Counter {
+  value: int,
+}
+
+impl Counter {
+  fn create() -> Counter {
+      Counter { value: 0 }
+  }
+
+  fn hi() {
+      println("Hello from Counter!");
+  }
+}
+
+Counter::hi();
+let counter = Counter::create();
+println(counter.value);
