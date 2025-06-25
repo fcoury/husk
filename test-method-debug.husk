@@ -1,7 +1,0 @@
-use local::utils::{Logger, LogLevel};
-
-fn main() {
-    let logger = Logger::new(LogLevel::Info);
-    // This should work
-    Logger::info(logger, "Testing");
-}

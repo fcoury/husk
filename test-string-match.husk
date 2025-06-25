@@ -1,7 +1,0 @@
-fn test(s: string) {
-    match s {
-        "hello" => println("Hello!"),
-        "goodbye" => println("Goodbye!"),
-        _ => println("Unknown"),
-    }
-}

@@ -1,7 +1,0 @@
-fn main() {
-    let r = Ok(42);
-    match r {
-        Ok(v) => println("Value is " + v),
-        Err(e) => println("Error: " + e)
-    }
-}

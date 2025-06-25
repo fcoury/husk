@@ -1,6 +1,0 @@
-// Simulating import - in real code this would be: use local::utils::{Logger, LogLevel};
-
-fn main() {
-    let logger = Logger::new(LogLevel::Info);
-    logger.info("Hello from logger!");
-}
