@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 
 use crate::{
     ast::visitor::AstVisitor,
+    builtin_methods::MethodRegistry,
     error::{Error, Result},
     lexer::Lexer,
     parser::{Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
@@ -262,6 +263,8 @@ pub struct InterpreterVisitor {
     is_top_level: bool,
     // Track the variable name of 'self' in method contexts
     self_var_name: Option<String>,
+    // Registry for built-in methods
+    method_registry: MethodRegistry,
 }
 
 impl Default for InterpreterVisitor {
@@ -282,6 +285,7 @@ impl InterpreterVisitor {
             current_exports: IndexMap::new(),
             is_top_level: true,
             self_var_name: None,
+            method_registry: MethodRegistry::new(),
         };
         visitor.init_standard_library();
         visitor
@@ -298,6 +302,7 @@ impl InterpreterVisitor {
             current_exports: IndexMap::new(),
             is_top_level: true,
             self_var_name: None,
+            method_registry: MethodRegistry::new(),
         };
         visitor.init_standard_library();
         visitor
@@ -1996,86 +2001,40 @@ impl AstVisitor<Value> for InterpreterVisitor {
         let obj_value = self.visit_expr(object)?;
 
         match &obj_value {
-            Value::String(s) => {
-                match method {
-                    "len" => Ok(Value::Int(s.len() as i64)),
-                    "trim" => Ok(Value::String(s.trim().to_string())),
-                    "substring" => {
-                        let start = match self.visit_expr(&args[0])? {
-                            Value::Int(i) => i as usize,
-                            _ => {
-                                return Err(Error::new_runtime(
-                                    "substring start must be an integer".to_string(),
-                                    args[0].span(),
-                                ))
-                            }
-                        };
-                        let end = match self.visit_expr(&args[1])? {
-                            Value::Int(i) => i as usize,
-                            _ => {
-                                return Err(Error::new_runtime(
-                                    "substring end must be an integer".to_string(),
-                                    args[1].span(),
-                                ))
-                            }
-                        };
-
-                        // Handle UTF-8 properly
-                        let chars: Vec<char> = s.chars().collect();
-                        let result: String = chars
-                            .iter()
-                            .skip(start)
-                            .take(end.saturating_sub(start))
-                            .collect();
-                        Ok(Value::String(result))
-                    }
-                    "split" => {
-                        let delimiter = match self.visit_expr(&args[0])? {
-                            Value::String(s) => s,
-                            _ => {
-                                return Err(Error::new_runtime(
-                                    "split delimiter must be a string".to_string(),
-                                    args[0].span(),
-                                ))
-                            }
-                        };
-
-                        let parts: Vec<Value> = s
-                            .split(&delimiter)
-                            .map(|part| Value::String(part.to_string()))
-                            .collect();
-                        Ok(Value::Array(parts))
-                    }
-                    "toLowerCase" => Ok(Value::String(s.to_lowercase())),
-                    "toUpperCase" => Ok(Value::String(s.to_uppercase())),
-                    _ => Err(Error::new_runtime(
+            Value::String(_) => {
+                // Evaluate arguments first to avoid borrowing issues
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    arg_values.push(self.visit_expr(arg)?);
+                }
+                
+                // Look up the method in the registry
+                if let Some(method_impl) = self.method_registry.get_string_method(method) {
+                    // Call the method implementation
+                    method_impl(&obj_value, &arg_values, _span)
+                } else {
+                    Err(Error::new_runtime(
                         format!("Unknown string method: {}", method),
                         *_span,
-                    )),
+                    ))
                 }
             }
-            Value::Array(arr) => {
-                match method {
-                    "len" => Ok(Value::Int(arr.len() as i64)),
-                    "push" => {
-                        // Arrays are immutable in the current implementation
-                        // This would need mutable references to work properly
-                        Err(Error::new_runtime(
-                            "Array push not implemented (arrays are immutable)".to_string(),
-                            *_span,
-                        ))
-                    }
-                    "pop" => {
-                        // Arrays are immutable in the current implementation
-                        Err(Error::new_runtime(
-                            "Array pop not implemented (arrays are immutable)".to_string(),
-                            *_span,
-                        ))
-                    }
-                    _ => Err(Error::new_runtime(
+            Value::Array(_) => {
+                // Evaluate arguments first to avoid borrowing issues
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    arg_values.push(self.visit_expr(arg)?);
+                }
+                
+                // Look up the method in the registry
+                if let Some(method_impl) = self.method_registry.get_array_method(method) {
+                    // Call the method implementation
+                    method_impl(&obj_value, &arg_values, _span)
+                } else {
+                    Err(Error::new_runtime(
                         format!("Unknown array method: {}", method),
                         *_span,
-                    )),
+                    ))
                 }
             }
             Value::Struct(struct_name, _) => {
