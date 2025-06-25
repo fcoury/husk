@@ -176,10 +176,10 @@ impl fmt::Display for TokenKind {
 #[derive(Debug)]
 pub struct Lexer {
     input: String,
-    position: usize,
-    read_position: usize,
-    ch: Option<char>,
-    start_position: usize,
+    position: usize,      // current byte position in input
+    read_position: usize, // next byte position to read
+    ch: Option<char>,     // current character
+    start_position: usize, // byte position where current token started
 }
 
 impl Lexer {
@@ -209,20 +209,29 @@ impl Lexer {
     }
 
     fn read_char(&mut self) {
+        self.position = self.read_position;
+        
         if self.read_position >= self.input.len() {
             self.ch = None;
-        } else {
-            self.ch = Some(self.input.chars().nth(self.read_position).unwrap());
+            return;
         }
-        self.position = self.read_position;
-        self.read_position += 1;
+        
+        // Get the character at the current byte position
+        let mut chars = self.input[self.read_position..].chars();
+        if let Some(ch) = chars.next() {
+            self.ch = Some(ch);
+            // Advance read_position by the byte length of this character
+            self.read_position += ch.len_utf8();
+        } else {
+            self.ch = None;
+        }
     }
 
     fn peek_char(&self) -> Option<char> {
         if self.read_position >= self.input.len() {
             None
         } else {
-            Some(self.input.chars().nth(self.read_position).unwrap())
+            self.input[self.read_position..].chars().next()
         }
     }
 
@@ -422,7 +431,7 @@ impl Lexer {
     fn create_token(&self, kind: TokenKind) -> Token {
         Token {
             kind,
-            span: Span::new(self.start_position, self.position + 1),
+            span: Span::new(self.start_position, self.read_position),
         }
     }
 
