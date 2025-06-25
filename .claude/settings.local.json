@@ -24,7 +24,11 @@
       "Bash(git restore:*)",
       "Bash(RUST_BACKTRACE=1 cargo test interpreter::tests::test_struct_method 2 >& 1)",
       "Bash(ls:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(./target/debug/husk:*)",
+      "Bash(../target/debug/husk build)",
+      "Bash(node:*)"
     ],
     "deny": []
   }
