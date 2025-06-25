@@ -72,6 +72,7 @@ impl MethodRegistry {
         self.string_methods.insert("trim_start", string_trim_start);
         self.string_methods.insert("trim_end", string_trim_end);
         self.string_methods.insert("splitn", string_splitn);
+        self.string_methods.insert("split_once", string_split_once);
     }
 
     fn register_array_methods(&mut self) {
@@ -519,6 +520,43 @@ fn string_splitn(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
     }
 }
 
+fn string_split_once(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 1 {
+            return Err(Error::new_runtime(
+                "split_once() requires exactly 1 argument",
+                *span,
+            ));
+        }
+
+        let separator = match &args[0] {
+            Value::String(sep) => sep,
+            _ => {
+                return Err(Error::new_runtime(
+                    "split_once() separator must be a string",
+                    *span,
+                ))
+            }
+        };
+
+        if let Some((before, after)) = s.split_once(separator) {
+            // Create a tuple with two string values
+            let tuple = Value::Tuple(vec![
+                Value::String(before.to_string()),
+                Value::String(after.to_string()),
+            ]);
+            Ok(make_some(tuple))
+        } else {
+            Ok(make_none())
+        }
+    } else {
+        Err(Error::new_runtime(
+            "split_once() called on non-string",
+            *span,
+        ))
+    }
+}
+
 // Helper functions for Option types
 
 fn make_some(value: Value) -> Value {
@@ -846,6 +884,13 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
+            "split_once",
+            MethodSignature {
+                param_types: vec![Type::String],
+                return_type: Type::Unknown, // Should be Option<(String, String)>
+            },
+        );
+        self.string_methods.insert(
             "contains",
             MethodSignature {
                 param_types: vec![Type::String],
@@ -1050,6 +1095,8 @@ impl TranspilerMethodRegistry {
             .insert("trim_end", transpile_string_trim_end);
         self.string_methods
             .insert("splitn", transpile_string_splitn);
+        self.string_methods
+            .insert("split_once", transpile_string_split_once);
     }
 
     fn register_array_methods(&mut self) {
@@ -1123,6 +1170,19 @@ fn transpile_string_splitn(obj: &str, args: &[String]) -> String {
     } else {
         // Fallback to regular split if args are incorrect
         format!("{}.split('')", obj)
+    }
+}
+
+fn transpile_string_split_once(obj: &str, args: &[String]) -> String {
+    // JavaScript doesn't have split_once, so we need to implement it
+    if !args.is_empty() {
+        format!(
+            "(function() {{ const idx = {}.indexOf({}); return idx === -1 ? {{ type: 'None' }} : {{ type: 'Some', value: {{ '0': {}.substring(0, idx), '1': {}.substring(idx + {}.length) }} }}; }})()",
+            obj, &args[0], obj, obj, &args[0]
+        )
+    } else {
+        // Fallback if no separator provided
+        "{ type: 'None' }".to_string()
     }
 }
 
