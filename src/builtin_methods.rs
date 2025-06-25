@@ -934,19 +934,21 @@ fn array_filter(_value: &Value, _args: &[Value], span: &Span) -> Result<Value> {
 fn array_sort(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
     if let Value::Array(arr) = value {
         let mut sorted_arr = arr.clone();
-        
+
         // Sort the array based on the type of elements
         sorted_arr.sort_by(|a, b| {
             match (a, b) {
                 (Value::Int(a), Value::Int(b)) => a.cmp(b),
-                (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+                (Value::Float(a), Value::Float(b)) => {
+                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                }
                 (Value::String(a), Value::String(b)) => a.cmp(b),
                 (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
                 // For mixed types, convert to string and compare
                 _ => format!("{:?}", a).cmp(&format!("{:?}", b)),
             }
         });
-        
+
         Ok(Value::Array(sorted_arr))
     } else {
         Err(Error::new_runtime("sort() called on non-array", *_span))
