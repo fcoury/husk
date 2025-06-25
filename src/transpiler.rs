@@ -1322,30 +1322,69 @@ impl AstVisitor<String> for JsTranspiler {
     ) -> Result<String> {
         let condition_str = self.visit_expr(condition)?;
 
-        // Generate an IIFE for the if expression
-        let mut result = "(() => {\n".to_string();
-        result.push_str(&format!("  if ({}) {{\n", condition_str));
+        // Check if any block contains control flow statements
+        let contains_control_flow = |block: &[Stmt]| -> bool {
+            block.iter().any(|stmt| matches!(
+                stmt,
+                Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return(_, _)
+            ))
+        };
 
-        self.indent_level += 2;
-        let then_str = self.generate_body(then_block)?;
-        self.indent_level -= 2;
+        let has_control_flow = contains_control_flow(then_block) || contains_control_flow(else_block);
 
-        result.push_str(&format!("    {}\n", then_str));
-        result.push_str("  }");
+        if has_control_flow {
+            // Generate as a regular if statement (no IIFE wrapper)
+            let mut result = format!("if ({}) {{\n", condition_str);
 
-        if !else_block.is_empty() {
-            result.push_str(" else {\n");
+            self.indent_level += 1;
+            for stmt in then_block {
+                let stmt_str = self.visit_stmt(stmt)?;
+                result.push_str(&format!("{}{}\n", self.indent(), stmt_str));
+            }
+            self.indent_level -= 1;
+
+            result.push_str(&format!("{}}}", self.indent()));
+
+            if !else_block.is_empty() {
+                result.push_str(" else {\n");
+
+                self.indent_level += 1;
+                for stmt in else_block {
+                    let stmt_str = self.visit_stmt(stmt)?;
+                    result.push_str(&format!("{}{}\n", self.indent(), stmt_str));
+                }
+                self.indent_level -= 1;
+
+                result.push_str(&format!("{}}}", self.indent()));
+            }
+
+            Ok(result)
+        } else {
+            // Generate as an IIFE for the if expression
+            let mut result = "(() => {\n".to_string();
+            result.push_str(&format!("  if ({}) {{\n", condition_str));
 
             self.indent_level += 2;
-            let else_str = self.generate_body(else_block)?;
+            let then_str = self.generate_body(then_block)?;
             self.indent_level -= 2;
 
-            result.push_str(&format!("    {}\n", else_str));
+            result.push_str(&format!("    {}\n", then_str));
             result.push_str("  }");
-        }
 
-        result.push_str("\n})()");
-        Ok(result)
+            if !else_block.is_empty() {
+                result.push_str(" else {\n");
+
+                self.indent_level += 2;
+                let else_str = self.generate_body(else_block)?;
+                self.indent_level -= 2;
+
+                result.push_str(&format!("    {}\n", else_str));
+                result.push_str("  }");
+            }
+
+            result.push_str("\n})()");
+            Ok(result)
+        }
     }
 
     fn visit_method_call(
