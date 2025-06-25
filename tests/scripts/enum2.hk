@@ -1,10 +1,10 @@
-enum Option {
+enum MyOption {
   Some(string),
   None,
 }
 
-let a = Option::Some("Felipe");
-let b = Option::None;
+let a = MyOption::Some("Felipe");
+let b = MyOption::None;
 
 println(a);
 println(b);
