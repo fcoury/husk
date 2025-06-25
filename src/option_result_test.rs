@@ -159,9 +159,9 @@ mod tests {
         let mut transpiler = JsTranspiler::new();
         let js = transpiler.generate(&ast).expect("Transpilation failed");
 
-        // Should generate Result structure
-        assert!(js.contains("Ok:") || js.contains("{ Ok:"));
-        assert!(js.contains("Err:") || js.contains("{ Err:"));
+        // Should generate Result structure with type field
+        assert!(js.contains("type: 'Ok'"));
+        assert!(js.contains("type: 'Err'"));
     }
 
     #[test]
@@ -288,7 +288,7 @@ mod tests {
 
         // Should contain nested match structures
         assert!(js.contains("_matched"));
-        assert!(js.contains("Ok:"));
+        assert!(js.contains("type: 'Ok'") || js.contains("type === 'Ok'"));
         assert!(js.contains("null"));
     }
 }

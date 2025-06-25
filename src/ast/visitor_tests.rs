@@ -566,7 +566,7 @@ mod tests {
         assert!(visitor.was_called("int_42"));
 
         // Test float
-        let expr = Expr::Float(3.1, span);
+        let expr = Expr::Float(3.14, span);
         let result = visitor.visit_expr(&expr);
         assert_eq!(result, Ok("visited_float_3.14".to_string()));
         assert!(visitor.was_called("float_3.14"));

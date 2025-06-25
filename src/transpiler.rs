@@ -1941,10 +1941,13 @@ mod tests {
 
     #[test]
     fn test_transpile_enum_variant() {
-        assert_eq!(transpile_expr("Option::None").unwrap(), "Option.None");
+        assert_eq!(
+            transpile_expr("Option::None").unwrap(),
+            "{ type: 'None', value: null }"
+        );
         assert_eq!(
             transpile_expr("Option::Some(5)").unwrap(),
-            "new Option.Some(5)"
+            "{ type: 'Some', value: 5 }"
         );
     }
 

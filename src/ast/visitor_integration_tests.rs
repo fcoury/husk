@@ -105,9 +105,9 @@ mod tests {
             let d = distance(p1, p2);
             
             match Color::Red {
-                Color::Red => println("It's red!"),
-                Color::Green => println("It's green!"),
-                Color::Blue => println("It's blue!"),
+                Red => println("It's red!"),
+                Green => println("It's green!"),
+                Blue => println("It's blue!"),
             }
             
             d
@@ -115,6 +115,9 @@ mod tests {
 
         // This tests that all visitor methods work correctly together
         let result = execute_script(code);
+        if let Err(e) = &result {
+            eprintln!("Error executing script: {:?}", e);
+        }
         assert!(result.is_ok());
 
         match result.unwrap() {

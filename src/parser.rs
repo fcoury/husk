@@ -4678,7 +4678,7 @@ mod tests {
             expr,
             Expr::UnaryOp(
                 UnaryOp::Neg,
-                Box::new(Expr::Float(3.1, Span::new(1, 5))),
+                Box::new(Expr::Float(3.14, Span::new(1, 5))),
                 Span::new(0, 5)
             )
         );
@@ -4949,7 +4949,7 @@ mod tests {
                 assert_eq!(target_type, "float");
                 match &**inner {
                     Expr::Cast(inner2, target_type2, _) => {
-                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.1));
+                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.14));
                         assert_eq!(target_type2, "int");
                     }
                     _ => panic!("Expected nested Cast expression"),
