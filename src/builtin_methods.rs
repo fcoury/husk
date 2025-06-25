@@ -94,6 +94,7 @@ impl MethodRegistry {
         self.array_methods.insert("pop", array_pop);
         self.array_methods.insert("map", array_map);
         self.array_methods.insert("filter", array_filter);
+        self.array_methods.insert("sort", array_sort);
     }
 
     pub fn get_string_method(&self, name: &str) -> Option<&MethodImpl> {
@@ -930,6 +931,28 @@ fn array_filter(_value: &Value, _args: &[Value], span: &Span) -> Result<Value> {
     ))
 }
 
+fn array_sort(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
+    if let Value::Array(arr) = value {
+        let mut sorted_arr = arr.clone();
+        
+        // Sort the array based on the type of elements
+        sorted_arr.sort_by(|a, b| {
+            match (a, b) {
+                (Value::Int(a), Value::Int(b)) => a.cmp(b),
+                (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+                (Value::String(a), Value::String(b)) => a.cmp(b),
+                (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+                // For mixed types, convert to string and compare
+                _ => format!("{:?}", a).cmp(&format!("{:?}", b)),
+            }
+        });
+        
+        Ok(Value::Array(sorted_arr))
+    } else {
+        Err(Error::new_runtime("sort() called on non-array", *_span))
+    }
+}
+
 // Method signature registry implementation
 
 impl MethodSignatureRegistry {
@@ -1210,6 +1233,13 @@ impl MethodSignatureRegistry {
                 return_type: Type::Unknown,       // Should be Array<T>
             },
         );
+        self.array_methods.insert(
+            "sort",
+            MethodSignature {
+                param_types: vec![],
+                return_type: Type::Unknown, // Should be Array<T>
+            },
+        );
     }
 
     pub fn get_string_method(&self, name: &str) -> Option<&MethodSignature> {
@@ -1292,6 +1322,7 @@ impl TranspilerMethodRegistry {
             .insert("reverse", transpile_array_reverse);
         self.array_methods.insert("push", transpile_array_push);
         self.array_methods.insert("pop", transpile_array_pop);
+        self.array_methods.insert("sort", transpile_array_sort);
         // map and filter need closure support
     }
 
@@ -1509,6 +1540,22 @@ fn transpile_array_push(obj: &str, args: &[String]) -> String {
 fn transpile_array_pop(obj: &str, _args: &[String]) -> String {
     // Should return tuple of (new_array, Option<popped>) but for now just returns the element
     format!("{}.pop()", obj)
+}
+
+fn transpile_array_sort(obj: &str, _args: &[String]) -> String {
+    // JavaScript Array.sort() with custom comparison for mixed types
+    format!(
+        "[...{}].sort((a, b) => {{
+            if (typeof a === typeof b) {{
+                if (typeof a === 'number') return a - b;
+                if (typeof a === 'string') return a.localeCompare(b);
+                if (typeof a === 'boolean') return a - b;
+                return String(a).localeCompare(String(b));
+            }}
+            return String(a).localeCompare(String(b));
+        }})",
+        obj
+    )
 }
 
 #[cfg(test)]
