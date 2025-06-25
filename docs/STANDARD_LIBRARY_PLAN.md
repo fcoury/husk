@@ -91,8 +91,8 @@ trait Into<T> {
 // String type - unified string type (no str/String distinction)
 impl string {
     // Length and emptiness
-    fn len(self) -> usize;                            // JS: .length
-    fn is_empty(self) -> bool;                        // JS: .length === 0
+    fn len(self) -> usize;                            // JS: .length ✅ IMPLEMENTED
+    fn is_empty(self) -> bool;                        // JS: .length === 0 ✅ IMPLEMENTED
     fn chars(self) -> array<string>;                  // JS: Array.from(str) - returns single-char strings ✅ IMPLEMENTED
     fn bytes(self) -> array<u8>;                      // JS: new TextEncoder().encode(str)
     
@@ -1031,7 +1031,7 @@ window.__husk_runtime = {
 - [x] `replace(from, to)` - Replace all occurrences
 - [x] `find(pattern)` - Find first occurrence (returns Option<usize>)
 - [x] `rfind(pattern)` - Find last occurrence (returns Option<usize>)
-- [ ] `is_empty()` - Check if string is empty
+- [x] `is_empty()` - Check if string is empty
 - [ ] `bytes()` - Get UTF-8 bytes
 - [ ] `trim_start()` - Remove leading whitespace
 - [ ] `trim_end()` - Remove trailing whitespace
