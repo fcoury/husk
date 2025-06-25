@@ -135,7 +135,7 @@ impl string {
     
     // Concatenation and repetition
     fn concat(self, other: string) -> string;         // JS: + operator
-    fn repeat(self, n: usize) -> string;              // JS: .repeat()
+    fn repeat(self, n: usize) -> string;              // JS: .repeat() ✅ IMPLEMENTED
     
     // Parsing (via FromStr trait)
     fn parse<T: FromStr>(self) -> Result<T, T::Err>;  // JS: parseInt/parseFloat/custom
