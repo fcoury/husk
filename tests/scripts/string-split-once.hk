@@ -1,0 +1,60 @@
+// Test split_once() method for strings
+let s1 = "hello:world";
+let s2 = "one:two:three";
+let s3 = "no separator";
+let s4 = ":leading";
+let s5 = "trailing:";
+let s6 = "";
+let s7 = "multi::sep::test";
+
+// Basic split_once tests
+let result1 = s1.split_once(":");
+match result1 {
+    Option::Some(parts) => {
+        println("Found split");
+    }
+    Option::None => println("Not found")
+}
+
+// Test if we get Some or None for various cases
+match s1.split_once(":") {
+    Option::Some(_) => println("s1: found"),      // Should print: "s1: found"
+    Option::None => println("s1: not found")
+}
+
+match s2.split_once(":") {
+    Option::Some(_) => println("s2: found"),      // Should print: "s2: found"
+    Option::None => println("s2: not found")
+}
+
+match s3.split_once(":") {
+    Option::Some(_) => println("s3: found"),
+    Option::None => println("s3: not found")      // Should print: "s3: not found"
+}
+
+match s4.split_once(":") {
+    Option::Some(_) => println("s4: found"),      // Should print: "s4: found"
+    Option::None => println("s4: not found")
+}
+
+match s5.split_once(":") {
+    Option::Some(_) => println("s5: found"),      // Should print: "s5: found"
+    Option::None => println("s5: not found")
+}
+
+match s6.split_once(":") {
+    Option::Some(_) => println("s6: found"),
+    Option::None => println("s6: not found")      // Should print: "s6: not found"
+}
+
+match s7.split_once("::") {
+    Option::Some(_) => println("s7: found"),      // Should print: "s7: found"
+    Option::None => println("s7: not found")
+}
+
+// Test with empty separator
+let s8 = "test";
+match s8.split_once("") {
+    Option::Some(_) => println("s8: found"),      // Should print: "s8: found"
+    Option::None => println("s8: not found")
+}
