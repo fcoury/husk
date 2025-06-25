@@ -1,0 +1,99 @@
+// Test char_at() method for strings
+let s = "Hello";
+let unicode = "café";
+let emoji = "👋🌍";
+let empty = "";
+
+// Test positive indices
+match s.char_at(0) {
+    Option::Some(c) => println(c),     // Should print: "H"
+    Option::None => println("None")
+}
+
+match s.char_at(4) {
+    Option::Some(c) => println(c),     // Should print: "o"
+    Option::None => println("None")
+}
+
+// Test out of bounds
+match s.char_at(5) {
+    Option::Some(c) => println(c),
+    Option::None => println("None")    // Should print: "None"
+}
+
+match s.char_at(100) {
+    Option::Some(c) => println(c),
+    Option::None => println("None")    // Should print: "None"
+}
+
+// Test negative indices
+match s.char_at(-1) {
+    Option::Some(c) => println(c),     // Should print: "o"
+    Option::None => println("None")
+}
+
+match s.char_at(-5) {
+    Option::Some(c) => println(c),     // Should print: "H"
+    Option::None => println("None")
+}
+
+match s.char_at(-6) {
+    Option::Some(c) => println(c),
+    Option::None => println("None")    // Should print: "None"
+}
+
+// Test Unicode
+match unicode.char_at(0) {
+    Option::Some(c) => println(c),     // Should print: "c"
+    Option::None => println("None")
+}
+
+match unicode.char_at(3) {
+    Option::Some(c) => println(c),     // Should print: "é"
+    Option::None => println("None")
+}
+
+match unicode.char_at(-1) {
+    Option::Some(c) => println(c),     // Should print: "é"
+    Option::None => println("None")
+}
+
+// Test emoji
+match emoji.char_at(0) {
+    Option::Some(c) => println(c),     // Should print: "👋"
+    Option::None => println("None")
+}
+
+match emoji.char_at(1) {
+    Option::Some(c) => println(c),     // Should print: "🌍"
+    Option::None => println("None")
+}
+
+match emoji.char_at(2) {
+    Option::Some(c) => println(c),
+    Option::None => println("None")    // Should print: "None"
+}
+
+// Test empty string
+match empty.char_at(0) {
+    Option::Some(c) => println(c),
+    Option::None => println("None")    // Should print: "None"
+}
+
+match empty.char_at(-1) {
+    Option::Some(c) => println(c),
+    Option::None => println("None")    // Should print: "None"
+}
+
+// Test chaining - simplified
+let text = "test";
+match text.char_at(0) {
+    Option::Some(c) => println(c),     // Should print: "t"
+    Option::None => println("None")
+}
+
+// Test comparing chars - simplified  
+match "abc".char_at(0) {
+    Option::Some(c) => println(c),     // Should print: "a"
+    Option::None => println("None")
+}

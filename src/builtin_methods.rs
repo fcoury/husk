@@ -73,6 +73,9 @@ impl MethodRegistry {
         self.string_methods.insert("trim_end", string_trim_end);
         self.string_methods.insert("splitn", string_splitn);
         self.string_methods.insert("split_once", string_split_once);
+        self.string_methods.insert("lines", string_lines);
+        self.string_methods.insert("slice", string_slice);
+        self.string_methods.insert("char_at", string_char_at);
     }
 
     fn register_array_methods(&mut self) {
@@ -557,6 +560,116 @@ fn string_split_once(value: &Value, args: &[Value], span: &Span) -> Result<Value
     }
 }
 
+fn string_lines(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        // Split by newlines, handling different line ending styles
+        let lines: Vec<Value> = s
+            .lines()
+            .map(|line| Value::String(line.to_string()))
+            .collect();
+        Ok(Value::Array(lines))
+    } else {
+        Err(Error::new_runtime("lines() called on non-string", *_span))
+    }
+}
+
+fn string_slice(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 2 {
+            return Err(Error::new_runtime(
+                "slice() requires exactly 2 arguments",
+                *span,
+            ));
+        }
+
+        let len = s.chars().count() as i64;
+
+        // Get start index, handling negative indices
+        let start = match &args[0] {
+            Value::Int(i) => {
+                if *i < 0 {
+                    // Negative index counts from end
+                    (len + i).max(0) as usize
+                } else {
+                    (*i as usize).min(len as usize)
+                }
+            }
+            _ => {
+                return Err(Error::new_runtime(
+                    "slice() start must be an integer",
+                    *span,
+                ))
+            }
+        };
+
+        // Get end index, handling negative indices
+        let end = match &args[1] {
+            Value::Int(i) => {
+                if *i < 0 {
+                    // Negative index counts from end
+                    (len + i).max(0) as usize
+                } else {
+                    (*i as usize).min(len as usize)
+                }
+            }
+            _ => return Err(Error::new_runtime("slice() end must be an integer", *span)),
+        };
+
+        // If start is greater than end, return empty string
+        if start >= end {
+            return Ok(Value::String(String::new()));
+        }
+
+        // Convert to char indices and extract substring
+        let chars: Vec<char> = s.chars().collect();
+        let result: String = chars[start..end].iter().collect();
+        Ok(Value::String(result))
+    } else {
+        Err(Error::new_runtime("slice() called on non-string", *span))
+    }
+}
+
+fn string_char_at(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 1 {
+            return Err(Error::new_runtime(
+                "char_at() requires exactly 1 argument",
+                *span,
+            ));
+        }
+
+        let index = match &args[0] {
+            Value::Int(i) => *i,
+            _ => {
+                return Err(Error::new_runtime(
+                    "char_at() index must be an integer",
+                    *span,
+                ))
+            }
+        };
+
+        let chars: Vec<char> = s.chars().collect();
+        let len = chars.len() as i64;
+
+        // Handle negative indices
+        let actual_index = if index < 0 {
+            len + index
+        } else {
+            index
+        };
+
+        // Check bounds
+        if actual_index < 0 || actual_index >= len {
+            Ok(make_none())
+        } else {
+            let ch = chars[actual_index as usize];
+            Ok(make_some(Value::String(ch.to_string())))
+        }
+    } else {
+        Err(Error::new_runtime("char_at() called on non-string", *span))
+    }
+}
+
 // Helper functions for Option types
 
 fn make_some(value: Value) -> Value {
@@ -891,6 +1004,27 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
+            "lines",
+            MethodSignature {
+                param_types: vec![],
+                return_type: Type::Array(Box::new(Type::String)),
+            },
+        );
+        self.string_methods.insert(
+            "slice",
+            MethodSignature {
+                param_types: vec![Type::Int, Type::Int],
+                return_type: Type::String,
+            },
+        );
+        self.string_methods.insert(
+            "char_at",
+            MethodSignature {
+                param_types: vec![Type::Int],
+                return_type: Type::Unknown, // Option<String> - no Option type yet
+            },
+        );
+        self.string_methods.insert(
             "contains",
             MethodSignature {
                 param_types: vec![Type::String],
@@ -1097,6 +1231,9 @@ impl TranspilerMethodRegistry {
             .insert("splitn", transpile_string_splitn);
         self.string_methods
             .insert("split_once", transpile_string_split_once);
+        self.string_methods.insert("lines", transpile_string_lines);
+        self.string_methods.insert("slice", transpile_string_slice);
+        self.string_methods.insert("char_at", transpile_string_char_at);
     }
 
     fn register_array_methods(&mut self) {
@@ -1182,6 +1319,41 @@ fn transpile_string_split_once(obj: &str, args: &[String]) -> String {
         )
     } else {
         // Fallback if no separator provided
+        "{ type: 'None' }".to_string()
+    }
+}
+
+fn transpile_string_lines(obj: &str, _args: &[String]) -> String {
+    // Split by newline - handles \n, \r\n properly
+    // Note: Rust's lines() removes the line terminators and doesn't include final empty line
+    format!(
+        "{}.split(/\\r?\\n/).filter((line, i, arr) => i < arr.length - 1 || line !== '')",
+        obj
+    )
+}
+
+fn transpile_string_slice(obj: &str, args: &[String]) -> String {
+    // JavaScript's slice handles negative indices natively and works with UTF-16 code units
+    // For proper Unicode support, we need to convert to array and back
+    if args.len() >= 2 {
+        format!(
+            "Array.from({}).slice({}, {}).join('')",
+            obj, &args[0], &args[1]
+        )
+    } else {
+        format!("{}.slice()", obj)
+    }
+}
+
+fn transpile_string_char_at(obj: &str, args: &[String]) -> String {
+    // JavaScript doesn't have a direct char_at that returns Option, so we implement it
+    // Array.from() handles Unicode properly
+    if !args.is_empty() {
+        format!(
+            "(function() {{ const chars = Array.from({}); const idx = {}; const len = chars.length; const actualIdx = idx < 0 ? len + idx : idx; return actualIdx >= 0 && actualIdx < len ? {{ type: 'Some', value: chars[actualIdx] }} : {{ type: 'None' }}; }})()",
+            obj, &args[0]
+        )
+    } else {
         "{ type: 'None' }".to_string()
     }
 }
