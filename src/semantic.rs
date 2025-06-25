@@ -2998,6 +2998,19 @@ impl AstVisitor<Type> for SemanticVisitor {
                         }
                         Ok(Type::Array(Box::new(Type::String)))
                     }
+                    "chars" => {
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Array(Box::new(Type::String)))
+                    }
                     "toLowerCase" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
@@ -3021,6 +3034,105 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 ),
                                 *span,
                             ));
+                        }
+                        Ok(Type::String)
+                    }
+                    "contains" => {
+                        if args.len() != 1 {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        let arg_type = self.visit_expr(&args[0])?;
+                        if arg_type != Type::String {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects string argument, found {}",
+                                    method,
+                                    arg_type
+                                ),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Bool)
+                    }
+                    "starts_with" => {
+                        if args.len() != 1 {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        let arg_type = self.visit_expr(&args[0])?;
+                        if arg_type != Type::String {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects string argument, found {}",
+                                    method,
+                                    arg_type
+                                ),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Bool)
+                    }
+                    "ends_with" => {
+                        if args.len() != 1 {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        let arg_type = self.visit_expr(&args[0])?;
+                        if arg_type != Type::String {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects string argument, found {}",
+                                    method,
+                                    arg_type
+                                ),
+                                *span,
+                            ));
+                        }
+                        Ok(Type::Bool)
+                    }
+                    "replace" => {
+                        if args.len() != 2 {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "String method '{}' expects 2 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                *span,
+                            ));
+                        }
+                        // Check both arguments are strings
+                        for arg in args {
+                            let arg_type = self.visit_expr(arg)?;
+                            if arg_type != Type::String {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "String method '{}' expects string arguments, found {}",
+                                        method,
+                                        arg_type
+                                    ),
+                                    *span,
+                                ));
+                            }
                         }
                         Ok(Type::String)
                     }

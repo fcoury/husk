@@ -1,0 +1,35 @@
+// SKIPPED TEST - Unicode support in lexer
+// 
+// This test is currently skipped because the Husk lexer has a bug
+// with Unicode/UTF-8 character handling. The lexer uses character
+// indices but treats them as byte indices when slicing strings,
+// which causes parse errors with multi-byte UTF-8 characters.
+//
+// Once the lexer is fixed to properly handle UTF-8, rename this
+// file to string-chars-unicode.hk to enable the test.
+
+// Unicode string with accented characters
+let cafe = "café";
+let cafe_chars = cafe.chars();
+println(cafe_chars.len());
+println(cafe_chars[3]);
+
+// Emoji (tests surrogate pair handling)
+let emoji = "Hello 👋 World";
+let emoji_chars = emoji.chars();
+println(emoji_chars.len());
+println(emoji_chars[6]);
+
+// Multiple emojis
+let emojis = "🎉🌟✨";
+let emojis_chars = emojis.chars();
+println(emojis_chars.len());
+println(emojis_chars[0]);
+println(emojis_chars[2]);
+
+// Mixed scripts (Latin + Chinese)
+let mixed = "Hello世界";
+let mixed_chars = mixed.chars();
+println(mixed_chars.len());
+println(mixed_chars[5]);
+println(mixed_chars[6]);

@@ -1,0 +1,20 @@
+// Test string.chars() method - ASCII only
+
+// Basic ASCII string
+let hello = "hello";
+let hello_chars = hello.chars();
+println(hello_chars.len());
+println(hello_chars[0]);
+println(hello_chars[4]);
+
+// Empty string
+let empty = "";
+let empty_chars = empty.chars();
+println(empty_chars.len());
+
+// String with spaces
+let special = "a b c";
+let special_chars = special.chars();
+println(special_chars.len());
+println(special_chars[1]);
+println(special_chars[4]);

@@ -1,4 +1,5 @@
 mod ast;
+mod builtin_methods;
 mod config;
 mod error;
 mod error_tests;
