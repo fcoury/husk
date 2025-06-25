@@ -1,1 +1,2 @@
 - Husk files can have the .husk or .hk extensions
+- Main branch is master
