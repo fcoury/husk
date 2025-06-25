@@ -1,0 +1,56 @@
+// Test slice() method for strings
+let s = "Hello, World!";
+let unicode = "Hello 👋 世界";
+let empty = "";
+
+// Basic positive indices
+println(s.slice(0, 5));             // Should print: "Hello"
+println(s.slice(7, 12));            // Should print: "World"
+println(s.slice(0, 13));            // Should print: "Hello, World!"
+
+// Negative indices
+println(s.slice(-6, -1));           // Should print: "World"
+println(s.slice(-13, -8));          // Should print: "Hello"
+println(s.slice(0, -1));            // Should print: "Hello, World"
+println(s.slice(-13, 13));          // Should print: "Hello, World!"
+
+// Mixed positive and negative
+println(s.slice(7, -1));            // Should print: "World"
+println(s.slice(-6, 12));           // Should print: "World"
+
+// Edge cases
+println(s.slice(0, 0));             // Should print: ""
+println(s.slice(5, 5));             // Should print: ""
+println(s.slice(10, 5));            // Should print: "" (start > end)
+println(s.slice(20, 30));           // Should print: "" (out of bounds)
+println(s.slice(-20, -15));         // Should print: "" (out of bounds)
+
+// Unicode handling
+println(unicode.slice(0, 5));       // Should print: "Hello"
+println(unicode.slice(6, 8));       // Should print: "👋"
+println(unicode.slice(9, 11));      // Should print: "世界"
+println(unicode.slice(-2, 11));     // Should print: "世界"
+
+// Empty string
+println(empty.slice(0, 0));         // Should print: ""
+println(empty.slice(-1, 1));        // Should print: ""
+
+// Single character
+let single = "X";
+println(single.slice(0, 1));        // Should print: "X"
+println(single.slice(-1, 1));       // Should print: "X"
+println(single.slice(0, -0));       // Should print: "" (0 == -0)
+
+// Very negative indices
+println(s.slice(-100, 5));          // Should print: "Hello"
+println(s.slice(0, -100));          // Should print: ""
+println(s.slice(-100, -95));        // Should print: ""
+
+// Very positive indices
+println(s.slice(0, 100));           // Should print: "Hello, World!"
+println(s.slice(100, 200));         // Should print: ""
+
+// Test that it creates a new string (not a reference)
+let original = "test";
+let sliced = original.slice(1, 3);
+println(sliced);                    // Should print: "es"

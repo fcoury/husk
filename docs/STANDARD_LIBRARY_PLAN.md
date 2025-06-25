@@ -94,12 +94,12 @@ impl string {
     fn len(self) -> usize;                            // JS: .length ✅ IMPLEMENTED
     fn is_empty(self) -> bool;                        // JS: .length === 0 ✅ IMPLEMENTED
     fn chars(self) -> array<string>;                  // JS: Array.from(str) - returns single-char strings ✅ IMPLEMENTED
-    fn bytes(self) -> array<u8>;                      // JS: new TextEncoder().encode(str)
+    fn bytes(self) -> array<u8>;                      // JS: new TextEncoder().encode(str) ✅ IMPLEMENTED
     
     // Whitespace handling
     fn trim(self) -> string;                          // JS: .trim() ✅ IMPLEMENTED
-    fn trim_start(self) -> string;                    // JS: .trimStart()
-    fn trim_end(self) -> string;                      // JS: .trimEnd()
+    fn trim_start(self) -> string;                    // JS: .trimStart() ✅ IMPLEMENTED
+    fn trim_end(self) -> string;                      // JS: .trimEnd() ✅ IMPLEMENTED
     fn trim_matches(self, pat: string) -> string;     // JS: custom implementation
     
     // Pattern searching
@@ -113,7 +113,7 @@ impl string {
     fn split(self, pat: string) -> array<string>;     // JS: .split() ✅ IMPLEMENTED
     fn splitn(self, n: usize, pat: string) -> array<string>; // JS: .split() with limit ✅ IMPLEMENTED
     fn split_once(self, pat: string) -> Option<(string, string)>; // JS: custom ✅ IMPLEMENTED
-    fn lines(self) -> array<string>;                  // JS: .split('\n')
+    fn lines(self) -> array<string>;                  // JS: .split('\n') ✅ IMPLEMENTED
     
     // Case conversion
     fn to_lowercase(self) -> string;                  // JS: .toLowerCase() ✅ IMPLEMENTED
@@ -127,10 +127,10 @@ impl string {
     
     // Substring operations
     fn substring(self, start: usize, end: usize) -> string;  // JS: .substring() ✅ IMPLEMENTED
-    fn slice(self, start: isize, end: isize) -> string;      // JS: .slice()
+    fn slice(self, start: isize, end: isize) -> string;      // JS: .slice() ✅ IMPLEMENTED
     
     // Character access
-    fn char_at(self, idx: usize) -> Option<string>;   // JS: charAt() returns single-char string
+    fn char_at(self, idx: usize) -> Option<string>;   // JS: charAt() returns single-char string ✅ IMPLEMENTED
     fn get(self, range: Range<usize>) -> Option<string>; // JS: substring with bounds check
     
     // Concatenation and repetition
