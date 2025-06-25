@@ -52,6 +52,7 @@ impl MethodRegistry {
 
     fn register_string_methods(&mut self) {
         self.string_methods.insert("len", string_len);
+        self.string_methods.insert("is_empty", string_is_empty);
         self.string_methods.insert("trim", string_trim);
         self.string_methods.insert("chars", string_chars);
         self.string_methods.insert("substring", string_substring);
@@ -102,6 +103,17 @@ fn string_len(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
         Ok(Value::Int(s.len() as i64))
     } else {
         Err(Error::new_runtime("len() called on non-string", *_span))
+    }
+}
+
+fn string_is_empty(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        Ok(Value::Bool(s.is_empty()))
+    } else {
+        Err(Error::new_runtime(
+            "is_empty() called on non-string",
+            *_span,
+        ))
     }
 }
 
@@ -678,6 +690,13 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
+            "is_empty",
+            MethodSignature {
+                param_types: vec![],
+                return_type: Type::Bool,
+            },
+        );
+        self.string_methods.insert(
             "trim",
             MethodSignature {
                 param_types: vec![],
@@ -891,6 +910,8 @@ impl TranspilerMethodRegistry {
 
     fn register_string_methods(&mut self) {
         self.string_methods.insert("len", transpile_string_len);
+        self.string_methods
+            .insert("is_empty", transpile_string_is_empty);
         self.string_methods.insert("trim", transpile_string_trim);
         self.string_methods.insert("chars", transpile_string_chars);
         self.string_methods
@@ -944,6 +965,10 @@ impl TranspilerMethodRegistry {
 
 fn transpile_string_len(obj: &str, _args: &[String]) -> String {
     format!("{}.length", obj)
+}
+
+fn transpile_string_is_empty(obj: &str, _args: &[String]) -> String {
+    format!("({}.length === 0)", obj)
 }
 
 fn transpile_string_trim(obj: &str, _args: &[String]) -> String {
