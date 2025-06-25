@@ -76,6 +76,7 @@ impl MethodRegistry {
         self.string_methods.insert("lines", string_lines);
         self.string_methods.insert("slice", string_slice);
         self.string_methods.insert("char_at", string_char_at);
+        self.string_methods.insert("repeat", string_repeat);
     }
 
     fn register_array_methods(&mut self) {
@@ -652,11 +653,7 @@ fn string_char_at(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
         let len = chars.len() as i64;
 
         // Handle negative indices
-        let actual_index = if index < 0 {
-            len + index
-        } else {
-            index
-        };
+        let actual_index = if index < 0 { len + index } else { index };
 
         // Check bounds
         if actual_index < 0 || actual_index >= len {
@@ -667,6 +664,39 @@ fn string_char_at(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
         }
     } else {
         Err(Error::new_runtime("char_at() called on non-string", *span))
+    }
+}
+
+fn string_repeat(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 1 {
+            return Err(Error::new_runtime(
+                "repeat() requires exactly 1 argument",
+                *span,
+            ));
+        }
+
+        let count = match &args[0] {
+            Value::Int(n) => {
+                if *n < 0 {
+                    return Err(Error::new_runtime(
+                        "repeat() count cannot be negative",
+                        *span,
+                    ));
+                }
+                *n as usize
+            }
+            _ => {
+                return Err(Error::new_runtime(
+                    "repeat() count must be an integer",
+                    *span,
+                ))
+            }
+        };
+
+        Ok(Value::String(s.repeat(count)))
+    } else {
+        Err(Error::new_runtime("repeat() called on non-string", *span))
     }
 }
 
@@ -1025,6 +1055,13 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
+            "repeat",
+            MethodSignature {
+                param_types: vec![Type::Int],
+                return_type: Type::String,
+            },
+        );
+        self.string_methods.insert(
             "contains",
             MethodSignature {
                 param_types: vec![Type::String],
@@ -1233,7 +1270,10 @@ impl TranspilerMethodRegistry {
             .insert("split_once", transpile_string_split_once);
         self.string_methods.insert("lines", transpile_string_lines);
         self.string_methods.insert("slice", transpile_string_slice);
-        self.string_methods.insert("char_at", transpile_string_char_at);
+        self.string_methods
+            .insert("char_at", transpile_string_char_at);
+        self.string_methods
+            .insert("repeat", transpile_string_repeat);
     }
 
     fn register_array_methods(&mut self) {
@@ -1355,6 +1395,15 @@ fn transpile_string_char_at(obj: &str, args: &[String]) -> String {
         )
     } else {
         "{ type: 'None' }".to_string()
+    }
+}
+
+fn transpile_string_repeat(obj: &str, args: &[String]) -> String {
+    // JavaScript String.repeat() method
+    if !args.is_empty() {
+        format!("{}.repeat({})", obj, &args[0])
+    } else {
+        format!("{}.repeat(0)", obj)
     }
 }
 
