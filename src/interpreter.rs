@@ -2016,9 +2016,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     ))
                 }
             }
-            _ => Err(Error::new_runtime(
-                format!("Cannot call method '{}' on {:?}", method, obj_value),
-                *_span,
+            typ => Err(Error::new_runtime(
+                format!(
+                    "Cannot call method '{}' on {:?}: unexpected type {:?}",
+                    method, obj_value, typ
+                ),
+                _span.clone(),
             )),
         }
     }
