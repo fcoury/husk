@@ -5,13 +5,22 @@ use crate::{
     span::Span,
 };
 
-/// Type for built-in method implementations
+/// Type for built-in method implementations in interpreter
 pub type MethodImpl = fn(&Value, &[Value], &Span) -> Result<Value>;
+
+/// Type for transpiler code generation
+pub type TranspilerImpl = fn(&str, &[String]) -> String;
 
 /// Registry for built-in methods on primitive types
 pub struct MethodRegistry {
     string_methods: HashMap<&'static str, MethodImpl>,
     array_methods: HashMap<&'static str, MethodImpl>,
+}
+
+/// Registry for transpiler method implementations
+pub struct TranspilerMethodRegistry {
+    string_methods: HashMap<&'static str, TranspilerImpl>,
+    array_methods: HashMap<&'static str, TranspilerImpl>,
 }
 
 impl MethodRegistry {
@@ -453,6 +462,152 @@ fn array_filter(_value: &Value, _args: &[Value], span: &Span) -> Result<Value> {
         "filter() not yet implemented - requires closure support", 
         *span
     ))
+}
+
+// Transpiler method registry implementation
+
+impl TranspilerMethodRegistry {
+    pub fn new() -> Self {
+        let mut registry = Self {
+            string_methods: HashMap::new(),
+            array_methods: HashMap::new(),
+        };
+        
+        registry.register_string_methods();
+        registry.register_array_methods();
+        
+        registry
+    }
+    
+    fn register_string_methods(&mut self) {
+        self.string_methods.insert("len", transpile_string_len);
+        self.string_methods.insert("trim", transpile_string_trim);
+        self.string_methods.insert("chars", transpile_string_chars);
+        self.string_methods.insert("substring", transpile_string_substring);
+        self.string_methods.insert("split", transpile_string_split);
+        self.string_methods.insert("toLowerCase", transpile_string_to_lowercase);
+        self.string_methods.insert("toUpperCase", transpile_string_to_uppercase);
+        self.string_methods.insert("contains", transpile_string_contains);
+        self.string_methods.insert("starts_with", transpile_string_starts_with);
+        self.string_methods.insert("ends_with", transpile_string_ends_with);
+        self.string_methods.insert("replace", transpile_string_replace);
+    }
+    
+    fn register_array_methods(&mut self) {
+        self.array_methods.insert("len", transpile_array_len);
+        self.array_methods.insert("first", transpile_array_first);
+        self.array_methods.insert("last", transpile_array_last);
+        self.array_methods.insert("get", transpile_array_get);
+        self.array_methods.insert("slice", transpile_array_slice);
+        self.array_methods.insert("concat", transpile_array_concat);
+        self.array_methods.insert("join", transpile_array_join);
+        self.array_methods.insert("contains", transpile_array_contains);
+        self.array_methods.insert("push", transpile_array_push);
+        self.array_methods.insert("pop", transpile_array_pop);
+        // map and filter need closure support
+    }
+    
+    pub fn get_string_method(&self, name: &str) -> Option<&TranspilerImpl> {
+        self.string_methods.get(name)
+    }
+    
+    pub fn get_array_method(&self, name: &str) -> Option<&TranspilerImpl> {
+        self.array_methods.get(name)
+    }
+}
+
+// Transpiler implementations for string methods
+
+fn transpile_string_len(obj: &str, _args: &[String]) -> String {
+    format!("{}.length", obj)
+}
+
+fn transpile_string_trim(obj: &str, _args: &[String]) -> String {
+    format!("{}.trim()", obj)
+}
+
+fn transpile_string_chars(obj: &str, _args: &[String]) -> String {
+    // Array.from() properly handles Unicode surrogate pairs
+    format!("Array.from({})", obj)
+}
+
+fn transpile_string_substring(obj: &str, args: &[String]) -> String {
+    format!("{}.substring({})", obj, args.join(", "))
+}
+
+fn transpile_string_split(obj: &str, args: &[String]) -> String {
+    format!("{}.split({})", obj, args.join(", "))
+}
+
+fn transpile_string_to_lowercase(obj: &str, _args: &[String]) -> String {
+    format!("{}.toLowerCase()", obj)
+}
+
+fn transpile_string_to_uppercase(obj: &str, _args: &[String]) -> String {
+    format!("{}.toUpperCase()", obj)
+}
+
+fn transpile_string_contains(obj: &str, args: &[String]) -> String {
+    format!("{}.includes({})", obj, args.join(", "))
+}
+
+fn transpile_string_starts_with(obj: &str, args: &[String]) -> String {
+    format!("{}.startsWith({})", obj, args.join(", "))
+}
+
+fn transpile_string_ends_with(obj: &str, args: &[String]) -> String {
+    format!("{}.endsWith({})", obj, args.join(", "))
+}
+
+fn transpile_string_replace(obj: &str, args: &[String]) -> String {
+    format!("{}.replaceAll({})", obj, args.join(", "))
+}
+
+// Transpiler implementations for array methods
+
+fn transpile_array_len(obj: &str, _args: &[String]) -> String {
+    format!("{}.length", obj)
+}
+
+fn transpile_array_first(obj: &str, _args: &[String]) -> String {
+    // Should return Option<T> but for now just returns the element
+    format!("{}[0]", obj)
+}
+
+fn transpile_array_last(obj: &str, _args: &[String]) -> String {
+    // Should return Option<T> but for now just returns the element
+    format!("{}[{}.length - 1]", obj, obj)
+}
+
+fn transpile_array_get(obj: &str, args: &[String]) -> String {
+    // Should return Option<T> but for now just returns the element
+    format!("{}[{}]", obj, args[0])
+}
+
+fn transpile_array_slice(obj: &str, args: &[String]) -> String {
+    format!("{}.slice({})", obj, args.join(", "))
+}
+
+fn transpile_array_concat(obj: &str, args: &[String]) -> String {
+    format!("{}.concat({})", obj, args.join(", "))
+}
+
+fn transpile_array_join(obj: &str, args: &[String]) -> String {
+    format!("{}.join({})", obj, args.join(", "))
+}
+
+fn transpile_array_contains(obj: &str, args: &[String]) -> String {
+    format!("{}.includes({})", obj, args.join(", "))
+}
+
+fn transpile_array_push(obj: &str, args: &[String]) -> String {
+    // In JS, push returns the new length, but in Husk it returns void
+    format!("void ({}.push({}))", obj, args.join(", "))
+}
+
+fn transpile_array_pop(obj: &str, _args: &[String]) -> String {
+    // Should return Option<T> but for now just returns the element
+    format!("{}.pop()", obj)
 }
 
 #[cfg(test)]
