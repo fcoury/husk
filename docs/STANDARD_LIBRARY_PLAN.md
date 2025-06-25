@@ -1032,9 +1032,9 @@ window.__husk_runtime = {
 - [x] `find(pattern)` - Find first occurrence (returns Option<usize>)
 - [x] `rfind(pattern)` - Find last occurrence (returns Option<usize>)
 - [x] `is_empty()` - Check if string is empty
-- [ ] `bytes()` - Get UTF-8 bytes
-- [ ] `trim_start()` - Remove leading whitespace
-- [ ] `trim_end()` - Remove trailing whitespace
+- [x] `bytes()` - Get UTF-8 bytes
+- [x] `trim_start()` - Remove leading whitespace
+- [x] `trim_end()` - Remove trailing whitespace
 - [ ] Other methods...
 
 ### Array Methods (Interpreter & Transpiler)

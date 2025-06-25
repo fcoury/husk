@@ -68,6 +68,9 @@ impl MethodRegistry {
         self.string_methods.insert("replace", string_replace);
         self.string_methods.insert("find", string_find);
         self.string_methods.insert("rfind", string_rfind);
+        self.string_methods.insert("bytes", string_bytes);
+        self.string_methods.insert("trim_start", string_trim_start);
+        self.string_methods.insert("trim_end", string_trim_end);
     }
 
     fn register_array_methods(&mut self) {
@@ -435,6 +438,38 @@ fn string_rfind(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
     }
 }
 
+fn string_bytes(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        // Convert string to UTF-8 bytes
+        let bytes: Vec<Value> = s.bytes().map(|b| Value::Int(b as i64)).collect();
+        Ok(Value::Array(bytes))
+    } else {
+        Err(Error::new_runtime("bytes() called on non-string", *_span))
+    }
+}
+
+fn string_trim_start(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        Ok(Value::String(s.trim_start().to_string()))
+    } else {
+        Err(Error::new_runtime(
+            "trim_start() called on non-string",
+            *_span,
+        ))
+    }
+}
+
+fn string_trim_end(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        Ok(Value::String(s.trim_end().to_string()))
+    } else {
+        Err(Error::new_runtime(
+            "trim_end() called on non-string",
+            *_span,
+        ))
+    }
+}
+
 // Helper functions for Option types
 
 fn make_some(value: Value) -> Value {
@@ -711,6 +746,27 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
+            "bytes",
+            MethodSignature {
+                param_types: vec![],
+                return_type: Type::Array(Box::new(Type::Int)), // Using Int to represent u8
+            },
+        );
+        self.string_methods.insert(
+            "trim_start",
+            MethodSignature {
+                param_types: vec![],
+                return_type: Type::String,
+            },
+        );
+        self.string_methods.insert(
+            "trim_end",
+            MethodSignature {
+                param_types: vec![],
+                return_type: Type::String,
+            },
+        );
+        self.string_methods.insert(
             "to_lowercase",
             MethodSignature {
                 param_types: vec![],
@@ -914,6 +970,7 @@ impl TranspilerMethodRegistry {
             .insert("is_empty", transpile_string_is_empty);
         self.string_methods.insert("trim", transpile_string_trim);
         self.string_methods.insert("chars", transpile_string_chars);
+        self.string_methods.insert("bytes", transpile_string_bytes);
         self.string_methods
             .insert("substring", transpile_string_substring);
         self.string_methods.insert("split", transpile_string_split);
@@ -931,6 +988,10 @@ impl TranspilerMethodRegistry {
             .insert("replace", transpile_string_replace);
         self.string_methods.insert("find", transpile_string_find);
         self.string_methods.insert("rfind", transpile_string_rfind);
+        self.string_methods
+            .insert("trim_start", transpile_string_trim_start);
+        self.string_methods
+            .insert("trim_end", transpile_string_trim_end);
     }
 
     fn register_array_methods(&mut self) {
@@ -978,6 +1039,19 @@ fn transpile_string_trim(obj: &str, _args: &[String]) -> String {
 fn transpile_string_chars(obj: &str, _args: &[String]) -> String {
     // Array.from() properly handles Unicode surrogate pairs
     format!("Array.from({})", obj)
+}
+
+fn transpile_string_bytes(obj: &str, _args: &[String]) -> String {
+    // Use TextEncoder to get UTF-8 bytes, then convert to regular array
+    format!("Array.from(new TextEncoder().encode({}))", obj)
+}
+
+fn transpile_string_trim_start(obj: &str, _args: &[String]) -> String {
+    format!("{}.trimStart()", obj)
+}
+
+fn transpile_string_trim_end(obj: &str, _args: &[String]) -> String {
+    format!("{}.trimEnd()", obj)
 }
 
 fn transpile_string_substring(obj: &str, args: &[String]) -> String {
