@@ -35,6 +35,12 @@ struct Build {
     generate_package_json: bool,
 }
 
+#[derive(Parser, Debug)]
+struct New {
+    /// The name of the project to create
+    name: String,
+}
+
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Start the Husk REPL
@@ -48,6 +54,9 @@ enum Command {
     
     /// Build the entire project from husk.toml
     Build(Build),
+    
+    /// Create a new Husk project
+    New(New),
 }
 
 #[derive(Parser, Debug)]
@@ -67,6 +76,7 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Run(run)) => run_command(run.file)?,
         Some(Command::Compile(compile)) => compile_command(compile)?,
         Some(Command::Build(build)) => build_command(build)?,
+        Some(Command::New(new)) => new_command(new)?,
         Some(Command::Repl) | None => repl()?,
     })
 }
@@ -211,5 +221,72 @@ fn compile_command(cli: Compile) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn new_command(cli: New) -> anyhow::Result<()> {
+    use std::fs;
+    use std::path::Path;
+    
+    let project_name = &cli.name;
+    let project_path = Path::new(project_name);
+    
+    // Check if directory already exists
+    if project_path.exists() {
+        anyhow::bail!("Directory '{}' already exists", project_name);
+    }
+    
+    // Create project directory
+    fs::create_dir_all(project_path)?;
+    
+    // Create src directory
+    let src_path = project_path.join("src");
+    fs::create_dir_all(&src_path)?;
+    
+    // Create husk.toml
+    let husk_toml_content = format!(r#"[package]
+name = "{}"
+version = "0.1.0"
+description = "A new Husk project"
+author = ""
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build]
+src = "src"
+out = "dist"
+target = ""
+module = "esm"
+"#, project_name);
+    
+    fs::write(project_path.join("husk.toml"), husk_toml_content)?;
+    
+    // Create main.husk
+    let main_husk_content = r#"fn main() {
+    print("Hello from Husk!");
+}
+"#;
+    
+    fs::write(src_path.join("main.husk"), main_husk_content)?;
+    
+    // Create .gitignore
+    let gitignore_content = r#"/dist/
+/node_modules/
+*.log
+.DS_Store
+"#;
+    
+    fs::write(project_path.join(".gitignore"), gitignore_content)?;
+    
+    println!("Created new Husk project '{}'", project_name);
+    println!();
+    println!("To get started:");
+    println!("  cd {}", project_name);
+    println!("  husk build");
+    println!("  husk run src/main.husk");
+    
     Ok(())
 }
