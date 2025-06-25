@@ -71,6 +71,7 @@ impl MethodRegistry {
         self.string_methods.insert("bytes", string_bytes);
         self.string_methods.insert("trim_start", string_trim_start);
         self.string_methods.insert("trim_end", string_trim_end);
+        self.string_methods.insert("splitn", string_splitn);
     }
 
     fn register_array_methods(&mut self) {
@@ -470,6 +471,54 @@ fn string_trim_end(value: &Value, _args: &[Value], _span: &Span) -> Result<Value
     }
 }
 
+fn string_splitn(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 2 {
+            return Err(Error::new_runtime(
+                "splitn() requires exactly 2 arguments",
+                *span,
+            ));
+        }
+
+        let n = match &args[0] {
+            Value::Int(i) => {
+                if *i < 0 {
+                    return Err(Error::new_runtime(
+                        "splitn() count must be non-negative",
+                        *span,
+                    ));
+                }
+                *i as usize
+            }
+            _ => {
+                return Err(Error::new_runtime(
+                    "splitn() count must be an integer",
+                    *span,
+                ))
+            }
+        };
+
+        let separator = match &args[1] {
+            Value::String(sep) => sep,
+            _ => {
+                return Err(Error::new_runtime(
+                    "splitn() separator must be a string",
+                    *span,
+                ))
+            }
+        };
+
+        let parts: Vec<Value> = s
+            .splitn(n, separator)
+            .map(|s| Value::String(s.to_string()))
+            .collect();
+
+        Ok(Value::Array(parts))
+    } else {
+        Err(Error::new_runtime("splitn() called on non-string", *span))
+    }
+}
+
 // Helper functions for Option types
 
 fn make_some(value: Value) -> Value {
@@ -790,6 +839,13 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
+            "splitn",
+            MethodSignature {
+                param_types: vec![Type::Int, Type::String],
+                return_type: Type::Array(Box::new(Type::String)),
+            },
+        );
+        self.string_methods.insert(
             "contains",
             MethodSignature {
                 param_types: vec![Type::String],
@@ -992,6 +1048,8 @@ impl TranspilerMethodRegistry {
             .insert("trim_start", transpile_string_trim_start);
         self.string_methods
             .insert("trim_end", transpile_string_trim_end);
+        self.string_methods
+            .insert("splitn", transpile_string_splitn);
     }
 
     fn register_array_methods(&mut self) {
@@ -1052,6 +1110,20 @@ fn transpile_string_trim_start(obj: &str, _args: &[String]) -> String {
 
 fn transpile_string_trim_end(obj: &str, _args: &[String]) -> String {
     format!("{}.trimEnd()", obj)
+}
+
+fn transpile_string_splitn(obj: &str, args: &[String]) -> String {
+    // JavaScript doesn't have a direct splitn equivalent, so we need to implement it
+    // args[0] is the limit, args[1] is the separator
+    if args.len() >= 2 {
+        format!(
+            "(function() {{ const limit = {}; if (limit <= 0) return []; if (limit === 1) return [{}]; const parts = {}.split({}); if (parts.length <= limit) return parts; return parts.slice(0, limit - 1).concat([parts.slice(limit - 1).join({})]); }})()",
+            &args[0], obj, obj, &args[1], &args[1]
+        )
+    } else {
+        // Fallback to regular split if args are incorrect
+        format!("{}.split('')", obj)
+    }
 }
 
 fn transpile_string_substring(obj: &str, args: &[String]) -> String {

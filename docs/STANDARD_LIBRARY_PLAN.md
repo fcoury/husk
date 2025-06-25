@@ -111,7 +111,7 @@ impl string {
     
     // Splitting
     fn split(self, pat: string) -> array<string>;     // JS: .split() ✅ IMPLEMENTED
-    fn splitn(self, n: usize, pat: string) -> array<string>; // JS: .split() with limit
+    fn splitn(self, n: usize, pat: string) -> array<string>; // JS: .split() with limit ✅ IMPLEMENTED
     fn split_once(self, pat: string) -> Option<(string, string)>; // JS: custom
     fn lines(self) -> array<string>;                  // JS: .split('\n')
     
@@ -1035,6 +1035,7 @@ window.__husk_runtime = {
 - [x] `bytes()` - Get UTF-8 bytes
 - [x] `trim_start()` - Remove leading whitespace
 - [x] `trim_end()` - Remove trailing whitespace
+- [x] `splitn(n, pattern)` - Split with limit
 - [ ] Other methods...
 
 ### Array Methods (Interpreter & Transpiler)
