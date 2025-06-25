@@ -183,8 +183,8 @@ impl<T> array<T> {
     fn position(self, f: fn(T) -> bool) -> Option<usize>; // JS: .findIndex()
     
     // Functional operations (immutable)
-    fn map<U>(self, f: fn(T) -> U) -> array<U>;       // JS: .map()
-    fn filter(self, f: fn(T) -> bool) -> array<T>;    // JS: .filter()
+    fn map<U>(self, f: fn(T) -> U) -> array<U>;       // JS: .map() ✅ IMPLEMENTED
+    fn filter(self, f: fn(T) -> bool) -> array<T>;    // JS: .filter() ✅ IMPLEMENTED
     fn fold<B>(self, init: B, f: fn(B, T) -> B) -> B; // JS: .reduce()
     fn all(self, f: fn(T) -> bool) -> bool;           // JS: .every()
     fn any(self, f: fn(T) -> bool) -> bool;           // JS: .some()

@@ -2027,21 +2027,28 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
             Value::Array(_) => {
-                // Evaluate arguments first to avoid borrowing issues
-                let mut arg_values = Vec::new();
-                for arg in args {
-                    arg_values.push(self.visit_expr(arg)?);
-                }
+                // Special handling for closure methods that need interpreter context
+                match method {
+                    "map" => self.array_map(&obj_value, args, _span),
+                    "filter" => self.array_filter(&obj_value, args, _span),
+                    _ => {
+                        // Evaluate arguments first to avoid borrowing issues
+                        let mut arg_values = Vec::new();
+                        for arg in args {
+                            arg_values.push(self.visit_expr(arg)?);
+                        }
 
-                // Look up the method in the registry
-                if let Some(method_impl) = self.method_registry.get_array_method(method) {
-                    // Call the method implementation
-                    method_impl(&obj_value, &arg_values, _span)
-                } else {
-                    Err(Error::new_runtime(
-                        format!("Unknown array method: {}", method),
-                        *_span,
-                    ))
+                        // Look up the method in the registry
+                        if let Some(method_impl) = self.method_registry.get_array_method(method) {
+                            // Call the method implementation
+                            method_impl(&obj_value, &arg_values, _span)
+                        } else {
+                            Err(Error::new_runtime(
+                                format!("Unknown array method: {}", method),
+                                *_span,
+                            ))
+                        }
+                    }
                 }
             }
             Value::Struct(struct_name, _) => {
@@ -2233,6 +2240,115 @@ impl InterpreterVisitor {
             _ => Err(Error::new_runtime(
                 "Only identifiers and tuples are supported in for loop patterns".to_string(),
                 pattern.span(),
+            )),
+        }
+    }
+
+    /// Implements array.map() method with closure support
+    fn array_map(&mut self, array_value: &Value, args: &[Expr], span: &Span) -> Result<Value> {
+        if let Value::Array(elements) = array_value {
+            if args.len() != 1 {
+                return Err(Error::new_runtime(
+                    "map() requires exactly 1 argument (closure)",
+                    *span,
+                ));
+            }
+
+            // Evaluate the closure argument
+            let closure = self.visit_expr(&args[0])?;
+            let mut results = Vec::new();
+
+            // Apply the closure to each element
+            for element in elements {
+                let result = self.call_closure(&closure, &[element.clone()], span)?;
+                results.push(result);
+            }
+
+            Ok(Value::Array(results))
+        } else {
+            Err(Error::new_runtime("map() called on non-array", *span))
+        }
+    }
+
+    /// Implements array.filter() method with closure support
+    fn array_filter(&mut self, array_value: &Value, args: &[Expr], span: &Span) -> Result<Value> {
+        if let Value::Array(elements) = array_value {
+            if args.len() != 1 {
+                return Err(Error::new_runtime(
+                    "filter() requires exactly 1 argument (closure)",
+                    *span,
+                ));
+            }
+
+            // Evaluate the closure argument
+            let closure = self.visit_expr(&args[0])?;
+            let mut results = Vec::new();
+
+            // Apply the closure to each element and keep those that return true
+            for element in elements {
+                let result = self.call_closure(&closure, &[element.clone()], span)?;
+                match result {
+                    Value::Bool(true) => results.push(element.clone()),
+                    Value::Bool(false) => {} // Skip this element
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "filter() closure must return a boolean",
+                            *span,
+                        ))
+                    }
+                }
+            }
+
+            Ok(Value::Array(results))
+        } else {
+            Err(Error::new_runtime("filter() called on non-array", *span))
+        }
+    }
+
+    /// Helper method to call a closure with arguments
+    fn call_closure(&mut self, closure: &Value, args: &[Value], span: &Span) -> Result<Value> {
+        match closure {
+            Value::Function(Function::Closure {
+                params,
+                body,
+                captured_env,
+                ..
+            }) => {
+                if args.len() != params.len() {
+                    return Err(Error::new_runtime(
+                        format!("Expected {} arguments, got {}", params.len(), args.len()),
+                        *span,
+                    ));
+                }
+
+                // Save current environment and use captured environment
+                let saved_env = self.push_scope();
+
+                // Set up closure environment
+                let mut new_env = captured_env.clone();
+                // Preserve function definitions from current environment
+                for (name, value) in &self.environment {
+                    if let Value::Function(_) = value {
+                        new_env.insert(name.clone(), value.clone());
+                    }
+                }
+                self.environment = new_env;
+
+                // Bind arguments
+                for (param, value) in params.iter().zip(args.iter()) {
+                    self.set_var(param.clone(), value.clone());
+                }
+
+                // Execute closure body (expression)
+                let result = self.visit_expr(&body)?;
+
+                // Restore environment
+                self.pop_scope(saved_env);
+                Ok(result)
+            }
+            _ => Err(Error::new_runtime(
+                "Expected a closure (function) argument",
+                *span,
             )),
         }
     }

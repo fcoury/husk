@@ -917,16 +917,22 @@ fn array_pop(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
 }
 
 // TODO: Implement these with proper closure/function value support
+// Note: array_map and array_filter are implemented directly in the interpreter
+// to access closure calling functionality. See InterpreterVisitor::array_map() 
+// and InterpreterVisitor::array_filter() in interpreter.rs
+
 fn array_map(_value: &Value, _args: &[Value], span: &Span) -> Result<Value> {
+    // This should never be called since map() is handled directly in the interpreter
     Err(Error::new_runtime(
-        "map() not yet implemented - requires closure support",
+        "map() should be handled by interpreter, not method registry",
         *span,
     ))
 }
 
 fn array_filter(_value: &Value, _args: &[Value], span: &Span) -> Result<Value> {
+    // This should never be called since filter() is handled directly in the interpreter
     Err(Error::new_runtime(
-        "filter() not yet implemented - requires closure support",
+        "filter() should be handled by interpreter, not method registry",
         *span,
     ))
 }
@@ -1242,6 +1248,20 @@ impl MethodSignatureRegistry {
                 return_type: Type::Unknown, // Should be Array<T>
             },
         );
+        self.array_methods.insert(
+            "map",
+            MethodSignature {
+                param_types: vec![Type::Unknown], // Should be fn(T) -> U
+                return_type: Type::Unknown,       // Should be Array<U>
+            },
+        );
+        self.array_methods.insert(
+            "filter",
+            MethodSignature {
+                param_types: vec![Type::Unknown], // Should be fn(T) -> bool
+                return_type: Type::Unknown,       // Should be Array<T>
+            },
+        );
     }
 
     pub fn get_string_method(&self, name: &str) -> Option<&MethodSignature> {
@@ -1325,7 +1345,8 @@ impl TranspilerMethodRegistry {
         self.array_methods.insert("push", transpile_array_push);
         self.array_methods.insert("pop", transpile_array_pop);
         self.array_methods.insert("sort", transpile_array_sort);
-        // map and filter need closure support
+        self.array_methods.insert("map", transpile_array_map);
+        self.array_methods.insert("filter", transpile_array_filter);
     }
 
     pub fn get_string_method(&self, name: &str) -> Option<&TranspilerImpl> {
@@ -1558,6 +1579,24 @@ fn transpile_array_sort(obj: &str, _args: &[String]) -> String {
         }})",
         obj
     )
+}
+
+fn transpile_array_map(obj: &str, args: &[String]) -> String {
+    // JavaScript Array.map() with closure support
+    if !args.is_empty() {
+        format!("{}.map({})", obj, &args[0])
+    } else {
+        format!("{}.map(x => x)", obj) // Identity map as fallback
+    }
+}
+
+fn transpile_array_filter(obj: &str, args: &[String]) -> String {
+    // JavaScript Array.filter() with closure support
+    if !args.is_empty() {
+        format!("{}.filter({})", obj, &args[0])
+    } else {
+        format!("{}.filter(x => true)", obj) // No-op filter as fallback
+    }
 }
 
 #[cfg(test)]
