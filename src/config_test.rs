@@ -13,7 +13,7 @@ name = "minimal-app"
 version = "0.1.0"
 "#;
 
-        let config = HuskConfig::from_str(toml_content).unwrap();
+        let config = HuskConfig::parse_from_str(toml_content).unwrap();
 
         assert_eq!(config.package.name, "minimal-app");
         assert_eq!(config.package.version, "0.1.0");
@@ -79,7 +79,7 @@ output = "build/client.js"
 globals = { "lodash" = "_" }
 "#;
 
-        let config = HuskConfig::from_str(toml_content).unwrap();
+        let config = HuskConfig::parse_from_str(toml_content).unwrap();
 
         // Test package info
         assert_eq!(config.package.name, "comprehensive-app");
@@ -122,7 +122,7 @@ globals = { "lodash" = "_" }
                 ..
             } => {
                 assert_eq!(v, "^4.17.21");
-                assert_eq!(*optional, false);
+                assert!(!(*optional));
             }
             _ => panic!("Expected detailed dependency"),
         }
@@ -154,9 +154,9 @@ globals = { "lodash" = "_" }
         assert_eq!(config.build.out, "build");
         assert_eq!(config.build.target, "es2022");
         assert_eq!(config.build.module, "cjs");
-        assert_eq!(config.build.minify, false);
-        assert_eq!(config.build.source_map, true);
-        assert_eq!(config.build.watch, true);
+        assert!(!config.build.minify);
+        assert!(config.build.source_map);
+        assert!(config.build.watch);
 
         // Test targets
         assert_eq!(config.targets.len(), 2);

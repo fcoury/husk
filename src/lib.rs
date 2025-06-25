@@ -135,7 +135,7 @@ pub fn transpile_to_js(code: impl Into<String>) -> Result<String> {
     analyzer.analyze(&ast)?;
 
     let mut js_generator = JsTranspiler::new();
-    Ok(js_generator.generate(&ast)?)
+    js_generator.generate(&ast)
 }
 
 pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> {
@@ -147,13 +147,7 @@ pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> 
     let ast = parser.parse()?;
 
     // Use visitor pattern for semantic analysis with package resolution
-    let mut analyzer = match SemanticVisitor::with_package_resolver() {
-        Ok(analyzer) => analyzer,
-        Err(_) => {
-            // Fall back to basic analyzer if package resolution fails
-            SemanticVisitor::new()
-        }
-    };
+    let mut analyzer = SemanticVisitor::with_package_resolver().unwrap_or_default();
     analyzer.analyze(&ast)?;
 
     // Use transpiler with package resolution
@@ -164,5 +158,5 @@ pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> 
             JsTranspiler::new()
         }
     };
-    Ok(js_generator.generate(&ast)?)
+    js_generator.generate(&ast)
 }

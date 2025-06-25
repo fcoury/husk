@@ -19,7 +19,7 @@ impl Span {
         self.start - line_start + 1
     }
 
-    pub fn to_line_column(&self, code: &str) -> (usize, usize) {
+    pub fn to_line_column(self, code: &str) -> (usize, usize) {
         (self.line_number(code), self.column_number(code))
     }
 

@@ -6,6 +6,7 @@ mod type_tests;
 pub use environment::TypeEnvironment;
 
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -131,42 +132,6 @@ impl Type {
         }
     }
 
-    /// Returns a human-readable string representation of the type
-    pub fn to_string(&self) -> String {
-        match self {
-            Type::Unit => "unit".to_string(),
-            Type::Int => "int".to_string(),
-            Type::Float => "float".to_string(),
-            Type::Bool => "bool".to_string(),
-            Type::String => "string".to_string(),
-            Type::Array(inner) => format!("array<{}>", inner.to_string()),
-            Type::Range => "range".to_string(),
-            Type::Tuple(types) => {
-                let types_str = types
-                    .iter()
-                    .map(|t| t.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("({})", types_str)
-            }
-            Type::Struct { name, .. } => name.clone(),
-            Type::Enum { name, .. } => name.clone(),
-            Type::Function {
-                params,
-                return_type,
-            } => {
-                let param_str = params
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("fn({}) -> {}", param_str, return_type.to_string())
-            }
-            Type::Promise(inner) => format!("Promise<{}>", inner.to_string()),
-            Type::Generic { name, .. } => name.clone(),
-            Type::Unknown => "?".to_string(),
-        }
-    }
 
     /// Creates a Type from a string representation (used during migration)
     pub fn from_string(s: &str) -> Option<Type> {
@@ -265,6 +230,48 @@ impl Type {
                 name: s.to_string(),
                 fields: vec![], // Will be filled in by semantic analyzer
             }),
+        }
+    }
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Unit => write!(f, "unit"),
+            Type::Int => write!(f, "int"),
+            Type::Float => write!(f, "float"),
+            Type::Bool => write!(f, "bool"),
+            Type::String => write!(f, "string"),
+            Type::Array(inner) => write!(f, "array<{}>", inner),
+            Type::Range => write!(f, "range"),
+            Type::Tuple(types) => {
+                write!(f, "(")?;
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", t)?;
+                }
+                write!(f, ")")
+            }
+            Type::Struct { name, .. } => write!(f, "{}", name),
+            Type::Enum { name, .. } => write!(f, "{}", name),
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                write!(f, "fn(")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                write!(f, ") -> {}", return_type)
+            }
+            Type::Promise(inner) => write!(f, "Promise<{}>", inner),
+            Type::Generic { name, .. } => write!(f, "{}", name),
+            Type::Unknown => write!(f, "?"),
         }
     }
 }

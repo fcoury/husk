@@ -532,6 +532,26 @@ mod tests {
             self.track(&format!("extern_type_{}_{}", name, generic_params.len()))?;
             Ok("visited_extern_type".to_string())
         }
+
+        fn visit_tuple(&mut self, elements: &[Expr], _span: &Span) -> Result<String, Self::Error> {
+            self.track("tuple")?;
+            for elem in elements {
+                self.visit_expr(elem)?;
+            }
+            Ok("visited_tuple".to_string())
+        }
+
+        fn visit_object_literal(
+            &mut self,
+            fields: &[(String, Expr)],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
+            self.track(&format!("object_literal_{}_fields", fields.len()))?;
+            for (_, expr) in fields {
+                self.visit_expr(expr)?;
+            }
+            Ok("visited_object_literal".to_string())
+        }
     }
 
     #[test]
@@ -546,7 +566,7 @@ mod tests {
         assert!(visitor.was_called("int_42"));
 
         // Test float
-        let expr = Expr::Float(3.14, span);
+        let expr = Expr::Float(3.1, span);
         let result = visitor.visit_expr(&expr);
         assert_eq!(result, Ok("visited_float_3.14".to_string()));
         assert!(visitor.was_called("float_3.14"));

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::config::{BuildConfig, HuskConfig, TargetConfig};
+    use crate::config::{HuskConfig, TargetConfig};
     use crate::error::Result;
     use crate::semantic::SemanticVisitor;
     use crate::transpiler::JsTranspiler;

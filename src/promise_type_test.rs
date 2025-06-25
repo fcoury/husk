@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod promise_type_test {
+mod tests {
     use crate::{execute_script, transpile_to_js};
 
     #[test]

@@ -262,6 +262,12 @@ pub struct InterpreterVisitor {
     is_top_level: bool,
 }
 
+impl Default for InterpreterVisitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InterpreterVisitor {
     pub fn new() -> Self {
         let mut visitor = InterpreterVisitor {
@@ -526,7 +532,7 @@ impl InterpreterVisitor {
 
     /// Evaluate a binary operation
     fn evaluate_binary_op(
-        &self,
+        _self: &Self,
         left: Value,
         op: &Operator,
         right: Value,
@@ -586,10 +592,10 @@ impl InterpreterVisitor {
                 )),
             },
             (Value::Int(a), Value::Float(b)) => {
-                self.evaluate_binary_op(Value::Float(a as f64), op, Value::Float(b), span)
+                Self::evaluate_binary_op(_self, Value::Float(a as f64), op, Value::Float(b), span)
             }
             (Value::Float(a), Value::Int(b)) => {
-                self.evaluate_binary_op(Value::Float(a), op, Value::Float(b as f64), span)
+                Self::evaluate_binary_op(_self, Value::Float(a), op, Value::Float(b as f64), span)
             }
             (Value::Bool(a), Value::Bool(b)) => match op {
                 Operator::Equals => Ok(Value::Bool(a == b)),
@@ -917,7 +923,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Regular evaluation for other operators
                 let left_val = self.visit_expr(left)?;
                 let right_val = self.visit_expr(right)?;
-                self.evaluate_binary_op(left_val, op, right_val, *span)
+                Self::evaluate_binary_op(self, left_val, op, right_val, *span)
             }
         }
     }
@@ -1024,7 +1030,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     Error::new_runtime(format!("Undefined variable: {}", name), *span)
                 })?;
                 let right_val = self.visit_expr(right)?;
-                let result = self.evaluate_binary_op(left_val, op, right_val, *span)?;
+                let result = Self::evaluate_binary_op(self, left_val, op, right_val, *span)?;
                 self.set_var(name.clone(), result);
                 Ok(Value::Unit)
             }
@@ -1032,7 +1038,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Struct field compound assignment: obj.field += value
                 let current_value = self.visit_expr(left)?; // Get current field value
                 let right_val = self.visit_expr(right)?;
-                let result = self.evaluate_binary_op(current_value, op, right_val, *span)?;
+                let result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
 
                 // Update the field using assignment logic
                 match self.visit_expr(object)? {
@@ -1057,7 +1063,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Array element compound assignment: arr[i] += value
                 let current_value = self.visit_expr(left)?; // Get current element value
                 let right_val = self.visit_expr(right)?;
-                let result = self.evaluate_binary_op(current_value, op, right_val, *span)?;
+                let result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
 
                 // Update the array element using assignment logic
                 let index = match self.visit_expr(index_expr)? {
@@ -1685,7 +1691,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
     ) -> Result<Value> {
         Err(Error::new_runtime(
             "Async functions are not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
-            _span.clone(),
+            *_span,
         ))
     }
 
@@ -1702,7 +1708,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
     fn visit_await(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
         Err(Error::new_runtime(
             ".await is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
-            span.clone(),
+            *span,
         ))
     }
 
@@ -1722,12 +1728,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Value::EnumVariant(enum_name, variant, _) if enum_name == "Result" && variant == "Err" => {
                 Err(Error::new_runtime(
                     "? operator encountered Result::Err variant - error propagation would return early",
-                    span.clone(),
+                    *span,
                 ))
             }
             _ => Err(Error::new_runtime(
                 "? operator can only be used on Result types",
-                span.clone(),
+                *span,
             )),
         }
     }
@@ -1735,7 +1741,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
     fn visit_await_try(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
         Err(Error::new_runtime(
             ".await? is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
-            span.clone(),
+            *span,
         ))
     }
 
@@ -1762,7 +1768,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             params: closure_params,
             body: closure_body,
             captured_env,
-            span: span.clone(),
+            span: *span,
         }))
     }
 
@@ -1965,7 +1971,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     "toUpperCase" => Ok(Value::String(s.to_uppercase())),
                     _ => Err(Error::new_runtime(
                         format!("Unknown string method: {}", method),
-                        _span.clone(),
+                        *_span,
                     )),
                 }
             }
@@ -1977,19 +1983,19 @@ impl AstVisitor<Value> for InterpreterVisitor {
                         // This would need mutable references to work properly
                         Err(Error::new_runtime(
                             "Array push not implemented (arrays are immutable)".to_string(),
-                            _span.clone(),
+                            *_span,
                         ))
                     }
                     "pop" => {
                         // Arrays are immutable in the current implementation
                         Err(Error::new_runtime(
                             "Array pop not implemented (arrays are immutable)".to_string(),
-                            _span.clone(),
+                            *_span,
                         ))
                     }
                     _ => Err(Error::new_runtime(
                         format!("Unknown array method: {}", method),
-                        _span.clone(),
+                        *_span,
                     )),
                 }
             }
@@ -2006,13 +2012,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 } else {
                     Err(Error::new_runtime(
                         format!("Unknown method: {}", method_name),
-                        _span.clone(),
+                        *_span,
                     ))
                 }
             }
             _ => Err(Error::new_runtime(
                 format!("Cannot call method '{}' on {:?}", method, obj_value),
-                _span.clone(),
+                *_span,
             )),
         }
     }
@@ -2029,13 +2035,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     Ok(i) => Ok(Value::Int(i)),
                     Err(_) => Err(Error::new_runtime(
                         format!("Cannot parse '{}' as int", s),
-                        span.clone(),
+                        *span,
                     )),
                 },
                 Value::Bool(b) => Ok(Value::Int(if b { 1 } else { 0 })),
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to int", value),
-                    span.clone(),
+                    *span,
                 )),
             },
             "float" => match value {
@@ -2045,12 +2051,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     Ok(f) => Ok(Value::Float(f)),
                     Err(_) => Err(Error::new_runtime(
                         format!("Cannot parse '{}' as float", s),
-                        span.clone(),
+                        *span,
                     )),
                 },
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to float", value),
-                    span.clone(),
+                    *span,
                 )),
             },
             "string" => match value {
@@ -2060,7 +2066,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::Bool(b) => Ok(Value::String(b.to_string())),
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to string", value),
-                    span.clone(),
+                    *span,
                 )),
             },
             "bool" => match value {
@@ -2069,7 +2075,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::String(s) => Ok(Value::Bool(!s.is_empty())),
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to bool", value),
-                    span.clone(),
+                    *span,
                 )),
             },
             _ => {
@@ -2091,7 +2097,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         // It should only be used in the context of pattern matching
         Err(Error::new_runtime(
             "Struct patterns can only be used in match expressions".to_string(),
-            span.clone(),
+            *span,
         ))
     }
 
@@ -2101,7 +2107,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         // For now, we'll return an error suggesting to use the transpiler
         Err(Error::new_runtime(
             "Object literals are only supported in transpiler mode for JavaScript interop. Use structs for data structures in interpreter mode.".to_string(),
-            span.clone(),
+            *span,
         ))
     }
 }
@@ -2132,7 +2138,7 @@ impl InterpreterVisitor {
                     Ok(())
                 }
                 _ => Err(Error::new_runtime(
-                    format!("Cannot destructure non-tuple value in pattern"),
+                    "Cannot destructure non-tuple value in pattern".to_string(),
                     *span,
                 )),
             },
@@ -2601,7 +2607,7 @@ mod tests {
         assert_eq!(run_test("-(-10)").unwrap(), Value::Int(10));
 
         // Float negation
-        assert_eq!(run_test("-3.14").unwrap(), Value::Float(-3.14));
+        assert_eq!(run_test("-3.1").unwrap(), Value::Float(-3.1));
         assert_eq!(run_test("-(-2.5)").unwrap(), Value::Float(2.5));
 
         // Double negation

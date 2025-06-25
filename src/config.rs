@@ -126,11 +126,11 @@ impl HuskConfig {
         let content = fs::read_to_string(path)
             .map_err(|e| Error::new_config(format!("Failed to read husk.toml: {}", e)))?;
 
-        Self::from_str(&content)
+        Self::parse_from_str(&content)
     }
 
     /// Parse configuration from TOML string
-    pub fn from_str(content: &str) -> Result<Self> {
+    pub fn parse_from_str(content: &str) -> Result<Self> {
         toml::from_str(content)
             .map_err(|e| Error::new_config(format!("Invalid husk.toml format: {}", e)))
     }
@@ -404,7 +404,7 @@ name = "my-app"
 version = "1.0.0"
 "#;
 
-        let config = HuskConfig::from_str(toml).unwrap();
+        let config = HuskConfig::parse_from_str(toml).unwrap();
         assert_eq!(config.package.name, "my-app");
         assert_eq!(config.package.version, "1.0.0");
         assert!(config.dependencies.is_empty());
@@ -450,7 +450,7 @@ entry = "src/client.husk"
 output = "dist/bundle.js"
 "#;
 
-        let config = HuskConfig::from_str(toml).unwrap();
+        let config = HuskConfig::parse_from_str(toml).unwrap();
 
         assert_eq!(config.package.name, "my-app");
         assert_eq!(

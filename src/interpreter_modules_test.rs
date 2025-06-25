@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod interpreter_modules_test {
+mod tests {
     use crate::{execute_script_with_context, Value};
     use std::fs;
 

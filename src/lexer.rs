@@ -412,7 +412,7 @@ impl Lexer {
     }
 
     fn is_identifier_start(&self, c: Option<char>) -> bool {
-        c.map_or(false, |c| c.is_alphabetic() || c == '_')
+        c.is_some_and(|c| c.is_alphabetic() || c == '_')
     }
 
     fn is_identifier_char(&self, c: char) -> bool {
@@ -525,7 +525,7 @@ impl Lexer {
             if c == '.' && self.peek_char() == Some('.') {
                 break;
             }
-            if !c.is_ascii_digit() && !(c == '.') {
+            if !c.is_ascii_digit() && (c != '.') {
                 break;
             }
             self.read_char();

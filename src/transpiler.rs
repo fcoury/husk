@@ -177,7 +177,7 @@ impl JsTranspiler {
                                 )
                             }
                             "Some" => {
-                                if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
+                                if let Some(Expr::Identifier(bind_name, _)) = args.first() {
                                     return (
                                         "(_matched !== null && _matched !== undefined)".to_string(),
                                         format!("const {} = _matched;\n", bind_name),
@@ -196,7 +196,7 @@ impl JsTranspiler {
                     if type_name == "Result" {
                         match call.as_str() {
                             "Ok" => {
-                                if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
+                                if let Some(Expr::Identifier(bind_name, _)) = args.first() {
                                     return (
                                         "(_matched && typeof _matched === 'object' && 'Ok' in _matched)".to_string(),
                                         format!("const {} = _matched.Ok;\n", bind_name),
@@ -208,7 +208,7 @@ impl JsTranspiler {
                                 );
                             }
                             "Err" => {
-                                if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
+                                if let Some(Expr::Identifier(bind_name, _)) = args.first() {
                                     return (
                                         "(_matched && typeof _matched === 'object' && 'Err' in _matched)".to_string(),
                                         format!("const {} = _matched.Err;\n", bind_name),
@@ -225,7 +225,7 @@ impl JsTranspiler {
                 }
 
                 // Default enum handling
-                if let Some(value) = args.get(0) {
+                if let Some(value) = args.first() {
                     if let Expr::Identifier(bind_name, _) = value {
                         (
                             format!("_matched instanceof {}.{}", target, call),
@@ -1055,7 +1055,7 @@ impl AstVisitor<String> for JsTranspiler {
         _span: &Span,
     ) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
-        let mut result = format!("((function(_matched) {{\n");
+        let mut result = "((function(_matched) {\n".to_string();
         self.indent_level += 1;
 
         for (i, (pattern, body)) in arms.iter().enumerate() {
@@ -1153,7 +1153,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else {
                         None
                     };
-                    let subpath = subpath_string.as_ref().map(|s| s.as_str());
+                    let subpath = subpath_string.as_deref();
 
                     match resolver.resolve_package(package_name) {
                         Ok(resolved_package) => {
@@ -1211,7 +1211,7 @@ impl AstVisitor<String> for JsTranspiler {
             result.push_str(&format!("this.{} = {};", field_name, field_name));
         }
 
-        result.push_str("}");
+        result.push('}');
         Ok(result)
     }
 
@@ -1456,7 +1456,7 @@ impl AstVisitor<String> for JsTranspiler {
                 && key
                     .chars()
                     .next()
-                    .map_or(false, |c| c.is_alphabetic() || c == '_' || c == '$')
+                    .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
             {
                 // Valid identifier, no quotes needed
                 key.clone()
@@ -1637,6 +1637,49 @@ impl JsTranspiler {
 
         Ok(import_stmt)
     }
+}
+
+/// Check if a module name is a Node.js built-in module
+fn is_nodejs_builtin(module: &str) -> bool {
+    matches!(
+        module,
+        "assert"
+            | "buffer"
+            | "child_process"
+            | "cluster"
+            | "console"
+            | "constants"
+            | "crypto"
+            | "dgram"
+            | "dns"
+            | "domain"
+            | "events"
+            | "fs"
+            | "http"
+            | "https"
+            | "module"
+            | "net"
+            | "os"
+            | "path"
+            | "perf_hooks"
+            | "process"
+            | "punycode"
+            | "querystring"
+            | "readline"
+            | "repl"
+            | "stream"
+            | "string_decoder"
+            | "sys"
+            | "timers"
+            | "tls"
+            | "tty"
+            | "url"
+            | "util"
+            | "v8"
+            | "vm"
+            | "worker_threads"
+            | "zlib"
+    )
 }
 
 #[cfg(test)]
@@ -2145,47 +2188,4 @@ mod tests {
             assert_eq!(result, "import { auth } from './modules/auth.js'");
         }
     }
-}
-
-/// Check if a module name is a Node.js built-in module
-fn is_nodejs_builtin(module: &str) -> bool {
-    matches!(
-        module,
-        "assert"
-            | "buffer"
-            | "child_process"
-            | "cluster"
-            | "console"
-            | "constants"
-            | "crypto"
-            | "dgram"
-            | "dns"
-            | "domain"
-            | "events"
-            | "fs"
-            | "http"
-            | "https"
-            | "module"
-            | "net"
-            | "os"
-            | "path"
-            | "perf_hooks"
-            | "process"
-            | "punycode"
-            | "querystring"
-            | "readline"
-            | "repl"
-            | "stream"
-            | "string_decoder"
-            | "sys"
-            | "timers"
-            | "tls"
-            | "tty"
-            | "url"
-            | "util"
-            | "v8"
-            | "vm"
-            | "worker_threads"
-            | "zlib"
-    )
 }

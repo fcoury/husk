@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod async_test {
+mod tests {
     use crate::{execute_script, transpile_to_js};
 
     #[test]

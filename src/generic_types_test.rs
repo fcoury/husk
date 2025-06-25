@@ -2,7 +2,7 @@
 mod tests {
     use crate::{
         lexer::Lexer,
-        parser::{Parser, Stmt},
+        parser::{EnumVariant, Parser, Stmt},
     };
 
     #[test]
@@ -63,10 +63,20 @@ mod tests {
             assert_eq!(name, "Result");
             assert_eq!(generic_params, &vec!["T".to_string(), "E".to_string()]);
             assert_eq!(variants.len(), 2);
-            assert_eq!(variants[0].0, "Ok");
-            assert_eq!(variants[0].1, "T");
-            assert_eq!(variants[1].0, "Err");
-            assert_eq!(variants[1].1, "E");
+            match &variants[0] {
+                EnumVariant::Tuple(name, type_param) => {
+                    assert_eq!(name, "Ok");
+                    assert_eq!(type_param, "T");
+                }
+                _ => panic!("Expected tuple variant"),
+            }
+            match &variants[1] {
+                EnumVariant::Tuple(name, type_param) => {
+                    assert_eq!(name, "Err");
+                    assert_eq!(type_param, "E");
+                }
+                _ => panic!("Expected tuple variant"),
+            }
         } else {
             panic!("Expected Enum statement");
         }

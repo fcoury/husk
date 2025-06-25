@@ -39,13 +39,14 @@ pub struct ResolvedPackage {
 pub enum ModuleType {
     CommonJS,
     ESModule,
-    UMD,
+    Umd,
     Unknown,
 }
 
 /// Simplified package.json structure
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct PackageJson {
+    #[allow(dead_code)]
     pub name: Option<String>,
     pub version: Option<String>,
     pub main: Option<String>,
@@ -53,7 +54,9 @@ pub struct PackageJson {
     #[serde(rename = "type")]
     pub module_type: Option<String>,
     pub exports: Option<serde_json::Value>,
+    #[allow(dead_code)]
     pub dependencies: Option<HashMap<String, String>>,
+    #[allow(dead_code)]
     #[serde(rename = "peerDependencies")]
     pub peer_dependencies: Option<HashMap<String, String>>,
 }

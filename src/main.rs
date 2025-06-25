@@ -72,13 +72,14 @@ fn main() -> anyhow::Result<()> {
         return run_command(file);
     }
 
-    Ok(match cli.cmd {
+    match cli.cmd {
         Some(Command::Run(run)) => run_command(run.file)?,
         Some(Command::Compile(compile)) => compile_command(compile)?,
         Some(Command::Build(build)) => build_command(build)?,
         Some(Command::New(new)) => new_command(new)?,
         Some(Command::Repl) | None => repl()?,
-    })
+    };
+    Ok(())
 }
 
 fn run_command(file: PathBuf) -> anyhow::Result<()> {

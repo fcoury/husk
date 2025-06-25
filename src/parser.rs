@@ -287,35 +287,35 @@ impl Ord for Expr {
 impl Expr {
     pub fn span(&self) -> Span {
         match self {
-            Expr::Int(_, span) => span.clone(),
-            Expr::Float(_, span) => span.clone(),
-            Expr::String(_, span) => span.clone(),
-            Expr::Bool(_, span) => span.clone(),
-            Expr::Unit(span) => span.clone(),
-            Expr::Identifier(_, span) => span.clone(),
-            Expr::BinaryOp(_, _, _, span) => span.clone(),
-            Expr::UnaryOp(_, _, span) => span.clone(),
-            Expr::FunctionCall(_, _, span) => span.clone(),
-            Expr::StructInit(_, _, span) => span.clone(),
-            Expr::MemberAccess(_, _, span) => span.clone(),
-            Expr::Assign(_, _, span) => span.clone(),
-            Expr::CompoundAssign(_, _, _, span) => span.clone(),
-            Expr::Array(_, span) => span.clone(),
-            Expr::ArrayIndex(_, _, span) => span.clone(),
-            Expr::Range(_, _, _, span) => span.clone(),
-            Expr::Tuple(_, span) => span.clone(),
-            Expr::EnumVariantOrMethodCall { span, .. } => span.clone(),
-            Expr::Block(_, span) => span.clone(),
-            Expr::If(_, _, _, span) => span.clone(),
-            Expr::Await(_, span) => span.clone(),
-            Expr::Try(_, span) => span.clone(),
-            Expr::AwaitTry(_, span) => span.clone(),
-            Expr::Match(_, _, span) => span.clone(),
-            Expr::Closure(_, _, _, span) => span.clone(),
-            Expr::MethodCall(_, _, _, span) => span.clone(),
-            Expr::Cast(_, _, span) => span.clone(),
-            Expr::StructPattern(_, _, span) => span.clone(),
-            Expr::ObjectLiteral(_, span) => span.clone(),
+            Expr::Int(_, span) => *span,
+            Expr::Float(_, span) => *span,
+            Expr::String(_, span) => *span,
+            Expr::Bool(_, span) => *span,
+            Expr::Unit(span) => *span,
+            Expr::Identifier(_, span) => *span,
+            Expr::BinaryOp(_, _, _, span) => *span,
+            Expr::UnaryOp(_, _, span) => *span,
+            Expr::FunctionCall(_, _, span) => *span,
+            Expr::StructInit(_, _, span) => *span,
+            Expr::MemberAccess(_, _, span) => *span,
+            Expr::Assign(_, _, span) => *span,
+            Expr::CompoundAssign(_, _, _, span) => *span,
+            Expr::Array(_, span) => *span,
+            Expr::ArrayIndex(_, _, span) => *span,
+            Expr::Range(_, _, _, span) => *span,
+            Expr::Tuple(_, span) => *span,
+            Expr::EnumVariantOrMethodCall { span, .. } => *span,
+            Expr::Block(_, span) => *span,
+            Expr::If(_, _, _, span) => *span,
+            Expr::Await(_, span) => *span,
+            Expr::Try(_, span) => *span,
+            Expr::AwaitTry(_, span) => *span,
+            Expr::Match(_, _, span) => *span,
+            Expr::Closure(_, _, _, span) => *span,
+            Expr::MethodCall(_, _, _, span) => *span,
+            Expr::Cast(_, _, span) => *span,
+            Expr::StructPattern(_, _, span) => *span,
+            Expr::ObjectLiteral(_, span) => *span,
         }
     }
 }
@@ -2253,7 +2253,7 @@ impl Parser {
                         self.advance(); // Consume '}'
 
                         // Create the full variant name including the enum prefix
-                        let full_variant = format!("{}::{}", target.to_string(), call);
+                        let full_variant = format!("{}::{}", target, call);
 
                         Ok(Expr::StructPattern(
                             full_variant,
@@ -2349,20 +2349,18 @@ impl Parser {
             let name = name.clone();
             self.advance(); // Consume identifier
             Ok(Some(name))
+        } else if let TokenKind::Error(err) = &self.current_token().kind {
+            println!("{}", err);
+            Err(Error::new_parse(err, self.current_token().span))
         } else {
-            if let TokenKind::Error(err) = &self.current_token().kind {
-                println!("{}", err);
-                Err(Error::new_parse(err, self.current_token().span))
-            } else {
-                Err(Error::new_parse(
-                    format!(
-                        "Expected identifier, got {:?} from {}",
-                        self.current_token().kind,
-                        from,
-                    ),
-                    self.current_token().span,
-                ))
-            }
+            Err(Error::new_parse(
+                format!(
+                    "Expected identifier, got {:?} from {}",
+                    self.current_token().kind,
+                    from,
+                ),
+                self.current_token().span,
+            ))
         }
     }
 
@@ -3549,14 +3547,11 @@ impl Parser {
 }
 
 fn is_operator(kind: &TokenKind) -> bool {
-    match kind {
-        TokenKind::Plus
+    matches!(kind, TokenKind::Plus
         | TokenKind::Minus
         | TokenKind::Asterisk
         | TokenKind::Slash
-        | TokenKind::DblEquals => true,
-        _ => false,
-    }
+        | TokenKind::DblEquals)
 }
 
 #[cfg(test)]
@@ -4016,9 +4011,9 @@ mod tests {
         assert_eq!(
             variants,
             &[
-                ("Red".to_string(), "unit".to_string()),
-                ("Green".to_string(), "unit".to_string()),
-                ("Blue".to_string(), "unit".to_string()),
+                EnumVariant::Unit("Red".to_string()),
+                EnumVariant::Unit("Green".to_string()),
+                EnumVariant::Unit("Blue".to_string()),
             ]
         );
     }
@@ -4045,8 +4040,8 @@ mod tests {
         assert_eq!(
             variants,
             &[
-                ("Existing".to_string(), "string".to_string()),
-                ("New".to_string(), "string".to_string()),
+                EnumVariant::Tuple("Existing".to_string(), "string".to_string()),
+                EnumVariant::Tuple("New".to_string(), "string".to_string()),
             ]
         );
     }
@@ -4680,7 +4675,7 @@ mod tests {
             expr,
             Expr::UnaryOp(
                 UnaryOp::Neg,
-                Box::new(Expr::Float(3.14, Span::new(1, 5))),
+                Box::new(Expr::Float(3.1, Span::new(1, 5))),
                 Span::new(0, 5)
             )
         );
@@ -4744,7 +4739,7 @@ mod tests {
         assert_eq!(ast.len(), 1);
         // Check that pub is properly stored in AST
         if let Stmt::Function(is_pub, name, _, params, ret_type, body, _) = &ast[0] {
-            assert_eq!(*is_pub, true);
+            assert!(*is_pub);
             assert_eq!(name, "hello");
             assert_eq!(params.len(), 0);
             assert_eq!(ret_type, "void");
@@ -4951,7 +4946,7 @@ mod tests {
                 assert_eq!(target_type, "float");
                 match &**inner {
                     Expr::Cast(inner2, target_type2, _) => {
-                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.14));
+                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.1));
                         assert_eq!(target_type2, "int");
                     }
                     _ => panic!("Expected nested Cast expression"),

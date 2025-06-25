@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod extern_test {
+mod tests {
     use crate::{execute_script, Value};
 
     #[test]
