@@ -1,0 +1,24 @@
+hello  
+world
+
+
+no whitespace
+multiple   spaces  in   middle  
+  hello
+	
+world
+
+no whitespace
+  multiple   spaces  in   middle
+both sides
+both sides
+\u{00A0}test\u{00A0}
+\u{00A0}test\u{00A0}
+8
+6
+6
+4
+
+
+true
+
