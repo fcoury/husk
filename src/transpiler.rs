@@ -1,5 +1,6 @@
 use crate::{
     ast::visitor::AstVisitor,
+    builtin_methods::TranspilerMethodRegistry,
     error::{Error, Result},
     package_resolver::PackageResolver,
     parser::{Expr, ExternItem, Operator, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
@@ -9,6 +10,7 @@ use crate::{
 pub struct JsTranspiler {
     indent_level: usize,
     package_resolver: Option<PackageResolver>,
+    method_registry: TranspilerMethodRegistry,
 }
 
 impl JsTranspiler {
@@ -16,6 +18,7 @@ impl JsTranspiler {
         Self {
             indent_level: 0,
             package_resolver: None,
+            method_registry: TranspilerMethodRegistry::new(),
         }
     }
 
@@ -24,6 +27,7 @@ impl JsTranspiler {
         Ok(Self {
             indent_level: 0,
             package_resolver: Some(PackageResolver::from_current_dir()?),
+            method_registry: TranspilerMethodRegistry::new(),
         })
     }
 
@@ -1395,52 +1399,34 @@ impl AstVisitor<String> for JsTranspiler {
         _span: &Span,
     ) -> Result<String> {
         let obj_str = self.visit_expr(object)?;
+        
+        // Evaluate arguments
+        let arg_strs: Vec<String> = args
+            .iter()
+            .map(|arg| self.visit_expr(arg))
+            .collect::<Result<Vec<_>>>()?;
 
-        // Check if it's a built-in method that needs special handling
-        match method {
-            // String methods
-            "len" => {
-                // JavaScript uses .length property, not .len() method
-                Ok(format!("{}.length", obj_str))
-            }
-            "toLowerCase" | "toUpperCase" | "trim" => {
-                // These methods map directly to JavaScript
-                Ok(format!("{}.{}()", obj_str, method))
-            }
-            "substring" | "split" => {
-                // These methods take arguments and map directly
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.visit_expr(arg))
-                    .collect::<Result<Vec<_>>>()?
-                    .join(", ");
-                Ok(format!("{}.{}({})", obj_str, method, args_str))
-            }
-
-            // Array methods that need special handling
-            "push" => {
-                // In JavaScript, push returns the new length, but in Husk it returns void
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.visit_expr(arg))
-                    .collect::<Result<Vec<_>>>()?
-                    .join(", ");
-                Ok(format!("void ({}.push({}))", obj_str, args_str))
-            }
-            "pop" => {
-                // pop() returns the element in JS, which matches our Option<T> semantics
-                Ok(format!("{}.pop()", obj_str))
-            }
-
-            // Default: assume direct method mapping
-            _ => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.visit_expr(arg))
-                    .collect::<Result<Vec<_>>>()?
-                    .join(", ");
-                Ok(format!("{}.{}({})", obj_str, method, args_str))
-            }
+        // Note: Since the transpiler doesn't have type information, we check both
+        // string and array method registries. This means methods with the same name
+        // on different types (like "len") will use whichever is checked first.
+        // This is a limitation of the current approach but works because JavaScript
+        // uses the same method names for similar operations (e.g., .length for both).
+        
+        // Try string methods first (most common)
+        if let Some(method_impl) = self.method_registry.get_string_method(method) {
+            return Ok(method_impl(&obj_str, &arg_strs));
+        }
+        
+        // Try array methods
+        if let Some(method_impl) = self.method_registry.get_array_method(method) {
+            return Ok(method_impl(&obj_str, &arg_strs));
+        }
+        
+        // Default: assume direct method mapping for unknown methods
+        if arg_strs.is_empty() {
+            Ok(format!("{}.{}()", obj_str, method))
+        } else {
+            Ok(format!("{}.{}({})", obj_str, method, arg_strs.join(", ")))
         }
     }
 
