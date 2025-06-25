@@ -1526,19 +1526,20 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
 
         // Check return type matches last expression (if any)
-        if let Some(Stmt::Expression(expr, _)) = body.last() {
-            let expr_type = self.visit_expr(expr)?;
-            if !expr_type.is_assignable_to(&ret_type) {
-                self.type_env.pop_scope();
-                return Err(Error::new_semantic(
-                    format!(
-                        "Function {} return type mismatch: expected {}, found {}",
-                        name,
-                        ret_type,
-                        expr_type
-                    ),
-                    *span,
-                ));
+        if let Some(Stmt::Expression(expr, has_semicolon)) = body.last() {
+            // If the expression has a semicolon, it's a statement that returns unit
+            if !has_semicolon {
+                let expr_type = self.visit_expr(expr)?;
+                if !expr_type.is_assignable_to(&ret_type) {
+                    self.type_env.pop_scope();
+                    return Err(Error::new_semantic(
+                        format!(
+                            "Function {} return type mismatch: expected {}, found {}",
+                            name, ret_type, expr_type
+                        ),
+                        *span,
+                    ));
+                }
             }
         }
 
