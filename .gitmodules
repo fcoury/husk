@@ -1,0 +1,6 @@
+[submodule "nvim"]
+	path = nvim
+	url = git@github.com:fcoury/husk.nvim
+[submodule "vscode"]
+	path = vscode
+	url = git@github.com:fcoury/husk-vscode
