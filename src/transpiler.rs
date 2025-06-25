@@ -698,7 +698,11 @@ impl AstVisitor<String> for JsTranspiler {
 
         // Default handling for other enums
         if args.is_empty() {
-            Ok(format!("{}.{}", target_str, call))
+            if call == "new" || call.chars().next().unwrap().is_lowercase() {
+                Ok(format!("{}.{}()", target_str, call))
+            } else {
+                Ok(format!("{}.{}", target_str, call))
+            }
         } else {
             let args_str = args
                 .iter()
