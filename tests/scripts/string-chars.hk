@@ -1,0 +1,53 @@
+// Test string.chars() method
+// Tests Unicode handling, empty strings, and various character types
+
+// Basic ASCII string
+let hello = "hello";
+let hello_chars = hello.chars();
+println(hello_chars.len());
+println(hello_chars[0]);
+println(hello_chars[4]);
+
+// Empty string
+let empty = "";
+let empty_chars = empty.chars();
+println(empty_chars.len());
+
+// Unicode string with accented characters
+let cafe = "café";
+let cafe_chars = cafe.chars();
+println(cafe_chars.len());
+println(cafe_chars[3]);
+
+// Emoji (tests surrogate pair handling)
+let emoji = "Hello 👋 World";
+let emoji_chars = emoji.chars();
+println(emoji_chars.len());
+println(emoji_chars[6]);
+
+// Multiple emojis
+let emojis = "🎉🌟✨";
+let emojis_chars = emojis.chars();
+println(emojis_chars.len());
+println(emojis_chars[0]);
+println(emojis_chars[2]);
+
+// Mixed scripts (Latin + Chinese)
+let mixed = "Hello世界";
+let mixed_chars = mixed.chars();
+println(mixed_chars.len());
+println(mixed_chars[5]);
+println(mixed_chars[6]);
+
+// Test that each element is a single-character string
+let test = "test👋";
+let test_chars = test.chars();
+println(test_chars.len());
+println(test_chars[4]);
+
+// String with newlines and tabs
+let special = "a\tb\nc";
+let special_chars = special.chars();
+println(special_chars.len());
+println(special_chars[1]);
+println(special_chars[3]);
