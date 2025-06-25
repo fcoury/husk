@@ -1,7 +1,0 @@
-pub fn log(message: string) {
-    println(format!("[LOG] {}", message));
-}
-
-pub fn formatDate(date: string) -> string {
-    return format!("Date: {}", date);
-}
