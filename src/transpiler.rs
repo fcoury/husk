@@ -2,7 +2,7 @@ use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
     package_resolver::PackageResolver,
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
+    parser::{Expr, ExternItem, Operator, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
 };
 
@@ -13,7 +13,7 @@ pub struct JsTranspiler {
 
 impl JsTranspiler {
     pub fn new() -> Self {
-        Self { 
+        Self {
             indent_level: 0,
             package_resolver: None,
         }
@@ -26,7 +26,7 @@ impl JsTranspiler {
             package_resolver: Some(PackageResolver::from_current_dir()?),
         })
     }
-    
+
     pub fn generate(&mut self, stmts: &[Stmt]) -> Result<String> {
         self.transpile(stmts)
     }
@@ -47,7 +47,7 @@ impl JsTranspiler {
         output.push_str("    return __husk_map_error(error);\n");
         output.push_str("  }\n");
         output.push_str("}\n");
-        
+
         // Add error mapping helper function
         output.push_str("function __husk_map_error(error) {\n");
         output.push_str("  if (error && typeof error === 'object' && (error.type === 'Ok' || error.type === 'Err')) {\n");
@@ -81,7 +81,7 @@ impl JsTranspiler {
         output.push_str("  \n");
         output.push_str("  return { type: 'Err', value: errorPayload };\n");
         output.push_str("}\n");
-        
+
         // Add safe function call wrapper
         output.push_str("function __husk_safe_call(fn, ...args) {\n");
         output.push_str("  try {\n");
@@ -91,7 +91,7 @@ impl JsTranspiler {
         output.push_str("    return __husk_map_error(error);\n");
         output.push_str("  }\n");
         output.push_str("}\n");
-        
+
         output.push_str("function __format__(formatStr, ...args) {\n");
         output.push_str("  let result = '';\n");
         output.push_str("  let argIndex = 0;\n");
@@ -120,13 +120,13 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("  return result;\n");
         output.push_str("}\n");
-        
+
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);
             output.push_str(";\n");
         }
-        
+
         Ok(output)
     }
 
@@ -139,15 +139,19 @@ impl JsTranspiler {
         for (i, stmt) in stmts.iter().enumerate() {
             let stmt_str = self.visit_stmt(stmt)?;
             let is_last = i == stmts.len() - 1;
-            
+
             // Check if this is a control flow statement that shouldn't be returned
-            let is_control_flow = matches!(stmt, Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return(_, _));
-            
+            let is_control_flow = matches!(
+                stmt,
+                Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return(_, _)
+            );
+
             // Check if this is an expression statement without semicolon or a match expression (should be returned)
-            let should_return = is_last && !is_control_flow && 
-                (matches!(stmt, Stmt::Expression(_, false)) || matches!(stmt, Stmt::Match(_, _, _)));
-            
-            
+            let should_return = is_last
+                && !is_control_flow
+                && (matches!(stmt, Stmt::Expression(_, false))
+                    || matches!(stmt, Stmt::Match(_, _, _)));
+
             if should_return {
                 result.push_str(&format!("return {};", stmt_str));
             } else {
@@ -166,10 +170,12 @@ impl JsTranspiler {
                     // Special handling for Option
                     if type_name == "Option" {
                         match call.as_str() {
-                            "None" => return (
-                                "(_matched === null || _matched === undefined)".to_string(),
-                                String::new(),
-                            ),
+                            "None" => {
+                                return (
+                                    "(_matched === null || _matched === undefined)".to_string(),
+                                    String::new(),
+                                )
+                            }
                             "Some" => {
                                 if let Some(Expr::Identifier(bind_name, _)) = args.get(0) {
                                     return (
@@ -185,7 +191,7 @@ impl JsTranspiler {
                             _ => {}
                         }
                     }
-                    
+
                     // Special handling for Result
                     if type_name == "Result" {
                         match call.as_str() {
@@ -217,7 +223,7 @@ impl JsTranspiler {
                         }
                     }
                 }
-                
+
                 // Default enum handling
                 if let Some(value) = args.get(0) {
                     if let Expr::Identifier(bind_name, _) = value {
@@ -232,10 +238,7 @@ impl JsTranspiler {
                         )
                     }
                 } else {
-                    (
-                        format!("_matched === {}.{}", target, call),
-                        String::new(),
-                    )
+                    (format!("_matched === {}.{}", target, call), String::new())
                 }
             }
             Expr::Identifier(var_name, _) => {
@@ -252,9 +255,9 @@ impl JsTranspiler {
                 // Handle tuple patterns
                 let mut conditions = vec!["Array.isArray(_matched)".to_string()];
                 conditions.push(format!("_matched.length === {}", patterns.len()));
-                
+
                 let mut bindings = String::new();
-                
+
                 for (i, pattern) in patterns.iter().enumerate() {
                     match pattern {
                         Expr::Identifier(name, _) if name == "_" => {
@@ -282,14 +285,14 @@ impl JsTranspiler {
                         }
                     }
                 }
-                
+
                 (format!("({})", conditions.join(" && ")), bindings)
             }
             Expr::StructPattern(variant, fields, _) => {
                 // Handle struct-like enum patterns (e.g., Command::Process { input, output })
                 // Convert :: to . for JavaScript
                 let js_variant = variant.replace("::", ".");
-                
+
                 // Check if it's the right variant
                 let condition = if variant.contains("::") {
                     format!("_matched instanceof {}", js_variant)
@@ -297,7 +300,7 @@ impl JsTranspiler {
                     // For plain struct patterns without enum
                     "_matched && typeof _matched === 'object'".to_string()
                 };
-                
+
                 // Generate bindings for fields
                 let mut bindings = String::new();
                 for (field_name, opt_var_name) in fields {
@@ -305,11 +308,11 @@ impl JsTranspiler {
                     if field_name == ".." {
                         continue;
                     }
-                    
+
                     let var_name = opt_var_name.as_ref().unwrap_or(field_name);
                     bindings.push_str(&format!("const {} = _matched.{};\n", var_name, field_name));
                 }
-                
+
                 (condition, bindings)
             }
             _ => ("true".to_string(), String::new()),
@@ -318,7 +321,7 @@ impl JsTranspiler {
 
     fn generate_enum(&self, name: &str, variants: &[crate::parser::EnumVariant]) -> String {
         let mut output = String::new();
-        
+
         // Generate base enum class
         output.push_str(&format!("class {} {{\n", name));
         output.push_str("  constructor(variant, value) {\n");
@@ -326,7 +329,7 @@ impl JsTranspiler {
         output.push_str("    this.value = value;\n");
         output.push_str("  }\n");
         output.push_str("}\n");
-        
+
         // Generate variant constructors
         for variant in variants {
             let (variant_name, is_unit) = match variant {
@@ -334,17 +337,26 @@ impl JsTranspiler {
                 crate::parser::EnumVariant::Tuple(name, _) => (name, false),
                 crate::parser::EnumVariant::Struct(name, _) => (name, false),
             };
-            
-            output.push_str(&format!("{}.{} = class extends {} {{", name, variant_name, name));
-            output.push_str(&format!("constructor(value) {{ super('{}', value); }}", variant_name));
+
+            output.push_str(&format!(
+                "{}.{} = class extends {} {{",
+                name, variant_name, name
+            ));
+            output.push_str(&format!(
+                "constructor(value) {{ super('{}', value); }}",
+                variant_name
+            ));
             output.push_str("};\n");
-            
+
             // Generate static instance only for unit variants (variants without data)
             if is_unit {
-                output.push_str(&format!("{}.{} = new {}.{}();\n", name, variant_name, name, variant_name));
+                output.push_str(&format!(
+                    "{}.{} = new {}.{}();\n",
+                    name, variant_name, name, variant_name
+                ));
             }
         }
-        
+
         output
     }
 }
@@ -357,16 +369,24 @@ impl AstVisitor<String> for JsTranspiler {
         match stmt {
             // Handle function statements with visibility
             Stmt::Function(is_pub, name, generic_params, params, return_type, body, span) => {
-                let function_code = self.visit_function(name, generic_params, params, return_type, body, span)?;
+                let function_code =
+                    self.visit_function(name, generic_params, params, return_type, body, span)?;
                 if *is_pub {
                     Ok(format!("export {}", function_code))
                 } else {
                     Ok(function_code)
                 }
             }
-            // Handle async function statements with visibility  
+            // Handle async function statements with visibility
             Stmt::AsyncFunction(is_pub, name, generic_params, params, return_type, body, span) => {
-                let function_code = self.visit_async_function(name, generic_params, params, return_type, body, span)?;
+                let function_code = self.visit_async_function(
+                    name,
+                    generic_params,
+                    params,
+                    return_type,
+                    body,
+                    span,
+                )?;
                 if *is_pub {
                     Ok(format!("export {}", function_code))
                 } else {
@@ -378,17 +398,27 @@ impl AstVisitor<String> for JsTranspiler {
                 // Use the default visitor implementation for all other statement types
                 match stmt {
                     Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
-                    Stmt::Struct(name, generic_params, fields, span) => self.visit_struct(name, generic_params, fields, span),
-                    Stmt::Enum(name, generic_params, variants, span) => self.visit_enum(name, generic_params, variants, span),
-                    Stmt::Impl(struct_name, methods, span) => self.visit_impl(struct_name, methods, span),
+                    Stmt::Struct(name, generic_params, fields, span) => {
+                        self.visit_struct(name, generic_params, fields, span)
+                    }
+                    Stmt::Enum(name, generic_params, variants, span) => {
+                        self.visit_enum(name, generic_params, variants, span)
+                    }
+                    Stmt::Impl(struct_name, methods, span) => {
+                        self.visit_impl(struct_name, methods, span)
+                    }
                     Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
-                    Stmt::ForLoop(pattern, iterable, body, span) => self.visit_for_loop(pattern, iterable, body, span),
+                    Stmt::ForLoop(pattern, iterable, body, span) => {
+                        self.visit_for_loop(pattern, iterable, body, span)
+                    }
                     Stmt::While(condition, body, span) => self.visit_while(condition, body, span),
                     Stmt::Loop(body, span) => self.visit_loop(body, span),
                     Stmt::Break(span) => self.visit_break(span),
                     Stmt::Continue(span) => self.visit_continue(span),
                     Stmt::Return(expr, span) => self.visit_return(expr.as_ref(), span),
-                    Stmt::Expression(expr, has_semicolon) => self.visit_expression_stmt(expr, *has_semicolon),
+                    Stmt::Expression(expr, has_semicolon) => {
+                        self.visit_expression_stmt(expr, *has_semicolon)
+                    }
                     Stmt::Use(path, items, span) => self.visit_use(path, items, span),
                     Stmt::ExternFunction(name, generic_params, params, return_type, span) => {
                         self.visit_extern_function(name, generic_params, params, return_type, span)
@@ -397,14 +427,14 @@ impl AstVisitor<String> for JsTranspiler {
                     Stmt::ExternType(name, generic_params, span) => {
                         self.visit_extern_type(name, generic_params, span)
                     }
-                    _ => unreachable!("All statement types should be handled above")
+                    _ => unreachable!("All statement types should be handled above"),
                 }
             }
         }
     }
 
     // ===== Expression visit methods =====
-    
+
     fn visit_int(&mut self, value: i64, _span: &Span) -> Result<String> {
         Ok(value.to_string())
     }
@@ -416,13 +446,13 @@ impl AstVisitor<String> for JsTranspiler {
     fn visit_string(&mut self, value: &str, _span: &Span) -> Result<String> {
         // Escape special characters for JavaScript string literals
         let escaped = value
-            .replace('\\', "\\\\")  // Backslash must be escaped first
-            .replace('\"', "\\\"")  // Escape double quotes
-            .replace('\n', "\\n")   // Escape newlines
-            .replace('\r', "\\r")   // Escape carriage returns
-            .replace('\t', "\\t")   // Escape tabs
-            .replace('\0', "\\0");  // Escape null bytes
-        
+            .replace('\\', "\\\\") // Backslash must be escaped first
+            .replace('\"', "\\\"") // Escape double quotes
+            .replace('\n', "\\n") // Escape newlines
+            .replace('\r', "\\r") // Escape carriage returns
+            .replace('\t', "\\t") // Escape tabs
+            .replace('\0', "\\0"); // Escape null bytes
+
         Ok(format!("\"{}\"", escaped))
     }
 
@@ -438,7 +468,13 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(name.to_string())
     }
 
-    fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, _span: &Span) -> Result<String> {
+    fn visit_binary_op(
+        &mut self,
+        left: &Expr,
+        op: &Operator,
+        right: &Expr,
+        _span: &Span,
+    ) -> Result<String> {
         let left_str = self.visit_expr(left)?;
         let right_str = self.visit_expr(right)?;
         let op_str = match op {
@@ -473,7 +509,13 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("{} = {}", left_str, right_str))
     }
 
-    fn visit_compound_assign(&mut self, left: &Expr, op: &Operator, right: &Expr, _span: &Span) -> Result<String> {
+    fn visit_compound_assign(
+        &mut self,
+        left: &Expr,
+        op: &Operator,
+        right: &Expr,
+        _span: &Span,
+    ) -> Result<String> {
         let left_str = self.visit_expr(left)?;
         let right_str = self.visit_expr(right)?;
         let op_str = match op {
@@ -482,10 +524,12 @@ impl AstVisitor<String> for JsTranspiler {
             Operator::Multiply => "*",
             Operator::Divide => "/",
             Operator::Modulo => "%",
-            _ => return Err(Error::new_transpile(
-                format!("Invalid compound assignment operator: {:?}", op),
-                *_span,
-            )),
+            _ => {
+                return Err(Error::new_transpile(
+                    format!("Invalid compound assignment operator: {:?}", op),
+                    *_span,
+                ))
+            }
         };
         Ok(format!("{} {}= {}", left_str, op_str, right_str))
     }
@@ -499,14 +543,14 @@ impl AstVisitor<String> for JsTranspiler {
                     *span,
                 ));
             }
-            
+
             // First argument must be a string literal
             if let Expr::String(format_str, _) = &args[0] {
                 let mut template_parts = Vec::new();
                 let mut arg_index = 1;
                 let mut chars = format_str.chars().peekable();
                 let mut current_part = String::new();
-                
+
                 while let Some(ch) = chars.next() {
                     if ch == '{' {
                         if chars.peek() == Some(&'{') {
@@ -518,7 +562,7 @@ impl AstVisitor<String> for JsTranspiler {
                             chars.next();
                             template_parts.push(current_part.clone());
                             current_part.clear();
-                            
+
                             if arg_index < args.len() {
                                 let arg_str = self.visit_expr(&args[arg_index])?;
                                 template_parts.push(format!("${{{}}}", arg_str));
@@ -539,11 +583,11 @@ impl AstVisitor<String> for JsTranspiler {
                         current_part.push(ch);
                     }
                 }
-                
+
                 if !current_part.is_empty() {
                     template_parts.push(current_part);
                 }
-                
+
                 // Return as template literal
                 Ok(format!("`{}`", template_parts.join("")))
             } else {
@@ -562,7 +606,7 @@ impl AstVisitor<String> for JsTranspiler {
                 .map(|arg| self.visit_expr(arg))
                 .collect::<Result<Vec<_>>>()?
                 .join(", ");
-            
+
             // Handle method calls with dot notation
             if name.contains('.') {
                 let (obj, method) = name.split_once('.').unwrap();
@@ -573,26 +617,27 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
-    fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], _span: &Span) -> Result<String> {
+    fn visit_struct_init(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+        _span: &Span,
+    ) -> Result<String> {
         // Convert :: to . for JavaScript
         let js_name = name.replace("::", ".");
-        
+
         let mut result = String::new();
         result.push_str("(function() {");
         result.push_str(&format!(
             "const __INSTANCE__ = Object.create({}.prototype);",
             js_name
         ));
-        
+
         for (field_name, field_expr) in fields {
             let field_value = self.visit_expr(field_expr)?;
-            result.push_str(&format!(
-                "__INSTANCE__.{} = {};",
-                field_name,
-                field_value
-            ));
+            result.push_str(&format!("__INSTANCE__.{} = {};", field_name, field_value));
         }
-        
+
         result.push_str("return __INSTANCE__;");
         result.push_str("})()");
         Ok(result)
@@ -603,9 +648,15 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("{}.{}", obj_str, field))
     }
 
-    fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], _span: &Span) -> Result<String> {
+    fn visit_enum_variant_or_method_call(
+        &mut self,
+        target: &Expr,
+        call: &str,
+        args: &[Expr],
+        _span: &Span,
+    ) -> Result<String> {
         let target_str = self.visit_expr(target)?;
-        
+
         // Special handling for built-in Option type
         if target_str == "Option" {
             match call {
@@ -621,7 +672,7 @@ impl AstVisitor<String> for JsTranspiler {
                 _ => {}
             }
         }
-        
+
         // Special handling for built-in Result type
         if target_str == "Result" {
             match call {
@@ -644,7 +695,7 @@ impl AstVisitor<String> for JsTranspiler {
                 _ => {}
             }
         }
-        
+
         // Default handling for other enums
         if args.is_empty() {
             Ok(format!("{}.{}", target_str, call))
@@ -685,7 +736,7 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, _span: &Span) -> Result<String> {
         let array_str = self.visit_expr(array)?;
-        
+
         match index {
             Expr::Range(start, end, inclusive, _) => {
                 let mut end_str = String::new();
@@ -695,7 +746,7 @@ impl AstVisitor<String> for JsTranspiler {
                         end_str = format!("{} + 1", end_str);
                     }
                 }
-                
+
                 match (start, end) {
                     (Some(start_expr), Some(_)) => {
                         let start_str = self.visit_expr(start_expr)?;
@@ -705,9 +756,7 @@ impl AstVisitor<String> for JsTranspiler {
                         let start_str = self.visit_expr(start_expr)?;
                         Ok(format!("{}.slice({})", array_str, start_str))
                     }
-                    (None, Some(_)) => {
-                        Ok(format!("{}.slice(0, {})", array_str, end_str))
-                    }
+                    (None, Some(_)) => Ok(format!("{}.slice(0, {})", array_str, end_str)),
                     (None, None) => Ok(array_str),
                 }
             }
@@ -718,7 +767,13 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
-    fn visit_range(&mut self, _start: Option<&Expr>, _end: Option<&Expr>, _inclusive: bool, _span: &Span) -> Result<String> {
+    fn visit_range(
+        &mut self,
+        _start: Option<&Expr>,
+        _end: Option<&Expr>,
+        _inclusive: bool,
+        _span: &Span,
+    ) -> Result<String> {
         // Ranges are handled in context (for loops, array slicing)
         Ok("/* range expression */".to_string())
     }
@@ -727,13 +782,13 @@ impl AstVisitor<String> for JsTranspiler {
         // In JavaScript, we can use an IIFE (Immediately Invoked Function Expression)
         // to create a block that returns a value
         let mut result = "(() => {\n".to_string();
-        
+
         self.indent_level += 1;
-        
+
         for (i, stmt) in stmts.iter().enumerate() {
             let is_last = i == stmts.len() - 1;
             let indent = self.indent();
-            
+
             match stmt {
                 // If the last statement is an expression without semicolon,
                 // we need to return its value
@@ -748,10 +803,10 @@ impl AstVisitor<String> for JsTranspiler {
                 }
             }
         }
-        
+
         self.indent_level -= 1;
         result.push_str(&format!("{}}})()", self.indent()));
-        
+
         Ok(result)
     }
 
@@ -762,24 +817,34 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!("let {} = {}", name, value))
     }
 
-    fn visit_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
+    fn visit_function(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        params: &[(String, String)],
+        _return_type: &str,
+        body: &[Stmt],
+        _span: &Span,
+    ) -> Result<String> {
         let params_str = params
             .iter()
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         self.indent_level += 1;
         let body_str = self.generate_body(body)?;
         self.indent_level -= 1;
-        
-        Ok(format!("function {}({}) {{\n{}\n}}", name, params_str, body_str))
-    }
 
+        Ok(format!(
+            "function {}({}) {{\n{}\n}}",
+            name, params_str, body_str
+        ))
+    }
 
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
         let condition_str = self.visit_expr(condition)?;
-        
+
         self.indent_level += 1;
         let body_str = body
             .iter()
@@ -787,7 +852,7 @@ impl AstVisitor<String> for JsTranspiler {
             .collect::<Result<Vec<_>>>()?
             .join("\n");
         self.indent_level -= 1;
-        
+
         Ok(format!("while ({}) {{\n{}\n}}", condition_str, body_str))
     }
 
@@ -799,11 +864,17 @@ impl AstVisitor<String> for JsTranspiler {
             .collect::<Result<Vec<_>>>()?
             .join("\n");
         self.indent_level -= 1;
-        
+
         Ok(format!("while (true) {{\n{}\n}}", body_str))
     }
 
-    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
+    fn visit_for_loop(
+        &mut self,
+        pattern: &Expr,
+        iterable: &Expr,
+        body: &[Stmt],
+        _span: &Span,
+    ) -> Result<String> {
         // Convert pattern to JavaScript destructuring
         let pattern_str = match pattern {
             Expr::Identifier(name, _) => name.clone(),
@@ -838,16 +909,17 @@ impl AstVisitor<String> for JsTranspiler {
                             Expr::Identifier(name, _) => name,
                             _ => {
                                 return Err(Error::new_semantic(
-                                    "Range-based for loops only support simple identifiers".to_string(),
+                                    "Range-based for loops only support simple identifiers"
+                                        .to_string(),
                                     pattern.span(),
                                 ));
                             }
                         };
-                        
+
                         let start_str = self.visit_expr(start_expr)?;
                         let end_str = self.visit_expr(end_expr)?;
                         let op = if *inclusive { "<=" } else { "<" };
-                        
+
                         self.indent_level += 1;
                         let body_str = body
                             .iter()
@@ -855,7 +927,7 @@ impl AstVisitor<String> for JsTranspiler {
                             .collect::<Result<Vec<_>>>()?
                             .join("\n");
                         self.indent_level -= 1;
-                        
+
                         Ok(format!(
                             "for (let {} = {}; {} {} {}; {}++) {{\n{}\n}}",
                             var, start_str, var, op, end_str, var, body_str
@@ -866,7 +938,7 @@ impl AstVisitor<String> for JsTranspiler {
             }
             _ => {
                 let iter_str = self.visit_expr(iterable)?;
-                
+
                 self.indent_level += 1;
                 let body_str = body
                     .iter()
@@ -874,8 +946,11 @@ impl AstVisitor<String> for JsTranspiler {
                     .collect::<Result<Vec<_>>>()?
                     .join("\n");
                 self.indent_level -= 1;
-                
-                Ok(format!("for (const {} of {}) {{\n{}\n}}", pattern_str, iter_str, body_str))
+
+                Ok(format!(
+                    "for (const {} of {}) {{\n{}\n}}",
+                    pattern_str, iter_str, body_str
+                ))
             }
         }
     }
@@ -900,7 +975,7 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<String> {
         let expr_js = self.visit_expr(expr)?;
-        
+
         // If the expression has a semicolon, it's a statement that shouldn't return a value
         // If no semicolon, it can return its value (for block expressions)
         if has_semicolon {
@@ -911,33 +986,58 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
-    fn visit_extern_function(&mut self, _name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String> {
+    fn visit_extern_function(
+        &mut self,
+        _name: &str,
+        _generic_params: &[String],
+        _params: &[(String, String)],
+        _return_type: &str,
+        _span: &Span,
+    ) -> Result<String> {
         // Extern declarations don't generate any JavaScript code
         // They're only used for type checking
         Ok(String::new())
     }
-    
-    fn visit_extern_mod(&mut self, _name: &str, _items: &[ExternItem], _span: &Span) -> Result<String> {
+
+    fn visit_extern_mod(
+        &mut self,
+        _name: &str,
+        _items: &[ExternItem],
+        _span: &Span,
+    ) -> Result<String> {
         // Extern declarations don't generate any JavaScript code
         // They're only used for type checking
         Ok(String::new())
     }
-    
-    fn visit_extern_type(&mut self, _name: &str, _generic_params: &[String], _span: &Span) -> Result<String> {
+
+    fn visit_extern_type(
+        &mut self,
+        _name: &str,
+        _generic_params: &[String],
+        _span: &Span,
+    ) -> Result<String> {
         // Extern type declarations don't generate any JavaScript code
         // They're only used for type checking
         Ok(String::new())
     }
-    
-    fn visit_async_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String> {
+
+    fn visit_async_function(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        params: &[(String, String)],
+        _return_type: &str,
+        body: &[Stmt],
+        _span: &Span,
+    ) -> Result<String> {
         let params_str = params
             .iter()
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         let body_str = self.generate_body(body)?;
-        
+
         Ok(format!(
             "{}async function {}({}) {{\n{}{}}}",
             self.indent(),
@@ -947,70 +1047,85 @@ impl AstVisitor<String> for JsTranspiler {
             self.indent()
         ))
     }
-    
-    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], _span: &Span) -> Result<String> {
+
+    fn visit_match_expr(
+        &mut self,
+        expr: &Expr,
+        arms: &[(Expr, Vec<Stmt>)],
+        _span: &Span,
+    ) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         let mut result = format!("((function(_matched) {{\n");
         self.indent_level += 1;
-        
+
         for (i, (pattern, body)) in arms.iter().enumerate() {
             let (condition, binding) = self.generate_match_condition(expr, pattern);
-            
+
             if i == 0 {
                 result.push_str(&format!("{}if ({}) {{\n", self.indent(), condition));
             } else {
                 result.push_str(&format!("{}}} else if ({}) {{\n", self.indent(), condition));
             }
-            
+
             self.indent_level += 1;
             if !binding.is_empty() {
                 result.push_str(&format!("{}{}", self.indent(), binding));
             }
-            
+
             let body_str = self.generate_body(body)?;
             result.push_str(&body_str);
             result.push('\n');
             self.indent_level -= 1;
         }
-        
+
         result.push_str(&format!("{}}} else {{\n", self.indent()));
         self.indent_level += 1;
-        result.push_str(&format!("{}throw new Error('No pattern matched');\n", self.indent()));
+        result.push_str(&format!(
+            "{}throw new Error('No pattern matched');\n",
+            self.indent()
+        ));
         self.indent_level -= 1;
         result.push_str(&format!("{}}}\n", self.indent()));
         self.indent_level -= 1;
         result.push_str(&format!("{}}})({})", self.indent(), expr_str));
-        
+
         Ok(result)
     }
-    
+
     fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         Ok(format!("await {}", expr_str))
     }
-    
+
     fn visit_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         // Generate JS code that checks if the result is an error and returns early if so
         Ok(format!("(() => {{ const __result = {}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()", expr_str))
     }
-    
+
     fn visit_await_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         // Generate the intelligent await bridge that handles both Promises and Promise<Result>
         Ok(format!("await __husk_await_bridge({})", expr_str))
     }
-    
-    fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<String> {
+
+    fn visit_closure(
+        &mut self,
+        params: &[(String, Option<String>)],
+        _ret_type: &Option<String>,
+        body: &Expr,
+        _span: &Span,
+    ) -> Result<String> {
         // Generate parameter list
-        let param_list = params.iter()
+        let param_list = params
+            .iter()
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         // Check if body is a block or single expression
         let body_str = self.visit_expr(body)?;
-        
+
         // Generate arrow function
         if body_str.starts_with('{') {
             // Block body - no need for return, it's already in the block
@@ -1020,7 +1135,7 @@ impl AstVisitor<String> for JsTranspiler {
             Ok(format!("({}) => {}", param_list, body_str))
         }
     }
-    
+
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
         match &path.prefix {
             UsePrefix::None => {
@@ -1030,7 +1145,7 @@ impl AstVisitor<String> for JsTranspiler {
                     // Node.js built-in modules don't need package resolution
                     return self.generate_basic_import(path, items);
                 }
-                
+
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
                     let subpath_string = if path.segments.len() > 1 {
@@ -1039,21 +1154,24 @@ impl AstVisitor<String> for JsTranspiler {
                         None
                     };
                     let subpath = subpath_string.as_ref().map(|s| s.as_str());
-                    
+
                     match resolver.resolve_package(package_name) {
                         Ok(resolved_package) => {
-                            // Extract import names 
+                            // Extract import names
                             let import_names = match items {
-                                UseItems::Named(imports) => {
-                                    imports.iter().map(|(name, alias)| {
-                                        alias.as_ref().unwrap_or(name).clone()
-                                    }).collect()
-                                }
+                                UseItems::Named(imports) => imports
+                                    .iter()
+                                    .map(|(name, alias)| alias.as_ref().unwrap_or(name).clone())
+                                    .collect(),
                                 UseItems::Single => vec![package_name.clone()],
                                 UseItems::All => vec!["*".to_string()],
                             };
-                            
-                            let import_statement = resolver.generate_import_statement(&resolved_package, &import_names, subpath);
+
+                            let import_statement = resolver.generate_import_statement(
+                                &resolved_package,
+                                &import_names,
+                                subpath,
+                            );
                             Ok(import_statement)
                         }
                         Err(_) => {
@@ -1073,31 +1191,43 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
-    fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<String> {
+    fn visit_struct(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        fields: &[(String, String)],
+        _span: &Span,
+    ) -> Result<String> {
         let params = fields
             .iter()
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         let mut result = String::new();
         result.push_str(&format!("function {}({}) {{", name, params));
-        
+
         for (field_name, _) in fields {
             result.push_str(&format!("this.{} = {};", field_name, field_name));
         }
-        
+
         result.push_str("}");
         Ok(result)
     }
 
-    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<String> {
+    fn visit_enum(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        variants: &[crate::parser::EnumVariant],
+        _span: &Span,
+    ) -> Result<String> {
         Ok(self.generate_enum(name, variants))
     }
 
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], span: &Span) -> Result<String> {
         let mut output = String::new();
-        
+
         for method in methods {
             let Stmt::Function(_, name, _, params, _return_type, body, _) = method else {
                 return Err(Error::new_transpile(
@@ -1105,7 +1235,7 @@ impl AstVisitor<String> for JsTranspiler {
                     *span,
                 ));
             };
-            
+
             let result = if !params.is_empty() && params[0].0 == "self" {
                 // Instance method
                 let fn_params = params[1..]
@@ -1113,11 +1243,11 @@ impl AstVisitor<String> for JsTranspiler {
                     .map(|(name, _)| name.clone())
                     .collect::<Vec<_>>()
                     .join(", ");
-                
+
                 self.indent_level += 1;
                 let fn_body = self.generate_body(body)?;
                 self.indent_level -= 1;
-                
+
                 let fn_body = format!("const self = this;\n{}", fn_body);
                 format!(
                     "{}.prototype.{} = function({}) {{\n{}\n}};\n",
@@ -1130,36 +1260,41 @@ impl AstVisitor<String> for JsTranspiler {
                     .map(|(name, _)| name.clone())
                     .collect::<Vec<_>>()
                     .join(", ");
-                
+
                 self.indent_level += 1;
                 let fn_body = self.generate_body(body)?;
                 self.indent_level -= 1;
-                
+
                 format!(
                     "{}.{} = function({}) {{\n{}\n}};\n",
                     struct_name, name, fn_params, fn_body
                 )
             };
-            
+
             output.push_str(&result);
         }
-        
+
         Ok(output)
     }
 
-    fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], _span: &Span) -> Result<String> {
+    fn visit_match(
+        &mut self,
+        expr: &Expr,
+        arms: &[(Expr, Vec<Stmt>)],
+        _span: &Span,
+    ) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
-        
+
         let cases_str = arms
             .iter()
             .map(|(pattern, stmts)| {
                 let (condition, binding) = self.generate_match_condition(expr, pattern);
-                
+
                 self.indent_level += 1;
                 // Use generate_body to ensure proper return handling
                 let body_str = self.generate_body(stmts)?;
                 self.indent_level -= 1;
-                
+
                 Ok(format!(
                     "if ({}) {{\n{}{}\n}}",
                     condition, binding, body_str
@@ -1167,45 +1302,57 @@ impl AstVisitor<String> for JsTranspiler {
             })
             .collect::<Result<Vec<_>>>()?
             .join(" else ");
-        
+
         Ok(format!(
             "(() => {{\nconst _matched = {};\n{}\n}})()",
             expr_str, cases_str
         ))
     }
 
-    fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<String> {
+    fn visit_if_expr(
+        &mut self,
+        condition: &Expr,
+        then_block: &[Stmt],
+        else_block: &[Stmt],
+        _span: &Span,
+    ) -> Result<String> {
         let condition_str = self.visit_expr(condition)?;
-        
+
         // Generate an IIFE for the if expression
         let mut result = "(() => {\n".to_string();
         result.push_str(&format!("  if ({}) {{\n", condition_str));
-        
+
         self.indent_level += 2;
         let then_str = self.generate_body(then_block)?;
         self.indent_level -= 2;
-        
+
         result.push_str(&format!("    {}\n", then_str));
         result.push_str("  }");
-        
+
         if !else_block.is_empty() {
             result.push_str(" else {\n");
-            
+
             self.indent_level += 2;
             let else_str = self.generate_body(else_block)?;
             self.indent_level -= 2;
-            
+
             result.push_str(&format!("    {}\n", else_str));
             result.push_str("  }");
         }
-        
+
         result.push_str("\n})()");
         Ok(result)
     }
-    
-    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _span: &Span) -> Result<String> {
+
+    fn visit_method_call(
+        &mut self,
+        object: &Expr,
+        method: &str,
+        args: &[Expr],
+        _span: &Span,
+    ) -> Result<String> {
         let obj_str = self.visit_expr(object)?;
-        
+
         // Check if it's a built-in method that needs special handling
         match method {
             // String methods
@@ -1219,17 +1366,19 @@ impl AstVisitor<String> for JsTranspiler {
             }
             "substring" | "split" => {
                 // These methods take arguments and map directly
-                let args_str = args.iter()
+                let args_str = args
+                    .iter()
                     .map(|arg| self.visit_expr(arg))
                     .collect::<Result<Vec<_>>>()?
                     .join(", ");
                 Ok(format!("{}.{}({})", obj_str, method, args_str))
             }
-            
+
             // Array methods that need special handling
             "push" => {
                 // In JavaScript, push returns the new length, but in Husk it returns void
-                let args_str = args.iter()
+                let args_str = args
+                    .iter()
                     .map(|arg| self.visit_expr(arg))
                     .collect::<Result<Vec<_>>>()?
                     .join(", ");
@@ -1239,10 +1388,11 @@ impl AstVisitor<String> for JsTranspiler {
                 // pop() returns the element in JS, which matches our Option<T> semantics
                 Ok(format!("{}.pop()", obj_str))
             }
-            
+
             // Default: assume direct method mapping
             _ => {
-                let args_str = args.iter()
+                let args_str = args
+                    .iter()
                     .map(|arg| self.visit_expr(arg))
                     .collect::<Result<Vec<_>>>()?
                     .join(", ");
@@ -1250,10 +1400,10 @@ impl AstVisitor<String> for JsTranspiler {
             }
         }
     }
-    
+
     fn visit_cast(&mut self, expr: &Expr, target_type: &str, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
-        
+
         // Generate JavaScript type casting/conversion
         match target_type {
             "int" => Ok(format!("Math.floor(Number({}))", expr_str)),
@@ -1268,39 +1418,56 @@ impl AstVisitor<String> for JsTranspiler {
         }
     }
 
-    fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], _span: &Span) -> Result<String> {
+    fn visit_struct_pattern(
+        &mut self,
+        variant: &str,
+        fields: &[(String, Option<String>)],
+        _span: &Span,
+    ) -> Result<String> {
         // Struct patterns are used for pattern matching and should not generate standalone JavaScript
         // They are only meaningful in the context of match expressions
         // For now, we'll generate a comment indicating this is a pattern
-        Ok(format!("/* struct pattern: {} {{ {} }} */", variant, 
-            fields.iter().map(|(field, rename)| {
-                match rename {
-                    Some(var_name) => format!("{}: {}", field, var_name),
-                    None => field.clone(),
-                }
-            }).collect::<Vec<_>>().join(", ")
+        Ok(format!(
+            "/* struct pattern: {} {{ {} }} */",
+            variant,
+            fields
+                .iter()
+                .map(|(field, rename)| {
+                    match rename {
+                        Some(var_name) => format!("{}: {}", field, var_name),
+                        None => field.clone(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
         ))
     }
 
     fn visit_object_literal(&mut self, fields: &[(String, Expr)], _span: &Span) -> Result<String> {
         let mut field_strings = Vec::new();
-        
+
         for (key, value) in fields {
             let value_str = self.visit_expr(value)?;
-            
+
             // Check if the key needs to be quoted (if it's not a valid JS identifier)
-            let key_str = if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') 
-                && key.chars().next().map_or(false, |c| c.is_alphabetic() || c == '_' || c == '$') {
+            let key_str = if key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                && key
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_alphabetic() || c == '_' || c == '$')
+            {
                 // Valid identifier, no quotes needed
                 key.clone()
             } else {
                 // Need to quote the key
                 format!("\"{}\"", key.replace('\"', "\\\""))
             };
-            
+
             field_strings.push(format!("{}: {}", key_str, value_str));
         }
-        
+
         Ok(format!("{{ {} }}", field_strings.join(", ")))
     }
 }
@@ -1309,9 +1476,11 @@ impl JsTranspiler {
     /// Generate basic import statement without package resolution
     fn generate_basic_import(&self, path: &UsePath, items: &UseItems) -> Result<String> {
         // Handle special cases for Node.js built-in modules
-        let (final_module_path, final_items) = if path.prefix == UsePrefix::None && !path.segments.is_empty() {
+        let (final_module_path, final_items) = if path.prefix == UsePrefix::None
+            && !path.segments.is_empty()
+        {
             let base_module = &path.segments[0];
-            
+
             if is_nodejs_builtin(base_module) && path.segments.len() > 1 {
                 match base_module.as_str() {
                     "fs" => {
@@ -1329,13 +1498,16 @@ impl JsTranspiler {
                             match items {
                                 UseItems::Single => {
                                     let import_name = path.segments[2].clone();
-                                    ("fs".to_string(), UseItems::Named(vec![(import_name.clone(), None)]))
+                                    (
+                                        "fs".to_string(),
+                                        UseItems::Named(vec![(import_name.clone(), None)]),
+                                    )
                                 }
                                 UseItems::Named(_) => {
                                     // Already named imports, use as is but from 'fs'
                                     ("fs".to_string(), items.clone())
                                 }
-                                _ => ("fs".to_string(), items.clone())
+                                _ => ("fs".to_string(), items.clone()),
                             }
                         } else {
                             // Other fs submodules - import from fs directly
@@ -1347,7 +1519,10 @@ impl JsTranspiler {
                         if path.segments.len() == 2 && matches!(items, UseItems::Single) {
                             // e.g., path::join - import { join } from 'path'
                             let import_name = path.segments[1].clone();
-                            (base_module.clone(), UseItems::Named(vec![(import_name, None)]))
+                            (
+                                base_module.clone(),
+                                UseItems::Named(vec![(import_name, None)]),
+                            )
                         } else if path.segments.len() > 2 {
                             // e.g., process::env::NODE_ENV would be invalid, but handle gracefully
                             (base_module.clone(), items.clone())
@@ -1369,7 +1544,9 @@ impl JsTranspiler {
         } else {
             // Local imports - handle the path construction
             let (module_segments, import_name) = match (&path.prefix, items) {
-                (UsePrefix::Local | UsePrefix::Self_ | UsePrefix::Super(_), UseItems::Single) if path.segments.len() > 1 => {
+                (UsePrefix::Local | UsePrefix::Self_ | UsePrefix::Super(_), UseItems::Single)
+                    if path.segments.len() > 1 =>
+                {
                     // Split off the last segment as the import name
                     let mut segs = path.segments.clone();
                     let import = segs.pop().unwrap();
@@ -1377,7 +1554,7 @@ impl JsTranspiler {
                 }
                 _ => (path.segments.clone(), None),
             };
-            
+
             let module_path = match &path.prefix {
                 UsePrefix::None => {
                     // Should not reach here, but handle it
@@ -1393,7 +1570,7 @@ impl JsTranspiler {
                     }
                 }
                 UsePrefix::Self_ => {
-                    // Current directory - add .js extension for ES modules  
+                    // Current directory - add .js extension for ES modules
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
                         format!("./{}", base_path)
@@ -1415,17 +1592,17 @@ impl JsTranspiler {
                     }
                 }
             };
-            
+
             // For local imports, reconstruct items if we split off the import name
             let final_items = if let Some(name) = import_name {
                 UseItems::Named(vec![(name, None)])
             } else {
                 items.clone()
             };
-            
+
             (module_path, final_items)
         };
-        
+
         // Generate the import statement
         let import_stmt = match &final_items {
             UseItems::All => {
@@ -1443,7 +1620,8 @@ impl JsTranspiler {
                 }
             }
             UseItems::Named(items) => {
-                let imports = items.iter()
+                let imports = items
+                    .iter()
                     .map(|(name, alias)| {
                         if let Some(alias) = alias {
                             format!("{} as {}", name, alias)
@@ -1456,9 +1634,10 @@ impl JsTranspiler {
                 format!("import {{ {} }} from '{}'", imports, final_module_path)
             }
         };
-        
+
         Ok(import_stmt)
-    }}
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1471,13 +1650,16 @@ mod tests {
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse()?;
-        
+
         // Extract the first expression from the parsed statements
         if let Some(Stmt::Expression(expr, _)) = stmts.first() {
             let mut transpiler = JsTranspiler::new();
             transpiler.visit_expr(expr)
         } else {
-            Err(Error::new_parse("Expected expression".to_string(), Span::new(0, 0)))
+            Err(Error::new_parse(
+                "Expected expression".to_string(),
+                Span::new(0, 0),
+            ))
         }
     }
 
@@ -1486,13 +1668,16 @@ mod tests {
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse()?;
-        
+
         // Get the first statement
         if let Some(stmt) = stmts.first() {
             let mut transpiler = JsTranspiler::new();
             transpiler.visit_stmt(stmt)
         } else {
-            Err(Error::new_parse("Expected statement".to_string(), Span::new(0, 0)))
+            Err(Error::new_parse(
+                "Expected statement".to_string(),
+                Span::new(0, 0),
+            ))
         }
     }
 
@@ -1563,7 +1748,10 @@ mod tests {
     fn test_transpile_function_call() {
         assert_eq!(transpile_expr("foo()").unwrap(), "foo()");
         assert_eq!(transpile_expr("add(1, 2)").unwrap(), "add(1, 2)");
-        assert_eq!(transpile_expr("println(\"hello\")").unwrap(), "println(\"hello\")");
+        assert_eq!(
+            transpile_expr("println(\"hello\")").unwrap(),
+            "println(\"hello\")"
+        );
     }
 
     #[test]
@@ -1576,14 +1764,23 @@ mod tests {
     fn test_transpile_assignment() {
         // Assignments need semicolons when parsed as statements
         assert_eq!(transpile_stmt("x = 5;").unwrap(), "void (x = 5)");
-        assert_eq!(transpile_stmt("arr[0] = 10;").unwrap(), "void (arr[0] = 10)");
-        assert_eq!(transpile_stmt("obj.field = \"value\";").unwrap(), "void (obj.field = \"value\")");
+        assert_eq!(
+            transpile_stmt("arr[0] = 10;").unwrap(),
+            "void (arr[0] = 10)"
+        );
+        assert_eq!(
+            transpile_stmt("obj.field = \"value\";").unwrap(),
+            "void (obj.field = \"value\")"
+        );
     }
 
     #[test]
     fn test_transpile_let_statement() {
         assert_eq!(transpile_stmt("let x = 5;").unwrap(), "let x = 5");
-        assert_eq!(transpile_stmt("let name = \"Alice\";").unwrap(), "let name = \"Alice\"");
+        assert_eq!(
+            transpile_stmt("let name = \"Alice\";").unwrap(),
+            "let name = \"Alice\""
+        );
     }
 
     #[test]
@@ -1670,7 +1867,10 @@ mod tests {
     #[test]
     fn test_transpile_enum_variant() {
         assert_eq!(transpile_expr("Option::None").unwrap(), "Option.None");
-        assert_eq!(transpile_expr("Option::Some(5)").unwrap(), "new Option.Some(5)");
+        assert_eq!(
+            transpile_expr("Option::Some(5)").unwrap(),
+            "new Option.Some(5)"
+        );
     }
 
     #[test]
@@ -1691,7 +1891,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut transpiler = JsTranspiler::new();
-        
+
         // Find the impl statement
         for stmt in &program {
             if let Stmt::Impl(_, _, _) = stmt {
@@ -1786,8 +1986,11 @@ mod tests {
     #[test]
     fn test_transpile_method_call() {
         // Test static method call
-        assert_eq!(transpile_expr("Point::new(1, 2)").unwrap(), "Point.new(1, 2)");
-        
+        assert_eq!(
+            transpile_expr("Point::new(1, 2)").unwrap(),
+            "Point.new(1, 2)"
+        );
+
         // Test method call on dot notation (for future implementation)
         let input = "obj.method(arg)";
         let result = transpile_expr(input).unwrap();
@@ -1843,7 +2046,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let program = parser.parse().unwrap();
         let mut transpiler = JsTranspiler::new();
-        
+
         for stmt in &program {
             if let Stmt::Function(_, _, _, _, _, _, _) = stmt {
                 let result = transpiler.visit_stmt(stmt).unwrap();
@@ -1879,7 +2082,10 @@ mod tests {
     fn test_transpile_unary_in_expressions() {
         assert_eq!(transpile_expr("5 + -3").unwrap(), "(5 + (-3))");
         assert_eq!(transpile_expr("-5 * 2").unwrap(), "((-5) * 2)");
-        assert_eq!(transpile_expr("!true == false").unwrap(), "((!true) === false)");
+        assert_eq!(
+            transpile_expr("!true == false").unwrap(),
+            "((!true) === false)"
+        );
     }
 
     #[test]
@@ -1897,7 +2103,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse().unwrap();
         let mut transpiler = JsTranspiler::new();
-        
+
         if let Stmt::Use(_, _, _) = &stmts[0] {
             let result = transpiler.visit_stmt(&stmts[0]).unwrap();
             assert_eq!(result, "import './utils.js'");
@@ -1909,7 +2115,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse().unwrap();
         let mut transpiler = JsTranspiler::new();
-        
+
         if let Stmt::Use(_, _, _) = &stmts[0] {
             let result = transpiler.visit_stmt(&stmts[0]).unwrap();
             assert_eq!(result, "import './components.js'");
@@ -1921,7 +2127,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse().unwrap();
         let mut transpiler = JsTranspiler::new();
-        
+
         if let Stmt::Use(_, _, _) = &stmts[0] {
             let result = transpiler.visit_stmt(&stmts[0]).unwrap();
             assert_eq!(result, "import '../shared.js'");
@@ -1933,7 +2139,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse().unwrap();
         let mut transpiler = JsTranspiler::new();
-        
+
         if let Stmt::Use(_, _, _) = &stmts[0] {
             let result = transpiler.visit_stmt(&stmts[0]).unwrap();
             assert_eq!(result, "import { auth } from './modules/auth.js'");
@@ -1943,12 +2149,43 @@ mod tests {
 
 /// Check if a module name is a Node.js built-in module
 fn is_nodejs_builtin(module: &str) -> bool {
-    matches!(module,
-        "assert" | "buffer" | "child_process" | "cluster" | "console" | "constants" |
-        "crypto" | "dgram" | "dns" | "domain" | "events" | "fs" | "http" | "https" |
-        "module" | "net" | "os" | "path" | "perf_hooks" | "process" | "punycode" |
-        "querystring" | "readline" | "repl" | "stream" | "string_decoder" | "sys" |
-        "timers" | "tls" | "tty" | "url" | "util" | "v8" | "vm" | "worker_threads" |
-        "zlib"
+    matches!(
+        module,
+        "assert"
+            | "buffer"
+            | "child_process"
+            | "cluster"
+            | "console"
+            | "constants"
+            | "crypto"
+            | "dgram"
+            | "dns"
+            | "domain"
+            | "events"
+            | "fs"
+            | "http"
+            | "https"
+            | "module"
+            | "net"
+            | "os"
+            | "path"
+            | "perf_hooks"
+            | "process"
+            | "punycode"
+            | "querystring"
+            | "readline"
+            | "repl"
+            | "stream"
+            | "string_decoder"
+            | "sys"
+            | "timers"
+            | "tls"
+            | "tty"
+            | "url"
+            | "util"
+            | "v8"
+            | "vm"
+            | "worker_threads"
+            | "zlib"
     )
 }

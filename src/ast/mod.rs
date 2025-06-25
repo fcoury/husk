@@ -1,6 +1,6 @@
 pub mod visitor;
-mod visitor_tests;
 mod visitor_integration_tests;
+mod visitor_tests;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -29,15 +29,15 @@ impl TypeAnnotation {
     pub fn new() -> TypeAnnotationRef {
         Rc::new(RefCell::new(TypeAnnotation::None))
     }
-    
+
     pub fn enum_type(name: String) -> TypeAnnotationRef {
         Rc::new(RefCell::new(TypeAnnotation::Enum(name)))
     }
-    
+
     pub fn struct_type(name: String) -> TypeAnnotationRef {
         Rc::new(RefCell::new(TypeAnnotation::Struct(name)))
     }
-    
+
     pub fn static_method(type_name: String) -> TypeAnnotationRef {
         Rc::new(RefCell::new(TypeAnnotation::StaticMethod(type_name)))
     }

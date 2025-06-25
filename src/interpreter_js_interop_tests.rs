@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use crate::{execute_script, Value};
     use crate::error::Result;
+    use crate::{execute_script, Value};
 
     fn run_code(code: &str) -> Result<Value> {
         execute_script(code)
     }
 
     // Type casting runtime tests
-    
+
     #[test]
     fn test_cast_int_to_float() {
         let code = r#"
@@ -19,7 +19,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Float(f)) => assert_eq!(f, 42.0),
             other => panic!("Expected float 42.0, got {:?}", other),
@@ -36,7 +36,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 42),
             other => panic!("Expected int 42, got {:?}", other),
@@ -53,7 +53,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "42"),
             other => panic!("Expected string '42', got {:?}", other),
@@ -70,7 +70,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "42.5"),
             other => panic!("Expected string '42.5', got {:?}", other),
@@ -87,7 +87,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "true"),
             other => panic!("Expected string 'true', got {:?}", other),
@@ -104,7 +104,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 42),
             other => panic!("Expected int 42, got {:?}", other),
@@ -121,7 +121,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Float(f)) => assert_eq!(f, 42.5),
             other => panic!("Expected float 42.5, got {:?}", other),
@@ -138,7 +138,7 @@ mod tests {
             
             main()
         "#;
-        
+
         // Should return an error for invalid cast
         assert!(run_code(code).is_err());
     }
@@ -162,7 +162,7 @@ mod tests {
             
             test_bool_cast()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 1),
             other => panic!("Expected 1, got {:?}", other),
@@ -180,7 +180,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Float(f)) => assert_eq!(f, 30.5),
             other => panic!("Expected 30.5, got {:?}", other),
@@ -197,7 +197,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "42"),
             other => panic!("Expected string '42', got {:?}", other),
@@ -214,13 +214,13 @@ mod tests {
             
             main()
         "#;
-        
+
         // Currently array to string cast is not supported in interpreter
         assert!(run_code(code).is_err());
     }
 
     // Built-in method runtime tests
-    
+
     #[test]
     fn test_string_len() {
         let code = r#"
@@ -231,7 +231,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 5),
             other => panic!("Expected 5, got {:?}", other),
@@ -248,7 +248,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 11),
             other => panic!("Expected 11, got {:?}", other),
@@ -265,7 +265,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "hello world"),
             other => panic!("Expected 'hello world', got {:?}", other),
@@ -282,7 +282,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "HELLO WORLD"),
             other => panic!("Expected 'HELLO WORLD', got {:?}", other),
@@ -299,7 +299,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "hello world"),
             other => panic!("Expected 'hello world', got {:?}", other),
@@ -316,7 +316,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "hello"),
             other => panic!("Expected 'hello', got {:?}", other),
@@ -334,7 +334,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 3),
             other => panic!("Expected 3, got {:?}", other),
@@ -351,7 +351,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 5),
             other => panic!("Expected 5, got {:?}", other),
@@ -368,7 +368,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "HELLO WORLD"),
             other => panic!("Expected 'HELLO WORLD', got {:?}", other),
@@ -385,7 +385,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::Int(i)) => assert_eq!(i, 2),
             other => panic!("Expected 2, got {:?}", other),
@@ -402,7 +402,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "5"),
             other => panic!("Expected '5', got {:?}", other),
@@ -419,7 +419,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "ell"),
             other => panic!("Expected 'ell', got {:?}", other),
@@ -440,7 +440,7 @@ mod tests {
             
             main()
         "#;
-        
+
         match run_code(code) {
             Ok(Value::String(s)) => assert_eq!(s, "success"),
             other => panic!("Expected 'success', got {:?}", other),

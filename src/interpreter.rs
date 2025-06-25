@@ -1,15 +1,15 @@
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::fmt;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 
 use crate::{
     ast::visitor::AstVisitor,
     error::{Error, Result},
-    parser::{Expr, Operator, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, Parser, ExternItem},
     lexer::Lexer,
+    parser::{Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
 };
 
@@ -91,7 +91,6 @@ impl fmt::Display for Value {
 }
 
 impl Value {
-
     pub fn type_str(&self) -> String {
         match self {
             Value::Unit => "void".to_string(),
@@ -120,7 +119,6 @@ impl Value {
         }
     }
 }
-
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
@@ -190,20 +188,22 @@ pub fn stdlib_format(args: &[Value]) -> Result<Value> {
             Span::default(),
         ));
     }
-    
+
     // First argument must be a string
     let format_str = match &args[0] {
         Value::String(s) => s,
-        _ => return Err(Error::new_runtime(
-            "format! first argument must be a string".to_string(),
-            Span::default(),
-        )),
+        _ => {
+            return Err(Error::new_runtime(
+                "format! first argument must be a string".to_string(),
+                Span::default(),
+            ))
+        }
     };
-    
+
     let mut result = String::new();
     let mut arg_index = 1;
     let mut chars = format_str.chars().peekable();
-    
+
     while let Some(ch) = chars.next() {
         if ch == '{' {
             if chars.peek() == Some(&'{') {
@@ -237,7 +237,7 @@ pub fn stdlib_format(args: &[Value]) -> Result<Value> {
             result.push(ch);
         }
     }
-    
+
     Ok(Value::String(result))
 }
 
@@ -306,7 +306,7 @@ impl InterpreterVisitor {
             "format!".to_string(),
             Value::Function(Function::BuiltIn(stdlib_format)),
         );
-        
+
         // Register built-in Option enum
         let mut option_variants = IndexMap::new();
         option_variants.insert("Some".to_string(), "T".to_string());
@@ -315,7 +315,7 @@ impl InterpreterVisitor {
             "Option".to_string(),
             Value::Enum("Option".to_string(), option_variants),
         );
-        
+
         // Register built-in Result enum
         let mut result_variants = IndexMap::new();
         result_variants.insert("Ok".to_string(), "T".to_string());
@@ -330,7 +330,7 @@ impl InterpreterVisitor {
         let mut last_value = Value::Unit;
         for stmt in stmts {
             last_value = self.visit_stmt(stmt)?;
-            
+
             // Check for early return
             match &self.control_flow {
                 ControlFlow::Return(value) => return Ok(value.clone()),
@@ -350,11 +350,11 @@ impl InterpreterVisitor {
     /// Used for if-else blocks that should share the same scope as their parent
     fn visit_statements_no_scope(&mut self, stmts: &[Stmt]) -> Result<Value> {
         let mut result_value = Value::Unit;
-        
+
         // Visit all statements
         for (i, stmt) in stmts.iter().enumerate() {
             let is_last = i == stmts.len() - 1;
-            
+
             match stmt {
                 // If the last statement is an expression without semicolon,
                 // return that expression's value
@@ -366,7 +366,7 @@ impl InterpreterVisitor {
                     self.visit_stmt(stmt)?;
                 }
             }
-            
+
             // Check for control flow changes
             match self.control_flow {
                 ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => {
@@ -375,13 +375,14 @@ impl InterpreterVisitor {
                 ControlFlow::Normal => {}
             }
         }
-        
+
         Ok(result_value)
     }
 
     /// Get a variable from the environment
     fn get_var(&self, name: &str) -> Option<Value> {
-        self.environment.get(name)
+        self.environment
+            .get(name)
             .or_else(|| self.global_environment.get(name))
             .cloned()
     }
@@ -404,7 +405,7 @@ impl InterpreterVisitor {
     /// Resolve a module path based on the use prefix
     fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
         let module_path = path.segments.join("/") + ".hk";
-        
+
         match path.prefix {
             UsePrefix::Local => {
                 // local:: - from project root
@@ -444,7 +445,7 @@ impl InterpreterVisitor {
                                 *span,
                             )
                         })?;
-                        
+
                         // Go up 'count' directories
                         for _ in 0..count {
                             parent = parent.parent().ok_or_else(|| {
@@ -454,7 +455,7 @@ impl InterpreterVisitor {
                                 )
                             })?;
                         }
-                        
+
                         Ok(parent.join(&module_path))
                     }
                     None => Err(Error::new_runtime(
@@ -517,13 +518,20 @@ impl InterpreterVisitor {
         };
 
         // Cache the module
-        self.module_cache.insert(module_path.to_path_buf(), module.clone());
+        self.module_cache
+            .insert(module_path.to_path_buf(), module.clone());
 
         Ok(module)
     }
 
     /// Evaluate a binary operation
-    fn evaluate_binary_op(&self, left: Value, op: &Operator, right: Value, span: Span) -> Result<Value> {
+    fn evaluate_binary_op(
+        &self,
+        left: Value,
+        op: &Operator,
+        right: Value,
+        span: Span,
+    ) -> Result<Value> {
         match (left, right) {
             (Value::Int(a), Value::Int(b)) => match op {
                 Operator::Plus => Ok(Value::Int(a + b)),
@@ -601,16 +609,21 @@ impl InterpreterVisitor {
                     span,
                 )),
             },
-            (Value::EnumVariant(type1, variant1, data1), Value::EnumVariant(type2, variant2, data2)) => {
-                match op {
-                    Operator::Equals => Ok(Value::Bool(type1 == type2 && variant1 == variant2 && data1 == data2)),
-                    Operator::NotEquals => Ok(Value::Bool(!(type1 == type2 && variant1 == variant2 && data1 == data2))),
-                    _ => Err(Error::new_runtime(
-                        format!("Invalid operation {:?} for enum values", op),
-                        span,
-                    )),
-                }
-            }
+            (
+                Value::EnumVariant(type1, variant1, data1),
+                Value::EnumVariant(type2, variant2, data2),
+            ) => match op {
+                Operator::Equals => Ok(Value::Bool(
+                    type1 == type2 && variant1 == variant2 && data1 == data2,
+                )),
+                Operator::NotEquals => Ok(Value::Bool(
+                    !(type1 == type2 && variant1 == variant2 && data1 == data2),
+                )),
+                _ => Err(Error::new_runtime(
+                    format!("Invalid operation {:?} for enum values", op),
+                    span,
+                )),
+            },
             _ => Err(Error::new_runtime(
                 format!("Type mismatch for binary operation {:?}", op),
                 span,
@@ -619,7 +632,12 @@ impl InterpreterVisitor {
     }
 
     /// Execute a function call
-    fn execute_function_call(&mut self, func: Value, args: Vec<Value>, span: Span) -> Result<Value> {
+    fn execute_function_call(
+        &mut self,
+        func: Value,
+        args: Vec<Value>,
+        span: Span,
+    ) -> Result<Value> {
         match func {
             Value::Function(Function::BuiltIn(func)) => func(&args),
             Value::Function(Function::UserDefined(_, params, body, closure)) => {
@@ -651,7 +669,7 @@ impl InterpreterVisitor {
                 let mut result = Value::Unit;
                 for stmt in &body {
                     result = self.visit_stmt(stmt)?;
-                    
+
                     // Check for return
                     if let ControlFlow::Return(value) = &self.control_flow {
                         result = value.clone();
@@ -664,7 +682,12 @@ impl InterpreterVisitor {
                 self.pop_scope(saved_env);
                 Ok(result)
             }
-            Value::Function(Function::Closure { params, body, captured_env, .. }) => {
+            Value::Function(Function::Closure {
+                params,
+                body,
+                captured_env,
+                ..
+            }) => {
                 if args.len() != params.len() {
                     return Err(Error::new_runtime(
                         format!("Expected {} arguments, got {}", params.len(), args.len()),
@@ -674,7 +697,7 @@ impl InterpreterVisitor {
 
                 // Save current environment and use captured environment
                 let saved_env = self.push_scope();
-                
+
                 // Set up closure environment
                 let mut new_env = captured_env.clone();
                 // Preserve function definitions from current environment
@@ -768,11 +791,11 @@ impl AstVisitor<Value> for InterpreterVisitor {
             (Value::Array(elements), Value::Range(start, end, inclusive)) => {
                 // Array slicing with range
                 let len = elements.len() as i64;
-                
+
                 // Calculate start index (default to 0 if None)
                 let start_idx = start.unwrap_or(0).max(0).min(len) as usize;
-                
-                // Calculate end index  
+
+                // Calculate end index
                 let end_idx = match end {
                     Some(e) => {
                         let mut end_val = *e;
@@ -783,7 +806,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     }
                     None => len as usize,
                 };
-                
+
                 // Return slice (empty array if invalid range)
                 if start_idx <= end_idx {
                     Ok(Value::Array(elements[start_idx..end_idx].to_vec()))
@@ -792,7 +815,10 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
             (Value::Array(_), _) => Err(Error::new_runtime(
-                format!("Array index must be an integer or range, found {:?}", index_value),
+                format!(
+                    "Array index must be an integer or range, found {:?}",
+                    index_value
+                ),
                 *span,
             )),
             _ => Err(Error::new_runtime(
@@ -802,11 +828,22 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_range(&mut self, start: Option<&Expr>, end: Option<&Expr>, inclusive: bool, _span: &Span) -> Result<Value> {
+    fn visit_range(
+        &mut self,
+        start: Option<&Expr>,
+        end: Option<&Expr>,
+        inclusive: bool,
+        _span: &Span,
+    ) -> Result<Value> {
         let start_val = match start {
             Some(expr) => match self.visit_expr(expr)? {
                 Value::Int(n) => Some(n),
-                _ => return Err(Error::new_runtime("Range start must be an integer".to_string(), expr.span())),
+                _ => {
+                    return Err(Error::new_runtime(
+                        "Range start must be an integer".to_string(),
+                        expr.span(),
+                    ))
+                }
             },
             None => None,
         };
@@ -814,7 +851,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
         let end_val = match end {
             Some(expr) => match self.visit_expr(expr)? {
                 Value::Int(n) => Some(n),
-                _ => return Err(Error::new_runtime("Range end must be an integer".to_string(), expr.span())),
+                _ => {
+                    return Err(Error::new_runtime(
+                        "Range end must be an integer".to_string(),
+                        expr.span(),
+                    ))
+                }
             },
             None => None,
         };
@@ -822,7 +864,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Range(start_val, end_val, inclusive))
     }
 
-    fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> Result<Value> {
+    fn visit_binary_op(
+        &mut self,
+        left: &Expr,
+        op: &Operator,
+        right: &Expr,
+        span: &Span,
+    ) -> Result<Value> {
         // Handle short-circuit evaluation for logical operators
         match op {
             Operator::And => {
@@ -876,33 +924,29 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, span: &Span) -> Result<Value> {
         let value = self.visit_expr(expr)?;
-        
+
         match op {
-            UnaryOp::Neg => {
-                match value {
-                    Value::Int(n) => Ok(Value::Int(-n)),
-                    Value::Float(f) => Ok(Value::Float(-f)),
-                    _ => Err(Error::new_runtime(
-                        format!("Cannot negate non-numeric value: {:?}", value),
-                        *span,
-                    )),
-                }
-            }
-            UnaryOp::Not => {
-                match value {
-                    Value::Bool(b) => Ok(Value::Bool(!b)),
-                    _ => Err(Error::new_runtime(
-                        format!("Cannot apply logical NOT to non-boolean value: {:?}", value),
-                        *span,
-                    )),
-                }
-            }
+            UnaryOp::Neg => match value {
+                Value::Int(n) => Ok(Value::Int(-n)),
+                Value::Float(f) => Ok(Value::Float(-f)),
+                _ => Err(Error::new_runtime(
+                    format!("Cannot negate non-numeric value: {:?}", value),
+                    *span,
+                )),
+            },
+            UnaryOp::Not => match value {
+                Value::Bool(b) => Ok(Value::Bool(!b)),
+                _ => Err(Error::new_runtime(
+                    format!("Cannot apply logical NOT to non-boolean value: {:?}", value),
+                    *span,
+                )),
+            },
         }
     }
 
     fn visit_assign(&mut self, left: &Expr, right: &Expr, span: &Span) -> Result<Value> {
         let value = self.visit_expr(right)?;
-        
+
         match left {
             Expr::Identifier(name, _) => {
                 self.set_var(name.clone(), value);
@@ -914,7 +958,10 @@ impl AstVisitor<Value> for InterpreterVisitor {
                         fields.insert(field.clone(), value);
                         // Need to update the struct in the environment
                         if let Expr::Identifier(var_name, _) = &**object {
-                            self.set_var(var_name.clone(), Value::StructInstance(struct_name, fields));
+                            self.set_var(
+                                var_name.clone(),
+                                Value::StructInstance(struct_name, fields),
+                            );
                         }
                         Ok(Value::Unit)
                     }
@@ -927,12 +974,14 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Expr::ArrayIndex(array_expr, index_expr, _) => {
                 let index = match self.visit_expr(index_expr)? {
                     Value::Int(i) => i as usize,
-                    _ => return Err(Error::new_runtime(
-                        "Array index must be an integer".to_string(),
-                        *span,
-                    )),
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "Array index must be an integer".to_string(),
+                            *span,
+                        ))
+                    }
                 };
-                
+
                 match self.visit_expr(array_expr)? {
                     Value::Array(mut elements) => {
                         if index >= elements.len() {
@@ -961,12 +1010,19 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_compound_assign(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> Result<Value> {
+    fn visit_compound_assign(
+        &mut self,
+        left: &Expr,
+        op: &Operator,
+        right: &Expr,
+        span: &Span,
+    ) -> Result<Value> {
         match left {
             Expr::Identifier(name, _) => {
                 // Simple variable compound assignment (existing logic)
-                let left_val = self.get_var(name)
-                    .ok_or_else(|| Error::new_runtime(format!("Undefined variable: {}", name), *span))?;
+                let left_val = self.get_var(name).ok_or_else(|| {
+                    Error::new_runtime(format!("Undefined variable: {}", name), *span)
+                })?;
                 let right_val = self.visit_expr(right)?;
                 let result = self.evaluate_binary_op(left_val, op, right_val, *span)?;
                 self.set_var(name.clone(), result);
@@ -974,17 +1030,20 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
             Expr::MemberAccess(object, field, _) => {
                 // Struct field compound assignment: obj.field += value
-                let current_value = self.visit_expr(left)?;  // Get current field value
+                let current_value = self.visit_expr(left)?; // Get current field value
                 let right_val = self.visit_expr(right)?;
                 let result = self.evaluate_binary_op(current_value, op, right_val, *span)?;
-                
+
                 // Update the field using assignment logic
                 match self.visit_expr(object)? {
                     Value::StructInstance(struct_name, mut fields) => {
                         fields.insert(field.clone(), result);
                         // Need to update the struct in the environment
                         if let Expr::Identifier(var_name, _) = &**object {
-                            self.set_var(var_name.clone(), Value::StructInstance(struct_name, fields));
+                            self.set_var(
+                                var_name.clone(),
+                                Value::StructInstance(struct_name, fields),
+                            );
                         }
                         Ok(Value::Unit)
                     }
@@ -996,19 +1055,21 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
             Expr::ArrayIndex(array_expr, index_expr, _) => {
                 // Array element compound assignment: arr[i] += value
-                let current_value = self.visit_expr(left)?;  // Get current element value
+                let current_value = self.visit_expr(left)?; // Get current element value
                 let right_val = self.visit_expr(right)?;
                 let result = self.evaluate_binary_op(current_value, op, right_val, *span)?;
-                
+
                 // Update the array element using assignment logic
                 let index = match self.visit_expr(index_expr)? {
                     Value::Int(i) => i as usize,
-                    _ => return Err(Error::new_runtime(
-                        "Array index must be an integer".to_string(),
-                        *span,
-                    )),
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "Array index must be an integer".to_string(),
+                            *span,
+                        ))
+                    }
                 };
-                
+
                 match self.visit_expr(array_expr)? {
                     Value::Array(mut elements) => {
                         if index >= elements.len() {
@@ -1041,29 +1102,32 @@ impl AstVisitor<Value> for InterpreterVisitor {
         // Handle method calls with dot notation
         let (func_name, arg_values) = if name.contains('.') {
             let (target_var, method_name) = name.split_once('.').unwrap();
-            
+
             // Get the target struct instance
-            let target_value = self.get_var(target_var)
-                .ok_or_else(|| Error::new_runtime(format!("Undefined variable: {}", target_var), *span))?;
-            
+            let target_value = self.get_var(target_var).ok_or_else(|| {
+                Error::new_runtime(format!("Undefined variable: {}", target_var), *span)
+            })?;
+
             // Extract the struct type name
             let struct_name = match &target_value {
                 Value::StructInstance(name, _) => name.clone(),
-                _ => return Err(Error::new_runtime(
-                    format!("{} is not a struct instance", target_var),
-                    *span,
-                )),
+                _ => {
+                    return Err(Error::new_runtime(
+                        format!("{} is not a struct instance", target_var),
+                        *span,
+                    ))
+                }
             };
-            
+
             // Build the full method name
             let full_method_name = format!("{}::{}", struct_name, method_name);
-            
+
             // Evaluate arguments and prepend 'self'
             let mut args_with_self = vec![target_value];
             for arg in args {
                 args_with_self.push(self.visit_expr(arg)?);
             }
-            
+
             (full_method_name, args_with_self)
         } else {
             // Regular function call
@@ -1073,16 +1137,23 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
             (name.to_string(), values)
         };
-        
-        let func = self.get_var(&func_name)
-            .ok_or_else(|| Error::new_runtime(format!("Function '{}' not found", func_name), *span))?;
+
+        let func = self.get_var(&func_name).ok_or_else(|| {
+            Error::new_runtime(format!("Function '{}' not found", func_name), *span)
+        })?;
 
         self.execute_function_call(func, arg_values, *span)
     }
 
-    fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], span: &Span) -> Result<Value> {
+    fn visit_struct_init(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+        span: &Span,
+    ) -> Result<Value> {
         // Check if struct exists
-        let _struct_def = self.get_var(name)
+        let _struct_def = self
+            .get_var(name)
             .ok_or_else(|| Error::new_runtime(format!("Undefined struct: {}", name), *span))?;
 
         let mut field_values = IndexMap::new();
@@ -1096,25 +1167,19 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> Result<Value> {
         let obj_value = self.visit_expr(object)?;
-        
+
         match obj_value {
-            Value::StructInstance(_, fields) => {
-                fields.get(field)
-                    .cloned()
-                    .ok_or_else(|| Error::new_runtime(
-                        format!("Field '{}' not found", field),
-                        *span,
-                    ))
-            }
+            Value::StructInstance(_, fields) => fields
+                .get(field)
+                .cloned()
+                .ok_or_else(|| Error::new_runtime(format!("Field '{}' not found", field), *span)),
             _ => {
                 // Check if it's a method call (will be handled by function call)
                 if let Expr::Identifier(struct_name, _) = object {
                     let method_name = format!("{}::{}", struct_name, field);
-                    self.get_var(&method_name)
-                        .ok_or_else(|| Error::new_runtime(
-                            format!("Field or method '{}' not found", field),
-                            *span,
-                        ))
+                    self.get_var(&method_name).ok_or_else(|| {
+                        Error::new_runtime(format!("Field or method '{}' not found", field), *span)
+                    })
                 } else {
                     Err(Error::new_runtime(
                         format!("Cannot access field '{}' on non-struct value", field),
@@ -1125,7 +1190,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> Result<Value> {
+    fn visit_enum_variant_or_method_call(
+        &mut self,
+        target: &Expr,
+        call: &str,
+        args: &[Expr],
+        span: &Span,
+    ) -> Result<Value> {
         if let Expr::Identifier(type_name, _) = target {
             // Check if it's an enum variant
             if let Some(Value::Enum(enum_name, _)) = self.get_var(type_name) {
@@ -1140,7 +1211,11 @@ impl AstVisitor<Value> for InterpreterVisitor {
                             *span,
                         ));
                     };
-                    return Ok(Value::EnumVariant(type_name.clone(), call.to_string(), data));
+                    return Ok(Value::EnumVariant(
+                        type_name.clone(),
+                        call.to_string(),
+                        data,
+                    ));
                 }
             }
 
@@ -1169,11 +1244,19 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-    fn visit_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<Value> {
+    fn visit_function(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        params: &[(String, String)],
+        _return_type: &str,
+        body: &[Stmt],
+        _span: &Span,
+    ) -> Result<Value> {
         // For recursive functions, we need to create a closure that includes the function itself
         // Step 1: Create closure that includes current environment
         let mut closure = self.environment.clone();
-        
+
         // Step 2: Create a temporary function with current closure
         let temp_func = Value::Function(Function::UserDefined(
             name.to_string(),
@@ -1181,10 +1264,10 @@ impl AstVisitor<Value> for InterpreterVisitor {
             body.to_vec(),
             closure.clone(),
         ));
-        
+
         // Step 3: Add this function to the closure for recursion
         closure.insert(name.to_string(), temp_func);
-        
+
         // Step 4: Create the final function with closure that includes itself
         let final_func = Value::Function(Function::UserDefined(
             name.to_string(),
@@ -1192,37 +1275,50 @@ impl AstVisitor<Value> for InterpreterVisitor {
             body.to_vec(),
             closure,
         ));
-        
+
         // Step 5: Register the function in the global environment so it's always accessible
-        self.global_environment.insert(name.to_string(), final_func.clone());
-        
+        self.global_environment
+            .insert(name.to_string(), final_func.clone());
+
         // Step 6: If we're at the top level, add to exports
         // TODO: This should only export items marked with 'pub' once we track visibility in AST
         if self.is_top_level {
             self.current_exports.insert(name.to_string(), final_func);
         }
-        
+
         Ok(Value::Unit)
     }
 
-    fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<Value> {
+    fn visit_struct(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        fields: &[(String, String)],
+        _span: &Span,
+    ) -> Result<Value> {
         let mut field_map = IndexMap::new();
         for (field_name, field_type) in fields {
             field_map.insert(field_name.clone(), field_type.clone());
         }
         let struct_value = Value::Struct(name.to_string(), field_map);
         self.set_var(name.to_string(), struct_value.clone());
-        
+
         // If we're at the top level, add to exports
         // TODO: This should only export items marked with 'pub' once we track visibility in AST
         if self.is_top_level {
             self.current_exports.insert(name.to_string(), struct_value);
         }
-        
+
         Ok(Value::Unit)
     }
 
-    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<Value> {
+    fn visit_enum(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        variants: &[crate::parser::EnumVariant],
+        _span: &Span,
+    ) -> Result<Value> {
         let mut variant_map = IndexMap::new();
         for variant in variants {
             match variant {
@@ -1240,24 +1336,26 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
         let enum_value = Value::Enum(name.to_string(), variant_map);
         self.set_var(name.to_string(), enum_value.clone());
-        
+
         // If we're at the top level, add to exports
         // TODO: This should only export items marked with 'pub' once we track visibility in AST
         if self.is_top_level {
             self.current_exports.insert(name.to_string(), enum_value);
         }
-        
+
         Ok(Value::Unit)
     }
 
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], span: &Span) -> Result<Value> {
         // Verify struct exists
         match self.get_var(struct_name) {
-            Some(Value::Struct(_, _)) => {},
-            _ => return Err(Error::new_runtime(
-                format!("Undefined struct: {}", struct_name),
-                *span,
-            )),
+            Some(Value::Struct(_, _)) => {}
+            _ => {
+                return Err(Error::new_runtime(
+                    format!("Undefined struct: {}", struct_name),
+                    *span,
+                ))
+            }
         }
 
         // Register methods
@@ -1269,7 +1367,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     body.clone(),
                     self.environment.clone(),
                 ));
-                
+
                 let full_name = format!("{}::{}", struct_name, method_name);
                 self.set_var(full_name, func);
             }
@@ -1278,21 +1376,32 @@ impl AstVisitor<Value> for InterpreterVisitor {
         Ok(Value::Unit)
     }
 
-
-    fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Value> {
+    fn visit_match(
+        &mut self,
+        expr: &Expr,
+        arms: &[(Expr, Vec<Stmt>)],
+        span: &Span,
+    ) -> Result<Value> {
         let match_value = self.visit_expr(expr)?;
-        
+
         for (pattern, body) in arms {
             // Simple pattern matching for now
             let matches = match pattern {
                 Expr::Identifier(name, _) if name == "_" => true, // Wildcard
-                Expr::EnumVariantOrMethodCall { target, call, args, .. } => {
-                    if let (Expr::Identifier(enum_name, _), Value::EnumVariant(val_enum, val_variant, val_data)) = 
-                        (&**target, &match_value) {
+                Expr::EnumVariantOrMethodCall {
+                    target, call, args, ..
+                } => {
+                    if let (
+                        Expr::Identifier(enum_name, _),
+                        Value::EnumVariant(val_enum, val_variant, val_data),
+                    ) = (&**target, &match_value)
+                    {
                         if enum_name == val_enum && call == val_variant {
                             // Bind pattern variables if any
                             if !args.is_empty() && args.len() == 1 {
-                                if let (Expr::Identifier(var_name, _), Some(data)) = (&args[0], val_data) {
+                                if let (Expr::Identifier(var_name, _), Some(data)) =
+                                    (&args[0], val_data)
+                                {
                                     self.set_var(var_name.clone(), *data.clone());
                                 }
                             }
@@ -1355,17 +1464,23 @@ impl AstVisitor<Value> for InterpreterVisitor {
         ))
     }
 
-    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], span: &Span) -> Result<Value> {
+    fn visit_for_loop(
+        &mut self,
+        pattern: &Expr,
+        iterable: &Expr,
+        body: &[Stmt],
+        span: &Span,
+    ) -> Result<Value> {
         let iter_value = self.visit_expr(iterable)?;
-        
+
         match iter_value {
             Value::Array(elements) => {
                 for element in elements {
                     self.bind_pattern(pattern, element)?;
-                    
+
                     for stmt in body {
                         self.visit_stmt(stmt)?;
-                        
+
                         match self.control_flow {
                             ControlFlow::Break => {
                                 self.control_flow = ControlFlow::Normal;
@@ -1385,30 +1500,31 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // For ranges, we can only bind to simple identifiers
                 let var_name = match pattern {
                     Expr::Identifier(name, _) => name,
-                    _ => return Err(Error::new_runtime(
-                        "Range-based for loops only support simple identifiers".to_string(),
-                        *span,
-                    )),
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "Range-based for loops only support simple identifiers".to_string(),
+                            *span,
+                        ))
+                    }
                 };
-                
+
                 let start = start.unwrap_or(0);
-                let end = end.ok_or_else(|| Error::new_runtime(
-                    "Cannot iterate over unbounded range".to_string(),
-                    *span,
-                ))?;
-                
+                let end = end.ok_or_else(|| {
+                    Error::new_runtime("Cannot iterate over unbounded range".to_string(), *span)
+                })?;
+
                 let range: Box<dyn Iterator<Item = i64>> = if inclusive {
                     Box::new(start..=end)
                 } else {
                     Box::new(start..end)
                 };
-                
+
                 for i in range {
                     self.set_var(var_name.clone(), Value::Int(i));
-                    
+
                     for stmt in body {
                         self.visit_stmt(stmt)?;
-                        
+
                         match self.control_flow {
                             ControlFlow::Break => {
                                 self.control_flow = ControlFlow::Normal;
@@ -1424,10 +1540,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     }
                 }
             }
-            _ => return Err(Error::new_runtime(
-                format!("Cannot iterate over {:?}", iter_value),
-                *span,
-            )),
+            _ => {
+                return Err(Error::new_runtime(
+                    format!("Cannot iterate over {:?}", iter_value),
+                    *span,
+                ))
+            }
         }
 
         Ok(Value::Unit)
@@ -1436,12 +1554,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], _span: &Span) -> Result<Value> {
         loop {
             let condition_val = self.visit_expr(condition)?;
-            
+
             match condition_val {
                 Value::Bool(true) => {
                     for stmt in body {
                         self.visit_stmt(stmt)?;
-                        
+
                         match self.control_flow {
                             ControlFlow::Break => {
                                 self.control_flow = ControlFlow::Normal;
@@ -1457,13 +1575,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     }
                 }
                 Value::Bool(false) => break,
-                _ => return Err(Error::new_runtime(
-                    "While condition must be a boolean".to_string(),
-                    condition.span(),
-                )),
+                _ => {
+                    return Err(Error::new_runtime(
+                        "While condition must be a boolean".to_string(),
+                        condition.span(),
+                    ))
+                }
             }
         }
-        
+
         Ok(Value::Unit)
     }
 
@@ -1471,7 +1591,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         loop {
             for stmt in body {
                 self.visit_stmt(stmt)?;
-                
+
                 match self.control_flow {
                     ControlFlow::Break => {
                         self.control_flow = ControlFlow::Normal;
@@ -1509,7 +1629,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<Value> {
         let expr_value = self.visit_expr(expr)?;
-        
+
         // If the expression has a semicolon, it's converted to a statement that returns Unit
         // If no semicolon, it returns the expression's value (for block expressions)
         if has_semicolon {
@@ -1519,47 +1639,77 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_extern_function(&mut self, _name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<Value> {
+    fn visit_extern_function(
+        &mut self,
+        _name: &str,
+        _generic_params: &[String],
+        _params: &[(String, String)],
+        _return_type: &str,
+        _span: &Span,
+    ) -> Result<Value> {
         // Extern declarations are no-op in interpreter mode
         // They're only used for type checking external APIs
         Ok(Value::Unit)
     }
-    
-    fn visit_extern_mod(&mut self, _name: &str, _items: &[ExternItem], _span: &Span) -> Result<Value> {
+
+    fn visit_extern_mod(
+        &mut self,
+        _name: &str,
+        _items: &[ExternItem],
+        _span: &Span,
+    ) -> Result<Value> {
         // Extern declarations are no-op in interpreter mode
         // They're only used for type checking external APIs
         Ok(Value::Unit)
     }
-    
-    fn visit_extern_type(&mut self, _name: &str, _generic_params: &[String], _span: &Span) -> Result<Value> {
+
+    fn visit_extern_type(
+        &mut self,
+        _name: &str,
+        _generic_params: &[String],
+        _span: &Span,
+    ) -> Result<Value> {
         // Extern type declarations are no-op in interpreter mode
         // They're only used for type checking external APIs
         Ok(Value::Unit)
     }
-    
-    fn visit_async_function(&mut self, _name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _body: &[Stmt], _span: &Span) -> Result<Value> {
+
+    fn visit_async_function(
+        &mut self,
+        _name: &str,
+        _generic_params: &[String],
+        _params: &[(String, String)],
+        _return_type: &str,
+        _body: &[Stmt],
+        _span: &Span,
+    ) -> Result<Value> {
         Err(Error::new_runtime(
             "Async functions are not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
             _span.clone(),
         ))
     }
-    
-    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Value> {
+
+    fn visit_match_expr(
+        &mut self,
+        expr: &Expr,
+        arms: &[(Expr, Vec<Stmt>)],
+        span: &Span,
+    ) -> Result<Value> {
         // Use the same implementation as visit_match
         self.visit_match(expr, arms, span)
     }
-    
+
     fn visit_await(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
         Err(Error::new_runtime(
             ".await is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
             span.clone(),
         ))
     }
-    
+
     fn visit_try(&mut self, expr: &Expr, span: &Span) -> Result<Value> {
         // Evaluate the expression
         let result = self.visit_expr(expr)?;
-        
+
         // Check if it's a Result type and unwrap it
         match result {
             Value::EnumVariant(enum_name, variant, value) if enum_name == "Result" && variant == "Ok" => {
@@ -1581,26 +1731,33 @@ impl AstVisitor<Value> for InterpreterVisitor {
             )),
         }
     }
-    
+
     fn visit_await_try(&mut self, _expr: &Expr, span: &Span) -> Result<Value> {
         Err(Error::new_runtime(
             ".await? is not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
             span.clone(),
         ))
     }
-    
-    fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, span: &Span) -> Result<Value> {
+
+    fn visit_closure(
+        &mut self,
+        params: &[(String, Option<String>)],
+        _ret_type: &Option<String>,
+        body: &Expr,
+        span: &Span,
+    ) -> Result<Value> {
         // Create a closure value that captures the current environment
-        let closure_params = params.iter()
+        let closure_params = params
+            .iter()
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>();
-        
+
         // Clone the body expression for storage
         let closure_body = body.clone();
-        
+
         // Capture the current environment (simplified - just clone the whole thing)
         let captured_env = self.environment.clone();
-        
+
         Ok(Value::Function(Function::Closure {
             params: closure_params,
             body: closure_body,
@@ -1608,7 +1765,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             span: span.clone(),
         }))
     }
-    
+
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Value> {
         // Check if it's an external package
         if path.prefix == UsePrefix::None {
@@ -1621,13 +1778,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 *span,
             ));
         }
-        
+
         // Resolve the module path
         let module_path = self.resolve_module_path(path, span)?;
-        
+
         // Load the module
         let module = self.load_module(&module_path, span)?;
-        
+
         // Import the requested items
         match items {
             UseItems::All => {
@@ -1640,49 +1797,50 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Import the module itself as a namespace
                 // For now, create a placeholder value
                 // TODO: Implement proper module namespace handling
-                let module_name = path.segments.last()
-                    .ok_or_else(|| Error::new_runtime(
-                        "Empty module path".to_string(),
-                        *span,
-                    ))?;
+                let module_name = path
+                    .segments
+                    .last()
+                    .ok_or_else(|| Error::new_runtime("Empty module path".to_string(), *span))?;
                 // For now, just set a unit value as placeholder
                 self.set_var(module_name.clone(), Value::Unit);
             }
             UseItems::Named(imports) => {
                 // Import specific named items
                 for (import_name, alias) in imports {
-                    let value = module.exports.get(import_name)
-                        .ok_or_else(|| Error::new_runtime(
-                            format!("Module '{}' does not export '{}'", 
-                                module_path.display(), 
+                    let value = module.exports.get(import_name).ok_or_else(|| {
+                        Error::new_runtime(
+                            format!(
+                                "Module '{}' does not export '{}'",
+                                module_path.display(),
                                 import_name
                             ),
                             *span,
-                        ))?;
-                    
+                        )
+                    })?;
+
                     let local_name = alias.as_ref().unwrap_or(import_name);
                     self.set_var(local_name.clone(), value.clone());
                 }
             }
         }
-        
+
         Ok(Value::Unit)
     }
 
     fn visit_block(&mut self, stmts: &[Stmt], _span: &Span) -> Result<Value> {
         // Implement proper scoping for blocks
         let saved_env = self.push_scope();
-        
+
         // Blocks are not top-level
         let was_top_level = self.is_top_level;
         self.is_top_level = false;
-        
+
         let mut block_value = Value::Unit;
-        
+
         // Execute all statements in the block
         for (i, stmt) in stmts.iter().enumerate() {
             let is_last = i == stmts.len() - 1;
-            
+
             match stmt {
                 // If the last statement is an expression without semicolon,
                 // the block evaluates to that expression's value
@@ -1692,7 +1850,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Otherwise, just execute the statement normally
                 _ => {
                     self.visit_stmt(stmt)?;
-                    
+
                     // Check for control flow changes
                     match self.control_flow {
                         ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => {
@@ -1706,17 +1864,23 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
         }
-        
+
         // Restore the previous scope and top-level flag
         self.pop_scope(saved_env);
         self.is_top_level = was_top_level;
-        
+
         Ok(block_value)
     }
 
-    fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<Value> {
+    fn visit_if_expr(
+        &mut self,
+        condition: &Expr,
+        then_block: &[Stmt],
+        else_block: &[Stmt],
+        _span: &Span,
+    ) -> Result<Value> {
         let condition_val = self.visit_expr(condition)?;
-        
+
         match condition_val {
             Value::Bool(true) => {
                 // Execute then block without creating new scope
@@ -1726,7 +1890,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 if else_block.is_empty() {
                     Ok(Value::Unit)
                 } else {
-                    // Execute else block without creating new scope  
+                    // Execute else block without creating new scope
                     self.visit_statements_no_scope(else_block)
                 }
             }
@@ -1736,10 +1900,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
             )),
         }
     }
-    
-    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _span: &Span) -> Result<Value> {
+
+    fn visit_method_call(
+        &mut self,
+        object: &Expr,
+        method: &str,
+        args: &[Expr],
+        _span: &Span,
+    ) -> Result<Value> {
         let obj_value = self.visit_expr(object)?;
-        
+
         match &obj_value {
             Value::String(s) => {
                 match method {
@@ -1748,16 +1918,27 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     "substring" => {
                         let start = match self.visit_expr(&args[0])? {
                             Value::Int(i) => i as usize,
-                            _ => return Err(Error::new_runtime("substring start must be an integer".to_string(), args[0].span())),
+                            _ => {
+                                return Err(Error::new_runtime(
+                                    "substring start must be an integer".to_string(),
+                                    args[0].span(),
+                                ))
+                            }
                         };
                         let end = match self.visit_expr(&args[1])? {
                             Value::Int(i) => i as usize,
-                            _ => return Err(Error::new_runtime("substring end must be an integer".to_string(), args[1].span())),
+                            _ => {
+                                return Err(Error::new_runtime(
+                                    "substring end must be an integer".to_string(),
+                                    args[1].span(),
+                                ))
+                            }
                         };
-                        
+
                         // Handle UTF-8 properly
                         let chars: Vec<char> = s.chars().collect();
-                        let result: String = chars.iter()
+                        let result: String = chars
+                            .iter()
                             .skip(start)
                             .take(end.saturating_sub(start))
                             .collect();
@@ -1766,10 +1947,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     "split" => {
                         let delimiter = match self.visit_expr(&args[0])? {
                             Value::String(s) => s,
-                            _ => return Err(Error::new_runtime("split delimiter must be a string".to_string(), args[0].span())),
+                            _ => {
+                                return Err(Error::new_runtime(
+                                    "split delimiter must be a string".to_string(),
+                                    args[0].span(),
+                                ))
+                            }
                         };
-                        
-                        let parts: Vec<Value> = s.split(&delimiter)
+
+                        let parts: Vec<Value> = s
+                            .split(&delimiter)
                             .map(|part| Value::String(part.to_string()))
                             .collect();
                         Ok(Value::Array(parts))
@@ -1779,7 +1966,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     _ => Err(Error::new_runtime(
                         format!("Unknown string method: {}", method),
                         _span.clone(),
-                    ))
+                    )),
                 }
             }
             Value::Array(arr) => {
@@ -1803,7 +1990,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     _ => Err(Error::new_runtime(
                         format!("Unknown array method: {}", method),
                         _span.clone(),
-                    ))
+                    )),
                 }
             }
             Value::Struct(struct_name, _) => {
@@ -1823,54 +2010,48 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     ))
                 }
             }
-            _ => {
-                Err(Error::new_runtime(
-                    format!("Cannot call method '{}' on {:?}", method, obj_value),
-                    _span.clone(),
-                ))
-            }
+            _ => Err(Error::new_runtime(
+                format!("Cannot call method '{}' on {:?}", method, obj_value),
+                _span.clone(),
+            )),
         }
     }
-    
+
     fn visit_cast(&mut self, expr: &Expr, target_type: &str, span: &Span) -> Result<Value> {
         let value = self.visit_expr(expr)?;
-        
+
         // Parse the target type to determine the cast
         match target_type {
             "int" => match value {
                 Value::Int(i) => Ok(Value::Int(i)), // No-op
                 Value::Float(f) => Ok(Value::Int(f as i64)),
-                Value::String(s) => {
-                    match s.parse::<i64>() {
-                        Ok(i) => Ok(Value::Int(i)),
-                        Err(_) => Err(Error::new_runtime(
-                            format!("Cannot parse '{}' as int", s),
-                            span.clone(),
-                        ))
-                    }
-                }
+                Value::String(s) => match s.parse::<i64>() {
+                    Ok(i) => Ok(Value::Int(i)),
+                    Err(_) => Err(Error::new_runtime(
+                        format!("Cannot parse '{}' as int", s),
+                        span.clone(),
+                    )),
+                },
                 Value::Bool(b) => Ok(Value::Int(if b { 1 } else { 0 })),
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to int", value),
                     span.clone(),
-                ))
+                )),
             },
             "float" => match value {
                 Value::Float(f) => Ok(Value::Float(f)), // No-op
                 Value::Int(i) => Ok(Value::Float(i as f64)),
-                Value::String(s) => {
-                    match s.parse::<f64>() {
-                        Ok(f) => Ok(Value::Float(f)),
-                        Err(_) => Err(Error::new_runtime(
-                            format!("Cannot parse '{}' as float", s),
-                            span.clone(),
-                        ))
-                    }
-                }
+                Value::String(s) => match s.parse::<f64>() {
+                    Ok(f) => Ok(Value::Float(f)),
+                    Err(_) => Err(Error::new_runtime(
+                        format!("Cannot parse '{}' as float", s),
+                        span.clone(),
+                    )),
+                },
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to float", value),
                     span.clone(),
-                ))
+                )),
             },
             "string" => match value {
                 Value::String(s) => Ok(Value::String(s)), // No-op
@@ -1880,7 +2061,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to string", value),
                     span.clone(),
-                ))
+                )),
             },
             "bool" => match value {
                 Value::Bool(b) => Ok(Value::Bool(b)), // No-op
@@ -1889,7 +2070,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 _ => Err(Error::new_runtime(
                     format!("Cannot cast {:?} to bool", value),
                     span.clone(),
-                ))
+                )),
             },
             _ => {
                 // For custom types, we can't perform runtime casts
@@ -1899,7 +2080,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
     }
 
-    fn visit_struct_pattern(&mut self, _variant: &str, _fields: &[(String, Option<String>)], span: &Span) -> Result<Value> {
+    fn visit_struct_pattern(
+        &mut self,
+        _variant: &str,
+        _fields: &[(String, Option<String>)],
+        span: &Span,
+    ) -> Result<Value> {
         // Struct patterns are used for pattern matching in match expressions
         // In the interpreter, this should not be directly evaluated as an expression
         // It should only be used in the context of pattern matching
@@ -1927,28 +2113,29 @@ impl InterpreterVisitor {
                 self.set_var(name.clone(), value);
                 Ok(())
             }
-            Expr::Tuple(elements, span) => {
-                match value {
-                    Value::Tuple(values) => {
-                        if elements.len() != values.len() {
-                            return Err(Error::new_runtime(
-                                format!("Tuple pattern has {} elements but value has {} elements", 
-                                    elements.len(), values.len()),
-                                *span,
-                            ));
-                        }
-                        
-                        for (elem_pattern, elem_value) in elements.iter().zip(values.into_iter()) {
-                            self.bind_pattern(elem_pattern, elem_value)?;
-                        }
-                        Ok(())
+            Expr::Tuple(elements, span) => match value {
+                Value::Tuple(values) => {
+                    if elements.len() != values.len() {
+                        return Err(Error::new_runtime(
+                            format!(
+                                "Tuple pattern has {} elements but value has {} elements",
+                                elements.len(),
+                                values.len()
+                            ),
+                            *span,
+                        ));
                     }
-                    _ => Err(Error::new_runtime(
-                        format!("Cannot destructure non-tuple value in pattern"),
-                        *span,
-                    )),
+
+                    for (elem_pattern, elem_value) in elements.iter().zip(values.into_iter()) {
+                        self.bind_pattern(elem_pattern, elem_value)?;
+                    }
+                    Ok(())
                 }
-            }
+                _ => Err(Error::new_runtime(
+                    format!("Cannot destructure non-tuple value in pattern"),
+                    *span,
+                )),
+            },
             _ => Err(Error::new_runtime(
                 "Only identifiers and tuples are supported in for loop patterns".to_string(),
                 pattern.span(),
@@ -1969,10 +2156,10 @@ mod tests {
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let stmts = parser.parse()?;
-        
+
         let mut semantic = SemanticVisitor::new();
         semantic.analyze(&stmts)?;
-        
+
         let mut interpreter = InterpreterVisitor::new();
         interpreter.interpret(&stmts)
     }
@@ -1991,13 +2178,17 @@ mod tests {
         let result = run_test("use local::utils::math;");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Cannot use local:: imports without project root context"));
-        
+        assert!(err
+            .to_string()
+            .contains("Cannot use local:: imports without project root context"));
+
         // Test that self:: imports fail without current file context
         let result = run_test("use self::helper;");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Cannot use self:: imports without current file context"));
+        assert!(err
+            .to_string()
+            .contains("Cannot use self:: imports without current file context"));
     }
 
     // Arithmetic operations tests
@@ -2047,9 +2238,18 @@ mod tests {
     // Control flow tests
     #[test]
     fn test_if_else_expression() {
-        assert_eq!(run_test("if true { 5 } else { 10 }").unwrap(), Value::Int(5));
-        assert_eq!(run_test("if false { 5 } else { 10 }").unwrap(), Value::Int(10));
-        assert_eq!(run_test("if 5 > 3 { \"yes\" } else { \"no\" }").unwrap(), Value::String("yes".to_string()));
+        assert_eq!(
+            run_test("if true { 5 } else { 10 }").unwrap(),
+            Value::Int(5)
+        );
+        assert_eq!(
+            run_test("if false { 5 } else { 10 }").unwrap(),
+            Value::Int(10)
+        );
+        assert_eq!(
+            run_test("if 5 > 3 { \"yes\" } else { \"no\" }").unwrap(),
+            Value::String("yes".to_string())
+        );
     }
 
     #[test]
@@ -2066,7 +2266,10 @@ mod tests {
             };
             result
         "#;
-        assert_eq!(run_test(program).unwrap(), Value::String("both true".to_string()));
+        assert_eq!(
+            run_test(program).unwrap(),
+            Value::String("both true".to_string())
+        );
     }
 
     // Loop tests
@@ -2207,7 +2410,10 @@ mod tests {
             let x = "hello";
             x
         "#;
-        assert_eq!(run_test(program).unwrap(), Value::String("hello".to_string()));
+        assert_eq!(
+            run_test(program).unwrap(),
+            Value::String("hello".to_string())
+        );
     }
 
     // Array tests
@@ -2336,8 +2542,14 @@ mod tests {
     // Range tests
     #[test]
     fn test_range_creation() {
-        assert!(matches!(run_test("1..5").unwrap(), Value::Range(Some(1), Some(5), false)));
-        assert!(matches!(run_test("1..=5").unwrap(), Value::Range(Some(1), Some(5), true)));
+        assert!(matches!(
+            run_test("1..5").unwrap(),
+            Value::Range(Some(1), Some(5), false)
+        ));
+        assert!(matches!(
+            run_test("1..=5").unwrap(),
+            Value::Range(Some(1), Some(5), true)
+        ));
     }
 
     // Error handling tests
@@ -2387,11 +2599,11 @@ mod tests {
         // Integer negation
         assert_eq!(run_test("-5").unwrap(), Value::Int(-5));
         assert_eq!(run_test("-(-10)").unwrap(), Value::Int(10));
-        
+
         // Float negation
         assert_eq!(run_test("-3.14").unwrap(), Value::Float(-3.14));
         assert_eq!(run_test("-(-2.5)").unwrap(), Value::Float(2.5));
-        
+
         // Double negation
         assert_eq!(run_test("--5").unwrap(), Value::Int(5));
     }
@@ -2401,7 +2613,7 @@ mod tests {
         // Boolean NOT
         assert_eq!(run_test("!true").unwrap(), Value::Bool(false));
         assert_eq!(run_test("!false").unwrap(), Value::Bool(true));
-        
+
         // Double NOT
         assert_eq!(run_test("!!true").unwrap(), Value::Bool(true));
         assert_eq!(run_test("!!false").unwrap(), Value::Bool(false));
@@ -2413,7 +2625,7 @@ mod tests {
         assert_eq!(run_test("5 + -3").unwrap(), Value::Int(2));
         assert_eq!(run_test("-5 * 2").unwrap(), Value::Int(-10));
         assert_eq!(run_test("10 / -2").unwrap(), Value::Int(-5));
-        
+
         // NOT in boolean expressions
         assert_eq!(run_test("!true == false").unwrap(), Value::Bool(true));
         assert_eq!(run_test("!(5 > 3)").unwrap(), Value::Bool(false));
@@ -2427,7 +2639,7 @@ mod tests {
             y
         "#;
         assert_eq!(run_test(program).unwrap(), Value::Int(-10));
-        
+
         let program = r#"
             let flag = true;
             let opposite = !flag;
@@ -2440,8 +2652,10 @@ mod tests {
     fn test_unary_errors() {
         // Cannot negate non-numeric - caught by semantic analyzer
         let err = run_test("-true").unwrap_err();
-        assert!(err.to_string().contains("Unary negation requires numeric type"));
-        
+        assert!(err
+            .to_string()
+            .contains("Unary negation requires numeric type"));
+
         // Cannot NOT non-boolean - caught by semantic analyzer
         let err = run_test("!5").unwrap_err();
         assert!(err.to_string().contains("Logical NOT requires bool type"));
@@ -2456,35 +2670,35 @@ mod tests {
             x
         "#;
         assert_eq!(run_test(program).unwrap(), Value::Int(15));
-        
+
         let program = r#"
             let x = 20;
             x -= 8;
             x
         "#;
         assert_eq!(run_test(program).unwrap(), Value::Int(12));
-        
+
         let program = r#"
             let x = 5;
             x *= 3;
             x
         "#;
         assert_eq!(run_test(program).unwrap(), Value::Int(15));
-        
+
         let program = r#"
             let x = 20;
             x /= 4;
             x
         "#;
         assert_eq!(run_test(program).unwrap(), Value::Int(5));
-        
+
         let program = r#"
             let x = 17;
             x %= 5;
             x
         "#;
         assert_eq!(run_test(program).unwrap(), Value::Int(2));
-        
+
         // Float compound assignment
         let program = r#"
             let y = 10.0;
@@ -2504,7 +2718,7 @@ mod tests {
         "#;
         let result = run_test(program).unwrap();
         assert_eq!(result, Value::Int(6)); // 1 + 5 = 6
-        
+
         // Struct field compound assignment now supported
         let program = r#"
             struct Point { x: int, y: int }
@@ -2514,7 +2728,7 @@ mod tests {
         "#;
         let result = run_test(program).unwrap();
         assert_eq!(result, Value::Int(15)); // 10 + 5 = 15
-        
+
         // Test that the operations actually work (no errors thrown)
         let program = r#"
             struct Point { x: int, y: int }

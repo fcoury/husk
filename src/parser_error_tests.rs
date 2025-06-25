@@ -8,7 +8,7 @@ mod tests {
         let mut lexer = Lexer::new(code.to_string());
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
-        
+
         match parser.parse() {
             Err(e) => e,
             Ok(_) => panic!("Expected parse error, but parsing succeeded"),
@@ -111,7 +111,9 @@ mod tests {
         let error = parse_and_expect_error("match x { }");
         match error {
             Error::Parse(msg, _) => {
-                assert!(msg.contains("Expected") || msg.contains("match") || msg.contains("pattern"));
+                assert!(
+                    msg.contains("Expected") || msg.contains("match") || msg.contains("pattern")
+                );
             }
             _ => panic!("Expected Parse error"),
         }
@@ -124,7 +126,7 @@ mod tests {
         let mut lexer = Lexer::new(code.to_string());
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
-        
+
         // Empty blocks might be valid expressions, so we just test parsing
         let result = parser.parse();
         assert!(result.is_ok() || result.is_err());

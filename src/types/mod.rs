@@ -62,59 +62,75 @@ impl Type {
         match (self, target) {
             // Exact match
             (a, b) if a == b => true,
-            
+
             // Unknown can be assigned to anything (for inference)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
-            
+
             // Array covariance
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
-            
+
             // Tuple type checking
             (Type::Tuple(types1), Type::Tuple(types2)) => {
                 if types1.len() != types2.len() {
                     return false;
                 }
-                types1.iter().zip(types2.iter()).all(|(t1, t2)| t1.is_assignable_to(t2))
-            },
-            
+                types1
+                    .iter()
+                    .zip(types2.iter())
+                    .all(|(t1, t2)| t1.is_assignable_to(t2))
+            }
+
             // Promise covariance
             (Type::Promise(a), Type::Promise(b)) => a.is_assignable_to(b),
-            
+
             // Function types - check parameters and return type
-            (Type::Function { params: params1, return_type: ret1 }, 
-             Type::Function { params: params2, return_type: ret2 }) => {
+            (
+                Type::Function {
+                    params: params1,
+                    return_type: ret1,
+                },
+                Type::Function {
+                    params: params2,
+                    return_type: ret2,
+                },
+            ) => {
                 // Check same number of parameters
                 if params1.len() != params2.len() {
                     return false;
                 }
-                
+
                 // Check each parameter is assignable
                 for (p1, p2) in params1.iter().zip(params2.iter()) {
                     if !p1.is_assignable_to(p2) {
                         return false;
                     }
                 }
-                
+
                 // Check return type is assignable
                 ret1.is_assignable_to(ret2)
-            },
-            
+            }
+
             // Struct types are compatible if they have the same name and field structure
-            (Type::Struct { name: name1, fields: fields1 }, Type::Struct { name: name2, fields: fields2 }) => {
-                name1 == name2 && fields1 == fields2
-            },
-            
+            (
+                Type::Struct {
+                    name: name1,
+                    fields: fields1,
+                },
+                Type::Struct {
+                    name: name2,
+                    fields: fields2,
+                },
+            ) => name1 == name2 && fields1 == fields2,
+
             // Enum types are compatible if they have the same name
             // We compare by name only to handle built-in generic enums like Option<T> and Result<T,E>
-            (Type::Enum { name: name1, .. }, Type::Enum { name: name2, .. }) => {
-                name1 == name2
-            },
-            
+            (Type::Enum { name: name1, .. }, Type::Enum { name: name2, .. }) => name1 == name2,
+
             // TODO: Add more rules as needed (e.g., int to float coercion)
             _ => false,
         }
     }
-    
+
     /// Returns a human-readable string representation of the type
     pub fn to_string(&self) -> String {
         match self {
@@ -126,27 +142,32 @@ impl Type {
             Type::Array(inner) => format!("array<{}>", inner.to_string()),
             Type::Range => "range".to_string(),
             Type::Tuple(types) => {
-                let types_str = types.iter()
+                let types_str = types
+                    .iter()
                     .map(|t| t.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("({})", types_str)
-            },
+            }
             Type::Struct { name, .. } => name.clone(),
             Type::Enum { name, .. } => name.clone(),
-            Type::Function { params, return_type } => {
-                let param_str = params.iter()
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                let param_str = params
+                    .iter()
                     .map(|p| p.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("fn({}) -> {}", param_str, return_type.to_string())
-            },
+            }
             Type::Promise(inner) => format!("Promise<{}>", inner.to_string()),
             Type::Generic { name, .. } => name.clone(),
             Type::Unknown => "?".to_string(),
         }
     }
-    
+
     /// Creates a Type from a string representation (used during migration)
     pub fn from_string(s: &str) -> Option<Type> {
         match s {
@@ -157,24 +178,24 @@ impl Type {
             "string" => Some(Type::String),
             "range" => Some(Type::Range),
             s if s.starts_with("array<") && s.ends_with(">") => {
-                let inner = &s[6..s.len()-1];
+                let inner = &s[6..s.len() - 1];
                 Type::from_string(inner).map(|t| Type::Array(Box::new(t)))
-            },
+            }
             s if s.starts_with("Vec<") && s.ends_with(">") => {
                 // Vec<T> is an alias for array<T>
-                let inner = &s[4..s.len()-1];
+                let inner = &s[4..s.len() - 1];
                 Type::from_string(inner).map(|t| Type::Array(Box::new(t)))
-            },
+            }
             s if s.starts_with("Promise<") && s.ends_with(">") => {
-                let inner = &s[8..s.len()-1];
+                let inner = &s[8..s.len() - 1];
                 Type::from_string(inner).map(|t| Type::Promise(Box::new(t)))
-            },
+            }
             s if s.starts_with("fn(") && s.contains(") ->") => {
                 // Parse function type: fn(int, string) -> bool
                 let paren_end = s.find(") ->").unwrap();
                 let params_str = &s[3..paren_end];
                 let return_str = &s[paren_end + 4..].trim();
-                
+
                 // Parse parameters
                 let mut params = Vec::new();
                 if !params_str.is_empty() {
@@ -183,66 +204,66 @@ impl Type {
                         params.push(param_type);
                     }
                 }
-                
+
                 // Parse return type
                 let return_type = Type::from_string(return_str)?;
-                
+
                 Some(Type::Function {
                     params,
                     return_type: Box::new(return_type),
                 })
-            },
+            }
             // Special handling for built-in enums
-            "Option" => Some(Type::Enum { 
-                name: "Option".to_string(), 
+            "Option" => Some(Type::Enum {
+                name: "Option".to_string(),
                 variants: {
                     let mut v = HashMap::new();
                     v.insert("Some".to_string(), Some(Type::Unknown));
                     v.insert("None".to_string(), None);
                     v
-                }
+                },
             }),
-            "Result" => Some(Type::Enum { 
-                name: "Result".to_string(), 
+            "Result" => Some(Type::Enum {
+                name: "Result".to_string(),
                 variants: {
                     let mut v = HashMap::new();
                     v.insert("Ok".to_string(), Some(Type::Unknown));
                     v.insert("Err".to_string(), Some(Type::Unknown));
                     v
-                }
+                },
             }),
             // Handle generic Option<T>
             s if s.starts_with("Option<") && s.ends_with(">") => {
                 // For now, just return the base Option type
                 // TODO: Track generic type parameters
-                Some(Type::Enum { 
-                    name: "Option".to_string(), 
+                Some(Type::Enum {
+                    name: "Option".to_string(),
                     variants: {
                         let mut v = HashMap::new();
                         v.insert("Some".to_string(), Some(Type::Unknown));
                         v.insert("None".to_string(), None);
                         v
-                    }
+                    },
                 })
-            },
+            }
             // Handle generic Result<T, E>
             s if s.starts_with("Result<") && s.ends_with(">") => {
                 // For now, just return the base Result type
                 // TODO: Track generic type parameters
-                Some(Type::Enum { 
-                    name: "Result".to_string(), 
+                Some(Type::Enum {
+                    name: "Result".to_string(),
                     variants: {
                         let mut v = HashMap::new();
                         v.insert("Ok".to_string(), Some(Type::Unknown));
                         v.insert("Err".to_string(), Some(Type::Unknown));
                         v
-                    }
+                    },
                 })
-            },
+            }
             // For now, treat any other string as a struct/enum name
-            _ => Some(Type::Struct { 
-                name: s.to_string(), 
-                fields: vec![] // Will be filled in by semantic analyzer
+            _ => Some(Type::Struct {
+                name: s.to_string(),
+                fields: vec![], // Will be filled in by semantic analyzer
             }),
         }
     }

@@ -1,10 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{
-        lexer::Lexer,
-        parser::Parser,
-        transpiler::JsTranspiler,
-    };
+    use crate::{lexer::Lexer, parser::Parser, transpiler::JsTranspiler};
 
     #[test]
     fn test_error_mapping_helper_generation() {
@@ -16,29 +12,31 @@ async fn test() -> Result<string, any> {
     Result::Ok("success")
 }
 "#;
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse successfully");
-        
+
         let mut transpiler = JsTranspiler::new();
-        let js_output = transpiler.generate(&ast).expect("Should transpile successfully");
-        
+        let js_output = transpiler
+            .generate(&ast)
+            .expect("Should transpile successfully");
+
         // Check that error mapping helpers are included
         assert!(js_output.contains("function __husk_map_error(error)"));
         assert!(js_output.contains("function __husk_safe_call(fn, ...args)"));
         assert!(js_output.contains("function __husk_await_bridge(promise)"));
-        
+
         // Check error type handling
         assert!(js_output.contains("error instanceof Error"));
         assert!(js_output.contains("error instanceof DOMException"));
         assert!(js_output.contains("typeof error === 'string'"));
-        
+
         // Check that await bridge uses error mapping
         assert!(js_output.contains("return __husk_map_error(error)"));
     }
-    
+
     #[test]
     fn test_error_mapping_comprehensive_cases() {
         let input = r#"
@@ -49,15 +47,17 @@ async fn test_all_error_types() -> Result<string, any> {
     Result::Ok("success")
 }
 "#;
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse successfully");
-        
+
         let mut transpiler = JsTranspiler::new();
-        let js_output = transpiler.generate(&ast).expect("Should transpile successfully");
-        
+        let js_output = transpiler
+            .generate(&ast)
+            .expect("Should transpile successfully");
+
         // Check error payload structure for different error types
         assert!(js_output.contains("name: error.name"));
         assert!(js_output.contains("message: error.message"));

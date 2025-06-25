@@ -10,13 +10,16 @@ extern fn parseInt(s: string) -> int;
 // Extern functions are no-op in interpreter
 parseInt("42")
 "#;
-        
+
         // In interpreter mode, extern functions don't exist
         let result = execute_script(code);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Function 'parseInt' not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Function 'parseInt' not found"));
     }
-    
+
     #[test]
     fn test_extern_mod() {
         let code = r#"
@@ -28,11 +31,11 @@ extern mod fs {
 // Just declaring extern mod shouldn't error
 42
 "#;
-        
+
         let result = execute_script(code);
         assert_eq!(result.unwrap(), Value::Int(42));
     }
-    
+
     #[test]
     fn test_extern_nested_mod() {
         let code = r#"
@@ -46,11 +49,11 @@ extern mod fs {
 // Nested extern mods are ok
 "nested works"
 "#;
-        
+
         let result = execute_script(code);
         assert_eq!(result.unwrap(), Value::String("nested works".to_string()));
     }
-    
+
     #[test]
     fn test_extern_with_impl() {
         let code = r#"
@@ -68,7 +71,7 @@ extern mod express {
 // Type declarations are ok
 true
 "#;
-        
+
         let result = execute_script(code);
         assert_eq!(result.unwrap(), Value::Bool(true));
     }

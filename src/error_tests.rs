@@ -7,7 +7,7 @@ mod tests {
     fn test_semantic_error_creation() {
         let span = Span::new(10, 20);
         let error = Error::new_semantic("Type mismatch", span);
-        
+
         match error {
             Error::Semantic(msg, s) => {
                 assert_eq!(msg, "Type mismatch");
@@ -22,7 +22,7 @@ mod tests {
     fn test_parse_error_creation() {
         let span = Span::new(5, 15);
         let error = Error::new_parse("Unexpected token", span);
-        
+
         match error {
             Error::Parse(msg, s) => {
                 assert_eq!(msg, "Unexpected token");
@@ -37,7 +37,7 @@ mod tests {
     fn test_runtime_error_creation() {
         let span = Span::new(0, 10);
         let error = Error::new_runtime("Division by zero", span);
-        
+
         match error {
             Error::Runtime(msg, s) => {
                 assert_eq!(msg, "Division by zero");
@@ -52,7 +52,7 @@ mod tests {
     fn test_transpiler_error_creation() {
         let span = Span::new(25, 30);
         let error = Error::new_transpile("Unsupported feature", span);
-        
+
         match error {
             Error::Transpiler(msg, s) => {
                 assert_eq!(msg, "Unsupported feature");
@@ -79,7 +79,7 @@ mod tests {
         let code = "let x = 5;\nlet y = \"hello\";\nx = y;";
         let span = Span::new(28, 33); // "x = y"
         let error = Error::new_semantic("Type mismatch: cannot assign string to int", span);
-        
+
         let pretty = error.pretty_print(code);
         // Line numbering starts at 0, so third line is line 2
         assert!(pretty.contains("error: 2:1"));
@@ -100,7 +100,7 @@ mod tests {
 
         assert!(might_fail(false).is_ok());
         assert!(might_fail(true).is_err());
-        
+
         match might_fail(true) {
             Err(Error::Runtime(msg, _)) => assert_eq!(msg, "Something went wrong"),
             _ => panic!("Expected Runtime error"),
@@ -114,9 +114,7 @@ mod tests {
         }
 
         fn outer_function() -> Result<i32> {
-            inner_function().map_err(|_| {
-                Error::new_runtime("Outer error", Span::new(0, 15))
-            })
+            inner_function().map_err(|_| Error::new_runtime("Outer error", Span::new(0, 15)))
         }
 
         match outer_function() {

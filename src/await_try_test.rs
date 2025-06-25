@@ -1,9 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{
-        lexer::Lexer,
-        parser::Parser,
-    };
+    use crate::{lexer::Lexer, parser::Parser};
 
     #[test]
     fn test_await_try_parsing() {
@@ -12,7 +9,7 @@ mod tests {
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let result = parser.parse();
-        
+
         if let Err(e) = &result {
             println!("Parse error: {}", e);
         }
@@ -26,7 +23,7 @@ mod tests {
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let result = parser.parse();
-        
+
         assert!(result.is_ok(), "Should parse .await operator successfully");
     }
 }

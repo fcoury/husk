@@ -1,27 +1,27 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Lexer, Parser};
     use crate::error::Result;
     use crate::semantic::SemanticVisitor;
     use crate::transpiler::JsTranspiler;
+    use crate::{Lexer, Parser};
 
     fn transpile_code(code: &str) -> Result<String> {
         let mut lexer = Lexer::new(code.to_string());
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse()?;
-        
+
         // Run semantic analysis
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast)?;
-        
+
         // Transpile to JavaScript
         let mut transpiler = JsTranspiler::new();
         transpiler.generate(&ast)
     }
 
     // Type casting transpilation tests
-    
+
     #[test]
     fn test_transpile_int_to_float() {
         let code = r#"
@@ -30,7 +30,7 @@ mod tests {
                 let y = x as float;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let x = 42;"));
         assert!(js.contains("let y = Number(x);"));
@@ -44,7 +44,7 @@ mod tests {
                 let y = x as int;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let x = 42.7;"));
         assert!(js.contains("let y = Math.floor(Number(x));"));
@@ -58,7 +58,7 @@ mod tests {
                 let y = x as string;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let x = 42;"));
         assert!(js.contains("let y = String(x);"));
@@ -72,7 +72,7 @@ mod tests {
                 let s = b as string;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let b = true;"));
         assert!(js.contains("let s = String(b);"));
@@ -86,7 +86,7 @@ mod tests {
                 let n = s as int;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let s = \"42\";"));
         assert!(js.contains("let n = Math.floor(Number(s));"));
@@ -100,7 +100,7 @@ mod tests {
                 let n = b as int;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let b = true;"));
         assert!(js.contains("let n = Math.floor(Number(b));"));
@@ -115,7 +115,7 @@ mod tests {
                 let result = (x as float) + y;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let result = (Number(x) + y);"));
     }
@@ -128,13 +128,13 @@ mod tests {
                 let s = ((x as float) as string);
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let s = String(Number(x));"));
     }
 
     // Built-in method transpilation tests
-    
+
     #[test]
     fn test_transpile_string_len() {
         let code = r#"
@@ -143,7 +143,7 @@ mod tests {
                 let len = s.len();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let s = \"hello\";"));
         assert!(js.contains("let len = s.length;"));
@@ -157,7 +157,7 @@ mod tests {
                 let trimmed = s.trim();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let trimmed = s.trim();"));
     }
@@ -170,7 +170,7 @@ mod tests {
                 let upper = s.toUpperCase();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let upper = s.toUpperCase();"));
     }
@@ -183,7 +183,7 @@ mod tests {
                 let lower = s.toLowerCase();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let lower = s.toLowerCase();"));
     }
@@ -196,7 +196,7 @@ mod tests {
                 let sub = s.substring(0, 5);
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let sub = s.substring(0, 5);"));
     }
@@ -209,7 +209,7 @@ mod tests {
                 let parts = s.split(",");
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let parts = s.split(\",\");"));
     }
@@ -222,7 +222,7 @@ mod tests {
                 let len = arr.len();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let arr = [1, 2, 3];"));
         assert!(js.contains("let len = arr.length;"));
@@ -236,7 +236,7 @@ mod tests {
                 let result = s.trim().toUpperCase();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let result = s.trim().toUpperCase();"));
     }
@@ -249,13 +249,13 @@ mod tests {
                 let len = (n as string).len();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let len = String(n).length;"));
     }
 
     // Module system transpilation tests
-    
+
     #[test]
     fn test_transpile_import_local_module() {
         let code = r#"
@@ -265,7 +265,7 @@ mod tests {
                 helper();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("import { helper } from './utils/helper.js';"));
     }
@@ -279,7 +279,7 @@ mod tests {
                 let app = express();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("import { express } from 'express/express';"));
     }
@@ -291,7 +291,7 @@ mod tests {
                 return format!("Hello, {}", name);
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("export function greet(name)"));
         assert!(js.contains("return `Hello, ${name}`;"));
@@ -308,7 +308,7 @@ mod tests {
                 helper1();
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("import { readFile } from 'fs/readFile';"));
         assert!(js.contains("import { join } from 'path/join';"));
@@ -322,7 +322,7 @@ mod tests {
                 return "data";
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("async function fetchData()"));
         assert!(js.contains("return \"data\";"));
@@ -337,7 +337,7 @@ mod tests {
                 let data = fetchData().await;
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let data = await fetchData();"));
     }
@@ -350,7 +350,7 @@ mod tests {
                 let msg = format!("Hello, {}!", name);
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let msg = `Hello, ${name}!`;"));
     }
@@ -363,7 +363,7 @@ mod tests {
                 let s = format!("The answer is {}", x);
             }
         "#;
-        
+
         let js = transpile_code(code).unwrap();
         assert!(js.contains("let s = `The answer is ${x}`;"));
     }

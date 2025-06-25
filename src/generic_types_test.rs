@@ -8,14 +8,15 @@ mod tests {
     #[test]
     fn test_generic_function_parsing() {
         let input = "fn map<T, U>(item: T, mapper: fn(T) -> U) -> U { mapper(item) }";
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse generic function");
-        
+
         assert_eq!(ast.len(), 1);
-        if let Stmt::Function(_, name, generic_params, params, return_type, _body, _span) = &ast[0] {
+        if let Stmt::Function(_, name, generic_params, params, return_type, _body, _span) = &ast[0]
+        {
             assert_eq!(name, "map");
             assert_eq!(generic_params, &vec!["T".to_string(), "U".to_string()]);
             assert_eq!(params.len(), 2);
@@ -30,12 +31,12 @@ mod tests {
     #[test]
     fn test_generic_struct_parsing() {
         let input = "struct Container<T> { value: T }";
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse generic struct");
-        
+
         assert_eq!(ast.len(), 1);
         if let Stmt::Struct(name, generic_params, fields, _span) = &ast[0] {
             assert_eq!(name, "Container");
@@ -51,12 +52,12 @@ mod tests {
     #[test]
     fn test_generic_enum_parsing() {
         let input = "enum Result<T, E> { Ok(T), Err(E) }";
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse generic enum");
-        
+
         assert_eq!(ast.len(), 1);
         if let Stmt::Enum(name, generic_params, variants, _span) = &ast[0] {
             assert_eq!(name, "Result");
@@ -74,14 +75,16 @@ mod tests {
     #[test]
     fn test_generic_async_function_parsing() {
         let input = "async fn fetch_data<T>() -> Promise<T> { }";
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse generic async function");
-        
+
         assert_eq!(ast.len(), 1);
-        if let Stmt::AsyncFunction(_, name, generic_params, params, return_type, _body, _span) = &ast[0] {
+        if let Stmt::AsyncFunction(_, name, generic_params, params, return_type, _body, _span) =
+            &ast[0]
+        {
             assert_eq!(name, "fetch_data");
             assert_eq!(generic_params, &vec!["T".to_string()]);
             assert_eq!(params.len(), 0);
@@ -94,14 +97,15 @@ mod tests {
     #[test]
     fn test_no_generic_parameters() {
         let input = "fn regular_function(x: int) -> int { x }";
-        
+
         let mut lexer = Lexer::new(input);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Should parse regular function");
-        
+
         assert_eq!(ast.len(), 1);
-        if let Stmt::Function(_, name, generic_params, params, return_type, _body, _span) = &ast[0] {
+        if let Stmt::Function(_, name, generic_params, params, return_type, _body, _span) = &ast[0]
+        {
             assert_eq!(name, "regular_function");
             assert_eq!(generic_params, &Vec::<String>::new()); // Empty generic params
             assert_eq!(params.len(), 1);

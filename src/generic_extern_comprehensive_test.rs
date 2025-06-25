@@ -4,9 +4,9 @@
 mod tests {
     use crate::lexer::Lexer;
     use crate::parser::Parser;
-    use crate::transpiler::JsTranspiler;
     use crate::semantic::SemanticVisitor;
-    
+    use crate::transpiler::JsTranspiler;
+
     #[test]
     fn test_transpile_generic_externs() {
         let program = r#"
@@ -27,31 +27,31 @@ mod tests {
                 data
             }
         "#;
-        
+
         // Full pipeline
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut transpiler = JsTranspiler::new();
         let js = transpiler.generate(&ast).expect("Transpilation failed");
-        
+
         // Check that the JS output includes the async function
         assert!(js.contains("async function fetchData()"));
         assert!(js.contains("await fetch(url)"));
-        
-        // The transpiler should have processed the extern declarations 
+
+        // The transpiler should have processed the extern declarations
         // (even if they don't appear in the output)
-        
+
         println!("✓ Generic externs transpiled successfully");
     }
-    
-    #[test] 
+
+    #[test]
     fn test_complex_nested_generics() {
         let program = r#"
             extern fn transform<A, B, C>(
@@ -80,19 +80,19 @@ mod tests {
                 type Result<T, E>;
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse complex generics");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         println!("✓ Complex nested generics parsed successfully");
     }
-    
+
     #[test]
     fn test_generic_constraints_future() {
         // This test documents future syntax we might want to support
@@ -104,13 +104,13 @@ mod tests {
                 type Numeric<T>;
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let _ast = parser.parse().expect("Should parse");
-        
+
         println!("✓ Future generic constraint syntax parses (but not enforced)");
     }
 }
