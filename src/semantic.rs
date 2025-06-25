@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     ast::visitor::AstVisitor,
+    builtin_methods::MethodSignatureRegistry,
     error::{Error, Result},
     lexer::Lexer,
     package_resolver::PackageResolver,
@@ -31,6 +32,7 @@ pub struct SemanticVisitor {
     project_root: Option<PathBuf>,
     analyzed_modules: HashMap<PathBuf, ()>, // Cache to avoid circular imports
     current_impl_type: Option<String>, // Track the current type being impl'd for Self resolution
+    method_signatures: MethodSignatureRegistry,
 }
 
 impl Default for SemanticVisitor {
@@ -55,6 +57,7 @@ impl SemanticVisitor {
             project_root: None,
             analyzed_modules: HashMap::new(),
             current_impl_type: None,
+            method_signatures: MethodSignatureRegistry::new(),
         };
         visitor.init_standard_library();
         visitor
@@ -695,8 +698,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 return Err(Error::new_semantic(
                     format!(
                         "Array elements must have the same type. Expected {}, found {}",
-                        first_type,
-                        element_type
+                        first_type, element_type
                     ),
                     *span,
                 ));
@@ -753,10 +755,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             let start_type = self.visit_expr(start_expr)?;
             if !self.is_numeric_type(&start_type) {
                 return Err(Error::new_semantic(
-                    format!(
-                        "Range start must be numeric, found {}",
-                        start_type
-                    ),
+                    format!("Range start must be numeric, found {}", start_type),
                     *span,
                 ));
             }
@@ -801,9 +800,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     return Err(Error::new_semantic(
                         format!(
                             "Binary operation {:?} requires numeric types, found {} and {}",
-                            op,
-                            left_type,
-                            right_type
+                            op, left_type, right_type
                         ),
                         *span,
                     ));
@@ -830,9 +827,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     return Err(Error::new_semantic(
                         format!(
                             "Logical operation {:?} requires bool types, found {} and {}",
-                            op,
-                            left_type,
-                            right_type
+                            op, left_type, right_type
                         ),
                         *span,
                     ));
@@ -849,10 +844,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             UnaryOp::Neg => {
                 if !self.is_numeric_type(&expr_type) {
                     return Err(Error::new_semantic(
-                        format!(
-                            "Unary negation requires numeric type, found {}",
-                            expr_type
-                        ),
+                        format!("Unary negation requires numeric type, found {}", expr_type),
                         *_span,
                     ));
                 }
@@ -861,10 +853,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             UnaryOp::Not => {
                 if expr_type != Type::Bool {
                     return Err(Error::new_semantic(
-                        format!(
-                            "Logical NOT requires bool type, found {}",
-                            expr_type
-                        ),
+                        format!("Logical NOT requires bool type, found {}", expr_type),
                         *_span,
                     ));
                 }
@@ -926,9 +915,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     return Err(Error::new_semantic(
                         format!(
                             "Compound assignment {:?} requires numeric types, found {} and {}",
-                            op,
-                            left_type,
-                            right_type
+                            op, left_type, right_type
                         ),
                         *span,
                     ));
@@ -1212,10 +1199,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 return Err(Error::new_semantic(
                     format!(
                         "Struct '{}' field '{}' type mismatch: expected {}, found {}",
-                        name,
-                        field_name,
-                        expected_type,
-                        field_type
+                        name, field_name, expected_type, field_type
                     ),
                     *span,
                 ));
@@ -1258,8 +1242,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             _ => Err(Error::new_semantic(
                 format!(
                     "Cannot access field '{}' on non-struct type: {}",
-                    field,
-                    object_type
+                    field, object_type
                 ),
                 *span,
             )),
@@ -1318,10 +1301,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' expects {}, found {}",
-                                        resolved_type_name,
-                                        call,
-                                        associated_type,
-                                        arg_type
+                                        resolved_type_name, call, associated_type, arg_type
                                     ),
                                     *span,
                                 ));
@@ -1963,8 +1943,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Pattern type mismatch: expected {}, found {}",
-                                        expr_type,
-                                        enum_type_name
+                                        expr_type, enum_type_name
                                     ),
                                     pattern.span(),
                                 ));
@@ -2024,8 +2003,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Pattern type mismatch: expected {}, found {}",
-                                        expr_type,
-                                        pattern_name
+                                        expr_type, pattern_name
                                     ),
                                     pattern.span(),
                                 ));
@@ -2064,8 +2042,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             return Err(Error::new_semantic(
                                 format!(
                                     "Cannot match struct pattern {} against non-struct type {}",
-                                    pattern_name,
-                                    expr_type
+                                    pattern_name, expr_type
                                 ),
                                 pattern.span(),
                             ));
@@ -2121,8 +2098,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Cannot match {} pattern against type {}",
-                                        name,
-                                        expr_type
+                                        name, expr_type
                                     ),
                                     pattern.span(),
                                 ));
@@ -2135,8 +2111,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             return Err(Error::new_semantic(
                                 format!(
                                     "Pattern type mismatch: expected {}, found {}",
-                                    expr_type,
-                                    pattern_type
+                                    expr_type, pattern_type
                                 ),
                                 pattern.span(),
                             ));
@@ -2150,8 +2125,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         return Err(Error::new_semantic(
                             format!(
                                 "Pattern type mismatch: expected {}, found {}",
-                                expr_type,
-                                pattern_type
+                                expr_type, pattern_type
                             ),
                             pattern.span(),
                         ));
@@ -2322,10 +2296,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         let condition_type = self.visit_expr(condition)?;
         if condition_type != Type::Bool {
             return Err(Error::new_semantic(
-                format!(
-                    "While condition must be boolean, found {}",
-                    condition_type
-                ),
+                format!("While condition must be boolean, found {}", condition_type),
                 condition.span(),
             ));
         }
@@ -2650,8 +2621,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 return Err(Error::new_semantic(
                     format!(
                         "Closure body returns {} but expected {}",
-                        body_type,
-                        expected_type
+                        body_type, expected_type
                     ),
                     body.span(),
                 ));
@@ -2867,10 +2837,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         let condition_type = self.visit_expr(condition)?;
         if condition_type != Type::Bool {
             return Err(Error::new_semantic(
-                format!(
-                    "If condition must be boolean, found {}",
-                    condition_type
-                ),
+                format!("If condition must be boolean, found {}", condition_type),
                 condition.span(),
             ));
         }
@@ -2919,288 +2886,390 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         match &object_type {
             Type::String => {
-                // String methods
-                match method {
-                    "len" => {
-                        if !args.is_empty() {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 0 arguments, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::Int)
+                // Look up method in registry
+                if let Some(signature) = self.method_signatures.get_string_method(method) {
+                    // Clone signature to avoid borrowing issues
+                    let signature = signature.clone();
+
+                    // Validate argument count
+                    if args.len() != signature.param_types.len() {
+                        return Err(Error::new_semantic(
+                            format!(
+                                "String method '{}' expects {} argument{}, but {} {} provided",
+                                method,
+                                signature.param_types.len(),
+                                if signature.param_types.len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                },
+                                args.len(),
+                                if args.len() == 1 { "was" } else { "were" }
+                            ),
+                            *span,
+                        ));
                     }
-                    "trim" => {
-                        if !args.is_empty() {
+
+                    // Validate argument types
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_type = self.visit_expr(arg)?;
+                        let expected_type = &signature.param_types[i];
+
+                        // Skip validation for Unknown types (generic placeholders)
+                        if *expected_type != Type::Unknown && arg_type != *expected_type {
                             return Err(Error::new_semantic(
                                 format!(
-                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    "String method '{}' argument {} expects {}, found {}",
                                     method,
-                                    args.len()
+                                    i + 1,
+                                    expected_type,
+                                    arg_type
                                 ),
                                 *span,
                             ));
                         }
-                        Ok(Type::String)
                     }
-                    "substring" => {
-                        if args.len() != 2 {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 2 arguments, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        // Check argument types
-                        for arg in args {
-                            let arg_type = self.visit_expr(arg)?;
-                            if arg_type != Type::Int {
+
+                    Ok(signature.return_type.clone())
+                } else {
+                    // TEMPORARY: Keep hardcoded methods for backwards compatibility
+                    match method {
+                        "len" => {
+                            if !args.is_empty() {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "String method '{}' expects int arguments, found {}",
-                                        method,
-                                        arg_type
-                                    ),
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                     *span,
                                 ));
                             }
+                            Ok(Type::Int)
                         }
-                        Ok(Type::String)
-                    }
-                    "split" => {
-                        if args.len() != 1 {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 1 argument, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        let arg_type = self.visit_expr(&args[0])?;
-                        if arg_type != Type::String {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects string argument, found {}",
-                                    method,
-                                    arg_type
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::Array(Box::new(Type::String)))
-                    }
-                    "chars" => {
-                        if !args.is_empty() {
-                            return Err(Error::new_semantic(
-                                format!(
+                        "trim" => {
+                            if !args.is_empty() {
+                                return Err(Error::new_semantic(
+                                    format!(
                                     "String method '{}' expects 0 arguments, but {} were provided",
                                     method,
                                     args.len()
                                 ),
-                                *span,
-                            ));
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::String)
                         }
-                        Ok(Type::Array(Box::new(Type::String)))
-                    }
-                    "toLowerCase" => {
-                        if !args.is_empty() {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 0 arguments, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::String)
-                    }
-                    "toUpperCase" => {
-                        if !args.is_empty() {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 0 arguments, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::String)
-                    }
-                    "contains" => {
-                        if args.len() != 1 {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 1 argument, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        let arg_type = self.visit_expr(&args[0])?;
-                        if arg_type != Type::String {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects string argument, found {}",
-                                    method,
-                                    arg_type
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::Bool)
-                    }
-                    "starts_with" => {
-                        if args.len() != 1 {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 1 argument, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        let arg_type = self.visit_expr(&args[0])?;
-                        if arg_type != Type::String {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects string argument, found {}",
-                                    method,
-                                    arg_type
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::Bool)
-                    }
-                    "ends_with" => {
-                        if args.len() != 1 {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects 1 argument, but {} were provided",
-                                    method,
-                                    args.len()
-                                ),
-                                *span,
-                            ));
-                        }
-                        let arg_type = self.visit_expr(&args[0])?;
-                        if arg_type != Type::String {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "String method '{}' expects string argument, found {}",
-                                    method,
-                                    arg_type
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::Bool)
-                    }
-                    "replace" => {
-                        if args.len() != 2 {
-                            return Err(Error::new_semantic(
-                                format!(
+                        "substring" => {
+                            if args.len() != 2 {
+                                return Err(Error::new_semantic(
+                                    format!(
                                     "String method '{}' expects 2 arguments, but {} were provided",
                                     method,
                                     args.len()
                                 ),
-                                *span,
-                            ));
+                                    *span,
+                                ));
+                            }
+                            // Check argument types
+                            for arg in args {
+                                let arg_type = self.visit_expr(arg)?;
+                                if arg_type != Type::Int {
+                                    return Err(Error::new_semantic(
+                                        format!(
+                                            "String method '{}' expects int arguments, found {}",
+                                            method, arg_type
+                                        ),
+                                        *span,
+                                    ));
+                                }
+                            }
+                            Ok(Type::String)
                         }
-                        // Check both arguments are strings
-                        for arg in args {
-                            let arg_type = self.visit_expr(arg)?;
+                        "split" => {
+                            if args.len() != 1 {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            let arg_type = self.visit_expr(&args[0])?;
                             if arg_type != Type::String {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "String method '{}' expects string arguments, found {}",
-                                        method,
-                                        arg_type
+                                        "String method '{}' expects string argument, found {}",
+                                        method, arg_type
                                     ),
                                     *span,
                                 ));
                             }
+                            Ok(Type::Array(Box::new(Type::String)))
                         }
-                        Ok(Type::String)
+                        "chars" => {
+                            if !args.is_empty() {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::Array(Box::new(Type::String)))
+                        }
+                        "toLowerCase" => {
+                            if !args.is_empty() {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::String)
+                        }
+                        "toUpperCase" => {
+                            if !args.is_empty() {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::String)
+                        }
+                        "contains" => {
+                            if args.len() != 1 {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            let arg_type = self.visit_expr(&args[0])?;
+                            if arg_type != Type::String {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "String method '{}' expects string argument, found {}",
+                                        method, arg_type
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::Bool)
+                        }
+                        "starts_with" => {
+                            if args.len() != 1 {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            let arg_type = self.visit_expr(&args[0])?;
+                            if arg_type != Type::String {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "String method '{}' expects string argument, found {}",
+                                        method, arg_type
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::Bool)
+                        }
+                        "ends_with" => {
+                            if args.len() != 1 {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            let arg_type = self.visit_expr(&args[0])?;
+                            if arg_type != Type::String {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "String method '{}' expects string argument, found {}",
+                                        method, arg_type
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::Bool)
+                        }
+                        "replace" => {
+                            if args.len() != 2 {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                    "String method '{}' expects 2 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
+                                    *span,
+                                ));
+                            }
+                            // Check both arguments are strings
+                            for arg in args {
+                                let arg_type = self.visit_expr(arg)?;
+                                if arg_type != Type::String {
+                                    return Err(Error::new_semantic(
+                                        format!(
+                                            "String method '{}' expects string arguments, found {}",
+                                            method, arg_type
+                                        ),
+                                        *span,
+                                    ));
+                                }
+                            }
+                            Ok(Type::String)
+                        }
+                        _ => Err(Error::new_semantic(
+                            format!("Unknown method '{}' for string type", method),
+                            *span,
+                        )),
                     }
-                    _ => Err(Error::new_semantic(
-                        format!("Unknown method '{}' for string type", method),
-                        *span,
-                    )),
                 }
             }
             Type::Array(elem_type) => {
-                // Array methods
-                match method {
-                    "len" => {
-                        if !args.is_empty() {
+                // Look up method in registry
+                if let Some(signature) = self.method_signatures.get_array_method(method) {
+                    // Clone signature to avoid borrowing issues
+                    let signature = signature.clone();
+
+                    // Validate argument count
+                    if args.len() != signature.param_types.len() {
+                        return Err(Error::new_semantic(
+                            format!(
+                                "Array method '{}' expects {} argument{}, but {} {} provided",
+                                method,
+                                signature.param_types.len(),
+                                if signature.param_types.len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                },
+                                args.len(),
+                                if args.len() == 1 { "was" } else { "were" }
+                            ),
+                            *span,
+                        ));
+                    }
+
+                    // Validate argument types
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_type = self.visit_expr(arg)?;
+                        let expected_type = &signature.param_types[i];
+
+                        // Skip validation for Unknown types (generic placeholders)
+                        // Also accept element type for contains/push methods
+                        if *expected_type != Type::Unknown && arg_type != *expected_type {
+                            // Special case for array methods that take element type
+                            if (method == "contains" || method == "push") && arg_type == **elem_type
+                            {
+                                continue;
+                            }
+                            // Special case for concat which takes array of same type
+                            if method == "concat" && arg_type == object_type {
+                                continue;
+                            }
                             return Err(Error::new_semantic(
                                 format!(
+                                    "Array method '{}' argument {} expects {}, found {}",
+                                    method,
+                                    i + 1,
+                                    expected_type,
+                                    arg_type
+                                ),
+                                *span,
+                            ));
+                        }
+                    }
+
+                    // Handle return types that depend on element type
+                    let return_type = match method {
+                        "reverse" | "slice" | "push" | "concat" => object_type.clone(),
+                        _ => signature.return_type.clone(),
+                    };
+
+                    Ok(return_type)
+                } else {
+                    // TEMPORARY: Keep hardcoded methods for backwards compatibility
+                    match method {
+                        "len" => {
+                            if !args.is_empty() {
+                                return Err(Error::new_semantic(
+                                    format!(
                                     "Array method '{}' expects 0 arguments, but {} were provided",
                                     method,
                                     args.len()
                                 ),
-                                *span,
-                            ));
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::Int)
                         }
-                        Ok(Type::Int)
-                    }
-                    "push" => {
-                        if args.len() != 1 {
-                            return Err(Error::new_semantic(
-                                format!(
+                        "push" => {
+                            if args.len() != 1 {
+                                return Err(Error::new_semantic(
+                                    format!(
                                     "Array method '{}' expects 1 argument, but {} were provided",
                                     method,
                                     args.len()
                                 ),
-                                *span,
-                            ));
+                                    *span,
+                                ));
+                            }
+                            let arg_type = self.visit_expr(&args[0])?;
+                            if arg_type != **elem_type {
+                                return Err(Error::new_semantic(
+                                    format!(
+                                        "Array method '{}' expects {} argument, found {}",
+                                        method, elem_type, arg_type
+                                    ),
+                                    *span,
+                                ));
+                            }
+                            Ok(Type::Unit)
                         }
-                        let arg_type = self.visit_expr(&args[0])?;
-                        if arg_type != **elem_type {
-                            return Err(Error::new_semantic(
-                                format!(
-                                    "Array method '{}' expects {} argument, found {}",
-                                    method,
-                                    elem_type,
-                                    arg_type
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(Type::Unit)
-                    }
-                    "pop" => {
-                        if !args.is_empty() {
-                            return Err(Error::new_semantic(
-                                format!(
+                        "pop" => {
+                            if !args.is_empty() {
+                                return Err(Error::new_semantic(
+                                    format!(
                                     "Array method '{}' expects 0 arguments, but {} were provided",
                                     method,
                                     args.len()
                                 ),
-                                *span,
-                            ));
+                                    *span,
+                                ));
+                            }
+                            // Return Option<T>
+                            Ok(Type::Unknown) // For now, as we need proper Option<T> support
                         }
-                        // Return Option<T>
-                        Ok(Type::Unknown) // For now, as we need proper Option<T> support
+                        _ => Err(Error::new_semantic(
+                            format!("Unknown method '{}' for array type", method),
+                            *span,
+                        )),
                     }
-                    _ => Err(Error::new_semantic(
-                        format!("Unknown method '{}' for array type", method),
-                        *span,
-                    )),
                 }
             }
             Type::Struct { name, .. } => {
@@ -3220,11 +3289,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
             }
             _ => Err(Error::new_semantic(
-                format!(
-                    "Cannot call method '{}' on type {}",
-                    method,
-                    object_type
-                ),
+                format!("Cannot call method '{}' on type {}", method, object_type),
                 *span,
             )),
         }

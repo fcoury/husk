@@ -176,9 +176,9 @@ impl fmt::Display for TokenKind {
 #[derive(Debug)]
 pub struct Lexer {
     input: String,
-    position: usize,      // current byte position in input
-    read_position: usize, // next byte position to read
-    ch: Option<char>,     // current character
+    position: usize,       // current byte position in input
+    read_position: usize,  // next byte position to read
+    ch: Option<char>,      // current character
     start_position: usize, // byte position where current token started
 }
 
@@ -210,12 +210,12 @@ impl Lexer {
 
     fn read_char(&mut self) {
         self.position = self.read_position;
-        
+
         if self.read_position >= self.input.len() {
             self.ch = None;
             return;
         }
-        
+
         // Get the character at the current byte position
         let mut chars = self.input[self.read_position..].chars();
         if let Some(ch) = chars.next() {

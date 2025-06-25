@@ -987,7 +987,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Expr::MemberAccess(object, field, _) => {
                 // For struct field assignment: obj.field = value
                 // Handle similarly to compound assignment
-                
+
                 if let Expr::Identifier(var_name, _) = &**object {
                     // Get the actual variable (handling self)
                     let actual_var_name = if var_name == "self" {
@@ -1086,8 +1086,8 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Expr::MemberAccess(object, field, _) => {
                 // For struct field compound assignment: obj.field += value
                 // We need to handle it differently to ensure we update the actual struct
-                
-                // First, get the object and check if it's an identifier  
+
+                // First, get the object and check if it's an identifier
                 if let Expr::Identifier(var_name, _) = &**object {
                     // Get the actual variable (handling self redirection)
                     let actual_var_name = if var_name == "self" {
@@ -1113,7 +1113,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
                             // Compute new value
                             let right_val = self.visit_expr(right)?;
-                            let result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
+                            let result = Self::evaluate_binary_op(
+                                self,
+                                current_value,
+                                op,
+                                right_val,
+                                *span,
+                            )?;
 
                             // Update field
                             fields.insert(field.clone(), result);
@@ -1134,8 +1140,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     // For complex expressions like foo().field += value, evaluate normally
                     let current_value = self.visit_expr(left)?;
                     let right_val = self.visit_expr(right)?;
-                    let _result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
-                    
+                    let _result =
+                        Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
+
                     // This case can't actually update the original, so just return
                     Err(Error::new_runtime(
                         "Cannot perform compound assignment on temporary value".to_string(),
@@ -2007,7 +2014,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 for arg in args {
                     arg_values.push(self.visit_expr(arg)?);
                 }
-                
+
                 // Look up the method in the registry
                 if let Some(method_impl) = self.method_registry.get_string_method(method) {
                     // Call the method implementation
@@ -2025,7 +2032,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 for arg in args {
                     arg_values.push(self.visit_expr(arg)?);
                 }
-                
+
                 // Look up the method in the registry
                 if let Some(method_impl) = self.method_registry.get_array_method(method) {
                     // Call the method implementation
