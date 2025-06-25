@@ -83,17 +83,21 @@ impl PackageResolver {
         }
 
         // Check if package is listed in husk.toml dependencies
-        let has_dependency = self.config.dependencies.contains_key(package_name) || 
-                            self.config.dev_dependencies.contains_key(package_name);
-        
+        let has_dependency = self.config.dependencies.contains_key(package_name)
+            || self.config.dev_dependencies.contains_key(package_name);
+
         if has_dependency {
             // Get the dependency spec after the borrow check
-            let dep_spec = self.config.dependencies.get(package_name)
-                            .or_else(|| self.config.dev_dependencies.get(package_name))
-                            .unwrap()
-                            .clone();
+            let dep_spec = self
+                .config
+                .dependencies
+                .get(package_name)
+                .or_else(|| self.config.dev_dependencies.get(package_name))
+                .unwrap()
+                .clone();
             let resolved = self.resolve_dependency(package_name, &dep_spec)?;
-            self.package_cache.insert(package_name.to_string(), resolved.clone());
+            self.package_cache
+                .insert(package_name.to_string(), resolved.clone());
             Ok(resolved)
         } else {
             Err(Error::new_config(format!(
@@ -110,36 +114,34 @@ impl PackageResolver {
                 // Standard npm package - resolve from node_modules
                 self.resolve_npm_package(name)
             }
-            DependencySpec::Detailed { 
-                version: Some(_version), 
-                path: None, 
-                git: None, 
-                .. 
+            DependencySpec::Detailed {
+                version: Some(_version),
+                path: None,
+                git: None,
+                ..
             } => {
                 // Standard npm package with detailed version spec
                 self.resolve_npm_package(name)
             }
-            DependencySpec::Detailed { 
-                path: Some(local_path), 
-                .. 
+            DependencySpec::Detailed {
+                path: Some(local_path),
+                ..
             } => {
                 // Local path dependency
                 self.resolve_local_package(name, local_path)
             }
-            DependencySpec::Detailed { 
-                git: Some(_git_url), 
-                .. 
+            DependencySpec::Detailed {
+                git: Some(_git_url),
+                ..
             } => {
                 // Git dependency - treat as npm package for now
                 // In a full implementation, this would clone the repo
                 self.resolve_npm_package(name)
             }
-            _ => {
-                Err(Error::new_config(format!(
-                    "Invalid dependency specification for package '{}'", 
-                    name
-                )))
-            }
+            _ => Err(Error::new_config(format!(
+                "Invalid dependency specification for package '{}'",
+                name
+            ))),
         }
     }
 
@@ -158,7 +160,8 @@ impl PackageResolver {
         let package_json_path = package_path.join("package.json");
         let package_json = self.load_package_json(&package_json_path)?;
 
-        let main_file = package_json.main
+        let main_file = package_json
+            .main
             .clone()
             .or_else(|| package_json.module.clone())
             .unwrap_or_else(|| "index.js".to_string());
@@ -181,7 +184,9 @@ impl PackageResolver {
 
         Ok(ResolvedPackage {
             name: name.to_string(),
-            version: package_json.version.unwrap_or_else(|| "unknown".to_string()),
+            version: package_json
+                .version
+                .unwrap_or_else(|| "unknown".to_string()),
             path: package_path,
             main: Some(main_file),
             module_type,
@@ -190,9 +195,13 @@ impl PackageResolver {
     }
 
     /// Resolve a local path dependency
-    fn resolve_local_package(&mut self, name: &str, relative_path: &str) -> Result<ResolvedPackage> {
+    fn resolve_local_package(
+        &mut self,
+        name: &str,
+        relative_path: &str,
+    ) -> Result<ResolvedPackage> {
         let package_path = self.project_root.join(relative_path);
-        
+
         if !package_path.exists() {
             return Err(Error::new_config(format!(
                 "Local dependency '{}' not found at path: {}",
@@ -248,13 +257,20 @@ impl PackageResolver {
             return Ok(cached.clone());
         }
 
-        let content = fs::read_to_string(path)
-            .map_err(|e| Error::new_config(format!("Failed to read package.json at {}: {}", path.display(), e)))?;
+        let content = fs::read_to_string(path).map_err(|e| {
+            Error::new_config(format!(
+                "Failed to read package.json at {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
 
-        let package_json: PackageJson = serde_json::from_str(&content)
-            .map_err(|e| Error::new_config(format!("Invalid package.json at {}: {}", path.display(), e)))?;
+        let package_json: PackageJson = serde_json::from_str(&content).map_err(|e| {
+            Error::new_config(format!("Invalid package.json at {}: {}", path.display(), e))
+        })?;
 
-        self.package_json_cache.insert(path.to_path_buf(), package_json.clone());
+        self.package_json_cache
+            .insert(path.to_path_buf(), package_json.clone());
         Ok(package_json)
     }
 
@@ -300,12 +316,12 @@ impl PackageResolver {
     /// Check if a package import is external (npm package)
     pub fn is_external_package(&self, import_path: &str) -> bool {
         // External packages don't start with local::, self::, super::, or relative paths
-        !import_path.starts_with("local::") &&
-        !import_path.starts_with("self::") &&
-        !import_path.starts_with("super::") &&
-        !import_path.starts_with("./") &&
-        !import_path.starts_with("../") &&
-        !import_path.starts_with("/")
+        !import_path.starts_with("local::")
+            && !import_path.starts_with("self::")
+            && !import_path.starts_with("super::")
+            && !import_path.starts_with("./")
+            && !import_path.starts_with("../")
+            && !import_path.starts_with("/")
     }
 
     /// Get the JavaScript import path for a resolved package
@@ -318,38 +334,51 @@ impl PackageResolver {
 
     /// Generate appropriate import statement for transpiler
     pub fn generate_import_statement(
-        &self, 
-        package: &ResolvedPackage, 
+        &self,
+        package: &ResolvedPackage,
         imports: &[String],
-        subpath: Option<&str>
+        subpath: Option<&str>,
     ) -> String {
         let import_path = self.get_import_path(package, subpath);
-        
+
         match package.module_type {
             ModuleType::ESModule => {
                 if imports.len() == 1 && imports[0] == "default" {
                     format!("import {} from \"{}\";", package.name, import_path)
                 } else if imports.contains(&"default".to_string()) {
-                    let named_imports: Vec<_> = imports.iter()
-                        .filter(|&name| name != "default")
-                        .collect();
+                    let named_imports: Vec<_> =
+                        imports.iter().filter(|&name| name != "default").collect();
                     if named_imports.is_empty() {
                         format!("import {} from \"{}\";", package.name, import_path)
                     } else {
-                        format!("import {}, {{ {} }} from \"{}\";", 
-                            package.name, 
-                            named_imports.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "), 
-                            import_path)
+                        format!(
+                            "import {}, {{ {} }} from \"{}\";",
+                            package.name,
+                            named_imports
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            import_path
+                        )
                     }
                 } else {
-                    format!("import {{ {} }} from \"{}\";", imports.join(", "), import_path)
+                    format!(
+                        "import {{ {} }} from \"{}\";",
+                        imports.join(", "),
+                        import_path
+                    )
                 }
             }
             ModuleType::CommonJS => {
                 if imports.len() == 1 && (imports[0] == "default" || imports[0] == package.name) {
                     format!("const {} = require(\"{}\");", package.name, import_path)
                 } else {
-                    format!("const {{ {} }} = require(\"{}\");", imports.join(", "), import_path)
+                    format!(
+                        "const {{ {} }} = require(\"{}\");",
+                        imports.join(", "),
+                        import_path
+                    )
                 }
             }
             _ => {
@@ -394,7 +423,7 @@ mod tests {
     fn test_get_import_path() {
         let config = HuskConfig::default();
         let resolver = PackageResolver::new(PathBuf::from("/tmp"), config);
-        
+
         let package = ResolvedPackage {
             name: "express".to_string(),
             version: "4.18.0".to_string(),
@@ -405,7 +434,10 @@ mod tests {
         };
 
         assert_eq!(resolver.get_import_path(&package, None), "express");
-        assert_eq!(resolver.get_import_path(&package, Some("router")), "express/router");
+        assert_eq!(
+            resolver.get_import_path(&package, Some("router")),
+            "express/router"
+        );
         assert_eq!(resolver.get_import_path(&package, Some("")), "express");
     }
 
@@ -441,7 +473,11 @@ mod tests {
         assert_eq!(stmt, "const lodash = require(\"lodash\");");
 
         // Named imports
-        let stmt = resolver.generate_import_statement(&esm_package, &["Router".to_string(), "json".to_string()], None);
+        let stmt = resolver.generate_import_statement(
+            &esm_package,
+            &["Router".to_string(), "json".to_string()],
+            None,
+        );
         assert_eq!(stmt, "import { Router, json } from \"express\";");
     }
 
@@ -449,7 +485,7 @@ mod tests {
     fn test_package_json_parsing() {
         let temp_dir = TempDir::new().unwrap();
         let package_json_path = temp_dir.path().join("package.json");
-        
+
         let package_json_content = r#"{
             "name": "test-package",
             "version": "1.0.0",
@@ -461,14 +497,14 @@ mod tests {
                 "./utils": "./lib/utils.js"
             }
         }"#;
-        
+
         fs::write(&package_json_path, package_json_content).unwrap();
 
         let config = HuskConfig::default();
         let mut resolver = PackageResolver::new(temp_dir.path().to_path_buf(), config);
-        
+
         let package_json = resolver.load_package_json(&package_json_path).unwrap();
-        
+
         assert_eq!(package_json.name, Some("test-package".to_string()));
         assert_eq!(package_json.version, Some("1.0.0".to_string()));
         assert_eq!(package_json.main, Some("lib/index.js".to_string()));

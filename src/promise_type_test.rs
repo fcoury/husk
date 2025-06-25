@@ -12,14 +12,14 @@ async fn get_data() -> string {
     result
 }
 "#;
-        
+
         let result = transpile_to_js(code);
         assert!(result.is_ok());
         let js = result.unwrap();
         assert!(js.contains("async function get_data()"));
         assert!(js.contains("await fetch"));
     }
-    
+
     #[test]
     fn test_await_on_non_promise_error() {
         let code = r#"
@@ -32,13 +32,15 @@ async fn test() -> string {
     result
 }
 "#;
-        
+
         let result = execute_script(code);
         assert!(result.is_err());
         let error = result.unwrap_err();
-        assert!(error.to_string().contains(".await can only be used on Promise types"));
+        assert!(error
+            .to_string()
+            .contains(".await can only be used on Promise types"));
     }
-    
+
     #[test]
     fn test_nested_promise_types() {
         let code = r#"
@@ -49,14 +51,14 @@ async fn get_items() -> array<string> {
     items
 }
 "#;
-        
+
         let result = transpile_to_js(code);
         assert!(result.is_ok());
         let js = result.unwrap();
         assert!(js.contains("async function get_items()"));
         assert!(js.contains("await fetch_array"));
     }
-    
+
     #[test]
     fn test_async_function_returns_promise() {
         let code = r#"
@@ -72,7 +74,7 @@ fn main() {
     process_promise(promise);
 }
 "#;
-        
+
         let result = transpile_to_js(code);
         assert!(result.is_ok());
     }

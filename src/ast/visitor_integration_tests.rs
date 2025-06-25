@@ -1,12 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        execute_script,
+        error::Error, execute_script, lexer::Lexer, parser::Parser, semantic::SemanticVisitor,
         transpile_to_js,
-        semantic::SemanticVisitor,
-        lexer::Lexer,
-        parser::Parser,
-        error::Error,
     };
 
     #[test]
@@ -27,7 +23,7 @@ mod tests {
         // Semantic analysis uses the visitor pattern
         let mut analyzer = SemanticVisitor::new();
         let result = analyzer.analyze(&ast);
-        
+
         assert!(result.is_ok());
     }
 
@@ -43,7 +39,7 @@ mod tests {
 
         let result = execute_script(code);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             crate::Value::Int(n) => assert_eq!(n, 6), // 1 + 2 + 3
             _ => panic!("Expected Int result"),
@@ -61,7 +57,7 @@ mod tests {
         "#;
 
         let js = transpile_to_js(code).unwrap();
-        
+
         // Verify the transpiler correctly visited all nodes
         assert!(js.contains("function add(a, b)"));
         assert!(js.contains("return (a + b)"));
@@ -78,7 +74,7 @@ mod tests {
 
         let result = execute_script(code);
         assert!(result.is_err());
-        
+
         match result {
             Err(Error::Semantic(msg, _)) => {
                 assert!(msg.contains("Undefined") || msg.contains("y"));
@@ -120,7 +116,7 @@ mod tests {
         // This tests that all visitor methods work correctly together
         let result = execute_script(code);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             crate::Value::Int(n) => assert_eq!(n, 25), // 3*3 + 4*4
             _ => panic!("Expected Int result"),
@@ -163,7 +159,7 @@ mod tests {
 
         let result = execute_script(code);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             crate::Value::Int(n) => assert_eq!(n, 1),
             _ => panic!("Expected Int result"),
@@ -221,7 +217,7 @@ mod tests {
 
         let result = execute_script(code);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             crate::Value::Int(n) => assert_eq!(n, 42),
             _ => panic!("Expected Int result"),
@@ -249,7 +245,7 @@ mod tests {
 
         let result = execute_script(code);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             crate::Value::Int(n) => assert_eq!(n, 5), // 2 + 3
             _ => panic!("Expected Int result"),
@@ -281,7 +277,7 @@ mod tests {
         "#;
 
         let js = transpile_to_js(code).unwrap();
-        
+
         // Verify key constructs were properly transpiled
         assert!(js.contains("function Point"));
         assert!(js.contains("function main"));
@@ -306,7 +302,7 @@ mod tests {
 
         let result = execute_script(code);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             crate::Value::Int(n) => assert_eq!(n, 42),
             _ => panic!("Expected Int result"),

@@ -443,13 +443,13 @@ impl Lexer {
             }
         }
         let mut identifier: String = self.input[start_position..self.position].to_string();
-        
+
         // Special handling for format! - check if identifier is "format" followed by "!"
         if identifier == "format" && self.ch == Some('!') {
             self.read_char(); // consume the '!'
             identifier.push('!');
         }
-        
+
         let kind = match identifier.as_str() {
             "struct" => TokenKind::Struct,
             "impl" => TokenKind::Impl,
@@ -484,7 +484,7 @@ impl Lexer {
     fn read_string(&mut self) -> Token {
         self.read_char(); // Skip opening quote
         let mut string = String::new();
-        
+
         while let Some(c) = self.ch {
             if c == '"' {
                 break;

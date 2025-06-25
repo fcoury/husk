@@ -2,12 +2,12 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::interpreter::InterpreterVisitor;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::semantic::SemanticVisitor;
-    use crate::interpreter::InterpreterVisitor;
     use crate::transpiler::JsTranspiler;
-    
+
     #[test]
     fn test_option_some() {
         let program = r#"
@@ -17,22 +17,22 @@ mod tests {
                 Option::None => 0,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
-        
+
         assert_eq!(result, crate::interpreter::Value::Int(42));
     }
-    
+
     #[test]
     fn test_option_none() {
         let program = r#"
@@ -42,22 +42,22 @@ mod tests {
                 Option::None => 999,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
-        
+
         assert_eq!(result, crate::interpreter::Value::Int(999));
     }
-    
+
     #[test]
     fn test_result_ok() {
         let program = r#"
@@ -67,22 +67,22 @@ mod tests {
                 Result::Err(_) => 0,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
-        
+
         assert_eq!(result, crate::interpreter::Value::Int(42));
     }
-    
+
     #[test]
     fn test_result_err() {
         let program = r#"
@@ -92,22 +92,22 @@ mod tests {
                 Result::Err(msg) => 999,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
-        
+
         assert_eq!(result, crate::interpreter::Value::Int(999));
     }
-    
+
     #[test]
     fn test_option_transpilation() {
         let program = r#"
@@ -117,23 +117,23 @@ mod tests {
                 Option::None => 0,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut transpiler = JsTranspiler::new();
         let js = transpiler.generate(&ast).expect("Transpilation failed");
-        
+
         // Should generate null checks
         assert!(js.contains("null") || js.contains("undefined"));
     }
-    
+
     #[test]
     fn test_result_transpilation() {
         let program = r#"
@@ -146,24 +146,24 @@ mod tests {
             };
             result
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut transpiler = JsTranspiler::new();
         let js = transpiler.generate(&ast).expect("Transpilation failed");
-        
+
         // Should generate Result structure
         assert!(js.contains("Ok:") || js.contains("{ Ok:"));
         assert!(js.contains("Err:") || js.contains("{ Err:"));
     }
-    
+
     #[test]
     fn test_nested_option_result() {
         let program = r#"
@@ -176,22 +176,22 @@ mod tests {
                 Option::None => -1,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
-        
+
         assert_eq!(result, crate::interpreter::Value::Int(42));
     }
-    
+
     #[test]
     fn test_nested_match_all_cases() {
         // Test Option::Some(Result::Ok)
@@ -205,7 +205,7 @@ mod tests {
                 Option::None => -2,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program1);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
@@ -215,7 +215,7 @@ mod tests {
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
         assert_eq!(result, crate::interpreter::Value::Int(100));
-        
+
         // Test Option::Some(Result::Err)
         let program2 = r#"
             let x = Option::Some(Result::Err("error"));
@@ -227,7 +227,7 @@ mod tests {
                 Option::None => -2,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program2);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
@@ -237,7 +237,7 @@ mod tests {
         let mut interpreter = InterpreterVisitor::new();
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
         assert_eq!(result, crate::interpreter::Value::Int(200));
-        
+
         // Test Option::None
         let program3 = r#"
             let x = Option::None;
@@ -249,7 +249,7 @@ mod tests {
                 Option::None => 300,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program3);
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
@@ -260,7 +260,7 @@ mod tests {
         let result = interpreter.interpret(&ast).expect("Interpretation failed");
         assert_eq!(result, crate::interpreter::Value::Int(300));
     }
-    
+
     #[test]
     fn test_nested_match_transpilation() {
         let program = r#"
@@ -273,19 +273,19 @@ mod tests {
                 Option::None => -1,
             }
         "#;
-        
+
         let mut lexer = Lexer::new(program);
         let tokens = lexer.lex_all();
-        
+
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().expect("Failed to parse");
-        
+
         let mut analyzer = SemanticVisitor::new();
         analyzer.analyze(&ast).expect("Semantic analysis failed");
-        
+
         let mut transpiler = JsTranspiler::new();
         let js = transpiler.generate(&ast).expect("Transpilation failed");
-        
+
         // Should contain nested match structures
         assert!(js.contains("_matched"));
         assert!(js.contains("Ok:"));

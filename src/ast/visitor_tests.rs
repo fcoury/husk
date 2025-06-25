@@ -2,7 +2,7 @@
 mod tests {
     use super::super::visitor::AstVisitor;
     use crate::{
-        parser::{Expr, Stmt, Operator, UnaryOp, UsePath, UseItems},
+        parser::{Expr, Operator, Stmt, UnaryOp, UseItems, UsePath},
         span::Span,
     };
     use std::collections::HashMap;
@@ -35,9 +35,12 @@ mod tests {
 
         fn track(&mut self, method: &str) -> Result<String, VisitError> {
             *self.visits.entry(method.to_string()).or_insert(0) += 1;
-            
+
             if self.should_fail.as_ref() == Some(&method.to_string()) {
-                Err(VisitError::TestError(format!("Simulated error in {}", method)))
+                Err(VisitError::TestError(format!(
+                    "Simulated error in {}",
+                    method
+                )))
             } else {
                 Ok(format!("visited_{}", method))
             }
@@ -87,14 +90,25 @@ mod tests {
             Ok("visited_array".to_string())
         }
 
-        fn visit_array_index(&mut self, array: &Expr, index: &Expr, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_array_index(
+            &mut self,
+            array: &Expr,
+            index: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("array_index")?;
             self.visit_expr(array)?;
             self.visit_expr(index)?;
             Ok("visited_array_index".to_string())
         }
 
-        fn visit_range(&mut self, start: Option<&Expr>, end: Option<&Expr>, inclusive: bool, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_range(
+            &mut self,
+            start: Option<&Expr>,
+            end: Option<&Expr>,
+            inclusive: bool,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("range_inclusive_{}", inclusive))?;
             if let Some(s) = start {
                 self.visit_expr(s)?;
@@ -105,34 +119,61 @@ mod tests {
             Ok("visited_range".to_string())
         }
 
-        fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_binary_op(
+            &mut self,
+            left: &Expr,
+            op: &Operator,
+            right: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("binary_op_{:?}", op))?;
             self.visit_expr(left)?;
             self.visit_expr(right)?;
             Ok("visited_binary_op".to_string())
         }
 
-        fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_unary_op(
+            &mut self,
+            op: &UnaryOp,
+            expr: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("unary_op_{:?}", op))?;
             self.visit_expr(expr)?;
             Ok("visited_unary_op".to_string())
         }
 
-        fn visit_assign(&mut self, left: &Expr, right: &Expr, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_assign(
+            &mut self,
+            left: &Expr,
+            right: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("assign")?;
             self.visit_expr(left)?;
             self.visit_expr(right)?;
             Ok("visited_assign".to_string())
         }
 
-        fn visit_compound_assign(&mut self, left: &Expr, op: &Operator, right: &Expr, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_compound_assign(
+            &mut self,
+            left: &Expr,
+            op: &Operator,
+            right: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("compound_assign_{:?}", op))?;
             self.visit_expr(left)?;
             self.visit_expr(right)?;
             Ok("visited_compound_assign".to_string())
         }
 
-        fn visit_function_call(&mut self, name: &str, args: &[Expr], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_function_call(
+            &mut self,
+            name: &str,
+            args: &[Expr],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("function_call_{}", name))?;
             for arg in args {
                 self.visit_expr(arg)?;
@@ -140,7 +181,12 @@ mod tests {
             Ok("visited_function_call".to_string())
         }
 
-        fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_struct_init(
+            &mut self,
+            name: &str,
+            fields: &[(String, Expr)],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("struct_init_{}", name))?;
             for (_, expr) in fields {
                 self.visit_expr(expr)?;
@@ -148,13 +194,24 @@ mod tests {
             Ok("visited_struct_init".to_string())
         }
 
-        fn visit_member_access(&mut self, object: &Expr, field: &str, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_member_access(
+            &mut self,
+            object: &Expr,
+            field: &str,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("member_access_{}", field))?;
             self.visit_expr(object)?;
             Ok("visited_member_access".to_string())
         }
 
-        fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_enum_variant_or_method_call(
+            &mut self,
+            target: &Expr,
+            call: &str,
+            args: &[Expr],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("enum_variant_or_method_{}", call))?;
             self.visit_expr(target)?;
             for arg in args {
@@ -171,7 +228,13 @@ mod tests {
             Ok("visited_block".to_string())
         }
 
-        fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_if_expr(
+            &mut self,
+            condition: &Expr,
+            then_block: &[Stmt],
+            else_block: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("if_expr")?;
             self.visit_expr(condition)?;
             for stmt in then_block {
@@ -183,13 +246,26 @@ mod tests {
             Ok("visited_if_expr".to_string())
         }
 
-        fn visit_let(&mut self, name: &str, expr: &Expr, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_let(
+            &mut self,
+            name: &str,
+            expr: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("let_{}", name))?;
             self.visit_expr(expr)?;
             Ok("visited_let".to_string())
         }
 
-        fn visit_function(&mut self, name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_function(
+            &mut self,
+            name: &str,
+            _generic_params: &[String],
+            _params: &[(String, String)],
+            _return_type: &str,
+            body: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("function_{}", name))?;
             for stmt in body {
                 self.visit_stmt(stmt)?;
@@ -197,15 +273,32 @@ mod tests {
             Ok("visited_function".to_string())
         }
 
-        fn visit_struct(&mut self, name: &str, _generic_params: &[String], _fields: &[(String, String)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_struct(
+            &mut self,
+            name: &str,
+            _generic_params: &[String],
+            _fields: &[(String, String)],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("struct_{}", name))
         }
 
-        fn visit_enum(&mut self, name: &str, _generic_params: &[String], _variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_enum(
+            &mut self,
+            name: &str,
+            _generic_params: &[String],
+            _variants: &[crate::parser::EnumVariant],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("enum_{}", name))
         }
 
-        fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_impl(
+            &mut self,
+            struct_name: &str,
+            methods: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("impl_{}", struct_name))?;
             for method in methods {
                 self.visit_stmt(method)?;
@@ -213,7 +306,12 @@ mod tests {
             Ok("visited_impl".to_string())
         }
 
-        fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_match(
+            &mut self,
+            expr: &Expr,
+            arms: &[(Expr, Vec<Stmt>)],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("match")?;
             self.visit_expr(expr)?;
             for (pattern, stmts) in arms {
@@ -225,7 +323,13 @@ mod tests {
             Ok("visited_match".to_string())
         }
 
-        fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_for_loop(
+            &mut self,
+            pattern: &Expr,
+            iterable: &Expr,
+            body: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             let pattern_name = match pattern {
                 Expr::Identifier(name, _) => name.clone(),
                 _ => "pattern".to_string(),
@@ -238,7 +342,12 @@ mod tests {
             Ok("visited_for_loop".to_string())
         }
 
-        fn visit_while(&mut self, condition: &Expr, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_while(
+            &mut self,
+            condition: &Expr,
+            body: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("while")?;
             self.visit_expr(condition)?;
             for stmt in body {
@@ -263,7 +372,11 @@ mod tests {
             self.track("continue")
         }
 
-        fn visit_return(&mut self, expr: Option<&Expr>, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_return(
+            &mut self,
+            expr: Option<&Expr>,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("return")?;
             if let Some(e) = expr {
                 self.visit_expr(e)?;
@@ -271,34 +384,68 @@ mod tests {
             Ok("visited_return".to_string())
         }
 
-        fn visit_expression_stmt(&mut self, expr: &Expr, has_semicolon: bool) -> Result<String, Self::Error> {
+        fn visit_expression_stmt(
+            &mut self,
+            expr: &Expr,
+            has_semicolon: bool,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("expression_stmt_semicolon_{}", has_semicolon))?;
             self.visit_expr(expr)?;
             Ok("visited_expression_stmt".to_string())
         }
 
-        fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String, Self::Error> {
+        fn visit_use(
+            &mut self,
+            path: &UsePath,
+            items: &UseItems,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("use_{:?}_{:?}", path.prefix, items))?;
             Ok("visited_use".to_string())
         }
-        
-        fn visit_extern_function(&mut self, name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_extern_function(
+            &mut self,
+            name: &str,
+            _generic_params: &[String],
+            _params: &[(String, String)],
+            _return_type: &str,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("extern_function_{}", name))
         }
-        
-        fn visit_extern_mod(&mut self, name: &str, _items: &[crate::parser::ExternItem], _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_extern_mod(
+            &mut self,
+            name: &str,
+            _items: &[crate::parser::ExternItem],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("extern_mod_{}", name))
         }
-        
-        fn visit_async_function(&mut self, name: &str, _generic_params: &[String], _params: &[(String, String)], _return_type: &str, body: &[Stmt], _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_async_function(
+            &mut self,
+            name: &str,
+            _generic_params: &[String],
+            _params: &[(String, String)],
+            _return_type: &str,
+            body: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("async_function_{}", name))?;
             for stmt in body {
                 self.visit_stmt(stmt)?;
             }
             Ok("visited_async_function".to_string())
         }
-        
-        fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_match_expr(
+            &mut self,
+            expr: &Expr,
+            arms: &[(Expr, Vec<Stmt>)],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track("match_expr")?;
             self.visit_expr(expr)?;
             for (pattern, stmts) in arms {
@@ -309,7 +456,7 @@ mod tests {
             }
             Ok("visited_match_expr".to_string())
         }
-        
+
         fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String, Self::Error> {
             self.track("await")?;
             self.visit_expr(expr)?;
@@ -327,14 +474,26 @@ mod tests {
             self.visit_expr(expr)?;
             Ok("visited_await_try".to_string())
         }
-        
-        fn visit_closure(&mut self, params: &[(String, Option<String>)], _ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_closure(
+            &mut self,
+            params: &[(String, Option<String>)],
+            _ret_type: &Option<String>,
+            body: &Expr,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("closure_{}_params", params.len()))?;
             self.visit_expr(body)?;
             Ok("visited_closure".to_string())
         }
-        
-        fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_method_call(
+            &mut self,
+            object: &Expr,
+            method: &str,
+            args: &[Expr],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("method_call_{}", method))?;
             self.visit_expr(object)?;
             for arg in args {
@@ -342,19 +501,34 @@ mod tests {
             }
             Ok("visited_method_call".to_string())
         }
-        
-        fn visit_cast(&mut self, expr: &Expr, target_type: &str, _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_cast(
+            &mut self,
+            expr: &Expr,
+            target_type: &str,
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("cast_{}", target_type))?;
             self.visit_expr(expr)?;
             Ok("visited_cast".to_string())
         }
 
-        fn visit_struct_pattern(&mut self, variant: &str, fields: &[(String, Option<String>)], _span: &Span) -> Result<String, Self::Error> {
+        fn visit_struct_pattern(
+            &mut self,
+            variant: &str,
+            fields: &[(String, Option<String>)],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("struct_pattern_{}_{}", variant, fields.len()))?;
             Ok("visited_struct_pattern".to_string())
         }
-        
-        fn visit_extern_type(&mut self, name: &str, generic_params: &[String], _span: &Span) -> Result<String, Self::Error> {
+
+        fn visit_extern_type(
+            &mut self,
+            name: &str,
+            generic_params: &[String],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
             self.track(&format!("extern_type_{}_{}", name, generic_params.len()))?;
             Ok("visited_extern_type".to_string())
         }
@@ -406,14 +580,10 @@ mod tests {
         let mut visitor = TrackingVisitor::new();
         let span = Span::new(0, 0);
 
-        let elements = vec![
-            Expr::Int(1, span),
-            Expr::Int(2, span),
-            Expr::Int(3, span),
-        ];
+        let elements = vec![Expr::Int(1, span), Expr::Int(2, span), Expr::Int(3, span)];
         let expr = Expr::Array(elements, span);
         let result = visitor.visit_expr(&expr);
-        
+
         assert_eq!(result, Ok("visited_array".to_string()));
         assert!(visitor.was_called("array"));
         assert!(visitor.was_called("int_1"));
@@ -429,7 +599,7 @@ mod tests {
         let left = Box::new(Expr::Int(5, span));
         let right = Box::new(Expr::Int(3, span));
         let expr = Expr::BinaryOp(left, Operator::Plus, right, span);
-        
+
         let result = visitor.visit_expr(&expr);
         assert_eq!(result, Ok("visited_binary_op".to_string()));
         assert!(visitor.was_called("binary_op_Plus"));
@@ -444,7 +614,7 @@ mod tests {
 
         let inner = Box::new(Expr::Bool(true, span));
         let expr = Expr::UnaryOp(UnaryOp::Not, inner, span);
-        
+
         let result = visitor.visit_expr(&expr);
         assert_eq!(result, Ok("visited_unary_op".to_string()));
         assert!(visitor.was_called("unary_op_Not"));
@@ -457,16 +627,12 @@ mod tests {
         let span = Span::new(0, 0);
 
         let condition = Box::new(Expr::Bool(true, span));
-        let then_block = vec![
-            Stmt::Expression(Expr::Int(1, span), true),
-        ];
-        let else_block = vec![
-            Stmt::Expression(Expr::Int(2, span), true),
-        ];
-        
+        let then_block = vec![Stmt::Expression(Expr::Int(1, span), true)];
+        let else_block = vec![Stmt::Expression(Expr::Int(2, span), true)];
+
         let expr = Expr::If(condition, then_block, else_block, span);
         let result = visitor.visit_expr(&expr);
-        
+
         assert_eq!(result, Ok("visited_if_expr".to_string()));
         assert!(visitor.was_called("if_expr"));
         assert!(visitor.was_called("bool_true"));
@@ -509,18 +675,27 @@ mod tests {
             ("x".to_string(), "int".to_string()),
             ("y".to_string(), "int".to_string()),
         ];
-        let body = vec![
-            Stmt::Expression(Expr::BinaryOp(
+        let body = vec![Stmt::Expression(
+            Expr::BinaryOp(
                 Box::new(Expr::Identifier("x".to_string(), span)),
                 Operator::Plus,
                 Box::new(Expr::Identifier("y".to_string(), span)),
-                span
-            ), false),
-        ];
-        
-        let stmt = Stmt::Function(false, "add".to_string(), vec![], params, "int".to_string(), body, span);
+                span,
+            ),
+            false,
+        )];
+
+        let stmt = Stmt::Function(
+            false,
+            "add".to_string(),
+            vec![],
+            params,
+            "int".to_string(),
+            body,
+            span,
+        );
         let result = visitor.visit_stmt(&stmt);
-        
+
         assert_eq!(result, Ok("visited_function".to_string()));
         assert!(visitor.was_called("function_add"));
         assert!(visitor.was_called("expression_stmt_semicolon_false"));
@@ -533,14 +708,15 @@ mod tests {
         let span = Span::new(0, 0);
 
         let iterable = Expr::Array(vec![Expr::Int(1, span), Expr::Int(2, span)], span);
-        let body = vec![
-            Stmt::Expression(Expr::Identifier("i".to_string(), span), true),
-        ];
-        
+        let body = vec![Stmt::Expression(
+            Expr::Identifier("i".to_string(), span),
+            true,
+        )];
+
         let pattern = Expr::Identifier("i".to_string(), span);
         let stmt = Stmt::ForLoop(pattern, iterable, body, span);
         let result = visitor.visit_stmt(&stmt);
-        
+
         assert_eq!(result, Ok("visited_for_loop".to_string()));
         assert!(visitor.was_called("for_loop_i"));
         assert!(visitor.was_called("array"));
@@ -554,7 +730,7 @@ mod tests {
 
         let expr = Expr::Int(42, span);
         let result = visitor.visit_expr(&expr);
-        
+
         assert!(matches!(result, Err(VisitError::TestError(_))));
         assert!(visitor.was_called("int_42"));
     }
@@ -571,7 +747,7 @@ mod tests {
         ];
         let expr = Expr::Array(elements, span);
         let result = visitor.visit_expr(&expr);
-        
+
         assert!(matches!(result, Err(VisitError::TestError(_))));
         assert!(visitor.was_called("array"));
         assert!(visitor.was_called("int_1"));
@@ -586,13 +762,25 @@ mod tests {
 
         let expr = Expr::Identifier("x".to_string(), span);
         let arms = vec![
-            (Expr::Int(1, span), vec![Stmt::Expression(Expr::String("one".to_string(), span), true)]),
-            (Expr::Int(2, span), vec![Stmt::Expression(Expr::String("two".to_string(), span), true)]),
+            (
+                Expr::Int(1, span),
+                vec![Stmt::Expression(
+                    Expr::String("one".to_string(), span),
+                    true,
+                )],
+            ),
+            (
+                Expr::Int(2, span),
+                vec![Stmt::Expression(
+                    Expr::String("two".to_string(), span),
+                    true,
+                )],
+            ),
         ];
-        
+
         let stmt = Stmt::Match(expr, arms, span);
         let result = visitor.visit_stmt(&stmt);
-        
+
         assert_eq!(result, Ok("visited_match".to_string()));
         assert!(visitor.was_called("match"));
         assert!(visitor.was_called("identifier_x"));
@@ -633,7 +821,7 @@ mod tests {
         let end = Some(Box::new(Expr::Int(10, span)));
         let expr = Expr::Range(start, end, false, span);
         let result = visitor.visit_expr(&expr);
-        
+
         assert_eq!(result, Ok("visited_range".to_string()));
         assert!(visitor.was_called("range_inclusive_false"));
         assert!(visitor.was_called("int_1"));
@@ -645,7 +833,7 @@ mod tests {
         let end = Some(Box::new(Expr::Int(5, span)));
         let expr = Expr::Range(start, end, true, span);
         let result = visitor2.visit_expr(&expr);
-        
+
         assert_eq!(result, Ok("visited_range".to_string()));
         assert!(visitor2.was_called("range_inclusive_true"));
 
@@ -653,7 +841,7 @@ mod tests {
         let mut visitor3 = TrackingVisitor::new();
         let expr = Expr::Range(None, None, false, span);
         let result = visitor3.visit_expr(&expr);
-        
+
         assert_eq!(result, Ok("visited_range".to_string()));
         assert!(visitor3.was_called("range_inclusive_false"));
         assert_eq!(visitor3.visits.len(), 1); // Only range was called
@@ -667,7 +855,7 @@ mod tests {
         let left = Box::new(Expr::Identifier("x".to_string(), span));
         let right = Box::new(Expr::Int(5, span));
         let expr = Expr::CompoundAssign(left, Operator::Plus, right, span);
-        
+
         let result = visitor.visit_expr(&expr);
         assert_eq!(result, Ok("visited_compound_assign".to_string()));
         assert!(visitor.was_called("compound_assign_Plus"));

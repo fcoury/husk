@@ -125,7 +125,7 @@ impl HuskConfig {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path)
             .map_err(|e| Error::new_config(format!("Failed to read husk.toml: {}", e)))?;
-        
+
         Self::from_str(&content)
     }
 
@@ -151,7 +151,7 @@ impl HuskConfig {
                 current_dir = parent.to_path_buf();
             } else {
                 return Err(Error::new_config(
-                    "No husk.toml found in current directory or parent directories".to_string()
+                    "No husk.toml found in current directory or parent directories".to_string(),
                 ));
             }
         }
@@ -159,114 +159,165 @@ impl HuskConfig {
 
     /// Get the main entry point file path
     pub fn get_main_entry(&self) -> String {
-        self.package.main.clone()
+        self.package
+            .main
+            .clone()
             .unwrap_or_else(|| format!("{}/main.husk", self.build.src))
     }
 
     /// Get all dependencies including dev dependencies (for development builds)
     pub fn get_all_dependencies(&self, include_dev: bool) -> HashMap<String, &DependencySpec> {
         let mut deps = HashMap::new();
-        
+
         for (name, spec) in &self.dependencies {
             deps.insert(name.clone(), spec);
         }
-        
+
         if include_dev {
             for (name, spec) in &self.dev_dependencies {
                 deps.insert(name.clone(), spec);
             }
         }
-        
+
         deps
     }
 
     /// Generate package.json content from husk.toml
     pub fn generate_package_json(&self) -> Result<String> {
         let mut pkg = serde_json::Map::new();
-        
+
         // Basic package info
-        pkg.insert("name".to_string(), serde_json::Value::String(self.package.name.clone()));
-        pkg.insert("version".to_string(), serde_json::Value::String(self.package.version.clone()));
-        
+        pkg.insert(
+            "name".to_string(),
+            serde_json::Value::String(self.package.name.clone()),
+        );
+        pkg.insert(
+            "version".to_string(),
+            serde_json::Value::String(self.package.version.clone()),
+        );
+
         if let Some(desc) = &self.package.description {
-            pkg.insert("description".to_string(), serde_json::Value::String(desc.clone()));
+            pkg.insert(
+                "description".to_string(),
+                serde_json::Value::String(desc.clone()),
+            );
         }
-        
+
         if let Some(author) = &self.package.author {
-            pkg.insert("author".to_string(), serde_json::Value::String(author.clone()));
+            pkg.insert(
+                "author".to_string(),
+                serde_json::Value::String(author.clone()),
+            );
         }
-        
+
         if let Some(license) = &self.package.license {
-            pkg.insert("license".to_string(), serde_json::Value::String(license.clone()));
+            pkg.insert(
+                "license".to_string(),
+                serde_json::Value::String(license.clone()),
+            );
         }
-        
+
         if let Some(repo) = &self.package.repository {
             let mut repository = serde_json::Map::new();
-            repository.insert("type".to_string(), serde_json::Value::String("git".to_string()));
+            repository.insert(
+                "type".to_string(),
+                serde_json::Value::String("git".to_string()),
+            );
             repository.insert("url".to_string(), serde_json::Value::String(repo.clone()));
-            pkg.insert("repository".to_string(), serde_json::Value::Object(repository));
+            pkg.insert(
+                "repository".to_string(),
+                serde_json::Value::Object(repository),
+            );
         }
-        
+
         if let Some(homepage) = &self.package.homepage {
-            pkg.insert("homepage".to_string(), serde_json::Value::String(homepage.clone()));
+            pkg.insert(
+                "homepage".to_string(),
+                serde_json::Value::String(homepage.clone()),
+            );
         }
-        
+
         if !self.package.keywords.is_empty() {
-            let keywords: Vec<serde_json::Value> = self.package.keywords
+            let keywords: Vec<serde_json::Value> = self
+                .package
+                .keywords
                 .iter()
                 .map(|k| serde_json::Value::String(k.clone()))
                 .collect();
             pkg.insert("keywords".to_string(), serde_json::Value::Array(keywords));
         }
-        
+
         // Entry point
         let main_file = format!("{}/index.js", self.build.out);
         pkg.insert("main".to_string(), serde_json::Value::String(main_file));
-        
+
         // Module type
         if self.build.module == "esm" {
-            pkg.insert("type".to_string(), serde_json::Value::String("module".to_string()));
+            pkg.insert(
+                "type".to_string(),
+                serde_json::Value::String("module".to_string()),
+            );
         }
-        
+
         // Dependencies
         if !self.dependencies.is_empty() {
             let mut deps = serde_json::Map::new();
             for (name, spec) in &self.dependencies {
                 let version = match spec {
                     DependencySpec::Simple(v) => v.clone(),
-                    DependencySpec::Detailed { version: Some(v), .. } => v.clone(),
+                    DependencySpec::Detailed {
+                        version: Some(v), ..
+                    } => v.clone(),
                     DependencySpec::Detailed { git: Some(git), .. } => git.clone(),
-                    DependencySpec::Detailed { path: Some(path), .. } => format!("file:{}", path),
+                    DependencySpec::Detailed {
+                        path: Some(path), ..
+                    } => format!("file:{}", path),
                     _ => "latest".to_string(),
                 };
                 deps.insert(name.clone(), serde_json::Value::String(version));
             }
             pkg.insert("dependencies".to_string(), serde_json::Value::Object(deps));
         }
-        
+
         // Dev dependencies
         if !self.dev_dependencies.is_empty() {
             let mut deps = serde_json::Map::new();
             for (name, spec) in &self.dev_dependencies {
                 let version = match spec {
                     DependencySpec::Simple(v) => v.clone(),
-                    DependencySpec::Detailed { version: Some(v), .. } => v.clone(),
+                    DependencySpec::Detailed {
+                        version: Some(v), ..
+                    } => v.clone(),
                     DependencySpec::Detailed { git: Some(git), .. } => git.clone(),
-                    DependencySpec::Detailed { path: Some(path), .. } => format!("file:{}", path),
+                    DependencySpec::Detailed {
+                        path: Some(path), ..
+                    } => format!("file:{}", path),
                     _ => "latest".to_string(),
                 };
                 deps.insert(name.clone(), serde_json::Value::String(version));
             }
-            pkg.insert("devDependencies".to_string(), serde_json::Value::Object(deps));
+            pkg.insert(
+                "devDependencies".to_string(),
+                serde_json::Value::Object(deps),
+            );
         }
-        
+
         // Scripts
         let mut scripts = serde_json::Map::new();
-        scripts.insert("build".to_string(), serde_json::Value::String("husk build".to_string()));
-        scripts.insert("dev".to_string(), serde_json::Value::String("husk dev".to_string()));
-        scripts.insert("start".to_string(), serde_json::Value::String("husk run".to_string()));
+        scripts.insert(
+            "build".to_string(),
+            serde_json::Value::String("husk build".to_string()),
+        );
+        scripts.insert(
+            "dev".to_string(),
+            serde_json::Value::String("husk dev".to_string()),
+        );
+        scripts.insert(
+            "start".to_string(),
+            serde_json::Value::String("husk run".to_string()),
+        );
         pkg.insert("scripts".to_string(), serde_json::Value::Object(scripts));
-        
+
         serde_json::to_string_pretty(&serde_json::Value::Object(pkg))
             .map_err(|e| Error::new_config(format!("Failed to generate package.json: {}", e)))
     }
@@ -275,40 +326,45 @@ impl HuskConfig {
     pub fn validate(&self) -> Result<()> {
         // Validate package name
         if self.package.name.is_empty() {
-            return Err(Error::new_config("Package name cannot be empty".to_string()));
+            return Err(Error::new_config(
+                "Package name cannot be empty".to_string(),
+            ));
         }
-        
+
         // Validate version format
         if self.package.version.is_empty() {
-            return Err(Error::new_config("Package version cannot be empty".to_string()));
+            return Err(Error::new_config(
+                "Package version cannot be empty".to_string(),
+            ));
         }
-        
+
         // Validate build target
         if !self.build.target.is_empty() {
-            let valid_targets = ["es2015", "es2016", "es2017", "es2018", "es2019", "es2020", "es2021", "es2022", "esnext", "node"];
+            let valid_targets = [
+                "es2015", "es2016", "es2017", "es2018", "es2019", "es2020", "es2021", "es2022",
+                "esnext", "node",
+            ];
             if !valid_targets.contains(&self.build.target.as_str()) {
-                return Err(Error::new_config(
-                    format!("Invalid build target '{}'. Valid targets: {}", 
-                        self.build.target, 
-                        valid_targets.join(", ")
-                    )
-                ));
+                return Err(Error::new_config(format!(
+                    "Invalid build target '{}'. Valid targets: {}",
+                    self.build.target,
+                    valid_targets.join(", ")
+                )));
             }
         }
-        
+
         // Validate module format
         if !self.build.module.is_empty() {
             let valid_modules = ["esm", "cjs", "umd", "iife"];
             if !valid_modules.contains(&self.build.module.as_str()) {
-                return Err(Error::new_config(
-                    format!("Invalid module format '{}'. Valid formats: {}", 
-                        self.build.module, 
-                        valid_modules.join(", ")
-                    )
-                ));
+                return Err(Error::new_config(format!(
+                    "Invalid module format '{}'. Valid formats: {}",
+                    self.build.module,
+                    valid_modules.join(", ")
+                )));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -347,7 +403,7 @@ mod tests {
 name = "my-app"
 version = "1.0.0"
 "#;
-        
+
         let config = HuskConfig::from_str(toml).unwrap();
         assert_eq!(config.package.name, "my-app");
         assert_eq!(config.package.version, "1.0.0");
@@ -393,11 +449,14 @@ format = "esm"
 entry = "src/client.husk"
 output = "dist/bundle.js"
 "#;
-        
+
         let config = HuskConfig::from_str(toml).unwrap();
-        
+
         assert_eq!(config.package.name, "my-app");
-        assert_eq!(config.package.description, Some("A sample Husk application".to_string()));
+        assert_eq!(
+            config.package.description,
+            Some("A sample Husk application".to_string())
+        );
         assert_eq!(config.dependencies.len(), 2);
         assert_eq!(config.dev_dependencies.len(), 1);
         assert_eq!(config.build.target, "es2020");
@@ -423,12 +482,18 @@ output = "dist/bundle.js"
             },
             dependencies: {
                 let mut deps = HashMap::new();
-                deps.insert("express".to_string(), DependencySpec::Simple("^4.18.0".to_string()));
+                deps.insert(
+                    "express".to_string(),
+                    DependencySpec::Simple("^4.18.0".to_string()),
+                );
                 deps
             },
             dev_dependencies: {
                 let mut deps = HashMap::new();
-                deps.insert("jest".to_string(), DependencySpec::Simple("^29.0.0".to_string()));
+                deps.insert(
+                    "jest".to_string(),
+                    DependencySpec::Simple("^29.0.0".to_string()),
+                );
                 deps
             },
             build: BuildConfig {
@@ -442,7 +507,7 @@ output = "dist/bundle.js"
             },
             targets: HashMap::new(),
         };
-        
+
         let package_json = config.generate_package_json().unwrap();
         assert!(package_json.contains("\"name\": \"test-app\""));
         assert!(package_json.contains("\"version\": \"1.2.3\""));
@@ -455,14 +520,14 @@ output = "dist/bundle.js"
     fn test_validation() {
         let mut config = HuskConfig::default();
         config.package.name = "".to_string();
-        
+
         assert!(config.validate().is_err());
-        
+
         config.package.name = "valid-name".to_string();
         config.build.target = "invalid-target".to_string();
-        
+
         assert!(config.validate().is_err());
-        
+
         config.build.target = "es2020".to_string();
         assert!(config.validate().is_ok());
     }

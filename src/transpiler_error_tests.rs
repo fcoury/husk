@@ -24,9 +24,11 @@ mod tests {
 
     #[test]
     fn test_transpile_type_errors() {
-        let error = transpile_and_expect_error(r#"
+        let error = transpile_and_expect_error(
+            r#"
             let x = 5 + "hello";
-        "#);
+        "#,
+        );
         match error {
             Error::Semantic(msg, _) => {
                 assert!(msg.contains("numeric types"));
@@ -54,7 +56,7 @@ mod tests {
             println(p1.x);
             println(p2.y);
         "#;
-        
+
         match transpile_to_js(code) {
             Ok(js) => {
                 assert!(js.contains("function Point")); // Transpiler uses functions, not classes
@@ -75,7 +77,7 @@ mod tests {
             let e = 10 % 3;
             let f = -5;
         "#;
-        
+
         match transpile_to_js(code) {
             Ok(js) => {
                 assert!(js.contains("&&"));

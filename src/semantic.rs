@@ -6,7 +6,7 @@ use crate::{
     error::{Error, Result},
     lexer::Lexer,
     package_resolver::PackageResolver,
-    parser::{Expr, Operator, Parser, Stmt, UnaryOp, UsePath, UseItems, UsePrefix, ExternItem},
+    parser::{Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
     types::{Type, TypeEnvironment},
 };
@@ -67,7 +67,7 @@ impl SemanticVisitor {
     /// Resolve the path for a local module
     fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
         let module_path = path.segments.join("/") + ".husk";
-        
+
         match path.prefix {
             UsePrefix::Local => {
                 // local:: - from project root or current file's directory
@@ -85,7 +85,7 @@ impl SemanticVisitor {
                                 })?;
                                 Ok(parent.join(&module_path))
                             }
-                            None => Ok(PathBuf::from(&module_path))
+                            None => Ok(PathBuf::from(&module_path)),
                         }
                     }
                 }
@@ -118,7 +118,7 @@ impl SemanticVisitor {
                                 *span,
                             )
                         })?;
-                        
+
                         // Go up 'count' directories
                         for _ in 0..count {
                             parent = parent.parent().ok_or_else(|| {
@@ -128,7 +128,7 @@ impl SemanticVisitor {
                                 )
                             })?;
                         }
-                        
+
                         Ok(parent.join(&module_path))
                     }
                     None => Err(Error::new_semantic(
@@ -153,7 +153,7 @@ impl SemanticVisitor {
         if self.analyzed_modules.contains_key(module_path) {
             return Ok(());
         }
-        
+
         // Mark as being analyzed
         self.analyzed_modules.insert(module_path.to_path_buf(), ());
 
@@ -199,22 +199,29 @@ impl SemanticVisitor {
             Stmt::Struct(name, _generics, fields, _span) => {
                 let mut field_types = HashMap::new();
                 for (field_name, field_type) in fields {
-                    field_types.insert(field_name.clone(), 
-                        Type::from_string(field_type).unwrap_or(Type::Unknown));
+                    field_types.insert(
+                        field_name.clone(),
+                        Type::from_string(field_type).unwrap_or(Type::Unknown),
+                    );
                 }
                 self.structs.insert(name.clone(), field_types.clone());
-                
+
                 // Add constructor function
-                let params: Vec<(String, Type)> = fields.iter()
-                    .map(|(field_name, type_str)| (field_name.clone(), 
-                        Type::from_string(type_str).unwrap_or(Type::Unknown)))
+                let params: Vec<(String, Type)> = fields
+                    .iter()
+                    .map(|(field_name, type_str)| {
+                        (
+                            field_name.clone(),
+                            Type::from_string(type_str).unwrap_or(Type::Unknown),
+                        )
+                    })
                     .collect();
-                
+
                 let struct_type = Type::Struct {
                     name: name.clone(),
                     fields: params.clone(),
                 };
-                
+
                 self.functions.insert(
                     format!("{}::new", name),
                     (params, struct_type, Span::default()),
@@ -240,31 +247,48 @@ impl SemanticVisitor {
                 self.enums.insert(name.clone(), variant_types);
             }
             Stmt::Function(_visibility, name, _generics, params, return_type, _body, _span) => {
-                let param_types: Vec<(String, Type)> = params.iter()
-                    .map(|(param_name, param_type)| (
-                        param_name.clone(),
-                        self.resolve_type_from_module(param_type)
-                    ))
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|(param_name, param_type)| {
+                        (
+                            param_name.clone(),
+                            self.resolve_type_from_module(param_type),
+                        )
+                    })
                     .collect();
                 let ret_type = if return_type.is_empty() {
                     Type::Unit
                 } else {
                     self.resolve_type_from_module(return_type)
                 };
-                self.functions.insert(name.clone(), (param_types, ret_type, Span::default()));
+                self.functions
+                    .insert(name.clone(), (param_types, ret_type, Span::default()));
             }
             Stmt::Impl(struct_name, methods, _span) => {
                 // Process methods in impl blocks
                 for method in methods {
-                    if let Stmt::Function(_visibility, method_name, _generics, params, return_type, _body, _method_span) = method {
-                        let param_types: Vec<(String, Type)> = params.iter()
+                    if let Stmt::Function(
+                        _visibility,
+                        method_name,
+                        _generics,
+                        params,
+                        return_type,
+                        _body,
+                        _method_span,
+                    ) = method
+                    {
+                        let param_types: Vec<(String, Type)> = params
+                            .iter()
                             .map(|(param_name, param_type)| {
                                 let resolved_type = if param_name == "self" {
                                     // For self parameter, use the struct type
                                     if let Some(fields) = self.structs.get(struct_name) {
                                         Type::Struct {
                                             name: struct_name.to_string(),
-                                            fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                                            fields: fields
+                                                .iter()
+                                                .map(|(name, ty)| (name.clone(), ty.clone()))
+                                                .collect(),
                                         }
                                     } else if let Some(variants) = self.enums.get(struct_name) {
                                         Type::Enum {
@@ -285,10 +309,11 @@ impl SemanticVisitor {
                         } else {
                             self.resolve_type_from_module(return_type)
                         };
-                        
+
                         // Register as static method with struct name prefix
                         let full_method_name = format!("{}::{}", struct_name, method_name);
-                        self.functions.insert(full_method_name, (param_types, ret_type, Span::default()));
+                        self.functions
+                            .insert(full_method_name, (param_types, ret_type, Span::default()));
                     }
                 }
             }
@@ -307,15 +332,18 @@ impl SemanticVisitor {
                 variants: variants.clone(),
             };
         }
-        
+
         // Check if it's a struct
         if let Some(fields) = self.structs.get(type_name) {
             return Type::Struct {
                 name: type_name.to_string(),
-                fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                fields: fields
+                    .iter()
+                    .map(|(name, ty)| (name.clone(), ty.clone()))
+                    .collect(),
             };
         }
-        
+
         // Fall back to Type::from_string for built-in types
         Type::from_string(type_name).unwrap_or(Type::Unknown)
     }
@@ -334,10 +362,11 @@ impl SemanticVisitor {
 
         // Merge functions
         for (name, (params, ret_type, span)) in &module_analyzer.functions {
-            self.functions.insert(name.clone(), (params.clone(), ret_type.clone(), *span));
+            self.functions
+                .insert(name.clone(), (params.clone(), ret_type.clone(), *span));
         }
     }
-    
+
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
         match item {
             ExternItem::Function(name, _, params, return_type) => {
@@ -346,7 +375,7 @@ impl SemanticVisitor {
                 } else {
                     format!("{}::{}", prefix, name)
                 };
-                
+
                 // Convert parameter types
                 let param_types: Vec<(String, Type)> = params
                     .iter()
@@ -357,20 +386,23 @@ impl SemanticVisitor {
                         )
                     })
                     .collect();
-                
+
                 let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
-                
+
                 // Register extern function
                 self.functions.insert(
                     full_name.clone(),
                     (param_types, ret_type.clone(), Span::default()),
                 );
-                
+
                 // Register as imported name
-                self.imported_names.insert(full_name, Type::Function {
-                    params: vec![],
-                    return_type: Box::new(ret_type),
-                });
+                self.imported_names.insert(
+                    full_name,
+                    Type::Function {
+                        params: vec![],
+                        return_type: Box::new(ret_type),
+                    },
+                );
             }
             ExternItem::Type(name, _) => {
                 let full_name = if prefix.is_empty() {
@@ -378,7 +410,7 @@ impl SemanticVisitor {
                 } else {
                     format!("{}::{}", prefix, name)
                 };
-                
+
                 // Register as an opaque external type
                 self.type_env.define(full_name.clone(), Type::Unknown);
                 self.imported_names.insert(full_name, Type::Unknown);
@@ -389,7 +421,7 @@ impl SemanticVisitor {
                 } else {
                     format!("{}::{}", prefix, name)
                 };
-                
+
                 // Recursively process nested items
                 for item in items {
                     self.process_extern_item(item, &new_prefix)?;
@@ -400,7 +432,7 @@ impl SemanticVisitor {
                 for item in items {
                     if let ExternItem::Function(method_name, _, params, return_type) = item {
                         let full_name = format!("{}::{}", type_name, method_name);
-                        
+
                         // Convert parameter types
                         let param_types: Vec<(String, Type)> = params
                             .iter()
@@ -411,19 +443,22 @@ impl SemanticVisitor {
                                 )
                             })
                             .collect();
-                        
+
                         let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
-                        
+
                         // Register method
                         self.functions.insert(
                             full_name.clone(),
                             (param_types, ret_type.clone(), Span::default()),
                         );
-                        
-                        self.imported_names.insert(full_name, Type::Function {
-                            params: vec![],
-                            return_type: Box::new(ret_type),
-                        });
+
+                        self.imported_names.insert(
+                            full_name,
+                            Type::Function {
+                                params: vec![],
+                                return_type: Box::new(ret_type),
+                            },
+                        );
                     }
                 }
             }
@@ -446,7 +481,7 @@ impl SemanticVisitor {
             "format!".to_string(),
             (vec![], Type::String, Span { start: 0, end: 0 }),
         );
-        
+
         // Register built-in Option enum
         self.type_env.define(
             "Option".to_string(),
@@ -466,7 +501,7 @@ impl SemanticVisitor {
             variants.insert("None".to_string(), None);
             variants
         });
-        
+
         // Register built-in Result enum
         self.type_env.define(
             "Result".to_string(),
@@ -486,32 +521,56 @@ impl SemanticVisitor {
             variants.insert("Err".to_string(), Some(Type::Unknown));
             variants
         });
-        
+
         // Register implicit variant constructors as functions
         // These return generic Result/Option types that will be inferred from context
-        self.functions.insert("Ok".to_string(), (
-            vec![("value".to_string(), Type::Unknown)],
-            Type::Enum { name: "Result".to_string(), variants: HashMap::new() },
-            Span::default()
-        ));
-        
-        self.functions.insert("Err".to_string(), (
-            vec![("error".to_string(), Type::Unknown)],
-            Type::Enum { name: "Result".to_string(), variants: HashMap::new() },
-            Span::default()
-        ));
-        
-        self.functions.insert("Some".to_string(), (
-            vec![("value".to_string(), Type::Unknown)],
-            Type::Enum { name: "Option".to_string(), variants: HashMap::new() },
-            Span::default()
-        ));
-        
-        self.functions.insert("None".to_string(), (
-            vec![],
-            Type::Enum { name: "Option".to_string(), variants: HashMap::new() },
-            Span::default()
-        ));
+        self.functions.insert(
+            "Ok".to_string(),
+            (
+                vec![("value".to_string(), Type::Unknown)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+
+        self.functions.insert(
+            "Err".to_string(),
+            (
+                vec![("error".to_string(), Type::Unknown)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+
+        self.functions.insert(
+            "Some".to_string(),
+            (
+                vec![("value".to_string(), Type::Unknown)],
+                Type::Enum {
+                    name: "Option".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+
+        self.functions.insert(
+            "None".to_string(),
+            (
+                vec![],
+                Type::Enum {
+                    name: "Option".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
@@ -523,11 +582,11 @@ impl SemanticVisitor {
     /// Used for if-else blocks that should share the same scope as their parent
     fn visit_statements_no_scope(&mut self, stmts: &[Stmt]) -> Result<Type> {
         let mut result_type = Type::Unit;
-        
+
         // Visit all statements
         for (i, stmt) in stmts.iter().enumerate() {
             let is_last = i == stmts.len() - 1;
-            
+
             match stmt {
                 // If the last statement is an expression without semicolon,
                 // return that expression's type
@@ -540,15 +599,17 @@ impl SemanticVisitor {
                 }
             }
         }
-        
+
         Ok(result_type)
     }
-    
+
     /// Get the collected type information for AST transformation
-    pub fn get_type_info(&self) -> (
-        HashMap<String, HashMap<String, Type>>,  // structs
-        HashMap<String, HashMap<String, Option<Type>>>,  // enums
-        HashMap<String, (Vec<(String, Type)>, Type, Span)>,  // functions
+    pub fn get_type_info(
+        &self,
+    ) -> (
+        HashMap<String, HashMap<String, Type>>,             // structs
+        HashMap<String, HashMap<String, Option<Type>>>,     // enums
+        HashMap<String, (Vec<(String, Type)>, Type, Span)>, // functions
     ) {
         (
             self.structs.clone(),
@@ -556,7 +617,6 @@ impl SemanticVisitor {
             self.functions.clone(),
         )
     }
-
 
     /// Helper method to check if a type is numeric
     fn is_numeric_type(&self, ty: &Type) -> bool {
@@ -616,7 +676,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
 
         let first_type = self.visit_expr(&elements[0])?;
-        
+
         // Check that all elements have the same type
         for element in elements.iter().skip(1) {
             let element_type = self.visit_expr(element)?;
@@ -656,28 +716,36 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // Array slicing - returns array of same element type
                 Ok(Type::Array(element_type.clone()))
             }
-            (Type::Array(_), _) => {
-                Err(Error::new_semantic(
-                    format!("Array index must be an integer or range, found {}", index_type.to_string()),
-                    *span,
-                ))
-            }
-            _ => {
-                Err(Error::new_semantic(
-                    format!("Cannot index non-array type: {}", array_type.to_string()),
-                    *span,
-                ))
-            }
+            (Type::Array(_), _) => Err(Error::new_semantic(
+                format!(
+                    "Array index must be an integer or range, found {}",
+                    index_type.to_string()
+                ),
+                *span,
+            )),
+            _ => Err(Error::new_semantic(
+                format!("Cannot index non-array type: {}", array_type.to_string()),
+                *span,
+            )),
         }
     }
 
-    fn visit_range(&mut self, start: Option<&Expr>, end: Option<&Expr>, _inclusive: bool, span: &Span) -> Result<Type> {
+    fn visit_range(
+        &mut self,
+        start: Option<&Expr>,
+        end: Option<&Expr>,
+        _inclusive: bool,
+        span: &Span,
+    ) -> Result<Type> {
         // Check start expression if present
         if let Some(start_expr) = start {
             let start_type = self.visit_expr(start_expr)?;
             if !self.is_numeric_type(&start_type) {
                 return Err(Error::new_semantic(
-                    format!("Range start must be numeric, found {}", start_type.to_string()),
+                    format!(
+                        "Range start must be numeric, found {}",
+                        start_type.to_string()
+                    ),
                     *span,
                 ));
             }
@@ -697,27 +765,39 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Range)
     }
 
-    fn visit_binary_op(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> Result<Type> {
+    fn visit_binary_op(
+        &mut self,
+        left: &Expr,
+        op: &Operator,
+        right: &Expr,
+        span: &Span,
+    ) -> Result<Type> {
         let left_type = self.visit_expr(left)?;
         let right_type = self.visit_expr(right)?;
 
         match op {
-            Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide | Operator::Modulo => {
+            Operator::Plus
+            | Operator::Minus
+            | Operator::Multiply
+            | Operator::Divide
+            | Operator::Modulo => {
                 // If either type is Unknown (imported), we can't check types at compile time
                 if left_type == Type::Unknown || right_type == Type::Unknown {
                     return Ok(Type::Unknown);
                 }
-                
+
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     return Err(Error::new_semantic(
                         format!(
                             "Binary operation {:?} requires numeric types, found {} and {}",
-                            op, left_type.to_string(), right_type.to_string()
+                            op,
+                            left_type.to_string(),
+                            right_type.to_string()
                         ),
                         *span,
                     ));
                 }
-                
+
                 // Return the more general type (float if either is float)
                 if left_type == Type::Float || right_type == Type::Float {
                     Ok(Type::Float)
@@ -725,7 +805,12 @@ impl AstVisitor<Type> for SemanticVisitor {
                     Ok(Type::Int)
                 }
             }
-            Operator::Equals | Operator::NotEquals | Operator::LessThan | Operator::GreaterThan | Operator::LessThanEquals | Operator::GreaterThanEquals => {
+            Operator::Equals
+            | Operator::NotEquals
+            | Operator::LessThan
+            | Operator::GreaterThan
+            | Operator::LessThanEquals
+            | Operator::GreaterThanEquals => {
                 // For now, allow comparison of any types (will refine later)
                 Ok(Type::Bool)
             }
@@ -734,7 +819,9 @@ impl AstVisitor<Type> for SemanticVisitor {
                     return Err(Error::new_semantic(
                         format!(
                             "Logical operation {:?} requires bool types, found {} and {}",
-                            op, left_type.to_string(), right_type.to_string()
+                            op,
+                            left_type.to_string(),
+                            right_type.to_string()
                         ),
                         *span,
                     ));
@@ -746,12 +833,15 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<Type> {
         let expr_type = self.visit_expr(expr)?;
-        
+
         match op {
             UnaryOp::Neg => {
                 if !self.is_numeric_type(&expr_type) {
                     return Err(Error::new_semantic(
-                        format!("Unary negation requires numeric type, found {}", expr_type.to_string()),
+                        format!(
+                            "Unary negation requires numeric type, found {}",
+                            expr_type.to_string()
+                        ),
                         *_span,
                     ));
                 }
@@ -760,7 +850,10 @@ impl AstVisitor<Type> for SemanticVisitor {
             UnaryOp::Not => {
                 if expr_type != Type::Bool {
                     return Err(Error::new_semantic(
-                        format!("Logical NOT requires bool type, found {}", expr_type.to_string()),
+                        format!(
+                            "Logical NOT requires bool type, found {}",
+                            expr_type.to_string()
+                        ),
                         *_span,
                     ));
                 }
@@ -771,7 +864,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_assign(&mut self, left: &Expr, right: &Expr, span: &Span) -> Result<Type> {
         let right_type = self.visit_expr(right)?;
-        
+
         match left {
             Expr::Identifier(name, _) => {
                 if self.type_env.lookup(name).is_none() {
@@ -800,19 +893,31 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
     }
 
-    fn visit_compound_assign(&mut self, left: &Expr, op: &Operator, right: &Expr, span: &Span) -> Result<Type> {
+    fn visit_compound_assign(
+        &mut self,
+        left: &Expr,
+        op: &Operator,
+        right: &Expr,
+        span: &Span,
+    ) -> Result<Type> {
         // Compound assignment is like a binary op followed by assignment
         let left_type = self.visit_expr(left)?;
         let right_type = self.visit_expr(right)?;
 
         // Check the operation is valid
         match op {
-            Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide | Operator::Modulo => {
+            Operator::Plus
+            | Operator::Minus
+            | Operator::Multiply
+            | Operator::Divide
+            | Operator::Modulo => {
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     return Err(Error::new_semantic(
                         format!(
                             "Compound assignment {:?} requires numeric types, found {} and {}",
-                            op, left_type.to_string(), right_type.to_string()
+                            op,
+                            left_type.to_string(),
+                            right_type.to_string()
                         ),
                         *span,
                     ));
@@ -834,80 +939,88 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Handle method calls with dot notation
         let (func_name, arg_exprs, _needs_self) = if name.contains('.') {
             let (target_var, method_name) = name.split_once('.').unwrap();
-            
+
             // Get the type of the target variable
-            let target_type = self.type_env.lookup(target_var)
-                .ok_or_else(|| Error::new_semantic(
-                    format!("Undefined variable: {}", target_var),
-                    *span,
-                ))?;
-            
+            let target_type = self.type_env.lookup(target_var).ok_or_else(|| {
+                Error::new_semantic(format!("Undefined variable: {}", target_var), *span)
+            })?;
+
             // Extract struct name from the type
             let (struct_name, _struct_type) = match target_type {
                 Type::Struct { name, .. } => {
                     // Get the actual struct fields
-                    let fields = self.structs.get(name)
-                        .ok_or_else(|| Error::new_semantic(
-                            format!("Struct '{}' not found", name),
-                            *span,
-                        ))?;
-                    
-                    let field_vec: Vec<(String, Type)> = fields.iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect();
-                    
-                    (name.clone(), Type::Struct {
-                        name: name.clone(),
-                        fields: field_vec,
-                    })
-                },
-                _ => return Err(Error::new_semantic(
-                    format!("{} is not a struct instance", target_var),
-                    *span,
-                )),
+                    let fields = self.structs.get(name).ok_or_else(|| {
+                        Error::new_semantic(format!("Struct '{}' not found", name), *span)
+                    })?;
+
+                    let field_vec: Vec<(String, Type)> =
+                        fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+
+                    (
+                        name.clone(),
+                        Type::Struct {
+                            name: name.clone(),
+                            fields: field_vec,
+                        },
+                    )
+                }
+                _ => {
+                    return Err(Error::new_semantic(
+                        format!("{} is not a struct instance", target_var),
+                        *span,
+                    ))
+                }
             };
-            
+
             // Build the full method name
             let full_method_name = format!("{}::{}", struct_name, method_name);
-            
+
             // Create a synthetic expression for the self argument
             let mut args_with_self = vec![Expr::Identifier(target_var.to_string(), *span)];
             args_with_self.extend(args.iter().cloned());
-            
+
             (full_method_name, args_with_self, true)
         } else {
             (name.to_string(), args.to_vec(), false)
         };
-        
+
         // Check if it's a method call or regular function
-        let (param_types, return_type) = if let Some((params, ret_type, _)) = self.functions.get(&func_name) {
-            (params.clone(), ret_type.clone())
-        } else if self.imported_names.contains_key(&func_name) {
-            // It's an imported name - we don't know its type yet, so assume it's valid
-            // Visit arguments for side effects
-            for arg in &arg_exprs {
-                self.visit_expr(arg)?;
-            }
-            return Ok(Type::Unknown);
-        } else if let Some(var_type) = self.type_env.lookup(&func_name) {
-            // Check if it's a variable containing a function/closure
-            match var_type {
-                Type::Function { params, return_type } => {
-                    (params.iter().map(|t| ("_".to_string(), t.clone())).collect(), (**return_type).clone())
+        let (param_types, return_type) =
+            if let Some((params, ret_type, _)) = self.functions.get(&func_name) {
+                (params.clone(), ret_type.clone())
+            } else if self.imported_names.contains_key(&func_name) {
+                // It's an imported name - we don't know its type yet, so assume it's valid
+                // Visit arguments for side effects
+                for arg in &arg_exprs {
+                    self.visit_expr(arg)?;
                 }
-                _ => {
-                    return Err(Error::new_semantic(
-                        format!("'{}' is not a function", func_name),
-                        *span,
-                    ));
+                return Ok(Type::Unknown);
+            } else if let Some(var_type) = self.type_env.lookup(&func_name) {
+                // Check if it's a variable containing a function/closure
+                match var_type {
+                    Type::Function {
+                        params,
+                        return_type,
+                    } => (
+                        params
+                            .iter()
+                            .map(|t| ("_".to_string(), t.clone()))
+                            .collect(),
+                        (**return_type).clone(),
+                    ),
+                    _ => {
+                        return Err(Error::new_semantic(
+                            format!("'{}' is not a function", func_name),
+                            *span,
+                        ));
+                    }
                 }
-            }
-        } else {
-            return Err(Error::new_semantic(
-                format!("Function '{}' not found", func_name),
-                *span,
-            ));
-        };
+            } else {
+                return Err(Error::new_semantic(
+                    format!("Function '{}' not found", func_name),
+                    *span,
+                ));
+            };
 
         // Special handling for print/println - they accept any arguments
         if func_name == "print" || func_name == "println" {
@@ -916,7 +1029,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
             return Ok(Type::Unit);
         }
-        
+
         // Special handling for format! - requires at least one string argument
         if func_name == "format!" {
             if arg_exprs.is_empty() {
@@ -925,21 +1038,25 @@ impl AstVisitor<Type> for SemanticVisitor {
                     *span,
                 ));
             }
-            
+
             // First argument must be a string
             let format_str_type = self.visit_expr(&arg_exprs[0])?;
             if format_str_type != Type::String {
                 return Err(Error::new_semantic(
-                    format!("format! first argument must be a string, found {}", format_str_type.to_string()),
+                    format!(
+                        "format! first argument must be a string, found {}",
+                        format_str_type.to_string()
+                    ),
                     *span,
                 ));
             }
-            
+
             // Count placeholders in format string (if it's a literal)
             if let Expr::String(format_str, _) = &arg_exprs[0] {
-                let placeholder_count = format_str.matches("{}").count() - format_str.matches("{{}}").count();
+                let placeholder_count =
+                    format_str.matches("{}").count() - format_str.matches("{{}}").count();
                 let arg_count = arg_exprs.len() - 1;
-                
+
                 if placeholder_count != arg_count {
                     return Err(Error::new_semantic(
                         format!("format! expects {} arguments after format string, but {} were provided", 
@@ -948,12 +1065,12 @@ impl AstVisitor<Type> for SemanticVisitor {
                     ));
                 }
             }
-            
+
             // Type check remaining arguments
             for arg in &arg_exprs[1..] {
                 self.visit_expr(arg)?;
             }
-            
+
             return Ok(Type::String);
         }
 
@@ -971,19 +1088,23 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
 
         // Check argument types
-        for (i, (arg, (param_name, expected_type))) in arg_exprs.iter().zip(param_types.iter()).enumerate() {
+        for (i, (arg, (param_name, expected_type))) in
+            arg_exprs.iter().zip(param_types.iter()).enumerate()
+        {
             let arg_type = self.visit_expr(arg)?;
-            
+
             // Special handling for self parameters - only check struct name compatibility
             let types_compatible = if param_name == "self" {
                 match (&arg_type, expected_type) {
-                    (Type::Struct { name: name1, .. }, Type::Struct { name: name2, .. }) => name1 == name2,
+                    (Type::Struct { name: name1, .. }, Type::Struct { name: name2, .. }) => {
+                        name1 == name2
+                    }
                     _ => arg_type.is_assignable_to(expected_type),
                 }
             } else {
                 arg_type.is_assignable_to(expected_type)
             };
-            
+
             if !types_compatible {
                 return Err(Error::new_semantic(
                     format!(
@@ -1001,7 +1122,12 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(return_type)
     }
 
-    fn visit_struct_init(&mut self, name: &str, fields: &[(String, Expr)], span: &Span) -> Result<Type> {
+    fn visit_struct_init(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+        span: &Span,
+    ) -> Result<Type> {
         // Check if this is an enum variant construction (e.g., Command::Process { ... })
         if let Some((enum_name, variant_name)) = name.split_once("::") {
             // Check if it's an enum variant
@@ -1012,20 +1138,20 @@ impl AstVisitor<Type> for SemanticVisitor {
                     for (_, field_expr) in fields {
                         self.visit_expr(field_expr)?;
                     }
-                    
+
                     return Ok(Type::Enum {
                         name: enum_name.to_string(),
                         variants: HashMap::new(),
                     });
                 }
-                
+
                 return Err(Error::new_semantic(
                     format!("Enum '{}' has no variant '{}'", enum_name, variant_name),
                     *span,
                 ));
             }
         }
-        
+
         let struct_fields = match self.structs.get(name) {
             Some(fields) => fields.clone(),
             None => {
@@ -1037,7 +1163,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     }
                     return Ok(Type::Unknown);
                 }
-                
+
                 return Err(Error::new_semantic(
                     format!("Struct '{}' not found", name),
                     *span,
@@ -1119,13 +1245,23 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
             }
             _ => Err(Error::new_semantic(
-                format!("Cannot access field '{}' on non-struct type: {}", field, object_type.to_string()),
+                format!(
+                    "Cannot access field '{}' on non-struct type: {}",
+                    field,
+                    object_type.to_string()
+                ),
                 *span,
             )),
         }
     }
 
-    fn visit_enum_variant_or_method_call(&mut self, target: &Expr, call: &str, args: &[Expr], span: &Span) -> Result<Type> {
+    fn visit_enum_variant_or_method_call(
+        &mut self,
+        target: &Expr,
+        call: &str,
+        args: &[Expr],
+        span: &Span,
+    ) -> Result<Type> {
         // This handles both enum variant construction and method calls
         if let Expr::Identifier(type_name, _) = target {
             // Handle Self:: calls
@@ -1142,11 +1278,11 @@ impl AstVisitor<Type> for SemanticVisitor {
             } else {
                 type_name.clone()
             };
-            
+
             // Check if it's an imported type - but don't return Unknown yet!
             // We still need to check for method calls on imported types
             let _is_imported = self.imported_names.contains_key(&resolved_type_name);
-            
+
             // Check if it's an enum variant
             if let Some(enum_variants) = self.enums.get(&resolved_type_name).cloned() {
                 if let Some(variant_type) = enum_variants.get(call) {
@@ -1163,13 +1299,18 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                             let arg_type = self.visit_expr(&args[0])?;
                             // For built-in generic enums (Option, Result), accept any type
-                            if (resolved_type_name == "Option" || resolved_type_name == "Result") && *associated_type == Type::Unknown {
+                            if (resolved_type_name == "Option" || resolved_type_name == "Result")
+                                && *associated_type == Type::Unknown
+                            {
                                 // Accept any type for generic built-in enums
                             } else if arg_type != *associated_type {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' expects {}, found {}",
-                                        resolved_type_name, call, associated_type.to_string(), arg_type.to_string()
+                                        resolved_type_name,
+                                        call,
+                                        associated_type.to_string(),
+                                        arg_type.to_string()
                                     ),
                                     *span,
                                 ));
@@ -1210,19 +1351,24 @@ impl AstVisitor<Type> for SemanticVisitor {
                     ));
                 }
 
-                for (i, (arg, (param_name, expected_type))) in args.iter().zip(param_types.iter()).enumerate() {
+                for (i, (arg, (param_name, expected_type))) in
+                    args.iter().zip(param_types.iter()).enumerate()
+                {
                     let arg_type = self.visit_expr(arg)?;
-                    
+
                     // Special handling for self parameters - only check struct name compatibility
                     let types_compatible = if param_name == "self" {
                         match (&arg_type, expected_type) {
-                            (Type::Struct { name: name1, .. }, Type::Struct { name: name2, .. }) => name1 == name2,
+                            (
+                                Type::Struct { name: name1, .. },
+                                Type::Struct { name: name2, .. },
+                            ) => name1 == name2,
                             _ => arg_type.is_assignable_to(expected_type),
                         }
                     } else {
                         arg_type.is_assignable_to(expected_type)
                     };
-                    
+
                     if !types_compatible {
                         return Err(Error::new_semantic(
                             format!(
@@ -1255,7 +1401,15 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
+    fn visit_function(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        params: &[(String, String)],
+        return_type: &str,
+        body: &[Stmt],
+        span: &Span,
+    ) -> Result<Type> {
         // Convert parameter types
         let param_types: Vec<(String, Type)> = params
             .iter()
@@ -1264,7 +1418,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 if param_name == "self" && name.contains("::") {
                     // Extract type name from method name
                     let type_name = name.split("::").next().unwrap();
-                    
+
                     // Check if it's a struct or enum
                     let self_type = if self.structs.contains_key(type_name) {
                         Type::Struct {
@@ -1279,7 +1433,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     } else {
                         Type::Unknown
                     };
-                    
+
                     (param_name.clone(), self_type)
                 } else {
                     // Check if the type is a registered enum
@@ -1297,12 +1451,12 @@ impl AstVisitor<Type> for SemanticVisitor {
                         // Fall back to Type::from_string for built-in types
                         Type::from_string(type_str).unwrap_or(Type::Unknown)
                     };
-                    
+
                     (param_name.clone(), param_type)
                 }
             })
             .collect();
-        
+
         // Parse return type, checking for registered enums
         let ret_type = if self.enums.contains_key(return_type) {
             Type::Enum {
@@ -1317,13 +1471,12 @@ impl AstVisitor<Type> for SemanticVisitor {
         } else {
             Type::from_string(return_type).unwrap_or(Type::Unknown)
         };
-        
+
         // Register function signature BEFORE analyzing body to support recursion
         self.functions.insert(
             name.to_string(),
             (param_types.clone(), ret_type.clone(), *span),
         );
-        
 
         // Create new scope for function body
         self.type_env.push_scope();
@@ -1348,7 +1501,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     } else {
                         Type::Unknown
                     };
-                    
+
                     self.type_env.define("self".to_string(), self_type);
                 }
             } else {
@@ -1384,7 +1537,13 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_struct(&mut self, name: &str, _generic_params: &[String], fields: &[(String, String)], _span: &Span) -> Result<Type> {
+    fn visit_struct(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        fields: &[(String, String)],
+        _span: &Span,
+    ) -> Result<Type> {
         // Register struct type
         self.type_env.define(
             name.to_string(),
@@ -1411,7 +1570,13 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_enum(&mut self, name: &str, _generic_params: &[String], variants: &[crate::parser::EnumVariant], _span: &Span) -> Result<Type> {
+    fn visit_enum(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        variants: &[crate::parser::EnumVariant],
+        _span: &Span,
+    ) -> Result<Type> {
         // Register enum type
         self.type_env.define(
             name.to_string(),
@@ -1437,14 +1602,21 @@ impl AstVisitor<Type> for SemanticVisitor {
                     let struct_fields: Vec<(String, crate::types::Type)> = fields
                         .iter()
                         .map(|(field_name, field_type_str)| {
-                            (field_name.clone(), crate::types::Type::from_string(field_type_str).unwrap_or(crate::types::Type::Unknown))
+                            (
+                                field_name.clone(),
+                                crate::types::Type::from_string(field_type_str)
+                                    .unwrap_or(crate::types::Type::Unknown),
+                            )
                         })
                         .collect();
-                    
-                    enum_variants.insert(name.clone(), Some(crate::types::Type::Struct {
-                        name: name.clone(),
-                        fields: struct_fields,
-                    }));
+
+                    enum_variants.insert(
+                        name.clone(),
+                        Some(crate::types::Type::Struct {
+                            name: name.clone(),
+                            fields: struct_fields,
+                        }),
+                    );
                 }
             }
         }
@@ -1456,16 +1628,16 @@ impl AstVisitor<Type> for SemanticVisitor {
     fn visit_impl(&mut self, struct_name: &str, methods: &[Stmt], _span: &Span) -> Result<Type> {
         // Set current impl type for Self resolution
         self.current_impl_type = Some(struct_name.to_string());
-        
+
         // First pass: register all method signatures
         for method in methods {
             if let Stmt::Function(_, name, _, params, return_type, _body, method_span) = method {
                 // Convert parameter types
                 let mut param_types: Vec<(String, Type)> = vec![];
-                
+
                 // Check if first parameter is 'self' (instance method) or not (static method)
                 let is_instance_method = !params.is_empty() && params[0].0 == "self";
-                
+
                 if is_instance_method {
                     // For instance methods, add the appropriate type as the first parameter
                     let self_type = if self.structs.contains_key(struct_name) {
@@ -1481,9 +1653,9 @@ impl AstVisitor<Type> for SemanticVisitor {
                     } else {
                         Type::Unknown
                     };
-                    
+
                     param_types.push(("self".to_string(), self_type));
-                    
+
                     // Then add remaining parameters
                     for (param_name, param_type_str) in params.iter().skip(1) {
                         param_types.push((
@@ -1502,7 +1674,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
 
                 let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
-                
+
                 // Register method
                 self.functions.insert(
                     format!("{}::{}", struct_name, name),
@@ -1510,7 +1682,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 );
             }
         }
-        
+
         // Second pass: analyze method bodies
         for method in methods {
             if let Stmt::Function(_, name, _, params, return_type, body, method_span) = method {
@@ -1528,12 +1700,16 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // Clear current impl type
         self.current_impl_type = None;
-        
+
         Ok(Type::Unit)
     }
 
-
-    fn visit_match(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Type> {
+    fn visit_match(
+        &mut self,
+        expr: &Expr,
+        arms: &[(Expr, Vec<Stmt>)],
+        span: &Span,
+    ) -> Result<Type> {
         let expr_type = self.visit_expr(expr)?;
 
         // For enum matching, track which variants have been matched
@@ -1560,18 +1736,26 @@ impl AstVisitor<Type> for SemanticVisitor {
                     // Check for unreachable patterns after wildcard
                     if has_wildcard {
                         return Err(Error::new_semantic(
-                            format!("Unreachable pattern: wildcard already exists at arm {}", wildcard_position.unwrap()),
+                            format!(
+                                "Unreachable pattern: wildcard already exists at arm {}",
+                                wildcard_position.unwrap()
+                            ),
                             pattern.span(),
                         ));
                     }
                     has_wildcard = true;
                     wildcard_position = Some(i);
                 }
-                Expr::EnumVariantOrMethodCall { target, call, args, .. } => {
+                Expr::EnumVariantOrMethodCall {
+                    target, call, args, ..
+                } => {
                     // Check for unreachable patterns after wildcard
                     if has_wildcard {
                         return Err(Error::new_semantic(
-                            format!("Unreachable pattern: wildcard already covers this case at arm {}", wildcard_position.unwrap()),
+                            format!(
+                                "Unreachable pattern: wildcard already covers this case at arm {}",
+                                wildcard_position.unwrap()
+                            ),
                             pattern.span(),
                         ));
                     }
@@ -1580,7 +1764,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                         if let Some(ref expected_enum) = enum_name {
                             if enum_type != expected_enum {
                                 return Err(Error::new_semantic(
-                                    format!("Expected enum '{}', found '{}'", expected_enum, enum_type),
+                                    format!(
+                                        "Expected enum '{}', found '{}'",
+                                        expected_enum, enum_type
+                                    ),
                                     pattern.span(),
                                 ));
                             }
@@ -1623,11 +1810,15 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     if let Some(enum_variants) = self.enums.get(enum_type) {
                                         if let Some(Some(variant_type)) = enum_variants.get(call) {
                                             // For built-in generic enums with Unknown type, infer from usage context
-                                            if (enum_type == "Option" || enum_type == "Result") && *variant_type == Type::Unknown {
+                                            if (enum_type == "Option" || enum_type == "Result")
+                                                && *variant_type == Type::Unknown
+                                            {
                                                 // For now, bind as Unknown and let type inference figure it out
-                                                self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                                self.match_bound_vars
+                                                    .insert(var_name.clone(), Type::Unknown);
                                             } else {
-                                                self.match_bound_vars.insert(var_name.clone(), variant_type.clone());
+                                                self.match_bound_vars
+                                                    .insert(var_name.clone(), variant_type.clone());
                                             }
                                         }
                                     }
@@ -1636,20 +1827,30 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     // Nested struct pattern (e.g., Ok(Command::Process { input, output }))
                                     // First, verify the type matches
                                     if let Some(enum_variants) = self.enums.get(enum_type) {
-                                        if let Some(Some(Type::Struct { name, fields: struct_fields })) = enum_variants.get(call) {
+                                        if let Some(Some(Type::Struct {
+                                            name,
+                                            fields: struct_fields,
+                                        })) = enum_variants.get(call)
+                                        {
                                             // Convert Vec<(String, Type)> to HashMap for easy lookup
-                                            let field_types: HashMap<String, Type> = struct_fields.iter().cloned().collect();
-                                            
+                                            let field_types: HashMap<String, Type> =
+                                                struct_fields.iter().cloned().collect();
+
                                             // Bind variables from the struct pattern fields
                                             for (field_name, opt_var_name) in fields {
-                                                let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
-                                                
+                                                let field_type = field_types
+                                                    .get(field_name)
+                                                    .cloned()
+                                                    .unwrap_or(Type::Unknown);
+
                                                 if let Some(var_name) = opt_var_name {
                                                     // Field bound to a different variable name
-                                                    self.match_bound_vars.insert(var_name.clone(), field_type);
+                                                    self.match_bound_vars
+                                                        .insert(var_name.clone(), field_type);
                                                 } else {
                                                     // Shorthand: field name is also the variable name
-                                                    self.match_bound_vars.insert(field_name.clone(), field_type);
+                                                    self.match_bound_vars
+                                                        .insert(field_name.clone(), field_type);
                                                 }
                                             }
                                         }
@@ -1666,30 +1867,39 @@ impl AstVisitor<Type> for SemanticVisitor {
                     // Handle tuple patterns
                     if has_wildcard {
                         return Err(Error::new_semantic(
-                            format!("Unreachable pattern: wildcard already covers this case at arm {}", wildcard_position.unwrap()),
+                            format!(
+                                "Unreachable pattern: wildcard already covers this case at arm {}",
+                                wildcard_position.unwrap()
+                            ),
                             pattern.span(),
                         ));
                     }
-                    
+
                     // Check that the expression being matched is also a tuple
                     if let Type::Tuple(elem_types) = &expr_type {
                         if elements.len() != elem_types.len() {
                             return Err(Error::new_semantic(
-                                format!("Tuple pattern has {} elements but expression has {}", 
-                                    elements.len(), elem_types.len()),
+                                format!(
+                                    "Tuple pattern has {} elements but expression has {}",
+                                    elements.len(),
+                                    elem_types.len()
+                                ),
                                 pattern.span(),
                             ));
                         }
-                        
+
                         // Check each element of the tuple pattern
-                        for (i, (elem_pattern, elem_type)) in elements.iter().zip(elem_types.iter()).enumerate() {
+                        for (i, (elem_pattern, elem_type)) in
+                            elements.iter().zip(elem_types.iter()).enumerate()
+                        {
                             match elem_pattern {
                                 Expr::Identifier(name, _) if name == "_" => {
                                     // Wildcard, no binding needed
                                 }
                                 Expr::Identifier(name, _) => {
                                     // Bind the variable to the element type
-                                    self.match_bound_vars.insert(name.clone(), elem_type.clone());
+                                    self.match_bound_vars
+                                        .insert(name.clone(), elem_type.clone());
                                 }
                                 Expr::Int(_, _) | Expr::String(_, _) | Expr::Bool(_, _) => {
                                     // Literal patterns - just check type compatibility
@@ -1713,8 +1923,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                         }
                     } else {
                         return Err(Error::new_semantic(
-                            format!("Cannot match tuple pattern against non-tuple type {}", 
-                                expr_type.to_string()),
+                            format!(
+                                "Cannot match tuple pattern against non-tuple type {}",
+                                expr_type.to_string()
+                            ),
                             pattern.span(),
                         ));
                     }
@@ -1723,47 +1935,59 @@ impl AstVisitor<Type> for SemanticVisitor {
                     // Handle struct-like enum variant patterns (e.g., Command::Process { input, output })
                     if has_wildcard {
                         return Err(Error::new_semantic(
-                            format!("Unreachable pattern: wildcard already covers this case at arm {}", wildcard_position.unwrap()),
+                            format!(
+                                "Unreachable pattern: wildcard already covers this case at arm {}",
+                                wildcard_position.unwrap()
+                            ),
                             pattern.span(),
                         ));
                     }
-                    
+
                     // Check if this is an enum variant pattern
                     if let Some((enum_type_name, variant_name)) = pattern_name.split_once("::") {
                         // Verify it matches the expression type
                         if let Type::Enum { name, .. } = &expr_type {
                             if name != enum_type_name {
                                 return Err(Error::new_semantic(
-                                    format!("Pattern type mismatch: expected {}, found {}", 
-                                        expr_type.to_string(), enum_type_name),
+                                    format!(
+                                        "Pattern type mismatch: expected {}, found {}",
+                                        expr_type.to_string(),
+                                        enum_type_name
+                                    ),
                                     pattern.span(),
                                 ));
                             }
-                            
+
                             // Track this variant as matched
                             matched_variants.insert(variant_name.to_string());
-                            
+
                             // Look up the variant's field types
-                            let field_types = if let Some(enum_variants) = self.enums.get(enum_type_name) {
-                                if let Some(Some(Type::Struct { fields, .. })) = enum_variants.get(variant_name) {
-                                    // Convert Vec<(String, Type)> to HashMap for easy lookup
-                                    fields.iter().cloned().collect::<HashMap<String, Type>>()
+                            let field_types =
+                                if let Some(enum_variants) = self.enums.get(enum_type_name) {
+                                    if let Some(Some(Type::Struct { fields, .. })) =
+                                        enum_variants.get(variant_name)
+                                    {
+                                        // Convert Vec<(String, Type)> to HashMap for easy lookup
+                                        fields.iter().cloned().collect::<HashMap<String, Type>>()
+                                    } else {
+                                        HashMap::new()
+                                    }
                                 } else {
                                     HashMap::new()
-                                }
-                            } else {
-                                HashMap::new()
-                            };
-                            
+                                };
+
                             // Bind variables from the struct pattern fields
                             for (field_name, opt_var_name) in fields {
                                 // Skip the special ".." rest pattern marker
                                 if field_name == ".." {
                                     continue;
                                 }
-                                
-                                let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
-                                
+
+                                let field_type = field_types
+                                    .get(field_name)
+                                    .cloned()
+                                    .unwrap_or(Type::Unknown);
+
                                 if let Some(var_name) = opt_var_name {
                                     // Field bound to a different variable name
                                     self.match_bound_vars.insert(var_name.clone(), field_type);
@@ -1774,8 +1998,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                         } else {
                             return Err(Error::new_semantic(
-                                format!("Cannot match enum pattern against non-enum type {}", 
-                                    expr_type.to_string()),
+                                format!(
+                                    "Cannot match enum pattern against non-enum type {}",
+                                    expr_type.to_string()
+                                ),
                                 pattern.span(),
                             ));
                         }
@@ -1784,29 +2010,36 @@ impl AstVisitor<Type> for SemanticVisitor {
                         if let Type::Struct { name, .. } = &expr_type {
                             if name != pattern_name {
                                 return Err(Error::new_semantic(
-                                    format!("Pattern type mismatch: expected {}, found {}", 
-                                        expr_type.to_string(), pattern_name),
+                                    format!(
+                                        "Pattern type mismatch: expected {}, found {}",
+                                        expr_type.to_string(),
+                                        pattern_name
+                                    ),
                                     pattern.span(),
                                 ));
                             }
-                            
+
                             // Look up the struct's field types
-                            let field_types = if let Some(struct_fields) = self.structs.get(pattern_name) {
-                                // struct_fields is already HashMap<String, Type>
-                                struct_fields.clone()
-                            } else {
-                                HashMap::new()
-                            };
-                            
+                            let field_types =
+                                if let Some(struct_fields) = self.structs.get(pattern_name) {
+                                    // struct_fields is already HashMap<String, Type>
+                                    struct_fields.clone()
+                                } else {
+                                    HashMap::new()
+                                };
+
                             // Bind variables from the struct pattern fields
                             for (field_name, opt_var_name) in fields {
                                 // Skip the special ".." rest pattern marker
                                 if field_name == ".." {
                                     continue;
                                 }
-                                
-                                let field_type = field_types.get(field_name).cloned().unwrap_or(Type::Unknown);
-                                
+
+                                let field_type = field_types
+                                    .get(field_name)
+                                    .cloned()
+                                    .unwrap_or(Type::Unknown);
+
                                 if let Some(var_name) = opt_var_name {
                                     // Field bound to a different variable name
                                     self.match_bound_vars.insert(var_name.clone(), field_type);
@@ -1817,8 +2050,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                         } else {
                             return Err(Error::new_semantic(
-                                format!("Cannot match struct pattern {} against non-struct type {}", 
-                                    pattern_name, expr_type.to_string()),
+                                format!(
+                                    "Cannot match struct pattern {} against non-struct type {}",
+                                    pattern_name,
+                                    expr_type.to_string()
+                                ),
                                 pattern.span(),
                             ));
                         }
@@ -1833,28 +2069,33 @@ impl AstVisitor<Type> for SemanticVisitor {
                             "Some" | "None" => ("Option", name.as_str()),
                             _ => unreachable!(),
                         };
-                        
+
                         // Check if we're matching the right enum type
                         match &expr_type {
-                            Type::Enum { name: matched_enum, .. } if matched_enum == enum_name => {
+                            Type::Enum {
+                                name: matched_enum, ..
+                            } if matched_enum == enum_name => {
                                 // Track this variant as matched
                                 matched_variants.insert(variant_name.to_string());
-                                
+
                                 // Bind variables from the argument
                                 if !args.is_empty() {
                                     match &args[0] {
                                         Expr::Identifier(var_name, _) if var_name != "_" => {
                                             // Simple identifier binding
-                                            self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                            self.match_bound_vars
+                                                .insert(var_name.clone(), Type::Unknown);
                                         }
                                         Expr::StructPattern(struct_name, fields, _) => {
                                             // Nested struct pattern (e.g., Ok(Command::Process { input, output }))
                                             // We need to infer the type from context or use Unknown
                                             for (field_name, opt_var_name) in fields {
                                                 if let Some(var_name) = opt_var_name {
-                                                    self.match_bound_vars.insert(var_name.clone(), Type::Unknown);
+                                                    self.match_bound_vars
+                                                        .insert(var_name.clone(), Type::Unknown);
                                                 } else {
-                                                    self.match_bound_vars.insert(field_name.clone(), Type::Unknown);
+                                                    self.match_bound_vars
+                                                        .insert(field_name.clone(), Type::Unknown);
                                                 }
                                             }
                                         }
@@ -1866,8 +2107,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                             _ => {
                                 return Err(Error::new_semantic(
-                                    format!("Cannot match {} pattern against type {}", 
-                                        name, expr_type.to_string()),
+                                    format!(
+                                        "Cannot match {} pattern against type {}",
+                                        name,
+                                        expr_type.to_string()
+                                    ),
                                     pattern.span(),
                                 ));
                             }
@@ -1877,8 +2121,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                         let pattern_type = self.visit_expr(pattern)?;
                         if pattern_type != expr_type {
                             return Err(Error::new_semantic(
-                                format!("Pattern type mismatch: expected {}, found {}", 
-                                    expr_type.to_string(), pattern_type.to_string()),
+                                format!(
+                                    "Pattern type mismatch: expected {}, found {}",
+                                    expr_type.to_string(),
+                                    pattern_type.to_string()
+                                ),
                                 pattern.span(),
                             ));
                         }
@@ -1889,8 +2136,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     let pattern_type = self.visit_expr(pattern)?;
                     if pattern_type != expr_type {
                         return Err(Error::new_semantic(
-                            format!("Pattern type mismatch: expected {}, found {}", 
-                                expr_type.to_string(), pattern_type.to_string()),
+                            format!(
+                                "Pattern type mismatch: expected {}, found {}",
+                                expr_type.to_string(),
+                                pattern_type.to_string()
+                            ),
                             pattern.span(),
                         ));
                     }
@@ -1913,8 +2163,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                     for variant_name in enum_variants.keys() {
                         if !matched_variants.contains(variant_name) {
                             return Err(Error::new_semantic(
-                                format!("Non-exhaustive match: variant '{}::{}' not covered", 
-                                    enum_name, variant_name),
+                                format!(
+                                    "Non-exhaustive match: variant '{}::{}' not covered",
+                                    enum_name, variant_name
+                                ),
                                 *span,
                             ));
                         }
@@ -1931,10 +2183,15 @@ impl AstVisitor<Type> for SemanticVisitor {
         let first_arm_type = &arm_types[0];
         for (i, arm_type) in arm_types.iter().enumerate().skip(1) {
             // If either type is Unknown, allow it (for generic types)
-            if *arm_type != Type::Unknown && *first_arm_type != Type::Unknown && arm_type != first_arm_type {
+            if *arm_type != Type::Unknown
+                && *first_arm_type != Type::Unknown
+                && arm_type != first_arm_type
+            {
                 // Special case: if both are the same enum type but one has more specific type info, allow it
                 match (first_arm_type, arm_type) {
-                    (Type::Enum { name: name1, .. }, Type::Enum { name: name2, .. }) if name1 == name2 => {
+                    (Type::Enum { name: name1, .. }, Type::Enum { name: name2, .. })
+                        if name1 == name2 =>
+                    {
                         // Same enum type (e.g., both Result), allow even if generic parameters differ
                         continue;
                     }
@@ -1952,7 +2209,13 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(first_arm_type.clone())
     }
 
-    fn visit_for_loop(&mut self, pattern: &Expr, iterable: &Expr, body: &[Stmt], _span: &Span) -> Result<Type> {
+    fn visit_for_loop(
+        &mut self,
+        pattern: &Expr,
+        iterable: &Expr,
+        body: &[Stmt],
+        _span: &Span,
+    ) -> Result<Type> {
         let iterable_type = self.visit_expr(iterable)?;
 
         // Create new scope for loop
@@ -1989,7 +2252,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 pattern.span(),
                             ));
                         }
-                        
+
                         // Bind each tuple element to its corresponding variable
                         for (elem_pattern, elem_type) in elements.iter().zip(tuple_types.iter()) {
                             match elem_pattern {
@@ -1999,7 +2262,8 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 _ => {
                                     self.type_env.pop_scope();
                                     return Err(Error::new_semantic(
-                                        "Only identifiers are supported in tuple patterns".to_string(),
+                                        "Only identifiers are supported in tuple patterns"
+                                            .to_string(),
                                         elem_pattern.span(),
                                     ));
                                 }
@@ -2009,7 +2273,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                     _ => {
                         self.type_env.pop_scope();
                         return Err(Error::new_semantic(
-                            format!("Cannot destructure non-tuple type {} in for loop", element_type.to_string()),
+                            format!(
+                                "Cannot destructure non-tuple type {} in for loop",
+                                element_type.to_string()
+                            ),
                             pattern.span(),
                         ));
                     }
@@ -2043,7 +2310,10 @@ impl AstVisitor<Type> for SemanticVisitor {
         let condition_type = self.visit_expr(condition)?;
         if condition_type != Type::Bool {
             return Err(Error::new_semantic(
-                format!("While condition must be boolean, found {}", condition_type.to_string()),
+                format!(
+                    "While condition must be boolean, found {}",
+                    condition_type.to_string()
+                ),
                 condition.span(),
             ));
         }
@@ -2120,7 +2390,14 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_extern_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], return_type: &str, _span: &Span) -> Result<Type> {
+    fn visit_extern_function(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        params: &[(String, String)],
+        return_type: &str,
+        _span: &Span,
+    ) -> Result<Type> {
         // Convert parameter types
         let param_types: Vec<(String, Type)> = params
             .iter()
@@ -2131,45 +2408,64 @@ impl AstVisitor<Type> for SemanticVisitor {
                 )
             })
             .collect();
-        
+
         let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
-        
+
         // Register extern function signature
-        self.functions.insert(
-            name.to_string(),
-            (param_types, ret_type.clone(), *_span),
-        );
-        
+        self.functions
+            .insert(name.to_string(), (param_types, ret_type.clone(), *_span));
+
         // Also register as imported name
-        self.imported_names.insert(name.to_string(), Type::Function {
-            params: vec![], // We don't track parameter types in imported_names
-            return_type: Box::new(ret_type),
-        });
-        
+        self.imported_names.insert(
+            name.to_string(),
+            Type::Function {
+                params: vec![], // We don't track parameter types in imported_names
+                return_type: Box::new(ret_type),
+            },
+        );
+
         Ok(Type::Unit)
     }
-    
-    fn visit_extern_mod(&mut self, _name: &str, items: &[ExternItem], _span: &Span) -> Result<Type> {
+
+    fn visit_extern_mod(
+        &mut self,
+        _name: &str,
+        items: &[ExternItem],
+        _span: &Span,
+    ) -> Result<Type> {
         // Process all items in the extern mod block
         for item in items {
             self.process_extern_item(item, "")?;
         }
         Ok(Type::Unit)
     }
-    
-    fn visit_extern_type(&mut self, name: &str, _generic_params: &[String], _span: &Span) -> Result<Type> {
+
+    fn visit_extern_type(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        _span: &Span,
+    ) -> Result<Type> {
         // Register the extern type in our type system
         // For now, treat all extern types as Unknown/Any since they're from external systems
         self.type_env.define(name.to_string(), Type::Unknown);
         self.imported_names.insert(name.to_string(), Type::Unknown);
         Ok(Type::Unit)
     }
-    
-    fn visit_async_function(&mut self, name: &str, _generic_params: &[String], params: &[(String, String)], return_type: &str, body: &[Stmt], span: &Span) -> Result<Type> {
+
+    fn visit_async_function(
+        &mut self,
+        name: &str,
+        _generic_params: &[String],
+        params: &[(String, String)],
+        return_type: &str,
+        body: &[Stmt],
+        span: &Span,
+    ) -> Result<Type> {
         // Track that we're in an async function
         let prev_async = self.in_async_function;
         self.in_async_function = true;
-        
+
         // Convert parameter types
         let param_types: Vec<(String, Type)> = params
             .iter()
@@ -2184,7 +2480,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Parse return type and wrap in Promise
         let inner_return_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
         let async_return_type = Type::Promise(Box::new(inner_return_type.clone()));
-        
+
         // Store function signature with Promise return type
         self.functions.insert(
             name.to_string(),
@@ -2206,18 +2502,23 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // Pop the function scope
         self.type_env.pop_scope();
-        
+
         // Restore async context
         self.in_async_function = prev_async;
-        
+
         Ok(Type::Unit)
     }
-    
-    fn visit_match_expr(&mut self, expr: &Expr, arms: &[(Expr, Vec<Stmt>)], span: &Span) -> Result<Type> {
+
+    fn visit_match_expr(
+        &mut self,
+        expr: &Expr,
+        arms: &[(Expr, Vec<Stmt>)],
+        span: &Span,
+    ) -> Result<Type> {
         // For now, use the same implementation as visit_match
         self.visit_match(expr, arms, span)
     }
-    
+
     fn visit_await(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
         // Check that we're in an async function
         if !self.in_async_function {
@@ -2226,25 +2527,28 @@ impl AstVisitor<Type> for SemanticVisitor {
                 span.clone(),
             ));
         }
-        
+
         // Type check the expression
         let expr_type = self.visit_expr(expr)?;
-        
+
         // Check if the expression is a Promise and unwrap it
         match &expr_type {
             Type::Promise(inner) => Ok((**inner).clone()),
             Type::Unknown => Ok(Type::Unknown), // Allow unknown types for extern functions
             _ => Err(Error::new_semantic(
-                format!(".await can only be used on Promise types, found {}", expr_type.to_string()),
+                format!(
+                    ".await can only be used on Promise types, found {}",
+                    expr_type.to_string()
+                ),
                 span.clone(),
             )),
         }
     }
-    
+
     fn visit_try(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
         // Type check the expression
         let expr_type = self.visit_expr(expr)?;
-        
+
         // Check if the expression is a Result type and unwrap the Ok type
         match &expr_type {
             Type::Enum { name, .. } if name == "Result" => {
@@ -2255,12 +2559,15 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
             Type::Unknown => Ok(Type::Unknown), // Allow unknown types for extern functions
             _ => Err(Error::new_semantic(
-                format!("? operator can only be used on Result types, found {}", expr_type.to_string()),
+                format!(
+                    "? operator can only be used on Result types, found {}",
+                    expr_type.to_string()
+                ),
                 span.clone(),
             )),
         }
     }
-    
+
     fn visit_await_try(&mut self, expr: &Expr, span: &Span) -> Result<Type> {
         // Check that we're in an async function
         if !self.in_async_function {
@@ -2269,10 +2576,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                 span.clone(),
             ));
         }
-        
+
         // Type check the expression
         let expr_type = self.visit_expr(expr)?;
-        
+
         // Check if the expression is a Promise and convert it to Result
         match &expr_type {
             Type::Promise(_inner) => {
@@ -2288,16 +2595,25 @@ impl AstVisitor<Type> for SemanticVisitor {
                 variants: std::collections::HashMap::new(),
             }), // Allow unknown types for extern functions
             _ => Err(Error::new_semantic(
-                format!(".await? can only be used on Promise types, found {}", expr_type.to_string()),
+                format!(
+                    ".await? can only be used on Promise types, found {}",
+                    expr_type.to_string()
+                ),
                 span.clone(),
             )),
         }
     }
-    
-    fn visit_closure(&mut self, params: &[(String, Option<String>)], ret_type: &Option<String>, body: &Expr, _span: &Span) -> Result<Type> {
+
+    fn visit_closure(
+        &mut self,
+        params: &[(String, Option<String>)],
+        ret_type: &Option<String>,
+        body: &Expr,
+        _span: &Span,
+    ) -> Result<Type> {
         // Enter a new scope for the closure
         self.type_env.push_scope();
-        
+
         // Process parameters and add them to the scope
         let mut param_types = Vec::new();
         for (param_name, param_type_str) in params {
@@ -2306,18 +2622,18 @@ impl AstVisitor<Type> for SemanticVisitor {
             } else {
                 Type::Unknown // Type inference not implemented yet
             };
-            
+
             self.type_env.define(param_name.clone(), param_type.clone());
             param_types.push(param_type);
         }
-        
+
         // Type check the body
         let body_type = self.visit_expr(body)?;
-        
+
         // Check return type if specified
         let actual_return_type = if let Some(ret_type_str) = ret_type {
             let expected_type = Type::from_string(ret_type_str).unwrap_or(Type::Unknown);
-            
+
             if !body_type.is_assignable_to(&expected_type) {
                 return Err(Error::new_semantic(
                     format!(
@@ -2328,27 +2644,27 @@ impl AstVisitor<Type> for SemanticVisitor {
                     body.span(),
                 ));
             }
-            
+
             expected_type
         } else {
             body_type
         };
-        
+
         // Exit the closure scope
         self.type_env.pop_scope();
-        
+
         // Return the function type
         Ok(Type::Function {
             params: param_types,
             return_type: Box::new(actual_return_type),
         })
     }
-    
+
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, span: &Span) -> Result<Type> {
         match &path.prefix {
             UsePrefix::None => {
                 let package_name = &path.segments[0];
-                
+
                 // Check if it's a Node.js built-in module
                 if is_nodejs_builtin(package_name) {
                     // Register imported names as Unknown for Node.js built-ins
@@ -2356,11 +2672,13 @@ impl AstVisitor<Type> for SemanticVisitor {
                         UseItems::Named(imports) => {
                             for (import_name, alias) in imports {
                                 let name_to_register = alias.as_ref().unwrap_or(import_name);
-                                self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                                self.imported_names
+                                    .insert(name_to_register.clone(), Type::Unknown);
                             }
                         }
                         UseItems::Single => {
-                            self.imported_names.insert(package_name.clone(), Type::Unknown);
+                            self.imported_names
+                                .insert(package_name.clone(), Type::Unknown);
                         }
                         UseItems::All => {
                             // For wildcard imports, we can't pre-register names
@@ -2368,7 +2686,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     }
                     return Ok(Type::Unit);
                 }
-                
+
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
                     match resolver.resolve_package(package_name) {
@@ -2378,8 +2696,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                             match items {
                                 UseItems::Named(imports) => {
                                     for (import_name, alias) in imports {
-                                        let name_to_register = alias.as_ref().unwrap_or(import_name);
-                                        self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                                        let name_to_register =
+                                            alias.as_ref().unwrap_or(import_name);
+                                        self.imported_names
+                                            .insert(name_to_register.clone(), Type::Unknown);
                                     }
                                 }
                                 UseItems::All => {
@@ -2387,17 +2707,16 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 }
                                 UseItems::Single => {
                                     // Register the package name itself
-                                    self.imported_names.insert(package_name.clone(), Type::Unknown);
+                                    self.imported_names
+                                        .insert(package_name.clone(), Type::Unknown);
                                 }
                             }
                             Ok(Type::Unit)
                         }
-                        Err(e) => {
-                            Err(Error::new_semantic(
-                                format!("Failed to resolve package '{}': {}", package_name, e),
-                                *span,
-                            ))
-                        }
+                        Err(e) => Err(Error::new_semantic(
+                            format!("Failed to resolve package '{}': {}", package_name, e),
+                            *span,
+                        )),
                     }
                 } else {
                     // No package resolver - register as Unknown to avoid errors
@@ -2405,12 +2724,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                         UseItems::Named(imports) => {
                             for (import_name, alias) in imports {
                                 let name_to_register = alias.as_ref().unwrap_or(import_name);
-                                self.imported_names.insert(name_to_register.clone(), Type::Unknown);
+                                self.imported_names
+                                    .insert(name_to_register.clone(), Type::Unknown);
                             }
                         }
                         UseItems::Single => {
                             if let Some(module_name) = path.segments.last() {
-                                self.imported_names.insert(module_name.clone(), Type::Unknown);
+                                self.imported_names
+                                    .insert(module_name.clone(), Type::Unknown);
                             }
                         }
                         UseItems::All => {
@@ -2424,18 +2745,22 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // Local imports - analyze the module to extract type information
                 let module_path = self.resolve_module_path(path, span)?;
                 self.analyze_local_module(&module_path, span)?;
-                
+
                 // Now register the imported names based on what we found
                 match items {
                     UseItems::Named(imports) => {
                         for (import_name, alias) in imports {
                             let name_to_register = alias.as_ref().unwrap_or(import_name);
-                            
+
                             // Check if it's a struct/enum/function we know about
-                            let imported_type = if let Some(fields) = self.structs.get(import_name) {
+                            let imported_type = if let Some(fields) = self.structs.get(import_name)
+                            {
                                 Type::Struct {
                                     name: import_name.clone(),
-                                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                                    fields: fields
+                                        .iter()
+                                        .map(|(name, ty)| (name.clone(), ty.clone()))
+                                        .collect(),
                                 }
                             } else if let Some(variants) = self.enums.get(import_name) {
                                 Type::Enum {
@@ -2448,17 +2773,22 @@ impl AstVisitor<Type> for SemanticVisitor {
                             } else {
                                 Type::Unknown
                             };
-                            
-                            self.imported_names.insert(name_to_register.clone(), imported_type);
+
+                            self.imported_names
+                                .insert(name_to_register.clone(), imported_type);
                         }
                     }
                     UseItems::Single => {
                         if let Some(module_name) = path.segments.last() {
                             // For single imports, check if it's a known type
-                            let imported_type = if let Some(fields) = self.structs.get(module_name) {
+                            let imported_type = if let Some(fields) = self.structs.get(module_name)
+                            {
                                 Type::Struct {
                                     name: module_name.clone(),
-                                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.clone())).collect(),
+                                    fields: fields
+                                        .iter()
+                                        .map(|(name, ty)| (name.clone(), ty.clone()))
+                                        .collect(),
                                 }
                             } else if let Some(variants) = self.enums.get(module_name) {
                                 Type::Enum {
@@ -2471,8 +2801,9 @@ impl AstVisitor<Type> for SemanticVisitor {
                             } else {
                                 Type::Unknown
                             };
-                            
-                            self.imported_names.insert(module_name.clone(), imported_type);
+
+                            self.imported_names
+                                .insert(module_name.clone(), imported_type);
                         }
                     }
                     UseItems::All => {
@@ -2487,13 +2818,13 @@ impl AstVisitor<Type> for SemanticVisitor {
     fn visit_block(&mut self, stmts: &[Stmt], _span: &Span) -> Result<Type> {
         // Push a new scope for the block
         self.type_env.push_scope();
-        
+
         let mut block_type = Type::Unit;
-        
+
         // Visit all statements in the block
         for (i, stmt) in stmts.iter().enumerate() {
             let is_last = i == stmts.len() - 1;
-            
+
             match stmt {
                 // If the last statement is an expression without semicolon,
                 // the block evaluates to that expression's type
@@ -2506,19 +2837,28 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
             }
         }
-        
+
         // Pop the scope
         self.type_env.pop_scope();
-        
+
         Ok(block_type)
     }
 
-    fn visit_if_expr(&mut self, condition: &Expr, then_block: &[Stmt], else_block: &[Stmt], span: &Span) -> Result<Type> {
+    fn visit_if_expr(
+        &mut self,
+        condition: &Expr,
+        then_block: &[Stmt],
+        else_block: &[Stmt],
+        span: &Span,
+    ) -> Result<Type> {
         // Check condition is boolean
         let condition_type = self.visit_expr(condition)?;
         if condition_type != Type::Bool {
             return Err(Error::new_semantic(
-                format!("If condition must be boolean, found {}", condition_type.to_string()),
+                format!(
+                    "If condition must be boolean, found {}",
+                    condition_type.to_string()
+                ),
                 condition.span(),
             ));
         }
@@ -2531,7 +2871,10 @@ impl AstVisitor<Type> for SemanticVisitor {
             // If then block returns non-Unit, this is an error for expression context
             if then_type != Type::Unit {
                 return Err(Error::new_semantic(
-                    format!("If expression without else branch cannot return non-unit type {}", then_type.to_string()),
+                    format!(
+                        "If expression without else branch cannot return non-unit type {}",
+                        then_type.to_string()
+                    ),
                     *span,
                 ));
             }
@@ -2552,10 +2895,16 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         Ok(then_type)
     }
-    
-    fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], span: &Span) -> Result<Type> {
+
+    fn visit_method_call(
+        &mut self,
+        object: &Expr,
+        method: &str,
+        args: &[Expr],
+        span: &Span,
+    ) -> Result<Type> {
         let object_type = self.visit_expr(object)?;
-        
+
         match &object_type {
             Type::String => {
                 // String methods
@@ -2563,7 +2912,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "len" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2572,7 +2925,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "trim" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2581,7 +2938,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "substring" => {
                         if args.len() != 2 {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects 2 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "String method '{}' expects 2 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2590,7 +2951,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                             let arg_type = self.visit_expr(arg)?;
                             if arg_type != Type::Int {
                                 return Err(Error::new_semantic(
-                                    format!("String method '{}' expects int arguments, found {}", method, arg_type.to_string()),
+                                    format!(
+                                        "String method '{}' expects int arguments, found {}",
+                                        method,
+                                        arg_type.to_string()
+                                    ),
                                     *span,
                                 ));
                             }
@@ -2600,14 +2965,22 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "split" => {
                         if args.len() != 1 {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects 1 argument, but {} were provided", method, args.len()),
+                                format!(
+                                    "String method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
                         let arg_type = self.visit_expr(&args[0])?;
                         if arg_type != Type::String {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects string argument, found {}", method, arg_type.to_string()),
+                                format!(
+                                    "String method '{}' expects string argument, found {}",
+                                    method,
+                                    arg_type.to_string()
+                                ),
                                 *span,
                             ));
                         }
@@ -2616,7 +2989,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "toLowerCase" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2625,7 +3002,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "toUpperCase" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
-                                format!("String method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "String method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2634,7 +3015,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     _ => Err(Error::new_semantic(
                         format!("Unknown method '{}' for string type", method),
                         *span,
-                    ))
+                    )),
                 }
             }
             Type::Array(elem_type) => {
@@ -2643,7 +3024,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "len" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
-                                format!("Array method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "Array method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2652,15 +3037,23 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "push" => {
                         if args.len() != 1 {
                             return Err(Error::new_semantic(
-                                format!("Array method '{}' expects 1 argument, but {} were provided", method, args.len()),
+                                format!(
+                                    "Array method '{}' expects 1 argument, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
                         let arg_type = self.visit_expr(&args[0])?;
                         if arg_type != **elem_type {
                             return Err(Error::new_semantic(
-                                format!("Array method '{}' expects {} argument, found {}", 
-                                    method, elem_type.to_string(), arg_type.to_string()),
+                                format!(
+                                    "Array method '{}' expects {} argument, found {}",
+                                    method,
+                                    elem_type.to_string(),
+                                    arg_type.to_string()
+                                ),
                                 *span,
                             ));
                         }
@@ -2669,7 +3062,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                     "pop" => {
                         if !args.is_empty() {
                             return Err(Error::new_semantic(
-                                format!("Array method '{}' expects 0 arguments, but {} were provided", method, args.len()),
+                                format!(
+                                    "Array method '{}' expects 0 arguments, but {} were provided",
+                                    method,
+                                    args.len()
+                                ),
                                 *span,
                             ));
                         }
@@ -2679,14 +3076,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                     _ => Err(Error::new_semantic(
                         format!("Unknown method '{}' for array type", method),
                         *span,
-                    ))
+                    )),
                 }
             }
             Type::Struct { name, .. } => {
                 // For struct methods, prepend 'self' (the object) as the first argument
                 let mut method_args = vec![object.clone()];
                 method_args.extend_from_slice(args);
-                
+
                 let target_expr = Expr::Identifier(name.clone(), *span);
                 self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
             }
@@ -2694,71 +3091,78 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // For enum methods, prepend 'self' (the object) as the first argument
                 let mut method_args = vec![object.clone()];
                 method_args.extend_from_slice(args);
-                
+
                 let target_expr = Expr::Identifier(name.clone(), *span);
                 self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
             }
-            _ => {
-                Err(Error::new_semantic(
-                    format!("Cannot call method '{}' on type {}", method, object_type.to_string()),
-                    *span,
-                ))
-            }
+            _ => Err(Error::new_semantic(
+                format!(
+                    "Cannot call method '{}' on type {}",
+                    method,
+                    object_type.to_string()
+                ),
+                *span,
+            )),
         }
     }
-    
+
     fn visit_cast(&mut self, expr: &Expr, target_type: &str, _span: &Span) -> Result<Type> {
         // Type check the expression being cast
         let expr_type = self.visit_expr(expr)?;
-        
+
         // Parse the target type
         let target = Type::from_string(target_type).unwrap_or(Type::Unknown);
-        
+
         // For now, allow all casts and return the target type
         // In a more complete implementation, we would check if the cast is valid
         // e.g., numeric types can be cast to each other, but not to strings
         match (&expr_type, &target) {
             // Allow unknown types (for extern values)
             (Type::Unknown, _) | (_, Type::Unknown) => Ok(target),
-            
+
             // Allow same-type casts (no-op)
             _ if expr_type == target => Ok(target),
-            
+
             // Numeric casts
             (Type::Int, Type::Float) | (Type::Float, Type::Int) => Ok(target),
-            
+
             // String to numeric parsing would fail at runtime
             (Type::String, Type::Int) | (Type::String, Type::Float) => Ok(target),
-            
+
             // Numeric to string conversion
             (Type::Int, Type::String) | (Type::Float, Type::String) => Ok(target),
-            
+
             // For now, allow other casts and let runtime/transpiler handle them
             _ => Ok(target),
         }
     }
 
-    fn visit_struct_pattern(&mut self, _variant: &str, _fields: &[(String, Option<String>)], _span: &Span) -> Result<Type> {
+    fn visit_struct_pattern(
+        &mut self,
+        _variant: &str,
+        _fields: &[(String, Option<String>)],
+        _span: &Span,
+    ) -> Result<Type> {
         // Struct patterns are used for pattern matching
         // We need to validate that the variant exists and has the required fields
         // For now, we'll just return Unit type since patterns don't have runtime values
-        
+
         // TODO: Validate that the variant exists in the enum/struct definitions
         // TODO: Validate that all fields exist in the variant
         // TODO: Add field variables to scope for the match arm
-        
+
         Ok(Type::Unit)
     }
 
     fn visit_object_literal(&mut self, fields: &[(String, Expr)], _span: &Span) -> Result<Type> {
         // Object literals are untyped JavaScript objects
         // We type-check all the field values but return a generic Object type
-        
+
         for (_key, value) in fields {
             // Type-check each value expression
             self.visit_expr(value)?;
         }
-        
+
         // Return a generic Object type
         // In the future, we could support more specific object types
         Ok(Type::Unknown)
@@ -2768,8 +3172,8 @@ impl AstVisitor<Type> for SemanticVisitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::Parser;
     use crate::lexer::Lexer;
+    use crate::parser::Parser;
 
     fn analyze_code(code: &str) -> Result<()> {
         let mut lexer = Lexer::new(code.to_string());
@@ -2990,7 +3394,7 @@ mod tests {
         // TODO: Non-exhaustive match detection for function parameters requires
         // proper enum type resolution in Type::from_string
         // Currently, custom types in function parameters are treated as structs
-        
+
         // Test match with wildcard
         let code = r#"
             enum Option {
@@ -3143,17 +3547,21 @@ mod tests {
     fn test_unary_negation_types() {
         // Valid: negate int
         assert!(analyze_code("let x = -5;").is_ok());
-        
+
         // Valid: negate float
         assert!(analyze_code("let x = -3.14;").is_ok());
-        
+
         // Invalid: negate bool
         let err = analyze_code("let x = -true;").unwrap_err();
-        assert!(err.to_string().contains("Unary negation requires numeric type"));
-        
+        assert!(err
+            .to_string()
+            .contains("Unary negation requires numeric type"));
+
         // Invalid: negate string
         let err = analyze_code("let x = -\"hello\";").unwrap_err();
-        assert!(err.to_string().contains("Unary negation requires numeric type"));
+        assert!(err
+            .to_string()
+            .contains("Unary negation requires numeric type"));
     }
 
     #[test]
@@ -3161,11 +3569,11 @@ mod tests {
         // Valid: NOT bool
         assert!(analyze_code("let x = !true;").is_ok());
         assert!(analyze_code("let x = !false;").is_ok());
-        
+
         // Invalid: NOT int
         let err = analyze_code("let x = !5;").unwrap_err();
         assert!(err.to_string().contains("Logical NOT requires bool type"));
-        
+
         // Invalid: NOT string
         let err = analyze_code("let x = !\"hello\";").unwrap_err();
         assert!(err.to_string().contains("Logical NOT requires bool type"));
@@ -3176,10 +3584,10 @@ mod tests {
         // Negation in arithmetic
         assert!(analyze_code("let x = 5 + -3;").is_ok());
         assert!(analyze_code("let x = -5 * 2;").is_ok());
-        
+
         // NOT in boolean expressions
         assert!(analyze_code("let x = !true == false;").is_ok());
-        
+
         // Double negation
         assert!(analyze_code("let x = --5;").is_ok());
         assert!(analyze_code("let x = !!true;").is_ok());
@@ -3206,27 +3614,31 @@ mod tests {
             
             let logger = Logger::new(LogLevel::Info);
         "#;
-        
+
         // This should pass - static method should return Logger type
         let result = analyze_code(code);
-        assert!(result.is_ok(), "Expected static method call to be valid, but got: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Expected static method call to be valid, but got: {:?}",
+            result
+        );
+
         // Now let's also test the specific case where we want to check the return type
         let mut lexer = Lexer::new(code.to_string());
         let tokens = lexer.lex_all();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse().unwrap();
         let mut analyzer = SemanticVisitor::new();
-        
+
         // Analyze the code
         analyzer.analyze(&ast).unwrap();
-        
+
         // Debug: Print registered functions
         println!("DEBUG: Registered functions:");
         for (name, (params, return_type, _)) in &analyzer.functions {
             println!("  {}: {:?} -> {:?}", name, params, return_type);
         }
-        
+
         // Debug: Print type environment
         println!("DEBUG: Type environment for 'logger':");
         if let Some(logger_type) = analyzer.type_env.lookup("logger") {
@@ -3234,15 +3646,22 @@ mod tests {
         } else {
             println!("  logger: NOT FOUND");
         }
-        
+
         // Check that Logger is properly registered
         if let Some(logger_type) = analyzer.type_env.lookup("logger") {
             match logger_type {
                 Type::Struct { name, .. } => {
-                    assert_eq!(name, "Logger", "Expected logger variable to have Logger type, got struct with name: {}", name);
+                    assert_eq!(
+                        name, "Logger",
+                        "Expected logger variable to have Logger type, got struct with name: {}",
+                        name
+                    );
                 }
                 other => {
-                    panic!("Expected logger variable to have Logger struct type, got: {:?}", other);
+                    panic!(
+                        "Expected logger variable to have Logger struct type, got: {:?}",
+                        other
+                    );
                 }
             }
         } else {
@@ -3262,31 +3681,65 @@ mod tests {
             x %= 3;
         "#;
         assert!(analyze_code(code).is_ok());
-        
+
         // Valid: float compound assignment
         let code = r#"
             let y = 5.0;
             y += 3.5;
         "#;
         assert!(analyze_code(code).is_ok());
-        
+
         // Invalid: non-numeric compound assignment
-        let err = analyze_code(r#"
+        let err = analyze_code(
+            r#"
             let s = "hello";
             s += " world";
-        "#).unwrap_err();
+        "#,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("Compound assignment"));
     }
 }
 
 /// Check if a module name is a Node.js built-in module
 fn is_nodejs_builtin(module: &str) -> bool {
-    matches!(module,
-        "assert" | "buffer" | "child_process" | "cluster" | "console" | "constants" |
-        "crypto" | "dgram" | "dns" | "domain" | "events" | "fs" | "http" | "https" |
-        "module" | "net" | "os" | "path" | "perf_hooks" | "process" | "punycode" |
-        "querystring" | "readline" | "repl" | "stream" | "string_decoder" | "sys" |
-        "timers" | "tls" | "tty" | "url" | "util" | "v8" | "vm" | "worker_threads" |
-        "zlib"
+    matches!(
+        module,
+        "assert"
+            | "buffer"
+            | "child_process"
+            | "cluster"
+            | "console"
+            | "constants"
+            | "crypto"
+            | "dgram"
+            | "dns"
+            | "domain"
+            | "events"
+            | "fs"
+            | "http"
+            | "https"
+            | "module"
+            | "net"
+            | "os"
+            | "path"
+            | "perf_hooks"
+            | "process"
+            | "punycode"
+            | "querystring"
+            | "readline"
+            | "repl"
+            | "stream"
+            | "string_decoder"
+            | "sys"
+            | "timers"
+            | "tls"
+            | "tty"
+            | "url"
+            | "util"
+            | "v8"
+            | "vm"
+            | "worker_threads"
+            | "zlib"
     )
 }

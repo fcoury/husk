@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use crate::error::Result;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
     use crate::semantic::SemanticVisitor;
-    use crate::error::Result;
 
     fn analyze_code(code: &str) -> Result<()> {
         let mut lexer = Lexer::new(code.to_string());
@@ -26,7 +26,7 @@ mod tests {
             }
         "#;
         match analyze_code(code) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => panic!("Failed to analyze code: {:?}", e),
         }
     }
@@ -140,7 +140,7 @@ mod tests {
             }
         "#;
         match analyze_code(code) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => panic!("Failed to analyze code: {:?}", e),
         }
     }
@@ -238,7 +238,7 @@ mod tests {
     }
 
     // Built-in method type checking tests
-    
+
     #[test]
     fn test_string_builtin_methods() {
         let code = r#"
@@ -339,7 +339,7 @@ mod tests {
     }
 
     // Qualified type name resolution tests
-    
+
     #[test]
     fn test_qualified_type_resolution() {
         let code = r#"
@@ -374,7 +374,7 @@ mod tests {
     }
 
     // Extern type validation tests
-    
+
     #[test]
     fn test_extern_type_in_struct() {
         let code = r#"
@@ -415,7 +415,7 @@ mod tests {
     }
 
     // Async context validation tests
-    
+
     #[test]
     fn test_await_in_async_context() {
         let code = r#"

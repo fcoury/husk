@@ -45,10 +45,12 @@ mod tests {
 
     #[test]
     fn test_array_index_out_of_bounds() {
-        let error = run_and_expect_error(r#"
+        let error = run_and_expect_error(
+            r#"
             let arr = [1, 2, 3];
             let x = arr[5];
-        "#);
+        "#,
+        );
         match error {
             Error::Runtime(msg, _) => {
                 assert!(msg.contains("out of bounds") || msg.contains("index"));
@@ -59,10 +61,12 @@ mod tests {
 
     #[test]
     fn test_negative_array_index() {
-        let error = run_and_expect_error(r#"
+        let error = run_and_expect_error(
+            r#"
             let arr = [1, 2, 3];
             let x = arr[-1];
-        "#);
+        "#,
+        );
         match error {
             Error::Runtime(msg, _) => {
                 assert!(msg.contains("out of bounds") || msg.contains("negative"));
@@ -84,7 +88,7 @@ mod tests {
                 Color::Red => println("red"),
             }
         "#;
-        
+
         match execute_script(code) {
             Err(Error::Semantic(msg, _)) => {
                 assert!(msg.contains("exhaustive") || msg.contains("match"));
@@ -99,10 +103,12 @@ mod tests {
 
     #[test]
     fn test_accessing_field_of_non_struct() {
-        let error = run_and_expect_error(r#"
+        let error = run_and_expect_error(
+            r#"
             let x = 5;
             let y = x.field;
-        "#);
+        "#,
+        );
         match error {
             Error::Runtime(msg, _) | Error::Semantic(msg, _) => {
                 assert!(msg.contains("field") || msg.contains("struct"));
