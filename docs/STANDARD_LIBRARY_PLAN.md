@@ -179,8 +179,8 @@ impl<T> array<T> {
     
     // Searching
     fn contains(self, x: T) -> bool where T: Eq;      // JS: .includes()
-    fn find(self, f: fn(T) -> bool) -> Option<T>;     // JS: .find()
-    fn position(self, f: fn(T) -> bool) -> Option<usize>; // JS: .findIndex()
+    fn find(self, f: fn(T) -> bool) -> Option<T>;     // JS: .find() ✅ IMPLEMENTED
+    fn position(self, f: fn(T) -> bool) -> Option<usize>; // JS: .findIndex() ✅ IMPLEMENTED
     
     // Functional operations (immutable)
     fn map<U>(self, f: fn(T) -> U) -> array<U>;       // JS: .map() ✅ IMPLEMENTED

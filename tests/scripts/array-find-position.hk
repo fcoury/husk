@@ -1,0 +1,99 @@
+// Test find() and position() methods for arrays with closures
+let numbers = [1, 2, 3, 4, 5];
+let strings = ["apple", "banana", "cherry"];
+
+// Test find() - find first element that matches condition
+match numbers.find(|x| x > 3) {
+    Option::Some(value) => println(value),  // Should print: 4
+    Option::None => println("Not found")
+}
+
+match numbers.find(|x| x > 10) {
+    Option::Some(value) => println(value),
+    Option::None => println("Not found")    // Should print: "Not found"
+}
+
+match numbers.find(|x| x % 2 == 0) {
+    Option::Some(value) => println(value),  // Should print: 2 (first even)
+    Option::None => println("Not found")
+}
+
+// Test position() - find index of first element that matches condition
+match numbers.position(|x| x > 3) {
+    Option::Some(index) => println(index),  // Should print: 3 (index of 4)
+    Option::None => println("Not found")
+}
+
+match numbers.position(|x| x > 10) {
+    Option::Some(index) => println(index),
+    Option::None => println("Not found")    // Should print: "Not found"
+}
+
+match numbers.position(|x| x % 2 == 0) {
+    Option::Some(index) => println(index),  // Should print: 1 (index of 2)
+    Option::None => println("Not found")
+}
+
+// Test with strings
+match strings.find(|s| s == "banana") {
+    Option::Some(value) => println(value),  // Should print: "banana"
+    Option::None => println("Not found")
+}
+
+match strings.position(|s| s == "cherry") {
+    Option::Some(index) => println(index),  // Should print: 2
+    Option::None => println("Not found")
+}
+
+// Test with empty array
+let empty = [];
+match empty.find(|x| x > 0) {
+    Option::Some(value) => println(value),
+    Option::None => println("Empty not found")  // Should print: "Empty not found"
+}
+
+match empty.position(|x| x > 0) {
+    Option::Some(index) => println(index),
+    Option::None => println("Empty not found")  // Should print: "Empty not found"
+}
+
+// Test with environment capture
+let threshold = 3;
+match numbers.find(|x| x == threshold) {
+    Option::Some(value) => println(value),  // Should print: 3
+    Option::None => println("Not found")
+}
+
+match numbers.position(|x| x == threshold) {
+    Option::Some(index) => println(index),  // Should print: 2
+    Option::None => println("Not found")
+}
+
+// Test edge cases - single element
+let single = [42];
+match single.find(|x| x == 42) {
+    Option::Some(value) => println(value),  // Should print: 42
+    Option::None => println("Not found")
+}
+
+match single.position(|x| x == 42) {
+    Option::Some(index) => println(index),  // Should print: 0
+    Option::None => println("Not found")
+}
+
+match single.find(|x| x == 99) {
+    Option::Some(value) => println(value),
+    Option::None => println("Single not found")  // Should print: "Single not found"
+}
+
+// Test with complex conditions
+let data = [10, 15, 20, 25, 30];
+match data.find(|x| x > 18 && x < 22) {
+    Option::Some(value) => println(value),  // Should print: 20
+    Option::None => println("Not found")
+}
+
+match data.position(|x| x % 5 == 0 && x > 20) {
+    Option::Some(index) => println(index),  // Should print: 3 (index of 25)
+    Option::None => println("Not found")
+}
