@@ -918,7 +918,7 @@ fn array_pop(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
 
 // TODO: Implement these with proper closure/function value support
 // Note: array_map and array_filter are implemented directly in the interpreter
-// to access closure calling functionality. See InterpreterVisitor::array_map() 
+// to access closure calling functionality. See InterpreterVisitor::array_map()
 // and InterpreterVisitor::array_filter() in interpreter.rs
 
 fn array_map(_value: &Value, _args: &[Value], span: &Span) -> Result<Value> {
@@ -1262,6 +1262,20 @@ impl MethodSignatureRegistry {
                 return_type: Type::Unknown,       // Should be Array<T>
             },
         );
+        self.array_methods.insert(
+            "find",
+            MethodSignature {
+                param_types: vec![Type::Unknown], // Should be fn(T) -> bool
+                return_type: Type::Unknown,       // Should be Option<T>
+            },
+        );
+        self.array_methods.insert(
+            "position",
+            MethodSignature {
+                param_types: vec![Type::Unknown], // Should be fn(T) -> bool
+                return_type: Type::Unknown,       // Should be Option<usize>
+            },
+        );
     }
 
     pub fn get_string_method(&self, name: &str) -> Option<&MethodSignature> {
@@ -1347,6 +1361,9 @@ impl TranspilerMethodRegistry {
         self.array_methods.insert("sort", transpile_array_sort);
         self.array_methods.insert("map", transpile_array_map);
         self.array_methods.insert("filter", transpile_array_filter);
+        self.array_methods.insert("find", transpile_array_find);
+        self.array_methods
+            .insert("position", transpile_array_position);
     }
 
     pub fn get_string_method(&self, name: &str) -> Option<&TranspilerImpl> {
@@ -1596,6 +1613,30 @@ fn transpile_array_filter(obj: &str, args: &[String]) -> String {
         format!("{}.filter({})", obj, &args[0])
     } else {
         format!("{}.filter(x => true)", obj) // No-op filter as fallback
+    }
+}
+
+fn transpile_array_find(obj: &str, args: &[String]) -> String {
+    // JavaScript Array.find() returns undefined instead of Option, so we wrap it
+    if !args.is_empty() {
+        format!(
+            "(function() {{ const result = {}.find({}); return result !== undefined ? {{ type: 'Some', value: result }} : {{ type: 'None' }}; }})()",
+            obj, &args[0]
+        )
+    } else {
+        "{ type: 'None' }".to_string() // No predicate means no match
+    }
+}
+
+fn transpile_array_position(obj: &str, args: &[String]) -> String {
+    // JavaScript Array.findIndex() returns -1 instead of Option, so we wrap it
+    if !args.is_empty() {
+        format!(
+            "(function() {{ const result = {}.findIndex({}); return result !== -1 ? {{ type: 'Some', value: result }} : {{ type: 'None' }}; }})()",
+            obj, &args[0]
+        )
+    } else {
+        "{ type: 'None' }".to_string() // No predicate means no match
     }
 }
 

@@ -1,0 +1,17 @@
+{ type: 'None' }
+{ type: 'None' }
+{ type: 'None' }
+{ type: 'Some', value: 3 }
+{ type: 'None' }
+{ type: 'Some', value: 1 }
+{ type: 'None' }
+{ type: 'Some', value: 2 }
+{ type: 'None' }
+{ type: 'None' }
+{ type: 'None' }
+{ type: 'Some', value: 2 }
+{ type: 'None' }
+{ type: 'Some', value: 0 }
+{ type: 'None' }
+{ type: 'None' }
+{ type: 'Some', value: 3 }

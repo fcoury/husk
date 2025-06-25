@@ -2031,6 +2031,8 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 match method {
                     "map" => self.array_map(&obj_value, args, _span),
                     "filter" => self.array_filter(&obj_value, args, _span),
+                    "find" => self.array_find(&obj_value, args, _span),
+                    "position" => self.array_position(&obj_value, args, _span),
                     _ => {
                         // Evaluate arguments first to avoid borrowing issues
                         let mut arg_values = Vec::new();
@@ -2302,6 +2304,98 @@ impl InterpreterVisitor {
             Ok(Value::Array(results))
         } else {
             Err(Error::new_runtime("filter() called on non-array", *span))
+        }
+    }
+
+    /// Implements array.find() method with closure support
+    fn array_find(&mut self, array_value: &Value, args: &[Expr], span: &Span) -> Result<Value> {
+        if let Value::Array(elements) = array_value {
+            if args.len() != 1 {
+                return Err(Error::new_runtime(
+                    "find() requires exactly 1 argument (closure)",
+                    *span,
+                ));
+            }
+
+            // Evaluate the closure argument
+            let closure = self.visit_expr(&args[0])?;
+
+            // Apply the closure to each element and return the first match
+            for element in elements {
+                let result = self.call_closure(&closure, &[element.clone()], span)?;
+                match result {
+                    Value::Bool(true) => {
+                        // Found a match, return Some(element)
+                        return Ok(Value::EnumVariant(
+                            "Option".to_string(),
+                            "Some".to_string(),
+                            Some(Box::new(element.clone())),
+                        ));
+                    }
+                    Value::Bool(false) => {} // Continue searching
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "find() closure must return a boolean",
+                            *span,
+                        ))
+                    }
+                }
+            }
+
+            // No match found, return None
+            Ok(Value::EnumVariant(
+                "Option".to_string(),
+                "None".to_string(),
+                None,
+            ))
+        } else {
+            Err(Error::new_runtime("find() called on non-array", *span))
+        }
+    }
+
+    /// Implements array.position() method with closure support
+    fn array_position(&mut self, array_value: &Value, args: &[Expr], span: &Span) -> Result<Value> {
+        if let Value::Array(elements) = array_value {
+            if args.len() != 1 {
+                return Err(Error::new_runtime(
+                    "position() requires exactly 1 argument (closure)",
+                    *span,
+                ));
+            }
+
+            // Evaluate the closure argument
+            let closure = self.visit_expr(&args[0])?;
+
+            // Apply the closure to each element and return the index of the first match
+            for (index, element) in elements.iter().enumerate() {
+                let result = self.call_closure(&closure, &[element.clone()], span)?;
+                match result {
+                    Value::Bool(true) => {
+                        // Found a match, return Some(index)
+                        return Ok(Value::EnumVariant(
+                            "Option".to_string(),
+                            "Some".to_string(),
+                            Some(Box::new(Value::Int(index as i64))),
+                        ));
+                    }
+                    Value::Bool(false) => {} // Continue searching
+                    _ => {
+                        return Err(Error::new_runtime(
+                            "position() closure must return a boolean",
+                            *span,
+                        ))
+                    }
+                }
+            }
+
+            // No match found, return None
+            Ok(Value::EnumVariant(
+                "Option".to_string(),
+                "None".to_string(),
+                None,
+            ))
+        } else {
+            Err(Error::new_runtime("position() called on non-array", *span))
         }
     }
 
