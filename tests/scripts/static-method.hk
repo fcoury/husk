@@ -1,0 +1,12 @@
+struct Counter {
+  value: int,
+}
+
+impl Counter {
+  fn new() -> Counter {
+      Counter { value: 0 }
+  }
+}
+
+let counter = Counter::new();
+println(counter.value);
