@@ -1,0 +1,2 @@
+MyOption { variant: 'Some', value: 'Felipe' }
+MyOption { variant: 'None', value: undefined }
