@@ -189,6 +189,11 @@ impl<T> array<T> {
     fn all(self, f: fn(T) -> bool) -> bool;           // JS: .every()
     fn any(self, f: fn(T) -> bool) -> bool;           // JS: .some()
     
+    // Sorting and ordering
+    fn sort(self) -> array<T> where T: Ord;          // JS: .sort() ✅ IMPLEMENTED
+    fn sort_by<K>(self, f: fn(T) -> K) -> array<T> where K: Ord; // JS: .sort() with key
+    fn reverse(self) -> array<T>;                     // JS: .reverse()
+    
     // Slicing and concatenation
     fn slice(self, start: usize, end: usize) -> array<T>; // JS: .slice()
     fn concat(self, other: array<T>) -> array<T>;     // JS: .concat()
