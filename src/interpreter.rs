@@ -215,7 +215,7 @@ pub fn stdlib_format(args: &[Value]) -> Result<Value> {
                 chars.next();
                 if arg_index >= args.len() {
                     return Err(Error::new_runtime(
-                        format!("format! expects {} arguments after format string, but {} were provided", 
+                        format!("format! expects {} arguments after format string, but {} were provided",
                                arg_index - 1, args.len() - 1),
                         Span::default(),
                     ));
@@ -2016,13 +2016,38 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     ))
                 }
             }
-            typ => Err(Error::new_runtime(
-                format!(
-                    "Cannot call method '{}' on {:?}: unexpected type {:?}",
-                    method, obj_value, typ
-                ),
-                _span.clone(),
-            )),
+            Value::StructInstance(name, fields) => {
+                // Check if the method is a field access
+                if let Some(field_value) = fields.get(method) {
+                    return Ok(field_value.clone());
+                }
+
+                // Look up the method directly
+                let method_name = format!("{}::{}", name, method);
+                if let Some(func) = self.get_var(&method_name) {
+                    // Evaluate all arguments, prepending self as the first one
+                    let mut arg_values = vec![obj_value.clone()];
+                    for arg in args {
+                        arg_values.push(self.visit_expr(arg)?);
+                    }
+                    self.execute_function_call(func, arg_values, *_span)
+                } else {
+                    Err(Error::new_runtime(
+                        format!("Unknown method: {}", method_name),
+                        *_span,
+                    ))
+                }
+            }
+            typ => {
+                Err(Error::new_runtime(
+                    format!(
+                        "Cannot call method '{}' on {:?}: unexpected type {:?}",
+                        method, obj_value, typ
+                    ),
+                    _span.clone(),
+                ))
+                // panic!("Method calls on non-string/array/struct types are not supported yet");
+            }
         }
     }
 
@@ -2743,12 +2768,12 @@ mod tests {
             struct Point { x: int, y: int }
             let arr = [5, 10];
             let p = Point { x: 2, y: 4 };
-            
+
             arr[0] *= 3;    // Should not error
             arr[1] /= 2;    // Should not error
             p.x += 8;       // Should not error
             p.y -= 1;       // Should not error
-            
+
             42  // Return something to indicate success
         "#;
         let result = run_test(program).unwrap();
