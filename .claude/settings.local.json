@@ -28,7 +28,11 @@
       "Bash(cat:*)",
       "Bash(./target/debug/husk:*)",
       "Bash(../target/debug/husk build)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(bash tests/scripts/test.sh:*)",
+      "Bash(cargo fmt:*)"
     ],
     "deny": []
   }

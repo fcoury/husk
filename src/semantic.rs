@@ -3022,7 +3022,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                             Ok(Type::Array(Box::new(Type::String)))
                         }
-                        "toLowerCase" => {
+                        "to_lowercase" => {
                             if !args.is_empty() {
                                 return Err(Error::new_semantic(
                                     format!(
@@ -3035,7 +3035,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                             Ok(Type::String)
                         }
-                        "toUpperCase" => {
+                        "to_uppercase" => {
                             if !args.is_empty() {
                                 return Err(Error::new_semantic(
                                     format!(

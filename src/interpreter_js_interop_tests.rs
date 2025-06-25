@@ -277,7 +277,7 @@ mod tests {
         let code = r#"
             fn main() -> string {
                 let s = "hello world";
-                return s.toUpperCase();
+                return s.to_uppercase();
             }
             
             main()
@@ -294,7 +294,7 @@ mod tests {
         let code = r#"
             fn main() -> string {
                 let s = "HELLO WORLD";
-                return s.toLowerCase();
+                return s.to_lowercase();
             }
             
             main()
@@ -363,7 +363,7 @@ mod tests {
         let code = r#"
             fn main() -> string {
                 let s = "  hello world  ";
-                return s.trim().toUpperCase();
+                return s.trim().to_uppercase();
             }
             
             main()

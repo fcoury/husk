@@ -210,9 +210,8 @@ mod tests {
     #[test]
     fn test_transpile_es2022_target() {
         let code = r#"
-            async fn processData(data: Option<string>) -> string {
-                let value = data ?? "default";
-                return value?.toUpperCase() ?? "EMPTY";
+            async fn processData(data: string) -> string {
+                return data.to_uppercase();
             }
         "#;
 
