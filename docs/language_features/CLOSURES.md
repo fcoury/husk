@@ -279,10 +279,10 @@ Type::Function {
 
 ## Examples
 
-### Array Processing (Future Implementation)
+### Array Processing (✅ Implemented)
 
 ```husk
-// When map() and filter() are implemented
+// Array processing with closures
 let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 // Transform elements
@@ -293,10 +293,9 @@ let squares = numbers.map(|x| x * x);
 let evens = numbers.filter(|x| x % 2 == 0);
 // evens = [2, 4, 6, 8, 10]
 
-// Chain operations
-let even_squares = numbers
-    .filter(|x| x % 2 == 0)
-    .map(|x| x * x);
+// Chain operations (using intermediate variables for type inference)
+let filtered = numbers.filter(|x| x % 2 == 0);
+let even_squares = filtered.map(|x| x * x);
 // even_squares = [4, 16, 36, 64, 100]
 ```
 
@@ -346,7 +345,7 @@ let click_handler = create_handler("click");
 
 ## Current Limitations
 
-1. **Built-in Array Methods**: While closure syntax and runtime are fully implemented, built-in methods like `map()` and `filter()` are currently stub implementations that return "not yet implemented" errors.
+1. **Type Inference for Chaining**: Direct method chaining (e.g., `arr.map().filter()`) may require intermediate variables due to type inference limitations.
 
 2. **Mutable Captures**: Currently, closures capture values by value. Mutable references to captured variables are not yet supported.
 
@@ -354,11 +353,11 @@ let click_handler = create_handler("click");
 
 ## Future Enhancements
 
-- **Array Method Implementation**: Complete implementation of `map()`, `filter()`, `fold()`, etc.
+- **Additional Array Methods**: Implementation of `fold()`, `find()`, `position()`, `all()`, `any()`, etc.
 - **Async Closures**: Support for `async |x| { ... }` syntax
 - **Mutable Captures**: Support for `mut` captures and interior mutability
 - **Closure Optimization**: Performance optimizations for closure creation and calling
-- **Advanced Type Inference**: Better type inference for complex closure chains
+- **Advanced Type Inference**: Better type inference for complex closure chains and direct method chaining
 
 ## Testing
 
