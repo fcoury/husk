@@ -1,0 +1,22 @@
+[]
+[ 'one,two,three,four,five' ]
+[ 'one', 'two,three,four,five' ]
+[ 'one', 'two', 'three,four,five' ]
+[ 'one', 'two', 'three', 'four', 'five' ]
+[ 'hello', 'world from husk' ]
+[ 'hello', 'world', 'from husk' ]
+[ 'hello', 'world', 'from', 'husk' ]
+[ 'a', 'b-c-d-e-f' ]
+[ 'a', 'b', 'c-d-e-f' ]
+[ 'no separator here' ]
+[ 'no separator here' ]
+[ '' ]
+[ 'a', 'bc' ]
+[ 'a', 'b', 'c' ]
+[ 'a', 'b', 'c' ]
+2
+3
+5
+[ 'foo', 'bar::baz::qux' ]
+[ 'foo', 'bar', 'baz::qux' ]
+
