@@ -1,0 +1,61 @@
+// Test find and rfind methods
+let s = "hello world hello";
+
+// Basic find tests (returns Option<usize>)
+match s.find("hello") {
+    Option::Some(n) => println(n),    // Should print: 0
+    Option::None => println(-1),
+}
+match s.find("world") {
+    Option::Some(n) => println(n),    // Should print: 6
+    Option::None => println(-1),
+}
+match s.find("xyz") {
+    Option::Some(n) => println(n),
+    Option::None => println(-1),      // Should print: -1
+}
+
+// Test with empty string
+match s.find("") {
+    Option::Some(n) => println(n),    // Should print: 0
+    Option::None => println(-1),
+}
+
+// Basic rfind tests
+match s.rfind("hello") {
+    Option::Some(n) => println(n),    // Should print: 12
+    Option::None => println(-1),
+}
+match s.rfind("world") {
+    Option::Some(n) => println(n),    // Should print: 6
+    Option::None => println(-1),
+}
+match s.rfind("xyz") {
+    Option::Some(n) => println(n),
+    Option::None => println(-1),      // Should print: -1
+}
+
+// Test with empty string
+match s.rfind("") {
+    Option::Some(n) => println(n),    // Should print: 17
+    Option::None => println(-1),
+}
+
+// Unicode tests
+let unicode = "café ☕ café";
+match unicode.find("café") {
+    Option::Some(n) => println(n),    // Should print: 0
+    Option::None => println(-1),
+}
+match unicode.find("☕") {
+    Option::Some(n) => println(n),    // Should print: 5
+    Option::None => println(-1),
+}
+match unicode.rfind("café") {
+    Option::Some(n) => println(n),    // Should print: 7
+    Option::None => println(-1),
+}
+match unicode.rfind("☕") {
+    Option::Some(n) => println(n),    // Should print: 5
+    Option::None => println(-1),
+}

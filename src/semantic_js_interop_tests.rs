@@ -246,8 +246,8 @@ mod tests {
                 let s = "hello world";
                 let len = s.len();  // Should return int
                 let trimmed = s.trim();  // Should return string
-                let upper = s.toUpperCase();  // Should return string
-                let lower = s.toLowerCase();  // Should return string
+                let upper = s.to_uppercase();  // Should return string
+                let lower = s.to_lowercase();  // Should return string
                 let substr = s.substring(0, 5);  // Should return string
                 let parts = s.split(" ");  // Should return array<string>
             }
@@ -271,7 +271,7 @@ mod tests {
         let code = r#"
             fn main() {
                 let s = "  hello world  ";
-                let result = s.trim().toUpperCase().substring(0, 5);
+                let result = s.trim().to_uppercase().substring(0, 5);
                 
                 let parts = "a,b,c".split(",");
                 let count = parts.len();

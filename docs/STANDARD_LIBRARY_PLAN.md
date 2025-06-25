@@ -97,36 +97,36 @@ impl string {
     fn bytes(self) -> array<u8>;                      // JS: new TextEncoder().encode(str)
     
     // Whitespace handling
-    fn trim(self) -> string;                          // JS: .trim()
+    fn trim(self) -> string;                          // JS: .trim() ✅ IMPLEMENTED
     fn trim_start(self) -> string;                    // JS: .trimStart()
     fn trim_end(self) -> string;                      // JS: .trimEnd()
     fn trim_matches(self, pat: string) -> string;     // JS: custom implementation
     
     // Pattern searching
-    fn contains(self, pat: string) -> bool;           // JS: .includes()
-    fn starts_with(self, pat: string) -> bool;        // JS: .startsWith()
-    fn ends_with(self, pat: string) -> bool;          // JS: .endsWith()
-    fn find(self, pat: string) -> Option<usize>;      // JS: .indexOf() with -1 check
-    fn rfind(self, pat: string) -> Option<usize>;     // JS: .lastIndexOf() with -1 check
+    fn contains(self, pat: string) -> bool;           // JS: .includes() ✅ IMPLEMENTED
+    fn starts_with(self, pat: string) -> bool;        // JS: .startsWith() ✅ IMPLEMENTED
+    fn ends_with(self, pat: string) -> bool;          // JS: .endsWith() ✅ IMPLEMENTED
+    fn find(self, pat: string) -> Option<usize>;      // JS: .indexOf() with -1 check ✅ IMPLEMENTED
+    fn rfind(self, pat: string) -> Option<usize>;     // JS: .lastIndexOf() with -1 check ✅ IMPLEMENTED
     
     // Splitting
-    fn split(self, pat: string) -> array<string>;     // JS: .split()
+    fn split(self, pat: string) -> array<string>;     // JS: .split() ✅ IMPLEMENTED
     fn splitn(self, n: usize, pat: string) -> array<string>; // JS: .split() with limit
     fn split_once(self, pat: string) -> Option<(string, string)>; // JS: custom
     fn lines(self) -> array<string>;                  // JS: .split('\n')
     
     // Case conversion
-    fn to_lowercase(self) -> string;                  // JS: .toLowerCase()
-    fn to_uppercase(self) -> string;                  // JS: .toUpperCase()
+    fn to_lowercase(self) -> string;                  // JS: .toLowerCase() ✅ IMPLEMENTED
+    fn to_uppercase(self) -> string;                  // JS: .toUpperCase() ✅ IMPLEMENTED
     fn to_ascii_lowercase(self) -> string;            // JS: custom ASCII-only
     fn to_ascii_uppercase(self) -> string;            // JS: custom ASCII-only
     
     // Replacement
-    fn replace(self, from: string, to: string) -> string;    // JS: .replaceAll()
+    fn replace(self, from: string, to: string) -> string;    // JS: .replaceAll() ✅ IMPLEMENTED
     fn replacen(self, from: string, to: string, n: usize) -> string; // JS: custom
     
     // Substring operations
-    fn substring(self, start: usize, end: usize) -> string;  // JS: .substring()
+    fn substring(self, start: usize, end: usize) -> string;  // JS: .substring() ✅ IMPLEMENTED
     fn slice(self, start: isize, end: isize) -> string;      // JS: .slice()
     
     // Character access
@@ -1017,47 +1017,49 @@ window.__husk_runtime = {
 
 ## Implementation Status
 
-### String Methods (Interpreter)
+### String Methods (Interpreter & Transpiler)
 - [x] `len()` - Returns string length
 - [x] `trim()` - Removes whitespace from both ends
 - [x] `chars()` - Returns array of single-character strings (Unicode-aware)
 - [x] `substring(start, end)` - Extract substring by indices
 - [x] `split(delimiter)` - Split string by delimiter
-- [x] `toLowerCase()` - Convert to lowercase
-- [x] `toUpperCase()` - Convert to uppercase
+- [x] `to_lowercase()` - Convert to lowercase (renamed from toLowerCase)
+- [x] `to_uppercase()` - Convert to uppercase (renamed from toUpperCase)
 - [x] `contains(pattern)` - Check if string contains pattern
 - [x] `starts_with(prefix)` - Check if string starts with prefix
 - [x] `ends_with(suffix)` - Check if string ends with suffix
 - [x] `replace(from, to)` - Replace all occurrences
+- [x] `find(pattern)` - Find first occurrence (returns Option<usize>)
+- [x] `rfind(pattern)` - Find last occurrence (returns Option<usize>)
 - [ ] `is_empty()` - Check if string is empty
 - [ ] `bytes()` - Get UTF-8 bytes
 - [ ] `trim_start()` - Remove leading whitespace
 - [ ] `trim_end()` - Remove trailing whitespace
-- [ ] `find()` - Find first occurrence
 - [ ] Other methods...
 
-### Array Methods (Interpreter)
+### Array Methods (Interpreter & Transpiler)
 - [x] `len()` - Returns array length
-- [x] `first()` - Get first element (returns Unit if empty - should be Option)
-- [x] `last()` - Get last element (returns Unit if empty - should be Option)
-- [x] `get(index)` - Get element at index (returns Unit if out of bounds - should be Option)
+- [x] `is_empty()` - Check if array is empty
+- [x] `first()` - Get first element (returns Option<T>)
+- [x] `last()` - Get last element (returns Option<T>)
+- [x] `get(index)` - Get element at index (returns Option<T>)
 - [x] `slice(start, end)` - Extract sub-array
 - [x] `concat(other)` - Concatenate arrays
 - [x] `join(separator)` - Join elements into string
 - [x] `contains(value)` - Check if array contains value
+- [x] `reverse()` - Returns new reversed array
+- [x] `push(...values)` - Returns new array with pushed elements
+- [x] `pop()` - Returns tuple of (new_array, Option<popped_value>)
 - [ ] `map()` - Needs closure support
 - [ ] `filter()` - Needs closure support
 - [ ] Other methods...
 
 ### Known Issues
-1. **Lexer Unicode Handling**: The lexer currently has a bug with UTF-8 characters, using character indices as byte indices. This causes parse errors with non-ASCII characters.
-2. **Option Type Integration**: Methods returning Option<T> currently return Unit for None cases, pending full Option type implementation.
-3. **Transpiler Support**: None of the methods have transpiler support yet - only interpreter implementations exist.
-4. **Closure Support**: Functional methods like map() and filter() are blocked on closure implementation.
+1. **Closure Support**: Functional methods like map() and filter() are blocked on closure implementation.
 
 ### Next Steps
-1. Fix lexer to properly handle UTF-8/Unicode characters
-2. Implement transpiler support for all existing methods
-3. Continue implementing remaining string and array methods
-4. Implement Vec<T> type with mutable operations
-5. Add iterator support for lazy evaluation
+1. Continue implementing remaining string methods (is_empty, bytes, trim_start, trim_end, etc.)
+2. Continue implementing remaining array methods
+3. Implement Vec<T> type with mutable operations
+4. Add iterator support for lazy evaluation
+5. Implement other core modules (io, fs, path, etc.)

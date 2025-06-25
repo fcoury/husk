@@ -5250,11 +5250,11 @@ mod tests {
 
     #[test]
     fn test_parse_chained_method_calls() {
-        let ast = parse("input.trim().toLowerCase();");
+        let ast = parse("input.trim().to_lowercase();");
         assert_eq!(ast.len(), 1);
         match &ast[0] {
             Stmt::Expression(Expr::MethodCall(obj, method, args, _), _) => {
-                assert_eq!(method, "toLowerCase");
+                assert_eq!(method, "to_lowercase");
                 assert_eq!(args.len(), 0);
                 match &**obj {
                     Expr::MethodCall(obj2, method2, args2, _) => {

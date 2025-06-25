@@ -57,14 +57,16 @@ impl MethodRegistry {
         self.string_methods.insert("substring", string_substring);
         self.string_methods.insert("split", string_split);
         self.string_methods
-            .insert("toLowerCase", string_to_lowercase);
+            .insert("to_lowercase", string_to_lowercase);
         self.string_methods
-            .insert("toUpperCase", string_to_uppercase);
+            .insert("to_uppercase", string_to_uppercase);
         self.string_methods.insert("contains", string_contains);
         self.string_methods
             .insert("starts_with", string_starts_with);
         self.string_methods.insert("ends_with", string_ends_with);
         self.string_methods.insert("replace", string_replace);
+        self.string_methods.insert("find", string_find);
+        self.string_methods.insert("rfind", string_rfind);
     }
 
     fn register_array_methods(&mut self) {
@@ -321,6 +323,103 @@ fn string_replace(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
         Ok(Value::String(s.replace(from, to)))
     } else {
         Err(Error::new_runtime("replace() called on non-string", *span))
+    }
+}
+
+fn string_find(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 1 {
+            return Err(Error::new_runtime(
+                "find() requires exactly 1 argument",
+                *span,
+            ));
+        }
+
+        let search = match &args[0] {
+            Value::String(search_str) => search_str,
+            _ => return Err(Error::new_runtime("find() pattern must be a string", *span)),
+        };
+
+        // Convert to char indices for proper Unicode handling
+        let chars: Vec<char> = s.chars().collect();
+        let search_chars: Vec<char> = search.chars().collect();
+
+        if search_chars.is_empty() {
+            return Ok(make_some(Value::Int(0)));
+        }
+
+        // Search from the beginning
+        for i in 0..chars.len() {
+            if i + search_chars.len() > chars.len() {
+                break;
+            }
+
+            let mut matches = true;
+            for j in 0..search_chars.len() {
+                if chars[i + j] != search_chars[j] {
+                    matches = false;
+                    break;
+                }
+            }
+
+            if matches {
+                return Ok(make_some(Value::Int(i as i64)));
+            }
+        }
+
+        Ok(make_none())
+    } else {
+        Err(Error::new_runtime("find() called on non-string", *span))
+    }
+}
+
+fn string_rfind(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
+    if let Value::String(s) = value {
+        if args.len() != 1 {
+            return Err(Error::new_runtime(
+                "rfind() requires exactly 1 argument",
+                *span,
+            ));
+        }
+
+        let search = match &args[0] {
+            Value::String(search_str) => search_str,
+            _ => {
+                return Err(Error::new_runtime(
+                    "rfind() pattern must be a string",
+                    *span,
+                ))
+            }
+        };
+
+        // Convert to char indices for proper Unicode handling
+        let chars: Vec<char> = s.chars().collect();
+        let search_chars: Vec<char> = search.chars().collect();
+
+        if search_chars.is_empty() {
+            return Ok(make_some(Value::Int(chars.len() as i64)));
+        }
+
+        // Search backwards from the end
+        let end_pos = chars.len().saturating_sub(search_chars.len());
+
+        for i in (0..=end_pos).rev() {
+            let mut matches = true;
+            for j in 0..search_chars.len() {
+                if chars[i + j] != search_chars[j] {
+                    matches = false;
+                    break;
+                }
+            }
+
+            if matches {
+                return Ok(make_some(Value::Int(i as i64)));
+            }
+        }
+
+        Ok(make_none())
+    } else {
+        Err(Error::new_runtime("rfind() called on non-string", *span))
     }
 }
 
@@ -593,14 +692,14 @@ impl MethodSignatureRegistry {
             },
         );
         self.string_methods.insert(
-            "toLowerCase",
+            "to_lowercase",
             MethodSignature {
                 param_types: vec![],
                 return_type: Type::String,
             },
         );
         self.string_methods.insert(
-            "toUpperCase",
+            "to_uppercase",
             MethodSignature {
                 param_types: vec![],
                 return_type: Type::String,
@@ -652,6 +751,22 @@ impl MethodSignatureRegistry {
             MethodSignature {
                 param_types: vec![Type::String, Type::String],
                 return_type: Type::String,
+            },
+        );
+
+        // Methods with optional second parameter (find, rfind)
+        self.string_methods.insert(
+            "find",
+            MethodSignature {
+                param_types: vec![Type::String], // Optional second Int parameter
+                return_type: Type::Unknown,      // Should be Option<usize>
+            },
+        );
+        self.string_methods.insert(
+            "rfind",
+            MethodSignature {
+                param_types: vec![Type::String], // Optional second Int parameter
+                return_type: Type::Unknown,      // Should be Option<usize>
             },
         );
     }
@@ -782,9 +897,9 @@ impl TranspilerMethodRegistry {
             .insert("substring", transpile_string_substring);
         self.string_methods.insert("split", transpile_string_split);
         self.string_methods
-            .insert("toLowerCase", transpile_string_to_lowercase);
+            .insert("to_lowercase", transpile_string_to_lowercase);
         self.string_methods
-            .insert("toUpperCase", transpile_string_to_uppercase);
+            .insert("to_uppercase", transpile_string_to_uppercase);
         self.string_methods
             .insert("contains", transpile_string_contains);
         self.string_methods
@@ -793,6 +908,8 @@ impl TranspilerMethodRegistry {
             .insert("ends_with", transpile_string_ends_with);
         self.string_methods
             .insert("replace", transpile_string_replace);
+        self.string_methods.insert("find", transpile_string_find);
+        self.string_methods.insert("rfind", transpile_string_rfind);
     }
 
     fn register_array_methods(&mut self) {
@@ -868,6 +985,22 @@ fn transpile_string_ends_with(obj: &str, args: &[String]) -> String {
 
 fn transpile_string_replace(obj: &str, args: &[String]) -> String {
     format!("{}.replaceAll({})", obj, args.join(", "))
+}
+
+fn transpile_string_find(obj: &str, args: &[String]) -> String {
+    // Convert JS indexOf (-1 for not found) to Option<usize>
+    format!(
+        "(function() {{ const idx = {}.indexOf({}); return idx >= 0 ? {{ type: 'Some', value: idx }} : {{ type: 'None' }}; }})()",
+        obj, args.join(", ")
+    )
+}
+
+fn transpile_string_rfind(obj: &str, args: &[String]) -> String {
+    // Convert JS lastIndexOf (-1 for not found) to Option<usize>
+    format!(
+        "(function() {{ const idx = {}.lastIndexOf({}); return idx >= 0 ? {{ type: 'Some', value: idx }} : {{ type: 'None' }}; }})()",
+        obj, args.join(", ")
+    )
 }
 
 // Transpiler implementations for array methods

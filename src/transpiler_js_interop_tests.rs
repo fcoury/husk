@@ -167,7 +167,7 @@ mod tests {
         let code = r#"
             fn main() {
                 let s = "hello";
-                let upper = s.toUpperCase();
+                let upper = s.to_uppercase();
             }
         "#;
 
@@ -180,7 +180,7 @@ mod tests {
         let code = r#"
             fn main() {
                 let s = "HELLO";
-                let lower = s.toLowerCase();
+                let lower = s.to_lowercase();
             }
         "#;
 
@@ -233,7 +233,7 @@ mod tests {
         let code = r#"
             fn main() {
                 let s = "  hello  ";
-                let result = s.trim().toUpperCase();
+                let result = s.trim().to_uppercase();
             }
         "#;
 
