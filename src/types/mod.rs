@@ -132,7 +132,6 @@ impl Type {
         }
     }
 
-
     /// Creates a Type from a string representation (used during migration)
     pub fn from_string(s: &str) -> Option<Type> {
         match s {

@@ -1328,13 +1328,16 @@ impl AstVisitor<String> for JsTranspiler {
 
         // Check if any block contains control flow statements
         let contains_control_flow = |block: &[Stmt]| -> bool {
-            block.iter().any(|stmt| matches!(
-                stmt,
-                Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return(_, _)
-            ))
+            block.iter().any(|stmt| {
+                matches!(
+                    stmt,
+                    Stmt::Break(_) | Stmt::Continue(_) | Stmt::Return(_, _)
+                )
+            })
         };
 
-        let has_control_flow = contains_control_flow(then_block) || contains_control_flow(else_block);
+        let has_control_flow =
+            contains_control_flow(then_block) || contains_control_flow(else_block);
 
         if has_control_flow {
             // Generate as a regular if statement (no IIFE wrapper)
@@ -1399,7 +1402,7 @@ impl AstVisitor<String> for JsTranspiler {
         _span: &Span,
     ) -> Result<String> {
         let obj_str = self.visit_expr(object)?;
-        
+
         // Evaluate arguments
         let arg_strs: Vec<String> = args
             .iter()
@@ -1411,17 +1414,17 @@ impl AstVisitor<String> for JsTranspiler {
         // on different types (like "len") will use whichever is checked first.
         // This is a limitation of the current approach but works because JavaScript
         // uses the same method names for similar operations (e.g., .length for both).
-        
+
         // Try string methods first (most common)
         if let Some(method_impl) = self.method_registry.get_string_method(method) {
             return Ok(method_impl(&obj_str, &arg_strs));
         }
-        
+
         // Try array methods
         if let Some(method_impl) = self.method_registry.get_array_method(method) {
             return Ok(method_impl(&obj_str, &arg_strs));
         }
-        
+
         // Default: assume direct method mapping for unknown methods
         if arg_strs.is_empty() {
             Ok(format!("{}.{}()", obj_str, method))

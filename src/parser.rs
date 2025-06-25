@@ -3547,11 +3547,14 @@ impl Parser {
 }
 
 fn is_operator(kind: &TokenKind) -> bool {
-    matches!(kind, TokenKind::Plus
-        | TokenKind::Minus
-        | TokenKind::Asterisk
-        | TokenKind::Slash
-        | TokenKind::DblEquals)
+    matches!(
+        kind,
+        TokenKind::Plus
+            | TokenKind::Minus
+            | TokenKind::Asterisk
+            | TokenKind::Slash
+            | TokenKind::DblEquals
+    )
 }
 
 #[cfg(test)]
