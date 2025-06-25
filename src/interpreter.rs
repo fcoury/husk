@@ -260,6 +260,8 @@ pub struct InterpreterVisitor {
     current_exports: IndexMap<String, Value>,
     // Track whether we're at the top level (for export collection)
     is_top_level: bool,
+    // Track the variable name of 'self' in method contexts
+    self_var_name: Option<String>,
 }
 
 impl Default for InterpreterVisitor {
@@ -279,6 +281,7 @@ impl InterpreterVisitor {
             project_root: None,
             current_exports: IndexMap::new(),
             is_top_level: true,
+            self_var_name: None,
         };
         visitor.init_standard_library();
         visitor
@@ -294,6 +297,7 @@ impl InterpreterVisitor {
             project_root,
             current_exports: IndexMap::new(),
             is_top_level: true,
+            self_var_name: None,
         };
         visitor.init_standard_library();
         visitor
@@ -667,7 +671,11 @@ impl InterpreterVisitor {
                 self.environment = new_env;
 
                 // Bind arguments
+                let mut has_self_param = false;
                 for ((name, _), value) in params.iter().zip(args.iter()) {
+                    if name == "self" {
+                        has_self_param = true;
+                    }
                     self.set_var(name.clone(), value.clone());
                 }
 
@@ -681,6 +689,19 @@ impl InterpreterVisitor {
                         result = value.clone();
                         self.control_flow = ControlFlow::Normal;
                         break;
+                    }
+                }
+
+                // If this method had a self parameter and we have a self_var_name,
+                // update the original variable with the potentially modified self
+                if has_self_param {
+                    if let Some(self_var_name) = self.self_var_name.clone() {
+                        if let Some(modified_self) = self.environment.get("self").cloned() {
+                            // We need to update this in the parent scope after we restore
+                            self.pop_scope(saved_env);
+                            self.set_var(self_var_name, modified_self);
+                            return Ok(result);
+                        }
                     }
                 }
 
@@ -959,22 +980,45 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Ok(Value::Unit)
             }
             Expr::MemberAccess(object, field, _) => {
-                match self.visit_expr(object)? {
-                    Value::StructInstance(struct_name, mut fields) => {
-                        fields.insert(field.clone(), value);
-                        // Need to update the struct in the environment
-                        if let Expr::Identifier(var_name, _) = &**object {
+                // For struct field assignment: obj.field = value
+                // Handle similarly to compound assignment
+                
+                if let Expr::Identifier(var_name, _) = &**object {
+                    // Get the actual variable (handling self)
+                    let actual_var_name = if var_name == "self" {
+                        "self" // Use self directly within the method scope
+                    } else {
+                        var_name.as_str()
+                    };
+
+                    // Get the struct instance
+                    let struct_val = self.get_var(actual_var_name).ok_or_else(|| {
+                        Error::new_runtime(format!("Undefined variable: {}", var_name), *span)
+                    })?;
+
+                    match struct_val {
+                        Value::StructInstance(struct_name, mut fields) => {
+                            // Update field
+                            fields.insert(field.clone(), value);
+
+                            // Update the struct in the environment
                             self.set_var(
-                                var_name.clone(),
+                                actual_var_name.to_string(),
                                 Value::StructInstance(struct_name, fields),
                             );
+                            Ok(Value::Unit)
                         }
-                        Ok(Value::Unit)
+                        _ => Err(Error::new_runtime(
+                            "Cannot assign to field of non-struct value".to_string(),
+                            *span,
+                        )),
                     }
-                    _ => Err(Error::new_runtime(
-                        "Cannot assign to field of non-struct value".to_string(),
+                } else {
+                    // For complex expressions, can't update
+                    Err(Error::new_runtime(
+                        "Cannot assign to field of temporary value".to_string(),
                         *span,
-                    )),
+                    ))
                 }
             }
             Expr::ArrayIndex(array_expr, index_expr, _) => {
@@ -1035,28 +1079,63 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Ok(Value::Unit)
             }
             Expr::MemberAccess(object, field, _) => {
-                // Struct field compound assignment: obj.field += value
-                let current_value = self.visit_expr(left)?; // Get current field value
-                let right_val = self.visit_expr(right)?;
-                let result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
+                // For struct field compound assignment: obj.field += value
+                // We need to handle it differently to ensure we update the actual struct
+                
+                // First, get the object and check if it's an identifier  
+                if let Expr::Identifier(var_name, _) = &**object {
+                    // Get the actual variable (handling self redirection)
+                    let actual_var_name = if var_name == "self" {
+                        "self" // Use self directly within the method scope
+                    } else {
+                        var_name.as_str()
+                    };
 
-                // Update the field using assignment logic
-                match self.visit_expr(object)? {
-                    Value::StructInstance(struct_name, mut fields) => {
-                        fields.insert(field.clone(), result);
-                        // Need to update the struct in the environment
-                        if let Expr::Identifier(var_name, _) = &**object {
+                    // Get the struct instance
+                    let struct_val = self.get_var(actual_var_name).ok_or_else(|| {
+                        Error::new_runtime(format!("Undefined variable: {}", var_name), *span)
+                    })?;
+
+                    match struct_val {
+                        Value::StructInstance(struct_name, mut fields) => {
+                            // Get current field value
+                            let current_value = fields.get(field).cloned().ok_or_else(|| {
+                                Error::new_runtime(
+                                    format!("Field '{}' not found in struct", field),
+                                    *span,
+                                )
+                            })?;
+
+                            // Compute new value
+                            let right_val = self.visit_expr(right)?;
+                            let result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
+
+                            // Update field
+                            fields.insert(field.clone(), result);
+
+                            // Update the struct in the environment
                             self.set_var(
-                                var_name.clone(),
+                                actual_var_name.to_string(),
                                 Value::StructInstance(struct_name, fields),
                             );
+                            Ok(Value::Unit)
                         }
-                        Ok(Value::Unit)
+                        _ => Err(Error::new_runtime(
+                            "Cannot assign to field of non-struct value".to_string(),
+                            *span,
+                        )),
                     }
-                    _ => Err(Error::new_runtime(
-                        "Cannot assign to field of non-struct value".to_string(),
+                } else {
+                    // For complex expressions like foo().field += value, evaluate normally
+                    let current_value = self.visit_expr(left)?;
+                    let right_val = self.visit_expr(right)?;
+                    let _result = Self::evaluate_binary_op(self, current_value, op, right_val, *span)?;
+                    
+                    // This case can't actually update the original, so just return
+                    Err(Error::new_runtime(
+                        "Cannot perform compound assignment on temporary value".to_string(),
                         *span,
-                    )),
+                    ))
                 }
             }
             Expr::ArrayIndex(array_expr, index_expr, _) => {
@@ -2025,12 +2104,27 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Look up the method directly
                 let method_name = format!("{}::{}", name, method);
                 if let Some(func) = self.get_var(&method_name) {
+                    // Extract the variable name if the object is a simple identifier
+                    let var_name = if let Expr::Identifier(var_name, _) = object {
+                        Some(var_name.clone())
+                    } else {
+                        None
+                    };
+
+                    // Save the current self_var_name and set the new one
+                    let saved_self_var = self.self_var_name.clone();
+                    self.self_var_name = var_name;
+
                     // Evaluate all arguments, prepending self as the first one
                     let mut arg_values = vec![obj_value.clone()];
                     for arg in args {
                         arg_values.push(self.visit_expr(arg)?);
                     }
-                    self.execute_function_call(func, arg_values, *_span)
+                    let result = self.execute_function_call(func, arg_values, *_span);
+
+                    // Restore the previous self_var_name
+                    self.self_var_name = saved_self_var;
+                    result
                 } else {
                     Err(Error::new_runtime(
                         format!("Unknown method: {}", method_name),
