@@ -998,6 +998,7 @@ impl SemanticVisitor {
                                                 variants: variants.clone(),
                                             }
                                         } else {
+                                            eprintln!("Warning: Type resolution failed for struct '{}' in method '{}', falling back to Type::Unknown", struct_name, method_name);
                                             Type::Unknown
                                         }
                                     } else {

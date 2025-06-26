@@ -1042,34 +1042,18 @@ impl InterpreterVisitor {
         for stmt in stmts {
             match stmt {
                 Stmt::Function(_, name, _generic_params, params, _return_type, body, _span) => {
-                    // For recursive functions, we need to create a closure that includes the function itself
-                    // Step 1: Create closure that includes current environment
-                    let mut closure = self.global_environment.clone();
-
-                    // Step 2: Create a temporary function with current closure
-                    let temp_func = Value::Function(Function::UserDefined(
+                    // Create function with closure using helper method
+                    let final_func = self.create_function_with_closure(
                         name.to_string(),
                         params.to_vec(),
                         body.to_vec(),
-                        closure.clone(),
-                    ));
+                    );
 
-                    // Step 3: Add this function to the closure for recursion
-                    closure.insert(name.to_string(), temp_func);
-
-                    // Step 4: Create the final function with closure that includes itself
-                    let final_func = Value::Function(Function::UserDefined(
-                        name.to_string(),
-                        params.to_vec(),
-                        body.to_vec(),
-                        closure,
-                    ));
-
-                    // Step 5: Register the function in the global environment so it's always accessible
+                    // Register the function in the global environment so it's always accessible
                     self.global_environment
                         .insert(name.to_string(), final_func.clone());
 
-                    // Step 6: If we're at the top level, add to exports
+                    // If we're at the top level, add to exports
                     if self.is_top_level {
                         self.current_exports.insert(name.to_string(), final_func);
                     }
@@ -1090,27 +1074,12 @@ impl InterpreterVisitor {
                             // Create full method name with struct prefix
                             let full_method_name = format!("{}::{}", struct_name, method_name);
 
-                            // Create closure for the method
-                            let mut closure = self.global_environment.clone();
-
-                            // Create temporary function
-                            let temp_func = Value::Function(Function::UserDefined(
-                                full_method_name.to_string(),
+                            // Create method with closure using helper method
+                            let final_func = self.create_function_with_closure(
+                                full_method_name.clone(),
                                 params.to_vec(),
                                 body.to_vec(),
-                                closure.clone(),
-                            ));
-
-                            // Add function to its own closure for recursion
-                            closure.insert(full_method_name.to_string(), temp_func.clone());
-
-                            // Create final function with updated closure
-                            let final_func = Value::Function(Function::UserDefined(
-                                full_method_name.to_string(),
-                                params.to_vec(),
-                                body.to_vec(),
-                                closure,
-                            ));
+                            );
 
                             // Register the method in global environment
                             self.global_environment
@@ -1127,6 +1096,36 @@ impl InterpreterVisitor {
             }
         }
         Ok(())
+    }
+
+    /// Helper method to create a function with closure that includes itself for recursion
+    fn create_function_with_closure(
+        &mut self,
+        name: String,
+        params: Vec<(String, String)>,
+        body: Vec<Stmt>,
+    ) -> Value {
+        // Step 1: Create closure that includes current environment
+        let mut closure = self.global_environment.clone();
+
+        // Step 2: Create a temporary function with current closure
+        let temp_func = Value::Function(Function::UserDefined(
+            name.clone(),
+            params.clone(),
+            body.clone(),
+            closure.clone(),
+        ));
+
+        // Step 3: Add this function to the closure for recursion
+        closure.insert(name.clone(), temp_func);
+
+        // Step 4: Create the final function with closure that includes itself
+        Value::Function(Function::UserDefined(
+            name,
+            params,
+            body,
+            closure,
+        ))
     }
 
     /// Visit a list of statements without creating a new scope
