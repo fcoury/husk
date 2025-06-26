@@ -11,7 +11,6 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::visitor::AstVisitor;
     use crate::error::Error;
     use crate::interpreter::InterpreterVisitor;
     use crate::lexer::Lexer;
@@ -33,18 +32,15 @@ mod tests {
 
         // Semantic Analysis
         let mut analyzer = SemanticVisitor::new();
-        for stmt in &ast {
-            if let Err(e) = analyzer.visit_stmt(stmt) {
-                return Ok(e);
-            }
+        if let Err(e) = analyzer.analyze(&ast) {
+            return Ok(e);
         }
 
         // Interpretation
         let mut interpreter = InterpreterVisitor::new();
-        for stmt in &ast {
-            if let Err(e) = interpreter.visit_stmt(stmt) {
-                return Ok(e);
-            }
+        match interpreter.interpret(&ast) {
+            Err(e) => return Ok(e),
+            Ok(_) => {} // Continue if successful
         }
 
         Err("Expected error but program succeeded".to_string())

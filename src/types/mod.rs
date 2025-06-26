@@ -112,6 +112,7 @@ impl Type {
             }
 
             // Struct types are compatible if they have the same name and field structure
+            // Special case: if either struct has empty fields, only compare names (for forward declarations)
             (
                 Type::Struct {
                     name: name1,
@@ -121,7 +122,17 @@ impl Type {
                     name: name2,
                     fields: fields2,
                 },
-            ) => name1 == name2 && fields1 == fields2,
+            ) => {
+                if name1 != name2 {
+                    false
+                } else if fields1.is_empty() || fields2.is_empty() {
+                    // If either has empty fields, it's a forward declaration - only check name
+                    true
+                } else {
+                    // Both have fields - check they match
+                    fields1 == fields2
+                }
+            }
 
             // Enum types are compatible if they have the same name
             // We compare by name only to handle built-in generic enums like Option<T> and Result<T,E>
