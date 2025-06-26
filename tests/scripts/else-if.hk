@@ -1,0 +1,6 @@
+let a = 1;
+if a == 2 {
+  println!("a is 2");
+} else if a == 1 {
+  println!("a is 1");
+}
