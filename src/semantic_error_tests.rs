@@ -164,7 +164,7 @@ mod tests {
         let error = analyze_and_expect_error(
             r#"
             if 5 {
-                println("yes");
+                println!("yes");
             }
         "#,
         );

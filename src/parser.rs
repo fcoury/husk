@@ -3399,6 +3399,21 @@ impl Parser {
             });
         } else if self.current_token().kind == TokenKind::LBrace {
             // This is a struct-like enum variant construction like Command::Process { field: value, ... }
+            // But we need to make sure this { is actually part of the enum variant, not a following block
+            // Check if this looks like a struct initialization by peeking ahead
+            let is_struct_init = self.peek_ahead_for_struct_field();
+            if !is_struct_init {
+                // This { is not part of the enum variant, return the variant without args
+                let new_span = Span::new(start, self.current_token().span.start);
+                return Ok(Expr::EnumVariantOrMethodCall {
+                    target: Box::new(Expr::Identifier(name, span)),
+                    call: target_name,
+                    args: vec![],
+                    span: new_span,
+                    type_annotation: TypeAnnotation::new(),
+                });
+            }
+
             let mut fields = Vec::new();
             self.advance(); // Consume '{'
 
@@ -3499,6 +3514,39 @@ impl Parser {
             args,
             Span::new(start_span.start, end_span.end),
         ))
+    }
+
+    fn peek_ahead_for_struct_field(&self) -> bool {
+        // Look ahead to see if the next tokens look like struct field initialization
+        // We expect either:
+        // 1. identifier : expression
+        // 2. identifier , (shorthand)
+        // 3. identifier } (shorthand, last field)
+        // 4. } (empty struct)
+        // 5. .. (rest pattern)
+
+        if self.position + 1 >= self.tokens.len() {
+            return false;
+        }
+
+        let next_token = &self.tokens[self.position + 1];
+        match next_token.kind {
+            TokenKind::Identifier(_) => {
+                // Check what comes after the identifier
+                if self.position + 2 < self.tokens.len() {
+                    let after_ident = &self.tokens[self.position + 2];
+                    matches!(
+                        after_ident.kind,
+                        TokenKind::Colon | TokenKind::Comma | TokenKind::RBrace
+                    )
+                } else {
+                    false
+                }
+            }
+            TokenKind::RBrace => true, // Empty struct
+            TokenKind::DblDot => true, // Rest pattern
+            _ => false,
+        }
     }
 
     fn lookahead_for_struct_initialization(&self, start_pos: usize) -> bool {
@@ -4035,7 +4083,7 @@ mod tests {
         let code = r#"
         let p = Person { name: "Felipe" };
         if y == x {
-            println(p);
+            println!(p);
         }
         "#;
 
@@ -4732,7 +4780,7 @@ mod tests {
             expr,
             Expr::UnaryOp(
                 UnaryOp::Neg,
-                Box::new(Expr::Float(3.1, Span::new(1, 5))),
+                Box::new(Expr::Float(3.14, Span::new(1, 5))),
                 Span::new(0, 5)
             )
         );
@@ -4792,7 +4840,7 @@ mod tests {
     #[test]
     fn test_parse_pub_keyword() {
         // Test pub function
-        let ast = parse("pub fn hello() { println(\"Hello\"); }");
+        let ast = parse("pub fn hello() { println!(\"Hello\"); }");
         assert_eq!(ast.len(), 1);
         // Check that pub is properly stored in AST
         if let Stmt::Function(is_pub, name, _, params, ret_type, body, _) = &ast[0] {
@@ -5003,7 +5051,7 @@ mod tests {
                 assert_eq!(target_type, "float");
                 match &**inner {
                     Expr::Cast(inner2, target_type2, _) => {
-                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.1));
+                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.14));
                         assert_eq!(target_type2, "int");
                     }
                     _ => panic!("Expected nested Cast expression"),
@@ -5260,7 +5308,7 @@ mod tests {
     fn test_parse_simple_enum_pattern() {
         let code = r#"
             match x {
-                Help => println("help"),
+                Help => println!("help"),
             }
         "#;
 

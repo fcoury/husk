@@ -80,13 +80,13 @@ impl SemanticVisitor {
 
     /// Resolve the path for a local module
     fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
-        let module_path = path.segments.join("/") + ".husk";
+        let base_path = path.segments.join("/");
 
-        match path.prefix {
+        let base_dir = match path.prefix {
             UsePrefix::Local => {
                 // local:: - from project root or current file's directory
                 match &self.project_root {
-                    Some(root) => Ok(root.join(&module_path)),
+                    Some(root) => root.clone(),
                     None => {
                         // If no project root, try current file's directory
                         match &self.current_file {
@@ -97,9 +97,9 @@ impl SemanticVisitor {
                                         *span,
                                     )
                                 })?;
-                                Ok(parent.join(&module_path))
+                                parent.to_path_buf()
                             }
-                            None => Ok(PathBuf::from(&module_path)),
+                            None => PathBuf::new(),
                         }
                     }
                 }
@@ -114,12 +114,14 @@ impl SemanticVisitor {
                                 *span,
                             )
                         })?;
-                        Ok(parent.join(&module_path))
+                        parent.to_path_buf()
                     }
-                    None => Err(Error::new_semantic(
-                        "Cannot use self:: imports without current file context".to_string(),
-                        *span,
-                    )),
+                    None => {
+                        return Err(Error::new_semantic(
+                            "Cannot use self:: imports without current file context".to_string(),
+                            *span,
+                        ))
+                    }
                 }
             }
             UsePrefix::Super(count) => {
@@ -143,21 +145,36 @@ impl SemanticVisitor {
                             })?;
                         }
 
-                        Ok(parent.join(&module_path))
+                        parent.to_path_buf()
                     }
-                    None => Err(Error::new_semantic(
-                        "Cannot use super:: imports without current file context".to_string(),
-                        *span,
-                    )),
+                    None => {
+                        return Err(Error::new_semantic(
+                            "Cannot use super:: imports without current file context".to_string(),
+                            *span,
+                        ))
+                    }
                 }
             }
             UsePrefix::None => {
                 // Should have been caught earlier
-                Err(Error::new_semantic(
+                return Err(Error::new_semantic(
                     "External packages not supported for local module analysis".to_string(),
                     *span,
-                ))
+                ));
             }
+        };
+
+        // Try both .hk and .husk extensions
+        let hk_path = base_dir.join(&base_path).with_extension("hk");
+        let husk_path = base_dir.join(&base_path).with_extension("husk");
+
+        if hk_path.exists() {
+            Ok(hk_path)
+        } else if husk_path.exists() {
+            Ok(husk_path)
+        } else {
+            // Return the .hk path for the error message
+            Ok(hk_path)
         }
     }
 

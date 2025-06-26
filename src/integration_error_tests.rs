@@ -58,7 +58,7 @@ mod tests {
             struct Point { x: int, y: int }
             let points = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
             for p in points {
-                println(p.z);  // Field 'z' doesn't exist
+                println!(p.z);  // Field 'z' doesn't exist
             }
         "#;
 
@@ -222,9 +222,9 @@ mod tests {
             
             for i in 0..10 {
                 if i < 3 {
-                    println(numbers[i]);
+                    println!(numbers[i]);
                 } else {
-                    println(numbers[i]);  // This will cause bounds error when i >= 5
+                    println!(numbers[i]);  // This will cause bounds error when i >= 5
                 }
             }
         "#;
@@ -380,13 +380,14 @@ mod tests {
             let settings = Settings::Basic(config);
             
             let result = match settings {
-                Settings::Basic(cfg) => cfg.values[10] + cfg.invalid_field
+                Settings::Basic(cfg) => cfg.values[10] + cfg.invalid_field,
                 Settings::Advanced(adv_cfg) => adv_cfg.config.values[0] + adv_cfg.level
             };
             result
         "#;
 
         let error = run_program_expect_error(program).unwrap();
+        eprintln!("Actual error: {}", error);
         assert!(
             error.to_string().contains("bounds")
                 || error.to_string().contains("field")

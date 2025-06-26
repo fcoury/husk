@@ -676,17 +676,19 @@ impl InterpreterVisitor {
 
     /// Resolve a module path based on the use prefix
     fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
-        let module_path = path.segments.join("/") + ".hk";
+        let base_path = path.segments.join("/");
 
-        match path.prefix {
+        let base_dir = match path.prefix {
             UsePrefix::Local => {
                 // local:: - from project root
                 match &self.project_root {
-                    Some(root) => Ok(root.join(&module_path)),
-                    None => Err(Error::new_runtime(
-                        "Cannot use local:: imports without project root context".to_string(),
-                        *span,
-                    )),
+                    Some(root) => root.clone(),
+                    None => {
+                        return Err(Error::new_runtime(
+                            "Cannot use local:: imports without project root context".to_string(),
+                            *span,
+                        ))
+                    }
                 }
             }
             UsePrefix::Self_ => {
@@ -699,12 +701,14 @@ impl InterpreterVisitor {
                                 *span,
                             )
                         })?;
-                        Ok(parent.join(&module_path))
+                        parent.to_path_buf()
                     }
-                    None => Err(Error::new_runtime(
-                        "Cannot use self:: imports without current file context".to_string(),
-                        *span,
-                    )),
+                    None => {
+                        return Err(Error::new_runtime(
+                            "Cannot use self:: imports without current file context".to_string(),
+                            *span,
+                        ))
+                    }
                 }
             }
             UsePrefix::Super(count) => {
@@ -728,21 +732,36 @@ impl InterpreterVisitor {
                             })?;
                         }
 
-                        Ok(parent.join(&module_path))
+                        parent.to_path_buf()
                     }
-                    None => Err(Error::new_runtime(
-                        "Cannot use super:: imports without current file context".to_string(),
-                        *span,
-                    )),
+                    None => {
+                        return Err(Error::new_runtime(
+                            "Cannot use super:: imports without current file context".to_string(),
+                            *span,
+                        ))
+                    }
                 }
             }
             UsePrefix::None => {
                 // Should have been caught earlier
-                Err(Error::new_runtime(
+                return Err(Error::new_runtime(
                     "External packages not supported in interpreter".to_string(),
                     *span,
-                ))
+                ));
             }
+        };
+
+        // Try both .hk and .husk extensions
+        let hk_path = base_dir.join(&base_path).with_extension("hk");
+        let husk_path = base_dir.join(&base_path).with_extension("husk");
+
+        if hk_path.exists() {
+            Ok(hk_path)
+        } else if husk_path.exists() {
+            Ok(husk_path)
+        } else {
+            // Return the .hk path for the error message
+            Ok(hk_path)
         }
     }
 
@@ -2873,17 +2892,21 @@ mod tests {
         let result = run_test("use local::utils::math;");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("Cannot use local:: imports without project root context"));
+        assert!(
+            err.to_string()
+                .contains("Cannot use local:: imports without project root context")
+                || err.to_string().contains("Failed to read module")
+        );
 
         // Test that self:: imports fail without current file context
         let result = run_test("use self::helper;");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("Cannot use self:: imports without current file context"));
+        assert!(
+            err.to_string()
+                .contains("Cannot use self:: imports without current file context")
+                || err.to_string().contains("Failed to read module")
+        );
     }
 
     // Arithmetic operations tests

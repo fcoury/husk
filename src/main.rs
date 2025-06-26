@@ -284,7 +284,7 @@ module = "esm"
 
     // Create main.husk
     let main_husk_content = r#"fn main() {
-    println("Hello from Husk!");
+    println!("Hello from Husk!");
 }
 "#;
 

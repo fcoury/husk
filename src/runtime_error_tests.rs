@@ -85,7 +85,7 @@ mod tests {
             enum Color { Red, Green, Blue }
             let c = Color::Red;
             match c {
-                Color::Red => println("red"),
+                Color::Red => println!("red"),
             }
         "#;
 
