@@ -9,6 +9,7 @@ use crate::{
     ast::visitor::AstVisitor,
     builtin_methods::MethodRegistry,
     error::{Error, Result},
+    io as husk_io,
     lexer::Lexer,
     parser::{Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
@@ -242,6 +243,226 @@ pub fn stdlib_format(args: &[Value]) -> Result<Value> {
     Ok(Value::String(result))
 }
 
+// IO function wrappers
+pub fn stdlib_read_file(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_file requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_file path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::read_file(path, &Span::default())
+}
+
+pub fn stdlib_read_file_bytes(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_file_bytes requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_file_bytes path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::read_file_bytes(path, &Span::default())
+}
+
+pub fn stdlib_read_lines(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_lines requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_lines path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::read_lines(path, &Span::default())
+}
+
+pub fn stdlib_write_file(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new_runtime(
+            "write_file requires exactly 2 arguments (path, contents)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    let contents = match &args[1] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file contents must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::write_file(path, contents, &Span::default())
+}
+
+pub fn stdlib_write_file_bytes(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new_runtime(
+            "write_file_bytes requires exactly 2 arguments (path, data)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file_bytes path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    let data = match &args[1] {
+        Value::Array(arr) => arr,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file_bytes data must be an array",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::write_file_bytes(path, data, &Span::default())
+}
+
+pub fn stdlib_append_file(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new_runtime(
+            "append_file requires exactly 2 arguments (path, contents)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "append_file path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    let contents = match &args[1] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "append_file contents must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::append_file(path, contents, &Span::default())
+}
+
+pub fn stdlib_exists(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "exists requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "exists path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    Ok(husk_io::exists(path))
+}
+
+pub fn stdlib_is_file(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "is_file requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "is_file path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    Ok(husk_io::is_file(path))
+}
+
+pub fn stdlib_is_dir(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "is_dir requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "is_dir path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    Ok(husk_io::is_dir(path))
+}
+
 /// Represents a loaded module with its exports
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -338,6 +559,44 @@ impl InterpreterVisitor {
         self.global_environment.insert(
             "Result".to_string(),
             Value::Enum("Result".to_string(), result_variants),
+        );
+
+        // Register IO functions
+        self.global_environment.insert(
+            "read_file".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_file)),
+        );
+        self.global_environment.insert(
+            "read_file_bytes".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_file_bytes)),
+        );
+        self.global_environment.insert(
+            "read_lines".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_lines)),
+        );
+        self.global_environment.insert(
+            "write_file".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_write_file)),
+        );
+        self.global_environment.insert(
+            "write_file_bytes".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_write_file_bytes)),
+        );
+        self.global_environment.insert(
+            "append_file".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_append_file)),
+        );
+        self.global_environment.insert(
+            "exists".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_exists)),
+        );
+        self.global_environment.insert(
+            "is_file".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_is_file)),
+        );
+        self.global_environment.insert(
+            "is_dir".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_is_dir)),
         );
     }
 

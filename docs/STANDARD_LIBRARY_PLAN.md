@@ -1064,10 +1064,28 @@ window.__husk_runtime = {
 ### Known Issues
 1. **Closure Support**: Functional methods like map() and filter() are blocked on closure implementation.
 
+### IO Operations (Interpreter only, transpiler support pending)
+- [x] `read_file(path)` - Read entire file as string (returns Result<string, Error>)
+- [x] `read_file_bytes(path)` - Read file as bytes (returns Result<array<int>, Error>)
+- [x] `read_lines(path)` - Read file as array of lines (returns Result<array<string>, Error>)
+- [x] `write_file(path, contents)` - Write string to file (returns Result<(), Error>)
+- [x] `write_file_bytes(path, data)` - Write bytes to file (returns Result<(), Error>)
+- [x] `append_file(path, contents)` - Append to file (returns Result<(), Error>)
+- [x] `exists(path)` - Check if path exists (returns bool)
+- [x] `is_file(path)` - Check if path is a file (returns bool)
+- [x] `is_dir(path)` - Check if path is a directory (returns bool)
+
 ### Next Steps
 1. ~~Continue implementing remaining string methods~~ ✅ Completed
 2. ~~Continue implementing remaining array methods~~ ✅ Completed (with closure support)
-3. Implement IO operations for file system and console interaction
+3. ~~Implement IO operations for file system and console interaction~~ ✅ Basic file operations completed
    - See [IO Operations Plan](./io-operations-plan.md) for detailed design
-4. Implement Vec<T> type with mutable operations (future)
-5. Add iterator support for lazy evaluation (future)
+   - ✅ File reading operations implemented
+   - ✅ File writing operations implemented
+   - ✅ Path checking operations implemented
+   - ⏳ Directory operations pending
+   - ⏳ Console input operations pending
+   - ⏳ Transpiler support pending
+4. Rename println to println! and print to print! with format! placeholders
+5. Implement Vec<T> type with mutable operations (future)
+6. Add iterator support for lazy evaluation (future)

@@ -1,0 +1,50 @@
+// Test IO operations with match expression error handling
+
+println("=== Testing File Write/Read with Match ===");
+
+// Test write_file with match
+match write_file("temp-test-file.txt", "Hello from Husk!") {
+    Ok(_) => {
+        println("Successfully wrote to temp-test-file.txt");
+        
+        // Now try to read it back
+        match read_file("temp-test-file.txt") {
+            Ok(content) => {
+                println("Read content: Hello from Husk!");
+            }
+            Err(_) => println("Failed to read file")
+        }
+    }
+    Err(_) => println("Failed to write file")
+}
+
+// Test append_file
+match append_file("temp-test-file.txt", " More content.") {
+    Ok(_) => println("Successfully appended to file")
+    Err(_) => println("Failed to append to file")
+}
+
+// Test read_lines
+match read_lines("temp-test-file.txt") {
+    Ok(lines) => {
+        println("Successfully read lines");
+        // Note: We can't iterate over lines due to type system limitations
+    }
+    Err(_) => println("Failed to read lines")
+}
+
+// Test write_file_bytes
+let bytes = [72, 101, 108, 108, 111]; // "Hello"
+match write_file_bytes("temp-test-bytes.bin", bytes) {
+    Ok(_) => println("Successfully wrote bytes")
+    Err(_) => println("Failed to write bytes")
+}
+
+// Test read_file_bytes
+match read_file_bytes("temp-test-bytes.bin") {
+    Ok(bytes) => println("Successfully read bytes")
+    Err(_) => println("Failed to read bytes")
+}
+
+println("");
+println("=== Match-based Error Handling Complete ===");

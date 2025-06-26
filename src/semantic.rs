@@ -585,6 +585,112 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
+
+        // Register IO functions
+        // File reading functions
+        self.functions.insert(
+            "read_file".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "read_file_bytes".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "read_lines".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+
+        // File writing functions
+        self.functions.insert(
+            "write_file".to_string(),
+            (
+                vec![
+                    ("path".to_string(), Type::String),
+                    ("contents".to_string(), Type::String),
+                ],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "write_file_bytes".to_string(),
+            (
+                vec![
+                    ("path".to_string(), Type::String),
+                    ("data".to_string(), Type::Array(Box::new(Type::Int))),
+                ],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "append_file".to_string(),
+            (
+                vec![
+                    ("path".to_string(), Type::String),
+                    ("contents".to_string(), Type::String),
+                ],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+
+        // Path checking functions
+        self.functions.insert(
+            "exists".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Bool,
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "is_file".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Bool,
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "is_dir".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Bool,
+                Span::default(),
+            ),
+        );
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
