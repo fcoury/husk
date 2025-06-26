@@ -858,7 +858,113 @@ impl SemanticVisitor {
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
+        // First pass: collect all enum and struct definitions
+        self.collect_type_definitions(stmts)?;
+
+        // Second pass: collect all function signatures for forward declarations
+        self.collect_function_signatures(stmts)?;
+
+        // Third pass: analyze function bodies and other statements
         self.visit_statements(stmts)?;
+        Ok(())
+    }
+
+    /// First pass: collect all enum and struct definitions
+    fn collect_type_definitions(&mut self, stmts: &[Stmt]) -> Result<()> {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Enum(name, _generic_params, variants, span) => {
+                    // Process enum definition immediately
+                    self.visit_enum(name, _generic_params, variants, span)?;
+                }
+                Stmt::Struct(name, _generic_params, fields, _span) => {
+                    // Process struct definition immediately
+                    let struct_fields: HashMap<String, Type> = fields
+                        .iter()
+                        .map(|(field_name, field_type)| {
+                            let resolved_type =
+                                Type::from_string(field_type).unwrap_or(Type::Unknown);
+                            (field_name.clone(), resolved_type)
+                        })
+                        .collect();
+
+                    self.structs.insert(name.clone(), struct_fields);
+
+                    // Register in type environment
+                    self.type_env.define(
+                        name.clone(),
+                        Type::Struct {
+                            name: name.clone(),
+                            fields: vec![], // Fields stored separately for now
+                        },
+                    );
+                }
+                _ => {
+                    // Skip other statements in this pass
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Second pass: collect function signatures without analyzing bodies
+    /// This enables forward function declarations
+    /// Resolve a type by name, checking enums and structs first, then falling back to built-in types
+    fn resolve_type_by_name(&self, type_name: &str) -> Type {
+        // Check if it's a registered enum first
+        if let Some(variants) = self.enums.get(type_name) {
+            return Type::Enum {
+                name: type_name.to_string(),
+                variants: variants.clone(),
+            };
+        }
+
+        // Check if it's a registered struct
+        if let Some(fields) = self.structs.get(type_name) {
+            let field_types: Vec<(String, Type)> = fields
+                .iter()
+                .map(|(name, t)| (name.clone(), t.clone()))
+                .collect();
+            return Type::Struct {
+                name: type_name.to_string(),
+                fields: field_types,
+            };
+        }
+
+        // Fall back to built-in types
+        Type::from_string(type_name).unwrap_or(Type::Unknown)
+    }
+
+    fn collect_function_signatures(&mut self, stmts: &[Stmt]) -> Result<()> {
+        for stmt in stmts {
+            if let Stmt::Function(_, name, _generic_params, params, return_type, _body, span) = stmt
+            {
+                // Convert parameter types (same logic as visit_function)
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|(param_name, type_str)| {
+                        // Special handling for 'self' parameter
+                        if param_name == "self" && name.contains("::") {
+                            // Extract type name from method name
+                            let type_name = name.split("::").next().unwrap();
+                            let self_type = self.resolve_type_by_name(type_name);
+                            (param_name.clone(), self_type)
+                        } else {
+                            // Resolve the type dynamically - this will use correct enum variants when available
+                            let param_type = self.resolve_type_by_name(type_str);
+                            (param_name.clone(), param_type)
+                        }
+                    })
+                    .collect();
+
+                // Parse return type using dynamic resolution
+                let ret_type = self.resolve_type_by_name(return_type);
+
+                // Register function signature for forward declarations
+                self.functions
+                    .insert(name.to_string(), (param_types, ret_type, *span));
+            }
+        }
         Ok(())
     }
 
@@ -1407,10 +1513,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         self.visit_expr(field_expr)?;
                     }
 
-                    return Ok(Type::Enum {
-                        name: enum_name.to_string(),
-                        variants: HashMap::new(),
-                    });
+                    return Ok(self.resolve_type_by_name(enum_name));
                 }
 
                 return Err(Error::new_semantic(
@@ -1476,10 +1579,8 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
         }
 
-        Ok(Type::Struct {
-            name: name.to_string(),
-            fields: vec![], // Fields are stored separately
-        })
+        // Return the complete struct type with proper fields
+        Ok(self.resolve_type_by_name(name))
     }
 
     fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> Result<Type> {
@@ -1679,65 +1780,21 @@ impl AstVisitor<Type> for SemanticVisitor {
                 if param_name == "self" && name.contains("::") {
                     // Extract type name from method name
                     let type_name = name.split("::").next().unwrap();
-
-                    // Check if it's a struct or enum
-                    let self_type = if self.structs.contains_key(type_name) {
-                        Type::Struct {
-                            name: type_name.to_string(),
-                            fields: vec![], // Fields will be filled in by struct definition
-                        }
-                    } else if self.enums.contains_key(type_name) {
-                        Type::Enum {
-                            name: type_name.to_string(),
-                            variants: HashMap::new(), // Variants stored separately
-                        }
-                    } else {
-                        Type::Unknown
-                    };
-
+                    let self_type = self.resolve_type_by_name(type_name);
                     (param_name.clone(), self_type)
                 } else {
-                    // Check if the type is a registered enum
-                    let param_type = if self.enums.contains_key(type_str) {
-                        Type::Enum {
-                            name: type_str.to_string(),
-                            variants: HashMap::new(), // Variants stored separately
-                        }
-                    } else if self.structs.contains_key(type_str) {
-                        Type::Struct {
-                            name: type_str.to_string(),
-                            fields: vec![], // Fields stored separately
-                        }
-                    } else {
-                        // Fall back to Type::from_string for built-in types
-                        Type::from_string(type_str).unwrap_or(Type::Unknown)
-                    };
-
+                    // Resolve the type dynamically - this will use correct enum variants when available
+                    let param_type = self.resolve_type_by_name(type_str);
                     (param_name.clone(), param_type)
                 }
             })
             .collect();
 
-        // Parse return type, checking for registered enums
-        let ret_type = if self.enums.contains_key(return_type) {
-            Type::Enum {
-                name: return_type.to_string(),
-                variants: HashMap::new(), // Variants stored separately
-            }
-        } else if self.structs.contains_key(return_type) {
-            Type::Struct {
-                name: return_type.to_string(),
-                fields: vec![], // Fields stored separately
-            }
-        } else {
-            Type::from_string(return_type).unwrap_or(Type::Unknown)
-        };
+        // Parse return type using dynamic resolution
+        let ret_type = self.resolve_type_by_name(return_type);
 
-        // Register function signature BEFORE analyzing body to support recursion
-        self.functions.insert(
-            name.to_string(),
-            (param_types.clone(), ret_type.clone(), *span),
-        );
+        // Function signature already registered in collect_function_signatures
+        // No need to re-register here as it was done in the first pass
 
         // Create new scope for function body
         self.type_env.push_scope();
@@ -1922,7 +1979,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     for (param_name, param_type_str) in params.iter().skip(1) {
                         param_types.push((
                             param_name.clone(),
-                            Type::from_string(param_type_str).unwrap_or(Type::Unknown),
+                            self.resolve_type_by_name(param_type_str),
                         ));
                     }
                 } else {
@@ -1930,18 +1987,21 @@ impl AstVisitor<Type> for SemanticVisitor {
                     for (param_name, param_type_str) in params.iter() {
                         param_types.push((
                             param_name.clone(),
-                            Type::from_string(param_type_str).unwrap_or(Type::Unknown),
+                            self.resolve_type_by_name(param_type_str),
                         ));
                     }
                 }
 
-                let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                let ret_type = self.resolve_type_by_name(return_type);
 
-                // Register method
-                self.functions.insert(
-                    format!("{}::{}", struct_name, name),
-                    (param_types.clone(), ret_type.clone(), *method_span),
-                );
+                // Register method (only if not already registered from collect_function_signatures)
+                let method_name = format!("{}::{}", struct_name, name);
+                if !self.functions.contains_key(&method_name) {
+                    self.functions.insert(
+                        method_name,
+                        (param_types.clone(), ret_type.clone(), *method_span),
+                    );
+                }
             }
         }
 

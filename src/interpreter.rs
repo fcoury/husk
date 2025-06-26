@@ -997,6 +997,10 @@ impl InterpreterVisitor {
     }
 
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
+        // First pass: collect all function definitions for forward declarations
+        self.collect_function_definitions(stmts)?;
+
+        // Second pass: execute all statements
         let mut last_value = Value::Unit;
         for stmt in stmts {
             last_value = self.visit_stmt(stmt)?;
@@ -1014,6 +1018,49 @@ impl InterpreterVisitor {
             }
         }
         Ok(last_value)
+    }
+
+    /// First pass: collect all function definitions without executing them
+    /// This enables forward function declarations
+    fn collect_function_definitions(&mut self, stmts: &[Stmt]) -> Result<()> {
+        for stmt in stmts {
+            if let Stmt::Function(_, name, _generic_params, params, _return_type, body, _span) =
+                stmt
+            {
+                // For recursive functions, we need to create a closure that includes the function itself
+                // Step 1: Create closure that includes current environment
+                let mut closure = self.global_environment.clone();
+
+                // Step 2: Create a temporary function with current closure
+                let temp_func = Value::Function(Function::UserDefined(
+                    name.to_string(),
+                    params.to_vec(),
+                    body.to_vec(),
+                    closure.clone(),
+                ));
+
+                // Step 3: Add this function to the closure for recursion
+                closure.insert(name.to_string(), temp_func);
+
+                // Step 4: Create the final function with closure that includes itself
+                let final_func = Value::Function(Function::UserDefined(
+                    name.to_string(),
+                    params.to_vec(),
+                    body.to_vec(),
+                    closure,
+                ));
+
+                // Step 5: Register the function in the global environment so it's always accessible
+                self.global_environment
+                    .insert(name.to_string(), final_func.clone());
+
+                // Step 6: If we're at the top level, add to exports
+                if self.is_top_level {
+                    self.current_exports.insert(name.to_string(), final_func);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Visit a list of statements without creating a new scope
@@ -2017,46 +2064,15 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_function(
         &mut self,
-        name: &str,
+        _name: &str,
         _generic_params: &[String],
-        params: &[(String, String)],
+        _params: &[(String, String)],
         _return_type: &str,
-        body: &[Stmt],
+        _body: &[Stmt],
         _span: &Span,
     ) -> Result<Value> {
-        // For recursive functions, we need to create a closure that includes the function itself
-        // Step 1: Create closure that includes current environment
-        let mut closure = self.environment.clone();
-
-        // Step 2: Create a temporary function with current closure
-        let temp_func = Value::Function(Function::UserDefined(
-            name.to_string(),
-            params.to_vec(),
-            body.to_vec(),
-            closure.clone(),
-        ));
-
-        // Step 3: Add this function to the closure for recursion
-        closure.insert(name.to_string(), temp_func);
-
-        // Step 4: Create the final function with closure that includes itself
-        let final_func = Value::Function(Function::UserDefined(
-            name.to_string(),
-            params.to_vec(),
-            body.to_vec(),
-            closure,
-        ));
-
-        // Step 5: Register the function in the global environment so it's always accessible
-        self.global_environment
-            .insert(name.to_string(), final_func.clone());
-
-        // Step 6: If we're at the top level, add to exports
-        // TODO: This should only export items marked with 'pub' once we track visibility in AST
-        if self.is_top_level {
-            self.current_exports.insert(name.to_string(), final_func);
-        }
-
+        // Function already registered in collect_function_definitions during first pass
+        // No need to re-process here
         Ok(Value::Unit)
     }
 

@@ -1,0 +1,10 @@
+fn func2() {
+    println!("Function 2 called");
+    func1();
+}
+
+fn func1() {
+    println!("Function 1 called");
+}
+
+func2();
