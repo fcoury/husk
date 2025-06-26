@@ -125,6 +125,100 @@ impl JsTranspiler {
         output.push_str("  return result;\n");
         output.push_str("}\n");
 
+        // Add IO functions
+        output.push_str("\n// File I/O functions\n");
+        output.push_str("const fs = require('fs');\n");
+        output.push_str("const path = require('path');\n\n");
+
+        // read_file
+        output.push_str("function read_file(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    return { type: 'Ok', value: fs.readFileSync(filePath, 'utf8') };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // read_file_bytes
+        output.push_str("function read_file_bytes(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const buffer = fs.readFileSync(filePath);\n");
+        output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // read_lines
+        output.push_str("function read_lines(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const content = fs.readFileSync(filePath, 'utf8');\n");
+        output.push_str("    const lines = content.split('\\n');\n");
+        output.push_str("    // Remove last empty line if file ends with newline\n");
+        output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
+        output.push_str("    return { type: 'Ok', value: lines };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // write_file
+        output.push_str("function write_file(filePath, contents) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.writeFileSync(filePath, contents);\n");
+        output.push_str("    return undefined; // unit\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    throw new Error(e.message);\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // write_file_bytes
+        output.push_str("function write_file_bytes(filePath, data) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const buffer = Buffer.from(data);\n");
+        output.push_str("    fs.writeFileSync(filePath, buffer);\n");
+        output.push_str("    return undefined; // unit\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    throw new Error(e.message);\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // append_file
+        output.push_str("function append_file(filePath, contents) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.appendFileSync(filePath, contents);\n");
+        output.push_str("    return undefined; // unit\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    throw new Error(e.message);\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // Path functions
+        output.push_str("function exists(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.accessSync(filePath);\n");
+        output.push_str("    return true;\n");
+        output.push_str("  } catch {\n");
+        output.push_str("    return false;\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function is_file(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    return fs.statSync(filePath).isFile();\n");
+        output.push_str("  } catch {\n");
+        output.push_str("    return false;\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function is_dir(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    return fs.statSync(filePath).isDirectory();\n");
+        output.push_str("  } catch {\n");
+        output.push_str("    return false;\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);

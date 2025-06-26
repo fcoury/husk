@@ -3263,12 +3263,12 @@ mod tests {
         assert!(run_test("5 / 0").is_err());
     }
 
-    // Print function tests
+    // Print macro tests
     #[test]
     fn test_print_function() {
-        // print returns Int(0), println returns Unit
-        assert_eq!(run_test("print(\"hello\")").unwrap(), Value::Int(0));
-        assert_eq!(run_test("println(\"world\")").unwrap(), Value::Unit);
+        // print! returns Int(0), println! returns Unit
+        assert_eq!(run_test("print!(\"hello\")").unwrap(), Value::Int(0));
+        assert_eq!(run_test("println!(\"world\")").unwrap(), Value::Unit);
     }
 
     // Complex expression tests

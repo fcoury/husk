@@ -552,6 +552,19 @@ mod tests {
             }
             Ok("visited_object_literal".to_string())
         }
+
+        fn visit_macro_call(
+            &mut self,
+            name: &str,
+            args: &[Expr],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
+            self.track(&format!("macro_call_{}", name))?;
+            for arg in args {
+                self.visit_expr(arg)?;
+            }
+            Ok(format!("visited_macro_call_{}", name))
+        }
     }
 
     #[test]
@@ -568,8 +581,8 @@ mod tests {
         // Test float
         let expr = Expr::Float(3.1, span);
         let result = visitor.visit_expr(&expr);
-        assert_eq!(result, Ok("visited_float_3.14".to_string()));
-        assert!(visitor.was_called("float_3.14"));
+        assert_eq!(result, Ok("visited_float_3.1".to_string()));
+        assert!(visitor.was_called("float_3.1"));
 
         // Test bool
         let expr = Expr::Bool(true, span);
