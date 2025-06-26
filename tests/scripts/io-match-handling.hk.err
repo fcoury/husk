@@ -1,3 +1,16 @@
-error: 23:5 - Expected comma after match arm expression
-    Err(_) => println("Failed to append to file")
-    ^^^
+error: 5:1 - Non-exhaustive match
+match write_file("temp-test-file.txt", "Hello from Husk!") {
+    Ok(_) => {
+        println!("Successfully wrote to temp-test-file.txt");
+        
+        // Now try to read it back
+        match read_file("temp-test-file.txt") {
+            Ok(content) => {
+                println!("Read content: Hello from Husk!");
+            }
+            Err(_) => println!("Failed to read file"),
+        }
+    }
+    Err(_) => println!("Failed to write file"),
+}
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

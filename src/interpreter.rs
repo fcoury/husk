@@ -162,6 +162,9 @@ pub enum Function {
     },
 }
 
+// Note: print and println are now implemented as macros, not functions
+// These functions are kept commented for reference
+/*
 pub fn stdlib_print(args: &[Value]) -> Result<Value> {
     for arg in args {
         print!("{}", arg);
@@ -182,6 +185,7 @@ pub fn stdlib_println(args: &[Value]) -> Result<Value> {
     println!();
     Ok(Value::Unit)
 }
+*/
 
 pub fn stdlib_format(args: &[Value]) -> Result<Value> {
     if args.is_empty() {
@@ -530,14 +534,8 @@ impl InterpreterVisitor {
     }
 
     fn init_standard_library(&mut self) {
-        self.global_environment.insert(
-            "print".to_string(),
-            Value::Function(Function::BuiltIn(stdlib_print)),
-        );
-        self.global_environment.insert(
-            "println".to_string(),
-            Value::Function(Function::BuiltIn(stdlib_println)),
-        );
+        // Note: print and println are now macros, not functions
+        // Only format! remains as a function for backward compatibility
         self.global_environment.insert(
             "format!".to_string(),
             Value::Function(Function::BuiltIn(stdlib_format)),
@@ -2466,9 +2464,143 @@ impl AstVisitor<Value> for InterpreterVisitor {
             *span,
         ))
     }
+
+    fn visit_macro_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<Value> {
+        match name {
+            "print" => {
+                // print! macro with format string support
+                if args.is_empty() {
+                    return Err(Error::new_runtime(
+                        "print! requires at least one argument".to_string(),
+                        *span,
+                    ));
+                }
+
+                // Evaluate all arguments
+                let mut values = Vec::new();
+                for arg in args {
+                    values.push(self.visit_expr(arg)?);
+                }
+
+                // Use format logic if first arg is a string
+                if let Value::String(format_str) = &values[0] {
+                    let formatted = self.format_string(format_str, &values[1..])?;
+                    print!("{}", formatted);
+                } else {
+                    // If not a string, just print the value
+                    print!("{}", values[0]);
+                }
+
+                io::stdout()
+                    .flush()
+                    .map_err(|e| Error::new_runtime(format!("IO error: {}", e), *span))?;
+                Ok(Value::Int(0)) // print! returns 0 on success
+            }
+            "println" => {
+                // println! macro with format string support
+                if args.is_empty() {
+                    // println! with no args just prints a newline
+                    println!();
+                    return Ok(Value::Unit);
+                }
+
+                // Evaluate all arguments
+                let mut values = Vec::new();
+                for arg in args {
+                    values.push(self.visit_expr(arg)?);
+                }
+
+                // Use format logic if first arg is a string
+                if let Value::String(format_str) = &values[0] {
+                    let formatted = self.format_string(format_str, &values[1..])?;
+                    println!("{}", formatted);
+                } else {
+                    // If not a string, just print the value
+                    match &values[0] {
+                        Value::EnumVariant(_, _, Some(value)) => println!("{}", value),
+                        _ => println!("{}", values[0]),
+                    }
+                }
+
+                Ok(Value::Unit)
+            }
+            "format" => {
+                // format! macro
+                if args.is_empty() {
+                    return Err(Error::new_runtime(
+                        "format! requires at least one argument (the format string)".to_string(),
+                        *span,
+                    ));
+                }
+
+                // Evaluate all arguments
+                let mut values = Vec::new();
+                for arg in args {
+                    values.push(self.visit_expr(arg)?);
+                }
+
+                // First argument must be a string
+                if let Value::String(format_str) = &values[0] {
+                    let formatted = self.format_string(format_str, &values[1..])?;
+                    Ok(Value::String(formatted))
+                } else {
+                    Err(Error::new_runtime(
+                        "format! first argument must be a string".to_string(),
+                        *span,
+                    ))
+                }
+            }
+            _ => Err(Error::new_runtime(
+                format!("Unknown macro: {}!", name),
+                *span,
+            )),
+        }
+    }
 }
 
 impl InterpreterVisitor {
+    fn format_string(&self, format_str: &str, args: &[Value]) -> Result<String> {
+        let mut result = String::new();
+        let mut arg_index = 0;
+        let mut chars = format_str.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                if chars.peek() == Some(&'{') {
+                    // Escaped {{
+                    chars.next();
+                    result.push('{');
+                } else if chars.peek() == Some(&'}') {
+                    // Placeholder {}
+                    chars.next();
+                    if arg_index >= args.len() {
+                        return Err(Error::new_runtime(
+                            format!("Not enough arguments for format string: expected at least {}, got {}",
+                                   arg_index + 1, args.len()),
+                            Span::default(),
+                        ));
+                    }
+                    result.push_str(&args[arg_index].to_string());
+                    arg_index += 1;
+                } else {
+                    result.push(ch);
+                }
+            } else if ch == '}' {
+                if chars.peek() == Some(&'}') {
+                    // Escaped }}
+                    chars.next();
+                    result.push('}');
+                } else {
+                    result.push(ch);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        Ok(result)
+    }
+
     fn bind_pattern(&mut self, pattern: &Expr, value: Value) -> Result<()> {
         match pattern {
             Expr::Identifier(name, _) => {

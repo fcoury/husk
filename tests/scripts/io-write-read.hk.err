@@ -1,3 +1,0 @@
-error: 7:9 - Binary operation Plus requires numeric types, found string and string
-println("File exists before test: " + (if initial_exists { "true" } else { "false" }));
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,10 @@
+=== Testing Write and Read Operations ===
+File exists before test: false
+
+=== Path Functions Work ===
+exists() function: OK
+is_file() function: OK
+is_dir() function: OK
+
+=== Test Complete ===
+IO functions successfully registered and callable!

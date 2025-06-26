@@ -1,0 +1,35 @@
+// Test new macro syntax for print!, println!, and format!
+
+// Basic println! with string
+println!("Hello, World!");
+
+// println! with format placeholders
+let name = "Alice";
+let age = 30;
+println!("Hello, {}! You are {} years old.", name, age);
+
+// print! without newline
+print!("This is ");
+print!("on the same ");
+print!("line");
+println!("!");
+
+// format! macro
+let message = format!("The answer is {}", 42);
+println!(message);
+
+// Escaped braces
+println!("Use {{}} for placeholders");
+
+// Different types
+let int_val = 42;
+let float_val = 3.14;
+let bool_val = true;
+println!("int: {}, float: {}, bool: {}", int_val, float_val, bool_val);
+
+// Empty println!
+println!();
+
+// Non-string first argument (should just print the value)
+println!(123);
+println!(true);

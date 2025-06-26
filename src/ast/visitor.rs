@@ -61,6 +61,7 @@ pub trait AstVisitor<T> {
                 self.visit_struct_pattern(variant, fields, span)
             }
             Expr::ObjectLiteral(fields, span) => self.visit_object_literal(fields, span),
+            Expr::MacroCall(name, args, span) => self.visit_macro_call(name, args, span),
         }
     }
 
@@ -337,6 +338,12 @@ pub trait AstVisitor<T> {
     fn visit_object_literal(
         &mut self,
         fields: &[(String, Expr)],
+        span: &Span,
+    ) -> std::result::Result<T, Self::Error>;
+    fn visit_macro_call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
         span: &Span,
     ) -> std::result::Result<T, Self::Error>;
 

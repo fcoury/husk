@@ -1552,9 +1552,160 @@ impl AstVisitor<String> for JsTranspiler {
 
         Ok(format!("{{ {} }}", field_strings.join(", ")))
     }
+
+    fn visit_macro_call(&mut self, name: &str, args: &[Expr], _span: &Span) -> Result<String> {
+        match name {
+            "print" => {
+                // print! macro
+                if args.is_empty() {
+                    return Ok("process.stdout.write(\"\")".to_string());
+                }
+
+                // Evaluate all arguments
+                let mut arg_strings = Vec::new();
+                for arg in args {
+                    arg_strings.push(self.visit_expr(arg)?);
+                }
+
+                // If first arg is a string literal, convert to template literal
+                if let Expr::String(format_str, _) = &args[0] {
+                    if args.len() > 1 {
+                        // Has placeholders
+                        let template =
+                            self.format_to_template_literal(format_str, &arg_strings[1..])?;
+                        Ok(format!("process.stdout.write({})", template))
+                    } else {
+                        // No placeholders, just print the string
+                        Ok(format!("process.stdout.write({})", arg_strings[0]))
+                    }
+                } else {
+                    // Not a string literal, use String() to convert
+                    Ok(format!("process.stdout.write(String({}))", arg_strings[0]))
+                }
+            }
+            "println" => {
+                // println! macro
+                if args.is_empty() {
+                    return Ok("console.log()".to_string());
+                }
+
+                // Evaluate all arguments
+                let mut arg_strings = Vec::new();
+                for arg in args {
+                    arg_strings.push(self.visit_expr(arg)?);
+                }
+
+                // If first arg is a string literal, convert to template literal
+                if let Expr::String(format_str, _) = &args[0] {
+                    if args.len() > 1 {
+                        // Has placeholders
+                        let template =
+                            self.format_to_template_literal(format_str, &arg_strings[1..])?;
+                        Ok(format!("console.log({})", template))
+                    } else {
+                        // No placeholders, just print the string
+                        Ok(format!("console.log({})", arg_strings[0]))
+                    }
+                } else {
+                    // Not a string literal, use console.log directly
+                    Ok(format!("console.log({})", arg_strings[0]))
+                }
+            }
+            "format" => {
+                // format! macro
+                if args.is_empty() {
+                    return Err(Error::new_transpile(
+                        "format! requires at least one argument".to_string(),
+                        *_span,
+                    ));
+                }
+
+                // Evaluate all arguments
+                let mut arg_strings = Vec::new();
+                for arg in args {
+                    arg_strings.push(self.visit_expr(arg)?);
+                }
+
+                // First argument must be a string literal
+                if let Expr::String(format_str, _) = &args[0] {
+                    if args.len() > 1 {
+                        // Has placeholders
+                        self.format_to_template_literal(format_str, &arg_strings[1..])
+                    } else {
+                        // No placeholders, return the string as-is
+                        Ok(arg_strings[0].clone())
+                    }
+                } else {
+                    // Not a string literal, error
+                    Err(Error::new_transpile(
+                        "format! first argument must be a string literal".to_string(),
+                        *_span,
+                    ))
+                }
+            }
+            _ => Err(Error::new_transpile(
+                format!("Unknown macro: {}!", name),
+                *_span,
+            )),
+        }
+    }
 }
 
 impl JsTranspiler {
+    /// Convert a format string with {} placeholders to a JavaScript template literal
+    fn format_to_template_literal(&self, format_str: &str, args: &[String]) -> Result<String> {
+        let mut result = String::from("`");
+        let mut arg_index = 0;
+        let mut chars = format_str.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '{' => {
+                    if chars.peek() == Some(&'{') {
+                        // Escaped {{
+                        chars.next();
+                        result.push('{');
+                    } else if chars.peek() == Some(&'}') {
+                        // Placeholder {}
+                        chars.next();
+                        if arg_index >= args.len() {
+                            return Err(Error::new_transpile(
+                                format!("Not enough arguments for format string: expected at least {}, got {}",
+                                       arg_index + 1, args.len()),
+                                Span::default(),
+                            ));
+                        }
+                        result.push_str("${");
+                        result.push_str(&args[arg_index]);
+                        result.push('}');
+                        arg_index += 1;
+                    } else {
+                        result.push(ch);
+                    }
+                }
+                '}' => {
+                    if chars.peek() == Some(&'}') {
+                        // Escaped }}
+                        chars.next();
+                        result.push('}');
+                    } else {
+                        result.push(ch);
+                    }
+                }
+                '`' => result.push_str("\\`"),
+                '$' => result.push_str("\\$"),
+                '\\' => result.push_str("\\\\"),
+                '\n' => result.push_str("\\n"),
+                '\r' => result.push_str("\\r"),
+                '\t' => result.push_str("\\t"),
+                _ => result.push(ch),
+            }
+        }
+
+        result.push('`');
+        Ok(result)
+    }
+
     /// Generate basic import statement without package resolution
     fn generate_basic_import(&self, path: &UsePath, items: &UseItems) -> Result<String> {
         // Handle special cases for Node.js built-in modules

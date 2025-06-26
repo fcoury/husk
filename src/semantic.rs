@@ -3462,6 +3462,76 @@ impl AstVisitor<Type> for SemanticVisitor {
         // In the future, we could support more specific object types
         Ok(Type::Unknown)
     }
+
+    fn visit_macro_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<Type> {
+        match name {
+            "print" | "println" => {
+                // These macros accept format string + arguments like format!
+                if args.is_empty() && name == "print" {
+                    return Err(Error::new_semantic(
+                        "print! requires at least one argument".to_string(),
+                        *span,
+                    ));
+                }
+
+                // Type-check all arguments
+                for arg in args {
+                    self.visit_expr(arg)?;
+                }
+
+                // print! returns int, println! returns unit
+                Ok(if name == "print" {
+                    Type::Int
+                } else {
+                    Type::Unit
+                })
+            }
+            "format" => {
+                // format! macro
+                if args.is_empty() {
+                    return Err(Error::new_semantic(
+                        "format! requires at least one argument (the format string)".to_string(),
+                        *span,
+                    ));
+                }
+
+                // First argument must be a string
+                let first_arg_type = self.visit_expr(&args[0])?;
+                if first_arg_type != Type::String {
+                    return Err(Error::new_semantic(
+                        "format! first argument must be a string".to_string(),
+                        args[0].span(),
+                    ));
+                }
+
+                // Count placeholders in format string
+                if let Expr::String(format_str, _) = &args[0] {
+                    let placeholder_count =
+                        format_str.matches("{}").count() - format_str.matches("{{").count() * 2;
+                    let arg_count = args.len() - 1;
+
+                    if placeholder_count != arg_count {
+                        return Err(Error::new_semantic(
+                            format!("format! expects {} arguments after format string, but {} were provided",
+                                   placeholder_count, arg_count),
+                            *span,
+                        ));
+                    }
+                }
+
+                // Type-check remaining arguments
+                for arg in &args[1..] {
+                    self.visit_expr(arg)?;
+                }
+
+                Ok(Type::String)
+            }
+            _ => Err(Error::new_semantic(
+                format!("Unknown macro: {}!", name),
+                *span,
+            )),
+        }
+    }
 }
 
 /// Check if a module name is a Node.js built-in module
