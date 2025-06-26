@@ -997,8 +997,8 @@ impl InterpreterVisitor {
     }
 
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<Value> {
-        // First pass: collect all function definitions for forward declarations
-        self.collect_function_definitions(stmts)?;
+        // First pass: collect all type and function definitions for forward declarations
+        self.collect_definitions(stmts)?;
 
         // Second pass: execute all statements
         let mut last_value = Value::Unit;
@@ -1020,9 +1020,25 @@ impl InterpreterVisitor {
         Ok(last_value)
     }
 
-    /// First pass: collect all function definitions without executing them
-    /// This enables forward function declarations
-    fn collect_function_definitions(&mut self, stmts: &[Stmt]) -> Result<()> {
+    /// First pass: collect all type and function definitions without executing them
+    /// This enables forward declarations for both types and functions
+    fn collect_definitions(&mut self, stmts: &[Stmt]) -> Result<()> {
+        // First collect all type definitions (enums and structs)
+        for stmt in stmts {
+            match stmt {
+                Stmt::Enum(name, generic_params, variants, span) => {
+                    // Process enum definition immediately
+                    self.visit_enum(name, generic_params, variants, span)?;
+                }
+                Stmt::Struct(name, generic_params, fields, span) => {
+                    // Process struct definition immediately
+                    self.visit_struct(name, generic_params, fields, span)?;
+                }
+                _ => {} // Skip other statements in this pass
+            }
+        }
+
+        // Then collect all function definitions
         for stmt in stmts {
             if let Stmt::Function(_, name, _generic_params, params, _return_type, body, _span) =
                 stmt
@@ -2088,7 +2104,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
             field_map.insert(field_name.clone(), field_type.clone());
         }
         let struct_value = Value::Struct(name.to_string(), field_map);
-        self.set_var(name.to_string(), struct_value.clone());
+        // Always set structs in global environment so they're accessible from functions
+        self.global_environment
+            .insert(name.to_string(), struct_value.clone());
 
         // If we're at the top level, add to exports
         // TODO: This should only export items marked with 'pub' once we track visibility in AST
@@ -2122,7 +2140,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
         }
         let enum_value = Value::Enum(name.to_string(), variant_map);
-        self.set_var(name.to_string(), enum_value.clone());
+        // Always set enums in global environment so they're accessible from functions
+        self.global_environment
+            .insert(name.to_string(), enum_value.clone());
 
         // If we're at the top level, add to exports
         // TODO: This should only export items marked with 'pub' once we track visibility in AST

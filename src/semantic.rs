@@ -921,10 +921,12 @@ impl SemanticVisitor {
 
         // Check if it's a registered struct
         if let Some(fields) = self.structs.get(type_name) {
-            let field_types: Vec<(String, Type)> = fields
+            let mut field_types: Vec<(String, Type)> = fields
                 .iter()
                 .map(|(name, t)| (name.clone(), t.clone()))
                 .collect();
+            // Sort fields by name to ensure consistent ordering
+            field_types.sort_by(|a, b| a.0.cmp(&b.0));
             return Type::Struct {
                 name: type_name.to_string(),
                 fields: field_types,
@@ -1668,7 +1670,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 && *associated_type == Type::Unknown
                             {
                                 // Accept any type for generic built-in enums
-                            } else if arg_type != *associated_type {
+                            } else if !arg_type.is_assignable_to(associated_type) {
                                 return Err(Error::new_semantic(
                                     format!(
                                         "Enum variant '{}::{}' expects {}, found {}",
@@ -1690,10 +1692,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                         }
                     }
-                    return Ok(Type::Enum {
-                        name: resolved_type_name.clone(),
-                        variants: HashMap::new(), // Variants stored separately
-                    });
+                    return Ok(self.resolve_type_by_name(&resolved_type_name));
                 }
             }
 
@@ -1913,7 +1912,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     enum_variants.insert(name.clone(), None);
                 }
                 crate::parser::EnumVariant::Tuple(name, type_str) => {
-                    let variant_type = Type::from_string(type_str).unwrap_or(Type::Unknown);
+                    let variant_type = self.resolve_type_by_name(type_str);
                     enum_variants.insert(name.clone(), Some(variant_type));
                 }
                 crate::parser::EnumVariant::Struct(name, fields) => {
@@ -1923,8 +1922,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         .map(|(field_name, field_type_str)| {
                             (
                                 field_name.clone(),
-                                crate::types::Type::from_string(field_type_str)
-                                    .unwrap_or(crate::types::Type::Unknown),
+                                self.resolve_type_by_name(field_type_str),
                             )
                         })
                         .collect();
