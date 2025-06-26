@@ -332,24 +332,6 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("}\n\n");
 
-        output.push_str("function eprint(message) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const bytesWritten = process.stderr.write(message);\n");
-        output.push_str("    return bytesWritten ? message.length : 0;\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return 0;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
-
-        output.push_str("function eprintln(message) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    process.stderr.write(message + '\\n');\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
-
         // Async file I/O functions
         output.push_str("// Async File I/O functions\n");
         output.push_str("const fsPromises = require('fs').promises;\n\n");
@@ -1933,6 +1915,62 @@ impl AstVisitor<String> for JsTranspiler {
                         "format! first argument must be a string literal".to_string(),
                         *_span,
                     ))
+                }
+            }
+            "eprint" => {
+                // eprint! macro
+                if args.is_empty() {
+                    return Ok("process.stderr.write(\"\")".to_string());
+                }
+
+                // Evaluate all arguments
+                let mut arg_strings = Vec::new();
+                for arg in args {
+                    arg_strings.push(self.visit_expr(arg)?);
+                }
+
+                // If first arg is a string literal, convert to template literal
+                if let Expr::String(format_str, _) = &args[0] {
+                    if args.len() > 1 {
+                        // Has placeholders
+                        let template =
+                            self.format_to_template_literal(format_str, &arg_strings[1..])?;
+                        Ok(format!("process.stderr.write({})", template))
+                    } else {
+                        // No placeholders, just print the string
+                        Ok(format!("process.stderr.write({})", arg_strings[0]))
+                    }
+                } else {
+                    // Not a string literal, use String() to convert
+                    Ok(format!("process.stderr.write(String({}))", arg_strings[0]))
+                }
+            }
+            "eprintln" => {
+                // eprintln! macro
+                if args.is_empty() {
+                    return Ok("console.error()".to_string());
+                }
+
+                // Evaluate all arguments
+                let mut arg_strings = Vec::new();
+                for arg in args {
+                    arg_strings.push(self.visit_expr(arg)?);
+                }
+
+                // If first arg is a string literal, convert to template literal
+                if let Expr::String(format_str, _) = &args[0] {
+                    if args.len() > 1 {
+                        // Has placeholders
+                        let template =
+                            self.format_to_template_literal(format_str, &arg_strings[1..])?;
+                        Ok(format!("console.error({})", template))
+                    } else {
+                        // No placeholders, just print the string
+                        Ok(format!("console.error({})", arg_strings[0]))
+                    }
+                } else {
+                    // Not a string literal, use console.error directly
+                    Ok(format!("console.error({})", arg_strings[0]))
                 }
             }
             _ => Err(Error::new_transpile(
