@@ -1,0 +1,44 @@
+// Test multiple else-if chains
+let score = 85;
+
+if score >= 90 {
+    println!("Grade: A");
+} else if score >= 80 {
+    println!("Grade: B");
+} else if score >= 70 {
+    println!("Grade: C");
+} else if score >= 60 {
+    println!("Grade: D");
+} else {
+    println!("Grade: F");
+}
+
+// Test else-if without final else
+let temp = 25;
+if temp < 0 {
+    println!("Freezing");
+} else if temp < 10 {
+    println!("Cold");
+} else if temp < 20 {
+    println!("Cool");
+} else if temp < 30 {
+    println!("Warm");
+}
+
+// Test nested else-if in else-if
+let x = 15;
+let y = 20;
+
+if x > 20 {
+    println!("x > 20");
+} else if x > 10 {
+    if y > 25 {
+        println!("x > 10 and y > 25");
+    } else if y > 15 {
+        println!("x > 10 and y > 15");
+    } else {
+        println!("x > 10 and y <= 15");
+    }
+} else {
+    println!("x <= 10");
+}

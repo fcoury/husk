@@ -1818,24 +1818,31 @@ impl Parser {
         if self.current_token().kind == TokenKind::Else {
             self.advance(); // Consume 'else'
 
-            if self.current_token().kind != TokenKind::LBrace {
+            // Check if this is an 'else if'
+            if self.current_token().kind == TokenKind::If {
+                // Parse the if expression as a single statement in the else block
+                let else_if_expr = self.parse_if_expression()?;
+                end_span = else_if_expr.span().end;
+                else_block = vec![Stmt::Expression(else_if_expr, false)];
+            } else if self.current_token().kind == TokenKind::LBrace {
+                // Regular else block
+                self.advance(); // Consume '{'
+                else_block = self.parse_block()?;
+
+                if self.current_token().kind != TokenKind::RBrace {
+                    return Err(Error::new_parse(
+                        "Expected '}' after else block".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                end_span = self.current_token().span.end;
+                self.advance(); // Consume '}'
+            } else {
                 return Err(Error::new_parse(
-                    "Expected '{' after else".to_string(),
+                    "Expected '{' or 'if' after else".to_string(),
                     self.current_token().span,
                 ));
             }
-
-            self.advance(); // Consume '{'
-            else_block = self.parse_block()?;
-
-            if self.current_token().kind != TokenKind::RBrace {
-                return Err(Error::new_parse(
-                    "Expected '}' after else block".to_string(),
-                    self.current_token().span,
-                ));
-            }
-            end_span = self.current_token().span.end;
-            self.advance(); // Consume '}'
         }
 
         Ok(Expr::If(
