@@ -63,11 +63,12 @@ fn unreachable() -> !;
 fn unimplemented() -> !;
 fn todo() -> !;
 
-// I/O (matching Rust's print!/println!)
-fn print(args: fmt::Arguments) -> void;
-fn println(args: fmt::Arguments) -> void;
-fn eprint(args: fmt::Arguments) -> void;
-fn eprintln(args: fmt::Arguments) -> void;
+// I/O macros (matching Rust's print!/println!)
+// ✅ IMPLEMENTED as macros
+macro print!($format_str:expr $(, $arg:expr)*) -> int;     // Returns 0 on success
+macro println!($format_str:expr $(, $arg:expr)*) -> void;  // Prints with newline
+macro format!($format_str:expr $(, $arg:expr)*) -> string; // Returns formatted string
+// TODO: eprint! and eprintln! for stderr
 
 // Type conversions (matching Rust's From/Into traits)
 trait From<T> {
@@ -81,8 +82,10 @@ trait Into<T> {
 // JavaScript Translation Notes:
 // - panic() → throw new Error()
 // - assert() → if (!condition) throw new Error()
-// - print/println → console.log()
-// - eprint/eprintln → console.error()
+// - print!() → process.stdout.write()
+// - println!() → console.log()
+// - format!() → template literals `${}`
+// - eprint!/eprintln! → console.error()
 ```
 
 ### 2. String Module
@@ -1064,7 +1067,7 @@ window.__husk_runtime = {
 ### Known Issues
 1. **Closure Support**: Functional methods like map() and filter() are blocked on closure implementation.
 
-### IO Operations (Interpreter only, transpiler support pending)
+### IO Operations (Interpreter & Transpiler)
 - [x] `read_file(path)` - Read entire file as string (returns Result<string, Error>)
 - [x] `read_file_bytes(path)` - Read file as bytes (returns Result<array<int>, Error>)
 - [x] `read_lines(path)` - Read file as array of lines (returns Result<array<string>, Error>)
@@ -1083,9 +1086,9 @@ window.__husk_runtime = {
    - ✅ File reading operations implemented
    - ✅ File writing operations implemented
    - ✅ Path checking operations implemented
+   - ✅ Transpiler support implemented
    - ⏳ Directory operations pending
    - ⏳ Console input operations pending
-   - ⏳ Transpiler support pending
-4. Rename println to println! and print to print! with format! placeholders
+4. ~~Rename println to println! and print to print! with format! placeholders~~ ✅ Completed
 5. Implement Vec<T> type with mutable operations (future)
 6. Add iterator support for lazy evaluation (future)
