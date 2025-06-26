@@ -794,6 +794,83 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
+
+        // Async file operation functions
+        self.functions.insert(
+            "read_file_async".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Promise(Box::new(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                })),
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "read_file_bytes_async".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Promise(Box::new(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                })),
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "read_lines_async".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Promise(Box::new(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                })),
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "write_file_async".to_string(),
+            (
+                vec![
+                    ("path".to_string(), Type::String),
+                    ("contents".to_string(), Type::String),
+                ],
+                Type::Promise(Box::new(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                })),
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "write_file_bytes_async".to_string(),
+            (
+                vec![
+                    ("path".to_string(), Type::String),
+                    ("data".to_string(), Type::Array(Box::new(Type::Int))),
+                ],
+                Type::Promise(Box::new(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                })),
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "append_file_async".to_string(),
+            (
+                vec![
+                    ("path".to_string(), Type::String),
+                    ("contents".to_string(), Type::String),
+                ],
+                Type::Promise(Box::new(Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                })),
+                Span::default(),
+            ),
+        );
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {

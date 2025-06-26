@@ -279,6 +279,59 @@ pub fn remove_dir_all(path: &str, span: &Span) -> Result<Value> {
     }
 }
 
+// Async file operations - these are only used in the transpiler
+// The interpreter doesn't support async operations yet
+
+/// Async read entire file contents as a string
+pub fn read_file_async(_path: &str, _span: &Span) -> Result<Value> {
+    // This function is only for semantic analysis in the interpreter
+    // The actual async behavior is handled by the transpiler
+    Err(Error::new_runtime(
+        "Async operations are not supported in the interpreter mode",
+        Span::default(),
+    ))
+}
+
+/// Async read file contents as raw bytes
+pub fn read_file_bytes_async(_path: &str, _span: &Span) -> Result<Value> {
+    Err(Error::new_runtime(
+        "Async operations are not supported in the interpreter mode",
+        Span::default(),
+    ))
+}
+
+/// Async read file as an array of lines
+pub fn read_lines_async(_path: &str, _span: &Span) -> Result<Value> {
+    Err(Error::new_runtime(
+        "Async operations are not supported in the interpreter mode",
+        Span::default(),
+    ))
+}
+
+/// Async write string contents to a file
+pub fn write_file_async(_path: &str, _contents: &str, _span: &Span) -> Result<Value> {
+    Err(Error::new_runtime(
+        "Async operations are not supported in the interpreter mode",
+        Span::default(),
+    ))
+}
+
+/// Async write raw bytes to a file
+pub fn write_file_bytes_async(_path: &str, _data: &[Value], _span: &Span) -> Result<Value> {
+    Err(Error::new_runtime(
+        "Async operations are not supported in the interpreter mode",
+        Span::default(),
+    ))
+}
+
+/// Async append string to an existing file
+pub fn append_file_async(_path: &str, _contents: &str, _span: &Span) -> Result<Value> {
+    Err(Error::new_runtime(
+        "Async operations are not supported in the interpreter mode",
+        Span::default(),
+    ))
+}
+
 /// List directory contents
 pub fn read_dir(path: &str, span: &Span) -> Result<Value> {
     match fs::read_dir(path) {

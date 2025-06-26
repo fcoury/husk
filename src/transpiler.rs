@@ -350,6 +350,73 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("}\n\n");
 
+        // Async file I/O functions
+        output.push_str("// Async File I/O functions\n");
+        output.push_str("const fsPromises = require('fs').promises;\n\n");
+
+        // read_file_async
+        output.push_str("async function read_file_async(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
+        output.push_str("    return { type: 'Ok', value: content };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // read_file_bytes_async
+        output.push_str("async function read_file_bytes_async(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const buffer = await fsPromises.readFile(filePath);\n");
+        output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // read_lines_async
+        output.push_str("async function read_lines_async(filePath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
+        output.push_str("    const lines = content.split('\\n');\n");
+        output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
+        output.push_str("    return { type: 'Ok', value: lines };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // write_file_async
+        output.push_str("async function write_file_async(filePath, contents) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    await fsPromises.writeFile(filePath, contents);\n");
+        output.push_str("    return { type: 'Ok', value: undefined };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // write_file_bytes_async
+        output.push_str("async function write_file_bytes_async(filePath, data) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const buffer = Buffer.from(data);\n");
+        output.push_str("    await fsPromises.writeFile(filePath, buffer);\n");
+        output.push_str("    return { type: 'Ok', value: undefined };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        // append_file_async
+        output.push_str("async function append_file_async(filePath, contents) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    await fsPromises.appendFile(filePath, contents);\n");
+        output.push_str("    return { type: 'Ok', value: undefined };\n");
+        output.push_str("  } catch (e) {\n");
+        output.push_str("    return { type: 'Err', value: e.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);
