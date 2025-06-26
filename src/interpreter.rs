@@ -1120,12 +1120,7 @@ impl InterpreterVisitor {
         closure.insert(name.clone(), temp_func);
 
         // Step 4: Create the final function with closure that includes itself
-        Value::Function(Function::UserDefined(
-            name,
-            params,
-            body,
-            closure,
-        ))
+        Value::Function(Function::UserDefined(name, params, body, closure))
     }
 
     /// Visit a list of statements without creating a new scope
