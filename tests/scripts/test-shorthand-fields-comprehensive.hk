@@ -6,17 +6,17 @@ struct Point {
 }
 
 fn main() {
-    println("=== Testing Struct Shorthand ===");
+    println!("=== Testing Struct Shorthand ===");
     
     // Pure shorthand
     let x = 10;
     let y = 20;
     let p1 = Point { x, y };
-    println(format!("Pure shorthand: Point({}, {})", p1.x, p1.y));
+    println!(format!("Pure shorthand: Point({}, {})", p1.x, p1.y));
     
     // Regular syntax (still works)
     let p2 = Point { x: 30, y: 40 };
-    println(format!("Regular syntax: Point({}, {})", p2.x, p2.y));
+    println!(format!("Regular syntax: Point({}, {})", p2.x, p2.y));
     
-    println("All shorthand field tests completed!");
+    println!("All shorthand field tests completed!");
 }

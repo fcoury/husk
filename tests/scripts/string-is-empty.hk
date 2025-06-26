@@ -5,36 +5,36 @@ let spaces = "   ";
 let unicode = "👋";
 
 // Test is_empty on empty string
-println(empty.is_empty());         // Should print: true
+println!(empty.is_empty());         // Should print: true
 
 // Test is_empty on non-empty string
-println(not_empty.is_empty());      // Should print: false
+println!(not_empty.is_empty());      // Should print: false
 
 // Test is_empty on string with only spaces
-println(spaces.is_empty());         // Should print: false
+println!(spaces.is_empty());         // Should print: false
 
 // Test is_empty on Unicode string
-println(unicode.is_empty());        // Should print: false
+println!(unicode.is_empty());        // Should print: false
 
 // Test chaining with other methods
 let trimmed = "  hello  ".trim();
-println(trimmed.is_empty());        // Should print: false
+println!(trimmed.is_empty());        // Should print: false
 
 let trimmed_empty = "    ".trim();
-println(trimmed_empty.is_empty());  // Should print: true
+println!(trimmed_empty.is_empty());  // Should print: true
 
 // Test with split result
 let parts = "a:b:c".split(":");
-println(parts[0].is_empty());      // Should print: false
+println!(parts[0].is_empty());      // Should print: false
 
 let empty_parts = "::".split(":");
-println(empty_parts[0].is_empty()); // Should print: true
-println(empty_parts[1].is_empty()); // Should print: true
+println!(empty_parts[0].is_empty()); // Should print: true
+println!(empty_parts[1].is_empty()); // Should print: true
 
 // Test return type
 let is_empty_result = "test".is_empty();
 if is_empty_result {
-    println("Should not print");
+    println!("Should not print");
 } else {
-    println("String is not empty");
+    println!("String is not empty");
 }

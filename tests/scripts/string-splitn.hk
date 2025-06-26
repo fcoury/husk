@@ -6,44 +6,44 @@ let s4 = "no separator here";
 let s5 = "";
 
 // Test with different limits
-println(s1.splitn(0, ","));    // Should print: []
-println(s1.splitn(1, ","));    // Should print: ["one,two,three,four,five"]
-println(s1.splitn(2, ","));    // Should print: ["one", "two,three,four,five"]
-println(s1.splitn(3, ","));    // Should print: ["one", "two", "three,four,five"]
-println(s1.splitn(10, ","));   // Should print: ["one", "two", "three", "four", "five"]
+println!(s1.splitn(0, ","));    // Should print: []
+println!(s1.splitn(1, ","));    // Should print: ["one,two,three,four,five"]
+println!(s1.splitn(2, ","));    // Should print: ["one", "two,three,four,five"]
+println!(s1.splitn(3, ","));    // Should print: ["one", "two", "three,four,five"]
+println!(s1.splitn(10, ","));   // Should print: ["one", "two", "three", "four", "five"]
 
 // Test with space separator
-println(s2.splitn(2, " "));    // Should print: ["hello", "world from husk"]
-println(s2.splitn(3, " "));    // Should print: ["hello", "world", "from husk"]
-println(s2.splitn(4, " "));    // Should print: ["hello", "world", "from", "husk"]
+println!(s2.splitn(2, " "));    // Should print: ["hello", "world from husk"]
+println!(s2.splitn(3, " "));    // Should print: ["hello", "world", "from husk"]
+println!(s2.splitn(4, " "));    // Should print: ["hello", "world", "from", "husk"]
 
 // Test with different separator
-println(s3.splitn(2, "-"));    // Should print: ["a", "b-c-d-e-f"]
-println(s3.splitn(3, "-"));    // Should print: ["a", "b", "c-d-e-f"]
+println!(s3.splitn(2, "-"));    // Should print: ["a", "b-c-d-e-f"]
+println!(s3.splitn(3, "-"));    // Should print: ["a", "b", "c-d-e-f"]
 
 // Test when separator not found
-println(s4.splitn(2, ","));    // Should print: ["no separator here"]
-println(s4.splitn(3, ","));    // Should print: ["no separator here"]
+println!(s4.splitn(2, ","));    // Should print: ["no separator here"]
+println!(s4.splitn(3, ","));    // Should print: ["no separator here"]
 
 // Test empty string
-println(s5.splitn(2, ","));    // Should print: [""]
+println!(s5.splitn(2, ","));    // Should print: [""]
 
 // Test with empty separator - should split every character
 let s6 = "abc";
-println(s6.splitn(2, ""));     // Should print: ["a", "bc"]
-println(s6.splitn(3, ""));     // Should print: ["a", "b", "c"]
-println(s6.splitn(5, ""));     // Should print: ["a", "b", "c"]
+println!(s6.splitn(2, ""));     // Should print: ["a", "bc"]
+println!(s6.splitn(3, ""));     // Should print: ["a", "b", "c"]
+println!(s6.splitn(5, ""));     // Should print: ["a", "b", "c"]
 
 // Test length of results
 let s7 = "1:2:3:4:5";
 let parts1 = s7.splitn(2, ":");
 let parts2 = s7.splitn(3, ":");
 let parts3 = s7.splitn(100, ":");
-println(parts1.len());         // Should print: 2
-println(parts2.len());         // Should print: 3
-println(parts3.len());         // Should print: 5
+println!(parts1.len());         // Should print: 2
+println!(parts2.len());         // Should print: 3
+println!(parts3.len());         // Should print: 5
 
 // Test with multi-character separator
 let s8 = "foo::bar::baz::qux";
-println(s8.splitn(2, "::"));   // Should print: ["foo", "bar::baz::qux"]
-println(s8.splitn(3, "::"));   // Should print: ["foo", "bar", "baz::qux"]
+println!(s8.splitn(2, "::"));   // Should print: ["foo", "bar::baz::qux"]
+println!(s8.splitn(3, "::"));   // Should print: ["foo", "bar", "baz::qux"]

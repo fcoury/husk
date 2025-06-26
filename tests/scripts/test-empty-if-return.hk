@@ -18,12 +18,12 @@ fn test2() -> Result<(), string> {
 
 fn main() {
     match test1() {
-        Ok(()) => println("test1 passed"),
-        Err(msg) => println(format!("test1 failed: {}", msg)),
+        Ok(()) => println!("test1 passed"),
+        Err(msg) => println!(format!("test1 failed: {}", msg)),
     }
     
     match test2() {
-        Ok(()) => println("test2 passed"), 
-        Err(msg) => println(format!("test2 failed: {}", msg)),
+        Ok(()) => println!("test2 passed"), 
+        Err(msg) => println!(format!("test2 failed: {}", msg)),
     }
 }

@@ -6,8 +6,8 @@ enum Option {
 fn main() {
   let option = Option::Some("Hello", 18);
   match option {
-    Option::None => println("None"),
-    Option::Some(name, age) => println("Name:", name, "age:", age),
+    Option::None => println!("None"),
+    Option::Some(name, age) => println!("Name: {} age: {}", name, age),
   }
 }
 

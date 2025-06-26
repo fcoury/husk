@@ -4,10 +4,10 @@ struct Person {
 }
 
 let person = Person { name: "Felipe", age: 44 };
-println(person.name);
-println(person.age);
-println(person);
+println!(person.name);
+println!(person.age);
+println!(person);
 
 person.age = 22;
-println(person.age);
+println!(person.age);
 

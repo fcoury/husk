@@ -6,6 +6,6 @@ fn factorial(n: int) -> int {
     }
 }
 
-println("Done defining factorial");
+println!("Done defining factorial");
 let result = factorial(3);
-println("factorial(3) = ", result);
+println!("factorial(3) = {}", result);

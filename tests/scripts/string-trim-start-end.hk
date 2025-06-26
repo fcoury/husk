@@ -6,38 +6,38 @@ let s4 = "no whitespace";
 let s5 = "  multiple   spaces  in   middle  ";
 
 // Test trim_start
-println(s1.trim_start());               // Should print: "hello  "
-println(s2.trim_start());               // Should print: "world\r\n"
-println(s3.trim_start());               // Should print: ""
-println(s4.trim_start());               // Should print: "no whitespace"
-println(s5.trim_start());               // Should print: "multiple   spaces  in   middle  "
+println!(s1.trim_start());               // Should print: "hello  "
+println!(s2.trim_start());               // Should print: "world\r\n"
+println!(s3.trim_start());               // Should print: ""
+println!(s4.trim_start());               // Should print: "no whitespace"
+println!(s5.trim_start());               // Should print: "multiple   spaces  in   middle  "
 
 // Test trim_end
-println(s1.trim_end());                 // Should print: "  hello"
-println(s2.trim_end());                 // Should print: "\t\nworld"
-println(s3.trim_end());                 // Should print: ""
-println(s4.trim_end());                 // Should print: "no whitespace"
-println(s5.trim_end());                 // Should print: "  multiple   spaces  in   middle"
+println!(s1.trim_end());                 // Should print: "  hello"
+println!(s2.trim_end());                 // Should print: "\t\nworld"
+println!(s3.trim_end());                 // Should print: ""
+println!(s4.trim_end());                 // Should print: "no whitespace"
+println!(s5.trim_end());                 // Should print: "  multiple   spaces  in   middle"
 
 // Test chaining
 let s6 = "   both sides   ";
-println(s6.trim_start().trim_end());    // Should print: "both sides"
-println(s6.trim_end().trim_start());    // Should print: "both sides"
+println!(s6.trim_start().trim_end());    // Should print: "both sides"
+println!(s6.trim_end().trim_start());    // Should print: "both sides"
 
 // Test with Unicode whitespace
 let s7 = "\u{00A0}test\u{00A0}";       // Non-breaking space
-println(s7.trim_start());               // Should handle Unicode whitespace
-println(s7.trim_end());                 // Should handle Unicode whitespace
+println!(s7.trim_start());               // Should handle Unicode whitespace
+println!(s7.trim_end());                 // Should handle Unicode whitespace
 
 // Test length after trimming
 let s8 = "  test  ";
-println(s8.len());                      // Should print: 8
-println(s8.trim_start().len());         // Should print: 6
-println(s8.trim_end().len());           // Should print: 6
-println(s8.trim_start().trim_end().len()); // Should print: 4
+println!(s8.len());                      // Should print: 8
+println!(s8.trim_start().len());         // Should print: 6
+println!(s8.trim_end().len());           // Should print: 6
+println!(s8.trim_start().trim_end().len()); // Should print: 4
 
 // Test on empty string
 let empty = "";
-println(empty.trim_start());            // Should print: ""
-println(empty.trim_end());              // Should print: ""
-println(empty.trim_start().is_empty()); // Should print: true
+println!(empty.trim_start());            // Should print: ""
+println!(empty.trim_end());              // Should print: ""
+println!(empty.trim_start().is_empty()); // Should print: true

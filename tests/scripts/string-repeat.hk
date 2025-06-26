@@ -6,34 +6,34 @@ let unicode = "café";
 let emoji = "👋";
 
 // Test basic repetition
-println(s.repeat(0));      // Should print: ""
-println(s.repeat(1));      // Should print: "Hello"
-println(s.repeat(3));      // Should print: "HelloHelloHello"
+println!(s.repeat(0));      // Should print: ""
+println!(s.repeat(1));      // Should print: "Hello"
+println!(s.repeat(3));      // Should print: "HelloHelloHello"
 
 // Test single character repetition
-println(single_char.repeat(5));  // Should print: "AAAAA"
-println(single_char.repeat(0));  // Should print: ""
+println!(single_char.repeat(5));  // Should print: "AAAAA"
+println!(single_char.repeat(0));  // Should print: ""
 
 // Test empty string repetition
-println(empty.repeat(0));   // Should print: ""
-println(empty.repeat(5));   // Should print: ""
+println!(empty.repeat(0));   // Should print: ""
+println!(empty.repeat(5));   // Should print: ""
 
 // Test Unicode repetition
-println(unicode.repeat(2)); // Should print: "cafécafé"
-println(unicode.repeat(0)); // Should print: ""
+println!(unicode.repeat(2)); // Should print: "cafécafé"
+println!(unicode.repeat(0)); // Should print: ""
 
 // Test emoji repetition
-println(emoji.repeat(3));   // Should print: "👋👋👋"
+println!(emoji.repeat(3));   // Should print: "👋👋👋"
 
 // Test with variables
 let count = 2;
-println("test".repeat(count)); // Should print: "testtest"
+println!("test".repeat(count)); // Should print: "testtest"
 
 // Test with expressions
-println("X".repeat(1 + 2));    // Should print: "XXX"
+println!("X".repeat(1 + 2));    // Should print: "XXX"
 
 // Test chaining
-println("ab".repeat(2).repeat(2)); // Should print: "abababab"
+println!("ab".repeat(2).repeat(2)); // Should print: "abababab"
 
 // Edge case: Large repetition (but reasonable for test)
-println("x".repeat(10));       // Should print: "xxxxxxxxxx"
+println!("x".repeat(10));       // Should print: "xxxxxxxxxx"

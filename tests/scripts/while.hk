@@ -1,8 +1,8 @@
 let x = 20;
 
 while x > 0 {
-  println(x);
+  println!(x);
   x -= 1;
 }
 
-println(x);
+println!(x);

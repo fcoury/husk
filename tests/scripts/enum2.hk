@@ -6,5 +6,5 @@ enum MyOption {
 let a = MyOption::Some("Felipe");
 let b = MyOption::None;
 
-println(a);
-println(b);
+println!(a);
+println!(b);

@@ -33,6 +33,6 @@ fn test_multiple_literals() -> string {
 }
 
 fn main() {
-    println("Test 1: {}", test_specific_then_general());
-    println("Test 2: {}", test_multiple_literals());
+    println!("Test 1: {}", test_specific_then_general());
+    println!("Test 2: {}", test_multiple_literals());
 }

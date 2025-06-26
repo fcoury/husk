@@ -56,5 +56,5 @@ fn testMixed() {
 }
 
 fn main() {
-    println("Object literal tests");
+    println!("Object literal tests");
 }

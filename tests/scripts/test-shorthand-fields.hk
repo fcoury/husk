@@ -15,5 +15,5 @@ fn test() -> Point {
 
 fn main() {
     let p = test();
-    println(format!("Point: ({}, {})", p.x, p.y));
+    println!(format!("Point: ({}, {})", p.x, p.y));
 }

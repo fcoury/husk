@@ -3,25 +3,25 @@
 // Test basic tuple destructuring
 let pairs = [(1, "one"), (2, "two"), (3, "three")];
 
-println("=== Testing Basic Tuple Destructuring ===");
+println!("=== Testing Basic Tuple Destructuring ===");
 for (number, word) in pairs {
-    println(format!("{}: {}", number, word));
+    println!(format!("{}: {}", number, word));
 }
 
 // Test coordinate processing
 let coordinates = [(0, 0), (10, 20), (30, 40)];
 
-println("=== Testing Coordinate Processing ===");
+println!("=== Testing Coordinate Processing ===");
 for (x, y) in coordinates {
-    println(format!("Point at ({}, {})", x, y));
+    println!(format!("Point at ({}, {})", x, y));
 }
 
 // Test mixed data types
 let mixed = [(1, "hello"), (2, "world")];
 
-println("=== Testing Mixed Data Types ===");
+println!("=== Testing Mixed Data Types ===");
 for (id, text) in mixed {
-    println(format!("ID {}: {}", id, text));
+    println!(format!("ID {}: {}", id, text));
 }
 
-println("All tuple destructuring tests completed!");
+println!("All tuple destructuring tests completed!");

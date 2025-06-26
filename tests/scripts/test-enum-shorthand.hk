@@ -3,7 +3,7 @@ enum Status {
     Done { result: string },
 }
 
-println("Testing enum shorthand");
+println!("Testing enum shorthand");
 
 let task = "coding";
 let progress = 75;
@@ -11,11 +11,11 @@ let s1 = Status::Working { task, progress };
 
 match s1 {
     Status::Working { task, progress } => {
-        println(format!("Working on: {} ({}% complete)", task, progress));
+        println!(format!("Working on: {} ({}% complete)", task, progress));
     }
     Status::Done { result } => {
-        println(format!("Done: {}", result));
+        println!(format!("Done: {}", result));
     }
 }
 
-println("Enum shorthand test completed");
+println!("Enum shorthand test completed");

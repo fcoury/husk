@@ -3,4 +3,4 @@ let result = {
     let y = 10;
     x + y
 };
-println("Result: ", result);
+println!("Result: {}", result);

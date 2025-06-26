@@ -11,5 +11,5 @@ fn get_error(code: int) -> Error {
   }
 } 
 
-println(get_error(0));
-println(get_error(1));
+println!(get_error(0));
+println!(get_error(1));

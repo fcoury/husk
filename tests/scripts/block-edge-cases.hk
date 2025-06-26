@@ -3,7 +3,7 @@ let unit_result = {
     let y = 10;
     x + y;
 };
-println("Unit result: ", unit_result);
+println!("Unit result: {}", unit_result);
 
 let nested_result = {
     let inner = {
@@ -13,4 +13,4 @@ let nested_result = {
     };
     inner + 5
 };
-println("Nested result: ", nested_result);
+println!("Nested result: {}", nested_result);

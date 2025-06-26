@@ -20,16 +20,16 @@ fn main() {
     
     match cmd {
         Command::Process { input, output, verbose } => {
-            println("Processing from {} to {}", input, output);
+            println!("Processing from {} to {}", input, output);
             if verbose {
-                println("Verbose mode enabled");
+                println!("Verbose mode enabled");
             }
         },
         Command::Analyze { path: dir, depth } => {
-            println("Analyzing directory {} with depth {}", dir, depth);
+            println!("Analyzing directory {} with depth {}", dir, depth);
         },
         Command::Help => {
-            println("Help requested");
+            println!("Help requested");
         },
     }
     
@@ -38,17 +38,17 @@ fn main() {
     // Test with field renaming
     match config {
         Config { debug: is_debug, timeout: max_time } => {
-            println("Debug: {}, Timeout: {}", is_debug, max_time);
+            println!("Debug: {}, Timeout: {}", is_debug, max_time);
         },
     }
     
     // Test with partial destructuring
     match cmd {
         Command::Process { input, .. } => {
-            println("Input file: {}", input);
+            println!("Input file: {}", input);
         },
         _ => {
-            println("Other command");
+            println!("Other command");
         },
     }
 }

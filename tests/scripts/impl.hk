@@ -14,5 +14,5 @@ impl Point {
 }
 
 let p = Point::new(3, 4);
-println(p.distance_from_origin());
+println!(p.distance_from_origin());
 

@@ -22,10 +22,10 @@ fn main() {
     let args = test();
     match args.command {
         Command::Process { input, output } => {
-            println(format!("Process {} -> {}", input, output));
+            println!(format!("Process {} -> {}", input, output));
         },
         Command::Help => {
-            println("Help");
+            println!("Help");
         }
     }
 }

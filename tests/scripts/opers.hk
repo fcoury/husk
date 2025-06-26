@@ -1,38 +1,38 @@
 let a = 1;
 a += 8;
-println(a);
+println!(a);
 
 a -= 3;
-println(a);
+println!(a);
 
 a *= 2;
-println(a);
+println!(a);
 
 a /= 2;
-println(a);
+println!(a);
 
 a %= 2;
-println(a);
+println!(a);
 
 a += 1;
 
 a %= 2;
-println(a);
+println!(a);
 
 let b = 0.1;
 b += 0.8;
-println(a);
+println!(a);
 
 b -= 0.3;
-println(b);
+println!(b);
 
 b *= 0.2;
-println(b);
+println!(b);
 
 b /= 0.2;
-println(b);
+println!(b);
 
 b += 0.1;
 
 b %= 0.2;
-println(b);
+println!(b);
