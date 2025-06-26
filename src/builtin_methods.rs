@@ -1578,8 +1578,9 @@ fn transpile_array_push(obj: &str, args: &[String]) -> String {
 }
 
 fn transpile_array_pop(obj: &str, _args: &[String]) -> String {
+    // In Husk, arrays are immutable, so we need to clone before popping
     // Should return tuple of (new_array, Option<popped>) but for now just returns the element
-    format!("{}.pop()", obj)
+    format!("[...{}].pop()", obj)
 }
 
 fn transpile_array_sort(obj: &str, _args: &[String]) -> String {

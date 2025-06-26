@@ -1,17 +1,17 @@
-{ type: 'Some', value: 'H' }
-{ type: 'Some', value: 'o' }
-{ type: 'None' }
-{ type: 'None' }
-{ type: 'Some', value: 'o' }
-{ type: 'Some', value: 'H' }
-{ type: 'None' }
-{ type: 'Some', value: 'c' }
-{ type: 'Some', value: 'é' }
-{ type: 'Some', value: 'é' }
-{ type: 'Some', value: '👋' }
-{ type: 'Some', value: '🌍' }
-{ type: 'None' }
-{ type: 'None' }
-{ type: 'None' }
-{ type: 'Some', value: 't' }
-{ type: 'Some', value: 'a' }
+H
+o
+None
+None
+o
+H
+None
+c
+é
+é
+👋
+🌍
+None
+None
+None
+t
+a
