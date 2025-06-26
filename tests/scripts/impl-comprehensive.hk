@@ -1,0 +1,60 @@
+struct Point {
+  x: int,
+  y: int,
+}
+
+impl Point {
+  fn new(x: int, y: int) -> Point {
+    Point { x: x, y: y }
+  }
+
+  fn scale(self, factor: int) -> Point {
+    Point { x: self.x * factor, y: self.y * factor }
+  }
+
+  fn distance_from_origin(self) -> int {
+    self.x + self.y
+  }
+
+  fn add_point(self, other: Point) -> Point {
+    Point { x: self.x + other.x, y: self.y + other.y }
+  }
+
+  fn get_x(self) -> int {
+    self.x
+  }
+}
+
+fn test_method_chaining() -> int {
+  let p = Point::new(1, 2).scale(2);
+  p.distance_from_origin()
+}
+
+fn test_multiple_parameters() -> Point {
+  let p1 = Point::new(1, 2);
+  let p2 = Point::new(3, 4);
+  p1.add_point(p2)
+}
+
+fn test_different_return_types() -> int {
+  let p = Point::new(5, 10);
+  p.get_x()
+}
+
+fn create_scaled_point(x: int, y: int, factor: int) -> Point {
+  Point::new(x, y).scale(factor)
+}
+
+fn test_nested_function_calls() -> int {
+  let p = create_scaled_point(2, 3, 2);
+  p.distance_from_origin()
+}
+
+fn main() {
+  println!(test_method_chaining());
+  println!(test_multiple_parameters().distance_from_origin());
+  println!(test_different_return_types());
+  println!(test_nested_function_calls());
+}
+
+main();
