@@ -1,3 +1,17 @@
-error: 23:5 - Expected comma after match arm expression
-    Err(_) => println("Failed to append to file")
-    ^^^
+[stdin]:84
+const _matched = write_file("temp-test-file.txt", "Hello from Husk!");
+                 ^
+
+ReferenceError: write_file is not defined
+    at [stdin]:84:18
+    at [stdin]:101:3
+    at runScriptInThisContext (node:internal/vm:218:10)
+    at node:internal/process/execution:456:12
+    at [stdin]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:454:60)
+    at evalFunction (node:internal/process/execution:286:30)
+    at evalTypeScript (node:internal/process/execution:298:3)
+    at node:internal/main/eval_stdin:51:5
+    at ReadStream.<anonymous> (node:internal/process/execution:206:5)
+
+Node.js v24.2.0

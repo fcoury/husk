@@ -1,3 +1,17 @@
-error: 7:9 - Binary operation Plus requires numeric types, found string and string
-println("File exists before test: " + (if initial_exists { "true" } else { "false" }));
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[stdin]:83
+let initial_exists = exists("test-io-temp.txt");
+                     ^
+
+ReferenceError: exists is not defined
+    at [stdin]:83:22
+    at runScriptInThisContext (node:internal/vm:218:10)
+    at node:internal/process/execution:456:12
+    at [stdin]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:454:60)
+    at evalFunction (node:internal/process/execution:286:30)
+    at evalTypeScript (node:internal/process/execution:298:3)
+    at node:internal/main/eval_stdin:51:5
+    at ReadStream.<anonymous> (node:internal/process/execution:206:5)
+    at ReadStream.emit (node:events:507:28)
+
+Node.js v24.2.0

@@ -1,20 +1,24 @@
 // Test write and read operations
 // Note: These tests create temporary files
 
-println("=== Testing Write and Read Operations ===");
+println!("=== Testing Write and Read Operations ===");
 
 // First, ensure test file doesn't exist
 let initial_exists = exists("test-io-temp.txt");
-println("File exists before test: " + (if initial_exists { "true" } else { "false" }));
+if initial_exists {
+    println!("File exists before test: true");
+} else {
+    println!("File exists before test: false");
+}
 
 // For now, we'll just test that the functions are callable
 // Full error handling tests would require working try operator
 
-println("\n=== Path Functions Work ===");
-println("exists() function: OK");
-println("is_file() function: OK");
-println("is_dir() function: OK");
+println!("\n=== Path Functions Work ===");
+println!("exists() function: OK");
+println!("is_file() function: OK");
+println!("is_dir() function: OK");
 
 // Clean up message
-println("\n=== Test Complete ===");
-println("IO functions successfully registered and callable!");
+println!("\n=== Test Complete ===");
+println!("IO functions successfully registered and callable!");

@@ -1,55 +1,55 @@
 // Test IO operations
 
 // Test path checking functions
-println("=== Path Checking Functions ===");
+println!("=== Path Checking Functions ===");
 
 // Test exists() function
 let file_exists = exists("tests/scripts/io-operations.hk");
 if file_exists {
-    println("exists('tests/scripts/io-operations.hk') = true");
+    println!("exists('tests/scripts/io-operations.hk') = true");
 } else {
-    println("exists('tests/scripts/io-operations.hk') = false");
+    println!("exists('tests/scripts/io-operations.hk') = false");
 }
 
 let missing_exists = exists("non-existent-file.txt");
 if missing_exists {
-    println("exists('non-existent-file.txt') = true");
+    println!("exists('non-existent-file.txt') = true");
 } else {
-    println("exists('non-existent-file.txt') = false");
+    println!("exists('non-existent-file.txt') = false");
 }
 
 // Test is_file() function
 let is_file_result = is_file("tests/scripts/io-operations.hk");
 if is_file_result {
-    println("is_file('tests/scripts/io-operations.hk') = true");
+    println!("is_file('tests/scripts/io-operations.hk') = true");
 } else {
-    println("is_file('tests/scripts/io-operations.hk') = false");
+    println!("is_file('tests/scripts/io-operations.hk') = false");
 }
 
 let is_file_dir = is_file(".");
 if is_file_dir {
-    println("is_file('.') = true");
+    println!("is_file('.') = true");
 } else {
-    println("is_file('.') = false");
+    println!("is_file('.') = false");
 }
 
 // Test is_dir() function
 let is_dir_result = is_dir(".");
 if is_dir_result {
-    println("is_dir('.') = true");
+    println!("is_dir('.') = true");
 } else {
-    println("is_dir('.') = false");
+    println!("is_dir('.') = false");
 }
 
 let is_dir_file = is_dir("tests/scripts/io-operations.hk");
 if is_dir_file {
-    println("is_dir('tests/scripts/io-operations.hk') = true");
+    println!("is_dir('tests/scripts/io-operations.hk') = true");
 } else {
-    println("is_dir('tests/scripts/io-operations.hk') = false");
+    println!("is_dir('tests/scripts/io-operations.hk') = false");
 }
 
-println("");
-println("=== File Operations ===");
-println("Note: File operations return Result types");
-println("Error handling with ? operator has limitations");
-println("Path checking functions confirmed working!");
+println!("");
+println!("=== File Operations ===");
+println!("Note: File operations return Result types");
+println!("Error handling with ? operator has limitations");
+println!("Path checking functions confirmed working!");

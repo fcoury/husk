@@ -49,6 +49,7 @@ pub enum Expr {
     Cast(Box<Expr>, String, Span),                  // expr as type
     StructPattern(String, Vec<(String, Option<String>)>, Span), // EnumVariant::Name { field1: var1, field2, ... }
     ObjectLiteral(Vec<(String, Expr)>, Span),                   // { key: value, ... }
+    MacroCall(String, Vec<Expr>, Span),                         // macro!(args)
 }
 
 impl PartialEq for Expr {
@@ -266,6 +267,13 @@ impl PartialEq for Expr {
                     false
                 }
             }
+            Expr::MacroCall(name, args, _) => {
+                if let Expr::MacroCall(other_name, other_args, _) = other {
+                    name == other_name && args == other_args
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -316,6 +324,7 @@ impl Expr {
             Expr::Cast(_, _, span) => *span,
             Expr::StructPattern(_, _, span) => *span,
             Expr::ObjectLiteral(_, span) => *span,
+            Expr::MacroCall(_, _, span) => *span,
         }
     }
 }
@@ -466,6 +475,17 @@ impl fmt::Display for Expr {
                     .map(|(key, value)| format!("{}: {}", key, value))
                     .collect();
                 write!(f, "{{ {} }}", field_strings.join(", "))
+            }
+            Expr::MacroCall(name, args, _) => {
+                write!(
+                    f,
+                    "{}!({})",
+                    name,
+                    args.iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
             }
         }
     }
@@ -3117,6 +3137,21 @@ impl Parser {
 
                 // Member access and method calls are handled in parse_postfix_expression
                 match self.current_token().kind {
+                    TokenKind::Bang => {
+                        // Parse macro call
+                        self.advance(); // Consume '!'
+                        if self.current_token().kind != TokenKind::LParen {
+                            return Err(Error::new_parse(
+                                format!(
+                                    "Expected '(' after macro '{}!', found {:?}",
+                                    name,
+                                    self.current_token()
+                                ),
+                                self.current_token().span,
+                            ));
+                        }
+                        self.parse_macro_call(name, span)
+                    }
                     TokenKind::LParen => {
                         // Check if this is an implicit Result/Option variant
                         match name.as_str() {
@@ -3441,6 +3476,25 @@ impl Parser {
         let end_span = self.current_token().span;
         self.advance(); // Consume ')'
         Ok(Expr::FunctionCall(
+            name,
+            args,
+            Span::new(start_span.start, end_span.end),
+        ))
+    }
+
+    fn parse_macro_call(&mut self, name: String, start_span: Span) -> Result<Expr> {
+        self.advance(); // Consume '('
+        let mut args = Vec::new();
+        while self.current_token().kind != TokenKind::RParen {
+            let arg = self.parse_expression()?;
+            args.push(arg);
+            if self.current_token().kind == TokenKind::Comma {
+                self.advance(); // Consume ','
+            }
+        }
+        let end_span = self.current_token().span;
+        self.advance(); // Consume ')'
+        Ok(Expr::MacroCall(
             name,
             args,
             Span::new(start_span.start, end_span.end),
