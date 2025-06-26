@@ -708,6 +708,63 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
+
+        // Directory operations
+        self.functions.insert(
+            "create_dir".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "create_dir_all".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "remove_dir".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "remove_dir_all".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "read_dir".to_string(),
+            (
+                vec![("path".to_string(), Type::String)],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {
