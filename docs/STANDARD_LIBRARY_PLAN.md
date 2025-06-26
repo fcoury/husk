@@ -1091,10 +1091,18 @@ window.__husk_runtime = {
 - [x] `eprint(message)` - Print to stderr without newline (returns int - bytes written)
 - [x] `eprintln(message)` - Print to stderr with newline (returns void)
 
+### Async File Operations (Transpiler Only)
+- [x] `read_file_async(path)` - Read file asynchronously (returns Promise<Result<string, Error>>)
+- [x] `read_file_bytes_async(path)` - Read file bytes asynchronously (returns Promise<Result<array<int>, Error>>)
+- [x] `read_lines_async(path)` - Read file lines asynchronously (returns Promise<Result<array<string>, Error>>)
+- [x] `write_file_async(path, contents)` - Write file asynchronously (returns Promise<Result<(), Error>>)
+- [x] `write_file_bytes_async(path, data)` - Write file bytes asynchronously (returns Promise<Result<(), Error>>)
+- [x] `append_file_async(path, contents)` - Append to file asynchronously (returns Promise<Result<(), Error>>)
+
 ### Next Steps
 1. ~~Continue implementing remaining string methods~~ ✅ Completed
 2. ~~Continue implementing remaining array methods~~ ✅ Completed (with closure support)
-3. ~~Implement IO operations for file system and console interaction~~ ✅ Basic file operations completed
+3. ~~Implement IO operations for file system and console interaction~~ ✅ Completed
    - See [IO Operations Plan](./io-operations-plan.md) for detailed design
    - ✅ File reading operations implemented
    - ✅ File writing operations implemented
@@ -1102,6 +1110,7 @@ window.__husk_runtime = {
    - ✅ Transpiler support implemented
    - ✅ Directory operations implemented
    - ✅ Console input/output operations implemented
+   - ✅ Async file operations implemented (transpiler only)
 4. ~~Rename println to println! and print to print! with format! placeholders~~ ✅ Completed
 5. Implement Vec<T> type with mutable operations (future)
 6. Add iterator support for lazy evaluation (future)

@@ -698,6 +698,163 @@ pub fn stdlib_eprintln(args: &[Value]) -> Result<Value> {
     Ok(husk_io::eprintln(message))
 }
 
+// Async file operation wrappers
+pub fn stdlib_read_file_async(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_file_async requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_file_async path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::read_file_async(path, &Span::default())
+}
+
+pub fn stdlib_read_file_bytes_async(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_file_bytes_async requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_file_bytes_async path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::read_file_bytes_async(path, &Span::default())
+}
+
+pub fn stdlib_read_lines_async(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_lines_async requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_lines_async path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::read_lines_async(path, &Span::default())
+}
+
+pub fn stdlib_write_file_async(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new_runtime(
+            "write_file_async requires exactly 2 arguments (path, contents)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file_async path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    let contents = match &args[1] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file_async contents must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::write_file_async(path, contents, &Span::default())
+}
+
+pub fn stdlib_write_file_bytes_async(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new_runtime(
+            "write_file_bytes_async requires exactly 2 arguments (path, data)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file_bytes_async path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    let data = match &args[1] {
+        Value::Array(arr) => arr,
+        _ => {
+            return Err(Error::new_runtime(
+                "write_file_bytes_async data must be an array",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::write_file_bytes_async(path, data, &Span::default())
+}
+
+pub fn stdlib_append_file_async(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new_runtime(
+            "append_file_async requires exactly 2 arguments (path, contents)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "append_file_async path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    let contents = match &args[1] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "append_file_async contents must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    husk_io::append_file_async(path, contents, &Span::default())
+}
+
 /// Represents a loaded module with its exports
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -860,6 +1017,32 @@ impl InterpreterVisitor {
         self.global_environment.insert(
             "eprintln".to_string(),
             Value::Function(Function::BuiltIn(stdlib_eprintln)),
+        );
+
+        // Register async file operation functions
+        self.global_environment.insert(
+            "read_file_async".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_file_async)),
+        );
+        self.global_environment.insert(
+            "read_file_bytes_async".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_file_bytes_async)),
+        );
+        self.global_environment.insert(
+            "read_lines_async".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_lines_async)),
+        );
+        self.global_environment.insert(
+            "write_file_async".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_write_file_async)),
+        );
+        self.global_environment.insert(
+            "write_file_bytes_async".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_write_file_bytes_async)),
+        );
+        self.global_environment.insert(
+            "append_file_async".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_append_file_async)),
         );
     }
 
