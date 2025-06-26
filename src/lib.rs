@@ -5,6 +5,7 @@ mod error;
 mod error_tests;
 mod integration_error_tests;
 mod interpreter;
+mod io;
 mod lexer;
 mod package_resolver;
 mod parser;

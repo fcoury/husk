@@ -1,0 +1,12 @@
+=== Path Checking Functions ===
+exists('tests/scripts/io-operations.hk') = true
+exists('non-existent-file.txt') = false
+is_file('tests/scripts/io-operations.hk') = true
+is_file('.') = false
+is_dir('.') = true
+is_dir('tests/scripts/io-operations.hk') = false
+
+=== File Operations ===
+Note: File operations return Result types
+Error handling with ? operator has limitations
+Path checking functions confirmed working!
