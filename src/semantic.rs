@@ -778,22 +778,6 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
-            "eprint".to_string(),
-            (
-                vec![("message".to_string(), Type::String)],
-                Type::Int,
-                Span::default(),
-            ),
-        );
-        self.functions.insert(
-            "eprintln".to_string(),
-            (
-                vec![("message".to_string(), Type::String)],
-                Type::Unit,
-                Span::default(),
-            ),
-        );
 
         // Async file operation functions
         self.functions.insert(
@@ -3645,11 +3629,11 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_macro_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<Type> {
         match name {
-            "print" | "println" => {
+            "print" | "println" | "eprint" | "eprintln" => {
                 // These macros accept format string + arguments like format!
-                if args.is_empty() && name == "print" {
+                if args.is_empty() && (name == "print" || name == "eprint") {
                     return Err(Error::new_semantic(
-                        "print! requires at least one argument".to_string(),
+                        format!("{}! requires at least one argument", name),
                         *span,
                     ));
                 }
@@ -3659,8 +3643,8 @@ impl AstVisitor<Type> for SemanticVisitor {
                     self.visit_expr(arg)?;
                 }
 
-                // print! returns int, println! returns unit
-                Ok(if name == "print" {
+                // print!/eprint! return int, println!/eprintln! return unit
+                Ok(if name == "print" || name == "eprint" {
                     Type::Int
                 } else {
                     Type::Unit

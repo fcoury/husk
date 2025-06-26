@@ -181,27 +181,6 @@ pub fn read_line(span: &Span) -> Result<Value> {
     }
 }
 
-/// Print formatted string to stderr (returns number of bytes written)
-pub fn eprint(message: &str) -> Value {
-    use std::io::{self, Write};
-
-    match io::stderr().write(message.as_bytes()) {
-        Ok(n) => Value::Int(n as i64),
-        Err(_) => Value::Int(0),
-    }
-}
-
-/// Print formatted string to stderr with newline
-pub fn eprintln(message: &str) -> Value {
-    use std::io::{self, Write};
-
-    let full_message = format!("{}\n", message);
-    match io::stderr().write(full_message.as_bytes()) {
-        Ok(_) => Value::Unit,
-        Err(_) => Value::Unit,
-    }
-}
-
 /// Create a directory (fails if exists)
 pub fn create_dir(path: &str, span: &Span) -> Result<Value> {
     match fs::create_dir(path) {

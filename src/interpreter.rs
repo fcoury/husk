@@ -656,48 +656,6 @@ pub fn stdlib_read_line(args: &[Value]) -> Result<Value> {
     }
 }
 
-pub fn stdlib_eprint(args: &[Value]) -> Result<Value> {
-    if args.len() != 1 {
-        return Err(Error::new_runtime(
-            "eprint requires exactly 1 argument (message)",
-            Span::default(),
-        ));
-    }
-
-    let message = match &args[0] {
-        Value::String(s) => s,
-        _ => {
-            return Err(Error::new_runtime(
-                "eprint message must be a string",
-                Span::default(),
-            ))
-        }
-    };
-
-    Ok(husk_io::eprint(message))
-}
-
-pub fn stdlib_eprintln(args: &[Value]) -> Result<Value> {
-    if args.len() != 1 {
-        return Err(Error::new_runtime(
-            "eprintln requires exactly 1 argument (message)",
-            Span::default(),
-        ));
-    }
-
-    let message = match &args[0] {
-        Value::String(s) => s,
-        _ => {
-            return Err(Error::new_runtime(
-                "eprintln message must be a string",
-                Span::default(),
-            ))
-        }
-    };
-
-    Ok(husk_io::eprintln(message))
-}
-
 // Async file operation wrappers
 pub fn stdlib_read_file_async(args: &[Value]) -> Result<Value> {
     if args.len() != 1 {
@@ -1009,14 +967,6 @@ impl InterpreterVisitor {
         self.global_environment.insert(
             "read_line".to_string(),
             Value::Function(Function::BuiltIn(stdlib_read_line)),
-        );
-        self.global_environment.insert(
-            "eprint".to_string(),
-            Value::Function(Function::BuiltIn(stdlib_eprint)),
-        );
-        self.global_environment.insert(
-            "eprintln".to_string(),
-            Value::Function(Function::BuiltIn(stdlib_eprintln)),
         );
 
         // Register async file operation functions
@@ -3016,6 +2966,63 @@ impl AstVisitor<Value> for InterpreterVisitor {
                         *span,
                     ))
                 }
+            }
+            "eprint" => {
+                // eprint! macro with format string support
+                if args.is_empty() {
+                    return Err(Error::new_runtime(
+                        "eprint! requires at least one argument".to_string(),
+                        *span,
+                    ));
+                }
+
+                // Evaluate all arguments
+                let mut values = Vec::new();
+                for arg in args {
+                    values.push(self.visit_expr(arg)?);
+                }
+
+                // Use format logic if first arg is a string
+                if let Value::String(format_str) = &values[0] {
+                    let formatted = self.format_string(format_str, &values[1..])?;
+                    eprint!("{}", formatted);
+                } else {
+                    // If not a string, just print the value
+                    eprint!("{}", values[0]);
+                }
+
+                io::stderr()
+                    .flush()
+                    .map_err(|e| Error::new_runtime(format!("IO error: {}", e), *span))?;
+                Ok(Value::Int(0)) // eprint! returns 0 on success
+            }
+            "eprintln" => {
+                // eprintln! macro with format string support
+                if args.is_empty() {
+                    // eprintln! with no args just prints a newline to stderr
+                    eprintln!();
+                    return Ok(Value::Unit);
+                }
+
+                // Evaluate all arguments
+                let mut values = Vec::new();
+                for arg in args {
+                    values.push(self.visit_expr(arg)?);
+                }
+
+                // Use format logic if first arg is a string
+                if let Value::String(format_str) = &values[0] {
+                    let formatted = self.format_string(format_str, &values[1..])?;
+                    eprintln!("{}", formatted);
+                } else {
+                    // If not a string, just print the value
+                    match &values[0] {
+                        Value::EnumVariant(_, _, Some(value)) => eprintln!("{}", value),
+                        _ => eprintln!("{}", values[0]),
+                    }
+                }
+
+                Ok(Value::Unit)
             }
             _ => Err(Error::new_runtime(
                 format!("Unknown macro: {}!", name),
