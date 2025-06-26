@@ -1,0 +1,43 @@
+// Test directory operations with Result handling
+
+println!("=== Testing Directory Operations ===");
+
+// Clean up any existing test directory first
+if is_dir("test_dir") {
+    remove_dir_all("test_dir");
+}
+
+// Test create_dir
+match create_dir("test_dir") {
+    Ok(_) => {
+        println!("Successfully created directory");
+        
+        // Test create_dir_all with nested path
+        match create_dir_all("test_dir/nested/deep") {
+            Ok(_) => println!("Successfully created nested directories"),
+            Err(_) => println!("Failed to create nested directories"),
+        }
+        
+        // Test read_dir
+        match read_dir("test_dir") {
+            Ok(_) => println!("Successfully read directory contents"),
+            Err(_) => println!("Failed to read directory"),
+        }
+        
+        // Test remove_dir on non-empty directory (should fail)
+        match remove_dir("test_dir") {
+            Ok(_) => println!("Remove non-empty dir unexpectedly succeeded"),
+            Err(_) => println!("Remove non-empty dir correctly failed"),
+        }
+        
+        // Test remove_dir_all 
+        match remove_dir_all("test_dir") {
+            Ok(_) => println!("Successfully removed directory recursively"),
+            Err(_) => println!("Failed to remove directory recursively"),
+        }
+    }
+    Err(_) => println!("Failed to create directory"),
+}
+
+println!("");
+println!("=== Directory Operations Complete ===");

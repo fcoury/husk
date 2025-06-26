@@ -1,0 +1,8 @@
+=== Testing Directory Operations ===
+Successfully created directory
+Successfully created nested directories
+Successfully read directory contents
+Remove non-empty dir correctly failed
+Successfully removed directory recursively
+
+=== Directory Operations Complete ===

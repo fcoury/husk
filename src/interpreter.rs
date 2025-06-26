@@ -467,6 +467,171 @@ pub fn stdlib_is_dir(args: &[Value]) -> Result<Value> {
     Ok(husk_io::is_dir(path))
 }
 
+pub fn stdlib_create_dir(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "create_dir requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "create_dir path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    // Convert Rust Result to Husk Result enum variant
+    match husk_io::create_dir(path, &Span::default()) {
+        Ok(value) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Ok".to_string(),
+            Some(Box::new(value)),
+        )),
+        Err(error) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Err".to_string(),
+            Some(Box::new(Value::String(error.to_string()))),
+        )),
+    }
+}
+
+pub fn stdlib_create_dir_all(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "create_dir_all requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "create_dir_all path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    // Convert Rust Result to Husk Result enum variant
+    match husk_io::create_dir_all(path, &Span::default()) {
+        Ok(value) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Ok".to_string(),
+            Some(Box::new(value)),
+        )),
+        Err(error) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Err".to_string(),
+            Some(Box::new(Value::String(error.to_string()))),
+        )),
+    }
+}
+
+pub fn stdlib_remove_dir(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "remove_dir requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "remove_dir path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    // Convert Rust Result to Husk Result enum variant
+    match husk_io::remove_dir(path, &Span::default()) {
+        Ok(value) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Ok".to_string(),
+            Some(Box::new(value)),
+        )),
+        Err(error) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Err".to_string(),
+            Some(Box::new(Value::String(error.to_string()))),
+        )),
+    }
+}
+
+pub fn stdlib_remove_dir_all(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "remove_dir_all requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "remove_dir_all path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    // Convert Rust Result to Husk Result enum variant
+    match husk_io::remove_dir_all(path, &Span::default()) {
+        Ok(value) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Ok".to_string(),
+            Some(Box::new(value)),
+        )),
+        Err(error) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Err".to_string(),
+            Some(Box::new(Value::String(error.to_string()))),
+        )),
+    }
+}
+
+pub fn stdlib_read_dir(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "read_dir requires exactly 1 argument (path)",
+            Span::default(),
+        ));
+    }
+
+    let path = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "read_dir path must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    // Convert Rust Result to Husk Result enum variant
+    match husk_io::read_dir(path, &Span::default()) {
+        Ok(value) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Ok".to_string(),
+            Some(Box::new(value)),
+        )),
+        Err(error) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Err".to_string(),
+            Some(Box::new(Value::String(error.to_string()))),
+        )),
+    }
+}
+
 /// Represents a loaded module with its exports
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -595,6 +760,26 @@ impl InterpreterVisitor {
         self.global_environment.insert(
             "is_dir".to_string(),
             Value::Function(Function::BuiltIn(stdlib_is_dir)),
+        );
+        self.global_environment.insert(
+            "create_dir".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_create_dir)),
+        );
+        self.global_environment.insert(
+            "create_dir_all".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_create_dir_all)),
+        );
+        self.global_environment.insert(
+            "remove_dir".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_remove_dir)),
+        );
+        self.global_environment.insert(
+            "remove_dir_all".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_remove_dir_all)),
+        );
+        self.global_environment.insert(
+            "read_dir".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_dir)),
         );
     }
 

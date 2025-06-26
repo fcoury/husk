@@ -151,3 +151,124 @@ pub fn is_file(path: &str) -> Value {
 pub fn is_dir(path: &str) -> Value {
     Value::Bool(Path::new(path).is_dir())
 }
+
+/// Create a directory (fails if exists)
+pub fn create_dir(path: &str, span: &Span) -> Result<Value> {
+    match fs::create_dir(path) {
+        Ok(()) => Ok(Value::Unit),
+        Err(e) => {
+            let error_msg = match e.kind() {
+                std::io::ErrorKind::AlreadyExists => format!("Directory already exists: {}", path),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
+                std::io::ErrorKind::NotFound => format!("Parent directory not found: {}", path),
+                _ => format!("IO error creating directory {}: {}", path, e),
+            };
+            Err(Error::new_runtime(&error_msg, *span))
+        }
+    }
+}
+
+/// Create directory and all parent directories
+pub fn create_dir_all(path: &str, span: &Span) -> Result<Value> {
+    match fs::create_dir_all(path) {
+        Ok(()) => Ok(Value::Unit),
+        Err(e) => {
+            let error_msg = match e.kind() {
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
+                std::io::ErrorKind::InvalidInput => format!("Invalid path: {}", path),
+                _ => format!("IO error creating directories {}: {}", path, e),
+            };
+            Err(Error::new_runtime(&error_msg, *span))
+        }
+    }
+}
+
+/// Remove an empty directory
+pub fn remove_dir(path: &str, span: &Span) -> Result<Value> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(Value::Unit),
+        Err(e) => {
+            let error_msg = match e.kind() {
+                std::io::ErrorKind::NotFound => format!("Directory not found: {}", path),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
+                _ => {
+                    // Check if directory is not empty
+                    if Path::new(path).is_dir() {
+                        match fs::read_dir(path) {
+                            Ok(mut entries) => {
+                                if entries.next().is_some() {
+                                    format!("Directory not empty: {}", path)
+                                } else {
+                                    format!("IO error removing directory {}: {}", path, e)
+                                }
+                            }
+                            _ => format!("IO error removing directory {}: {}", path, e),
+                        }
+                    } else {
+                        format!("IO error removing directory {}: {}", path, e)
+                    }
+                }
+            };
+            Err(Error::new_runtime(&error_msg, *span))
+        }
+    }
+}
+
+/// Remove directory and all contents recursively
+pub fn remove_dir_all(path: &str, span: &Span) -> Result<Value> {
+    match fs::remove_dir_all(path) {
+        Ok(()) => Ok(Value::Unit),
+        Err(e) => {
+            let error_msg = match e.kind() {
+                std::io::ErrorKind::NotFound => format!("Directory not found: {}", path),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
+                _ => format!("IO error removing directory {}: {}", path, e),
+            };
+            Err(Error::new_runtime(&error_msg, *span))
+        }
+    }
+}
+
+/// List directory contents
+pub fn read_dir(path: &str, span: &Span) -> Result<Value> {
+    match fs::read_dir(path) {
+        Ok(entries) => {
+            let mut result = Vec::new();
+
+            for entry in entries {
+                match entry {
+                    Ok(entry) => {
+                        let file_name = entry.file_name().to_string_lossy().to_string();
+                        let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
+                        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+
+                        // Create a struct-like value for DirEntry
+                        let mut fields = indexmap::IndexMap::new();
+                        fields.insert("name".to_string(), Value::String(file_name));
+                        fields.insert("is_file".to_string(), Value::Bool(is_file));
+                        fields.insert("is_dir".to_string(), Value::Bool(is_dir));
+
+                        result.push(Value::StructInstance("DirEntry".to_string(), fields));
+                    }
+                    Err(e) => {
+                        return Err(Error::new_runtime(
+                            &format!("Error reading directory entry: {}", e),
+                            *span,
+                        ))
+                    }
+                }
+            }
+
+            Ok(Value::Array(result))
+        }
+        Err(e) => {
+            let error_msg = match e.kind() {
+                std::io::ErrorKind::NotFound => format!("Directory not found: {}", path),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
+                std::io::ErrorKind::NotADirectory => format!("Not a directory: {}", path),
+                _ => format!("IO error reading directory {}: {}", path, e),
+            };
+            Err(Error::new_runtime(&error_msg, *span))
+        }
+    }
+}

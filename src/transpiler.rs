@@ -219,6 +219,98 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("}\n\n");
 
+        output.push_str("function create_dir(dirPath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.mkdirSync(dirPath);\n");
+        output.push_str("    return { type: 'Ok', value: null };\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    if (error.code === 'EEXIST') {\n");
+        output.push_str(
+            "      return { type: 'Err', error: `Directory already exists: ${dirPath}` };\n",
+        );
+        output.push_str("    } else if (error.code === 'EACCES') {\n");
+        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
+        output.push_str("    } else if (error.code === 'ENOENT') {\n");
+        output.push_str(
+            "      return { type: 'Err', error: `Parent directory not found: ${dirPath}` };\n",
+        );
+        output.push_str("    } else {\n");
+        output.push_str("      return { type: 'Err', error: `IO error creating directory ${dirPath}: ${error.message}` };\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function create_dir_all(dirPath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.mkdirSync(dirPath, { recursive: true });\n");
+        output.push_str("    return { type: 'Ok', value: null };\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    if (error.code === 'EACCES') {\n");
+        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
+        output.push_str("    } else {\n");
+        output.push_str("      return { type: 'Err', error: `IO error creating directories ${dirPath}: ${error.message}` };\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function remove_dir(dirPath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.rmdirSync(dirPath);\n");
+        output.push_str("    return { type: 'Ok', value: null };\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    if (error.code === 'ENOENT') {\n");
+        output
+            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
+        output.push_str("    } else if (error.code === 'EACCES') {\n");
+        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
+        output.push_str("    } else if (error.code === 'ENOTEMPTY') {\n");
+        output
+            .push_str("      return { type: 'Err', error: `Directory not empty: ${dirPath}` };\n");
+        output.push_str("    } else {\n");
+        output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function remove_dir_all(dirPath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    fs.rmSync(dirPath, { recursive: true });\n");
+        output.push_str("    return { type: 'Ok', value: null };\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    if (error.code === 'ENOENT') {\n");
+        output
+            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
+        output.push_str("    } else if (error.code === 'EACCES') {\n");
+        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
+        output.push_str("    } else {\n");
+        output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function read_dir(dirPath) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const entries = fs.readdirSync(dirPath, { withFileTypes: true });\n");
+        output.push_str("    const result = entries.map(entry => ({\n");
+        output.push_str("      name: entry.name,\n");
+        output.push_str("      is_file: entry.isFile(),\n");
+        output.push_str("      is_dir: entry.isDirectory()\n");
+        output.push_str("    }));\n");
+        output.push_str("    return { type: 'Ok', value: result };\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    if (error.code === 'ENOENT') {\n");
+        output
+            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
+        output.push_str("    } else if (error.code === 'EACCES') {\n");
+        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
+        output.push_str("    } else if (error.code === 'ENOTDIR') {\n");
+        output.push_str("      return { type: 'Err', error: `Not a directory: ${dirPath}` };\n");
+        output.push_str("    } else {\n");
+        output.push_str("      return { type: 'Err', error: `IO error reading directory ${dirPath}: ${error.message}` };\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);
