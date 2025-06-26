@@ -700,7 +700,23 @@ impl AstVisitor<String> for JsTranspiler {
             }
         }
 
-        // Default handling for other enums
+        // Check if this is a method call on a primitive type that we have in our registry
+        let arg_strs: Vec<String> = args
+            .iter()
+            .map(|arg| self.visit_expr(arg))
+            .collect::<Result<Vec<_>>>()?;
+
+        // Try array methods first (for methods like slice that exist on both types)
+        if let Some(method_impl) = self.method_registry.get_array_method(call) {
+            return Ok(method_impl(&target_str, &arg_strs));
+        }
+
+        // Try string methods
+        if let Some(method_impl) = self.method_registry.get_string_method(call) {
+            return Ok(method_impl(&target_str, &arg_strs));
+        }
+
+        // Default handling for other enums and unknown methods
         if args.is_empty() {
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
                 Ok(format!("{}.{}()", target_str, call))
@@ -708,11 +724,7 @@ impl AstVisitor<String> for JsTranspiler {
                 Ok(format!("{}.{}", target_str, call))
             }
         } else {
-            let args_str = args
-                .iter()
-                .map(|arg| self.visit_expr(arg))
-                .collect::<Result<Vec<_>>>()?
-                .join(", ");
+            let args_str = arg_strs.join(", ");
             // Check if it's a static method call (like Point::new) or enum variant
             // For now, we'll assume static methods don't need 'new' prefix
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
@@ -1415,13 +1427,13 @@ impl AstVisitor<String> for JsTranspiler {
         // This is a limitation of the current approach but works because JavaScript
         // uses the same method names for similar operations (e.g., .length for both).
 
-        // Try string methods first (most common)
-        if let Some(method_impl) = self.method_registry.get_string_method(method) {
+        // Try array methods first (for methods like slice that exist on both types)
+        if let Some(method_impl) = self.method_registry.get_array_method(method) {
             return Ok(method_impl(&obj_str, &arg_strs));
         }
 
-        // Try array methods
-        if let Some(method_impl) = self.method_registry.get_array_method(method) {
+        // Try string methods
+        if let Some(method_impl) = self.method_registry.get_string_method(method) {
             return Ok(method_impl(&obj_str, &arg_strs));
         }
 
