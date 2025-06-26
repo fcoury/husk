@@ -939,32 +939,89 @@ impl SemanticVisitor {
 
     fn collect_function_signatures(&mut self, stmts: &[Stmt]) -> Result<()> {
         for stmt in stmts {
-            if let Stmt::Function(_, name, _generic_params, params, return_type, _body, span) = stmt
-            {
-                // Convert parameter types (same logic as visit_function)
-                let param_types: Vec<(String, Type)> = params
-                    .iter()
-                    .map(|(param_name, type_str)| {
-                        // Special handling for 'self' parameter
-                        if param_name == "self" && name.contains("::") {
-                            // Extract type name from method name
-                            let type_name = name.split("::").next().unwrap();
-                            let self_type = self.resolve_type_by_name(type_name);
-                            (param_name.clone(), self_type)
-                        } else {
-                            // Resolve the type dynamically - this will use correct enum variants when available
-                            let param_type = self.resolve_type_by_name(type_str);
-                            (param_name.clone(), param_type)
+            match stmt {
+                Stmt::Function(_, name, _generic_params, params, return_type, _body, span) => {
+                    // Convert parameter types (same logic as visit_function)
+                    let param_types: Vec<(String, Type)> = params
+                        .iter()
+                        .map(|(param_name, type_str)| {
+                            // Special handling for 'self' parameter
+                            if param_name == "self" && name.contains("::") {
+                                // Extract type name from method name
+                                let type_name = name.split("::").next().unwrap();
+                                let self_type = self.resolve_type_by_name(type_name);
+                                (param_name.clone(), self_type)
+                            } else {
+                                // Resolve the type dynamically - this will use correct enum variants when available
+                                let param_type = self.resolve_type_by_name(type_str);
+                                (param_name.clone(), param_type)
+                            }
+                        })
+                        .collect();
+
+                    // Parse return type using dynamic resolution
+                    let ret_type = self.resolve_type_by_name(return_type);
+
+                    // Register function signature for forward declarations
+                    self.functions
+                        .insert(name.to_string(), (param_types, ret_type, *span));
+                }
+                Stmt::Impl(struct_name, methods, _span) => {
+                    // Process methods in impl blocks
+                    for method in methods {
+                        if let Stmt::Function(
+                            _visibility,
+                            method_name,
+                            _generics,
+                            params,
+                            return_type,
+                            _body,
+                            _method_span,
+                        ) = method
+                        {
+                            let param_types: Vec<(String, Type)> = params
+                                .iter()
+                                .map(|(param_name, param_type)| {
+                                    let resolved_type = if param_name == "self" {
+                                        // For self parameter, use the struct type
+                                        if let Some(fields) = self.structs.get(struct_name) {
+                                            Type::Struct {
+                                                name: struct_name.to_string(),
+                                                fields: fields
+                                                    .iter()
+                                                    .map(|(name, ty)| (name.clone(), ty.clone()))
+                                                    .collect(),
+                                            }
+                                        } else if let Some(variants) = self.enums.get(struct_name) {
+                                            Type::Enum {
+                                                name: struct_name.to_string(),
+                                                variants: variants.clone(),
+                                            }
+                                        } else {
+                                            Type::Unknown
+                                        }
+                                    } else {
+                                        self.resolve_type_by_name(param_type)
+                                    };
+                                    (param_name.clone(), resolved_type)
+                                })
+                                .collect();
+                            let ret_type = if return_type.is_empty() {
+                                Type::Unit
+                            } else {
+                                self.resolve_type_by_name(return_type)
+                            };
+
+                            // Register as static method with struct name prefix
+                            let full_method_name = format!("{}::{}", struct_name, method_name);
+                            self.functions
+                                .insert(full_method_name, (param_types, ret_type, Span::default()));
                         }
-                    })
-                    .collect();
-
-                // Parse return type using dynamic resolution
-                let ret_type = self.resolve_type_by_name(return_type);
-
-                // Register function signature for forward declarations
-                self.functions
-                    .insert(name.to_string(), (param_types, ret_type, *span));
+                    }
+                }
+                _ => {
+                    // Skip other statements in this pass
+                }
             }
         }
         Ok(())

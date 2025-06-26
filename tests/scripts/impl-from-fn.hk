@@ -1,0 +1,21 @@
+struct Point {
+  x: int,
+  y: int,
+}
+
+impl Point {
+  fn new(x: int, y: int) -> Point {
+      Point { x: x, y: y }
+  }
+
+  fn distance_from_origin(self) -> int {
+      self.x + self.y
+  }
+}
+
+fn main() {
+  let p = Point::new(3, 4);
+  println!(p.distance_from_origin());
+}
+
+main();
