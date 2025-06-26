@@ -152,6 +152,56 @@ pub fn is_dir(path: &str) -> Value {
     Value::Bool(Path::new(path).is_dir())
 }
 
+/// Read a line from stdin
+pub fn read_line(span: &Span) -> Result<Value> {
+    use std::io::{self, BufRead};
+
+    let stdin = io::stdin();
+    let mut line = String::new();
+
+    match stdin.lock().read_line(&mut line) {
+        Ok(_) => {
+            // Remove the trailing newline if present
+            if line.ends_with('\n') {
+                line.pop();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+            }
+            Ok(Value::String(line))
+        }
+        Err(e) => {
+            let error_msg = match e.kind() {
+                std::io::ErrorKind::UnexpectedEof => "Unexpected end of input".to_string(),
+                std::io::ErrorKind::Interrupted => "Input interrupted".to_string(),
+                _ => format!("IO error reading from stdin: {}", e),
+            };
+            Err(Error::new_runtime(&error_msg, *span))
+        }
+    }
+}
+
+/// Print formatted string to stderr (returns number of bytes written)
+pub fn eprint(message: &str) -> Value {
+    use std::io::{self, Write};
+
+    match io::stderr().write(message.as_bytes()) {
+        Ok(n) => Value::Int(n as i64),
+        Err(_) => Value::Int(0),
+    }
+}
+
+/// Print formatted string to stderr with newline
+pub fn eprintln(message: &str) -> Value {
+    use std::io::{self, Write};
+
+    let full_message = format!("{}\n", message);
+    match io::stderr().write(full_message.as_bytes()) {
+        Ok(_) => Value::Unit,
+        Err(_) => Value::Unit,
+    }
+}
+
 /// Create a directory (fails if exists)
 pub fn create_dir(path: &str, span: &Span) -> Result<Value> {
     match fs::create_dir(path) {

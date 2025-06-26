@@ -311,6 +311,45 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("}\n\n");
 
+        // Console IO functions
+        output.push_str("// Console I/O functions\n");
+        output.push_str("const readline = require('readline');\n\n");
+
+        output.push_str("function read_line() {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const rl = readline.createInterface({\n");
+        output.push_str("      input: process.stdin,\n");
+        output.push_str("      output: process.stdout\n");
+        output.push_str("    });\n");
+        output.push_str("    return new Promise((resolve) => {\n");
+        output.push_str("      rl.question('', (answer) => {\n");
+        output.push_str("        rl.close();\n");
+        output.push_str("        resolve({ type: 'Ok', value: answer });\n");
+        output.push_str("      });\n");
+        output.push_str("    });\n");
+        output.push_str("  } catch (error) {\n");
+        output.push_str("    return { type: 'Err', value: error.message };\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function eprint(message) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    const bytesWritten = process.stderr.write(message);\n");
+        output.push_str("    return bytesWritten ? message.length : 0;\n");
+        output.push_str("  } catch {\n");
+        output.push_str("    return 0;\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
+        output.push_str("function eprintln(message) {\n");
+        output.push_str("  try {\n");
+        output.push_str("    process.stderr.write(message + '\\n');\n");
+        output.push_str("    return undefined; // unit\n");
+        output.push_str("  } catch {\n");
+        output.push_str("    return undefined; // unit\n");
+        output.push_str("  }\n");
+        output.push_str("}\n\n");
+
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);

@@ -765,6 +765,35 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
+
+        // Console IO functions
+        self.functions.insert(
+            "read_line".to_string(),
+            (
+                vec![],
+                Type::Enum {
+                    name: "Result".to_string(),
+                    variants: HashMap::new(),
+                },
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "eprint".to_string(),
+            (
+                vec![("message".to_string(), Type::String)],
+                Type::Int,
+                Span::default(),
+            ),
+        );
+        self.functions.insert(
+            "eprintln".to_string(),
+            (
+                vec![("message".to_string(), Type::String)],
+                Type::Unit,
+                Span::default(),
+            ),
+        );
     }
 
     pub fn analyze(&mut self, stmts: &[Stmt]) -> Result<()> {

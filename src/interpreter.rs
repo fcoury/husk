@@ -632,6 +632,72 @@ pub fn stdlib_read_dir(args: &[Value]) -> Result<Value> {
     }
 }
 
+// Console IO function wrappers
+pub fn stdlib_read_line(args: &[Value]) -> Result<Value> {
+    if !args.is_empty() {
+        return Err(Error::new_runtime(
+            "read_line requires no arguments",
+            Span::default(),
+        ));
+    }
+
+    // Convert Rust Result to Husk Result enum variant
+    match husk_io::read_line(&Span::default()) {
+        Ok(value) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Ok".to_string(),
+            Some(Box::new(value)),
+        )),
+        Err(error) => Ok(Value::EnumVariant(
+            "Result".to_string(),
+            "Err".to_string(),
+            Some(Box::new(Value::String(error.to_string()))),
+        )),
+    }
+}
+
+pub fn stdlib_eprint(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "eprint requires exactly 1 argument (message)",
+            Span::default(),
+        ));
+    }
+
+    let message = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "eprint message must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    Ok(husk_io::eprint(message))
+}
+
+pub fn stdlib_eprintln(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new_runtime(
+            "eprintln requires exactly 1 argument (message)",
+            Span::default(),
+        ));
+    }
+
+    let message = match &args[0] {
+        Value::String(s) => s,
+        _ => {
+            return Err(Error::new_runtime(
+                "eprintln message must be a string",
+                Span::default(),
+            ))
+        }
+    };
+
+    Ok(husk_io::eprintln(message))
+}
+
 /// Represents a loaded module with its exports
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -780,6 +846,20 @@ impl InterpreterVisitor {
         self.global_environment.insert(
             "read_dir".to_string(),
             Value::Function(Function::BuiltIn(stdlib_read_dir)),
+        );
+
+        // Register console IO functions
+        self.global_environment.insert(
+            "read_line".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_read_line)),
+        );
+        self.global_environment.insert(
+            "eprint".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_eprint)),
+        );
+        self.global_environment.insert(
+            "eprintln".to_string(),
+            Value::Function(Function::BuiltIn(stdlib_eprintln)),
         );
     }
 
