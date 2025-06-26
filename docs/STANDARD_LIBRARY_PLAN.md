@@ -1065,8 +1065,9 @@ window.__husk_runtime = {
 1. **Closure Support**: Functional methods like map() and filter() are blocked on closure implementation.
 
 ### Next Steps
-1. Continue implementing remaining string methods (is_empty, bytes, trim_start, trim_end, etc.)
-2. Continue implementing remaining array methods
-3. Implement Vec<T> type with mutable operations
-4. Add iterator support for lazy evaluation
-5. Implement other core modules (io, fs, path, etc.)
+1. ~~Continue implementing remaining string methods~~ ✅ Completed
+2. ~~Continue implementing remaining array methods~~ ✅ Completed (with closure support)
+3. Implement IO operations for file system and console interaction
+   - See [IO Operations Plan](./io-operations-plan.md) for detailed design
+4. Implement Vec<T> type with mutable operations (future)
+5. Add iterator support for lazy evaluation (future)
