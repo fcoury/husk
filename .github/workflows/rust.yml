@@ -49,4 +49,4 @@ jobs:
         run: cargo build --verbose
 
       - name: Test
-        run: cargo test --verbose -- --ignored
+        run: cargo test --verbose
