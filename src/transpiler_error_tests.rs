@@ -53,8 +53,8 @@ mod tests {
             
             let p1 = new_point(0, 0);
             let p2 = new_point(3, 4);
-            println(p1.x);
-            println(p2.y);
+            println!(p1.x);
+            println!(p2.y);
         "#;
 
         match transpile_to_js(code) {

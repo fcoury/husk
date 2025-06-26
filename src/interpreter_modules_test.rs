@@ -140,7 +140,7 @@ private_fn()
         // Module that tracks how many times it's loaded
         let counter_module = r#"
 // This would increment if loaded multiple times
-println("Module loaded!");
+println!("Module loaded!");
 
 pub fn get_value() -> int {
     42

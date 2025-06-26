@@ -12,7 +12,7 @@ mod tests {
     fn test_format_simple_string() {
         let program = r#"
             let message = format!("Hello, World!");
-            println(message);
+            println!(message);
         "#;
 
         let mut lexer = Lexer::new(program);

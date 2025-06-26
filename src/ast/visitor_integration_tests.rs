@@ -11,7 +11,7 @@ mod tests {
             let x = 5;
             let y = x + 10;
             if y > 10 {
-                println(y);
+                println!(y);
             }
         "#;
 
@@ -53,7 +53,7 @@ mod tests {
                 a + b
             }
             let result = add(5, 3);
-            println(result);
+            println!(result);
         "#;
 
         let js = transpile_to_js(code).unwrap();
@@ -62,7 +62,7 @@ mod tests {
         assert!(js.contains("function add(a, b)"));
         assert!(js.contains("return (a + b)"));
         assert!(js.contains("let result = add(5, 3)"));
-        assert!(js.contains("println(result)"));
+        assert!(js.contains("console.log(result)"));
     }
 
     #[test]
@@ -105,9 +105,9 @@ mod tests {
             let d = distance(p1, p2);
             
             match Color::Red {
-                Color::Red => println("It's red!"),
-                Color::Green => println("It's green!"),
-                Color::Blue => println("It's blue!"),
+                Color::Red => println!("It's red!"),
+                Color::Green => println!("It's green!"),
+                Color::Blue => println!("It's blue!"),
             }
             
             d
@@ -115,6 +115,9 @@ mod tests {
 
         // This tests that all visitor methods work correctly together
         let result = execute_script(code);
+        if let Err(e) = &result {
+            eprintln!("Error executing script: {:?}", e);
+        }
         assert!(result.is_ok());
 
         match result.unwrap() {

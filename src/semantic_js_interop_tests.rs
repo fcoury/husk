@@ -187,11 +187,11 @@ mod tests {
         // Type casts when passing function arguments
         let code = r#"
             fn takes_string(s: string) {
-                println(s);
+                println!(s);
             }
             
             fn takes_int(n: int) {
-                println(n);
+                println!(n);
             }
             
             fn main() {
@@ -297,11 +297,11 @@ mod tests {
     fn test_builtin_method_return_type_checking() {
         let code = r#"
             fn takes_int(n: int) {
-                println(n);
+                println!(n);
             }
             
             fn takes_string(s: string) {
-                println(s);
+                println!(s);
             }
             
             fn main() {
@@ -349,7 +349,7 @@ mod tests {
             }
             
             fn handler(req: express::Request, res: express::Response) {
-                println("Handling request");
+                println!("Handling request");
             }
             
             fn main() {
@@ -365,7 +365,7 @@ mod tests {
         let code = r#"
             fn handler(req: express::Request) {
                 // express module not declared
-                println("Handling request");
+                println!("Handling request");
             }
         "#;
         // Currently qualified types without declaration become Unknown type

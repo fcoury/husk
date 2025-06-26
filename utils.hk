@@ -1,0 +1,9 @@
+pub mod helper;
+
+pub fn helper1() {
+    println!("Helper 1 from utils");
+}
+
+pub fn helper2() {
+    println!("Helper 2 from utils");
+}

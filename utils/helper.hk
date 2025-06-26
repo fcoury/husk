@@ -1,0 +1,12 @@
+pub fn helper() -> string {
+    println!("Helper function");
+    "helper result"
+}
+
+pub fn helper1() {
+    println!("Helper 1");
+}
+
+pub fn helper2() {
+    println!("Helper 2");
+}

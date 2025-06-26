@@ -1449,7 +1449,7 @@ mod tests {
         let input = r#"
             use local::models::User;
             pub fn hello() {
-                println("Hello");
+                println!("Hello");
             }
         "#;
         let mut lexer = Lexer::new(input.to_string());
@@ -1469,6 +1469,7 @@ mod tests {
             TokenKind::RParen,
             TokenKind::LBrace,
             TokenKind::Identifier("println".to_string()),
+            TokenKind::Bang,
             TokenKind::LParen,
             TokenKind::String("Hello".to_string()),
             TokenKind::RParen,
