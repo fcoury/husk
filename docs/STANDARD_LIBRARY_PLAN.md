@@ -68,7 +68,8 @@ fn todo() -> !;
 macro print!($format_str:expr $(, $arg:expr)*) -> int;     // Returns 0 on success
 macro println!($format_str:expr $(, $arg:expr)*) -> void;  // Prints with newline
 macro format!($format_str:expr $(, $arg:expr)*) -> string; // Returns formatted string
-// TODO: eprint! and eprintln! for stderr
+macro eprint!($format_str:expr $(, $arg:expr)*) -> int;     // Print to stderr
+macro eprintln!($format_str:expr $(, $arg:expr)*) -> void;  // Print to stderr with newline
 
 // Type conversions (matching Rust's From/Into traits)
 trait From<T> {
@@ -85,7 +86,7 @@ trait Into<T> {
 // - print!() → process.stdout.write()
 // - println!() → console.log()
 // - format!() → template literals `${}`
-// - eprint!/eprintln! → console.error()
+// - eprint!/eprintln! → process.stderr.write() / console.error()
 ```
 
 ### 2. String Module
@@ -1078,6 +1079,18 @@ window.__husk_runtime = {
 - [x] `is_file(path)` - Check if path is a file (returns bool)
 - [x] `is_dir(path)` - Check if path is a directory (returns bool)
 
+### Directory Operations (Interpreter & Transpiler)
+- [x] `create_dir(path)` - Create a directory (returns Result<(), Error>)
+- [x] `create_dir_all(path)` - Create directory and parents (returns Result<(), Error>)
+- [x] `remove_dir(path)` - Remove empty directory (returns Result<(), Error>)
+- [x] `remove_dir_all(path)` - Remove directory recursively (returns Result<(), Error>)
+- [x] `read_dir(path)` - List directory contents (returns Result<array<DirEntry>, Error>)
+
+### Console I/O Operations (Interpreter & Transpiler)
+- [x] `read_line()` - Read line from stdin (returns Result<string, Error>)
+- [x] `eprint(message)` - Print to stderr without newline (returns int - bytes written)
+- [x] `eprintln(message)` - Print to stderr with newline (returns void)
+
 ### Next Steps
 1. ~~Continue implementing remaining string methods~~ ✅ Completed
 2. ~~Continue implementing remaining array methods~~ ✅ Completed (with closure support)
@@ -1087,8 +1100,8 @@ window.__husk_runtime = {
    - ✅ File writing operations implemented
    - ✅ Path checking operations implemented
    - ✅ Transpiler support implemented
-   - ⏳ Directory operations pending
-   - ⏳ Console input operations pending
+   - ✅ Directory operations implemented
+   - ✅ Console input/output operations implemented
 4. ~~Rename println to println! and print to print! with format! placeholders~~ ✅ Completed
 5. Implement Vec<T> type with mutable operations (future)
 6. Add iterator support for lazy evaluation (future)
