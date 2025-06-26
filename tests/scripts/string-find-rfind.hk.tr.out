@@ -1,12 +1,12 @@
-{ type: 'Some', value: 0 }
-{ type: 'Some', value: 6 }
-{ type: 'None' }
-{ type: 'Some', value: 0 }
-{ type: 'Some', value: 12 }
-{ type: 'Some', value: 6 }
-{ type: 'None' }
-{ type: 'Some', value: 17 }
-{ type: 'Some', value: 0 }
-{ type: 'Some', value: 5 }
-{ type: 'Some', value: 7 }
-{ type: 'Some', value: 5 }
+0
+6
+-1
+0
+12
+6
+-1
+17
+0
+5
+7
+5

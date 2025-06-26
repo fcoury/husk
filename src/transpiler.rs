@@ -176,19 +176,19 @@ impl JsTranspiler {
                         match call.as_str() {
                             "None" => {
                                 return (
-                                    "(_matched === null || _matched === undefined)".to_string(),
+                                    "(_matched && _matched.type === 'None')".to_string(),
                                     String::new(),
                                 )
                             }
                             "Some" => {
                                 if let Some(Expr::Identifier(bind_name, _)) = args.first() {
                                     return (
-                                        "(_matched !== null && _matched !== undefined)".to_string(),
-                                        format!("const {} = _matched;\n", bind_name),
+                                        "(_matched && _matched.type === 'Some')".to_string(),
+                                        format!("const {} = _matched.value;\n", bind_name),
                                     );
                                 }
                                 return (
-                                    "(_matched !== null && _matched !== undefined)".to_string(),
+                                    "(_matched && _matched.type === 'Some')".to_string(),
                                     String::new(),
                                 );
                             }
@@ -705,6 +705,25 @@ impl AstVisitor<String> for JsTranspiler {
             .iter()
             .map(|arg| self.visit_expr(arg))
             .collect::<Result<Vec<_>>>()?;
+
+        // For methods that exist on both types, we need to be smarter
+        // Check if this looks like a string method based on the arguments
+        if call == "find" || call == "position" {
+            // If the first argument looks like a string literal, it's probably a string method
+            if !args.is_empty() {
+                if let Expr::String(_, _) = &args[0] {
+                    // It's a string method
+                    if let Some(method_impl) = self.method_registry.get_string_method(call) {
+                        return Ok(method_impl(&target_str, &arg_strs));
+                    }
+                } else {
+                    // It's likely an array method (expects a closure/function)
+                    if let Some(method_impl) = self.method_registry.get_array_method(call) {
+                        return Ok(method_impl(&target_str, &arg_strs));
+                    }
+                }
+            }
+        }
 
         // Try array methods first (for methods like slice that exist on both types)
         if let Some(method_impl) = self.method_registry.get_array_method(call) {
@@ -1426,6 +1445,25 @@ impl AstVisitor<String> for JsTranspiler {
         // on different types (like "len") will use whichever is checked first.
         // This is a limitation of the current approach but works because JavaScript
         // uses the same method names for similar operations (e.g., .length for both).
+
+        // For methods that exist on both types, we need to be smarter
+        // Check if this looks like a string method based on the arguments
+        if method == "find" || method == "position" {
+            // If the first argument looks like a string literal, it's probably a string method
+            if !args.is_empty() {
+                if let Expr::String(_, _) = &args[0] {
+                    // It's a string method
+                    if let Some(method_impl) = self.method_registry.get_string_method(method) {
+                        return Ok(method_impl(&obj_str, &arg_strs));
+                    }
+                } else {
+                    // It's likely an array method (expects a closure/function)
+                    if let Some(method_impl) = self.method_registry.get_array_method(method) {
+                        return Ok(method_impl(&obj_str, &arg_strs));
+                    }
+                }
+            }
+        }
 
         // Try array methods first (for methods like slice that exist on both types)
         if let Some(method_impl) = self.method_registry.get_array_method(method) {
