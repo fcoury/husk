@@ -1,11 +1,11 @@
 // Debug async function parsing
 
 fn sync_test() -> Result<(), string> {
-    println("Before return in sync");
+    println!("Before return in sync");
     return Ok(());
 }
 
 async fn async_test() -> Result<(), string> {
-    println("Before return in async");
+    println!("Before return in async");
     return Ok(());
 }

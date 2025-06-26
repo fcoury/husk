@@ -17,6 +17,6 @@ impl Counter {
 }
 
 let counter = Counter::new();
-println(counter.get_value());
+println!(counter.get_value());
 counter.increment();
-println(counter.get_value());
+println!(counter.get_value());

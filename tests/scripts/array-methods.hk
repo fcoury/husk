@@ -3,16 +3,16 @@ let arr = [1, 2, 3, 4, 5];
 
 // Test is_empty
 let empty = [];
-println(empty.is_empty());  // true
-println(arr.is_empty());    // false
+println!(empty.is_empty());  // true
+println!(arr.is_empty());    // false
 
 // Test reverse
 let reversed = arr.reverse();
-println(reversed.join(", "));  // "5, 4, 3, 2, 1"
+println!(reversed.join(", "));  // "5, 4, 3, 2, 1"
 
 // Test push (returns new array)
 let pushed = arr.push(6);
-println(pushed.join(", "));  // "1, 2, 3, 4, 5, 6"
+println!(pushed.join(", "));  // "1, 2, 3, 4, 5, 6"
 
 // Test pop (returns tuple of (new_array, Option<popped>))
 let result = arr.pop();
@@ -29,12 +29,12 @@ let elem = arr.get(2);
 // TODO: Test None case with out-of-bounds index
 
 // Test existing methods that should still work
-println(arr.len());          // 5
-println(arr.slice(1, 4).join(", "));  // "2, 3, 4"
-println(arr.contains(3));    // true
-println(arr.contains(10));   // false
+println!(arr.len());          // 5
+println!(arr.slice(1, 4).join(", "));  // "2, 3, 4"
+println!(arr.contains(3));    // true
+println!(arr.contains(10));   // false
 
 // Test with string arrays
 let strings = ["hello", "world", "test"];
-println(strings.join(" "));  // "hello world test"
-println(strings.concat([" ", "more"]).join(""));  // "helloworld testmore"
+println!(strings.join(" "));  // "hello world test"
+println!(strings.concat([" ", "more"]).join(""));  // "helloworld testmore"

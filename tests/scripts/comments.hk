@@ -9,4 +9,4 @@ let a = /* first */ Test::First;
  * let b = a
  **/
 
-println(a)
+println!(a)

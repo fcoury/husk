@@ -13,7 +13,7 @@ fn test() -> Response {
 fn main() {
     let resp = test();
     match resp.result {
-        Ok(msg) => println(format!("Success: {}", msg)),
-        Err(msg) => println(format!("Error: {}", msg)),
+        Ok(msg) => println!(format!("Success: {}", msg)),
+        Err(msg) => println!(format!("Error: {}", msg)),
     }
 }

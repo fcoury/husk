@@ -5,4 +5,4 @@ enum Color {
 }
 
 let color = Color::Green;
-println(color);
+println!(color);

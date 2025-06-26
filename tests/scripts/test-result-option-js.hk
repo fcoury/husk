@@ -22,8 +22,8 @@ fn main() {
     let some_option = test_option();
     let none_option = test_none();
     
-    println(format!("Ok result: {:?}", ok_result));
-    println(format!("Err result: {:?}", err_result));
-    println(format!("Some option: {:?}", some_option));
-    println(format!("None option: {:?}", none_option));
+    println!(format!("Ok result: {:?}", ok_result));
+    println!(format!("Err result: {:?}", err_result));
+    println!(format!("Some option: {:?}", some_option));
+    println!(format!("None option: {:?}", none_option));
 }

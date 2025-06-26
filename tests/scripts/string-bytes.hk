@@ -7,34 +7,34 @@ let mixed = "Hello 世界!";
 
 // Test ASCII string
 let ascii_bytes = ascii.bytes();
-println(ascii_bytes.len());              // Should print: 5
-println(ascii_bytes[0]);                 // Should print: 72 (H)
-println(ascii_bytes[1]);                 // Should print: 101 (e)
-println(ascii_bytes[4]);                 // Should print: 111 (o)
+println!(ascii_bytes.len());              // Should print: 5
+println!(ascii_bytes[0]);                 // Should print: 72 (H)
+println!(ascii_bytes[1]);                 // Should print: 101 (e)
+println!(ascii_bytes[4]);                 // Should print: 111 (o)
 
 // Test Unicode string with accented character
 let unicode_bytes = unicode.bytes();
-println(unicode_bytes.len());            // Should print: 5 (c=1, a=1, f=1, é=2 bytes in UTF-8)
-println(unicode_bytes[0]);               // Should print: 99 (c)
-println(unicode_bytes[3]);               // Should print: 195 (first byte of é)
-println(unicode_bytes[4]);               // Should print: 169 (second byte of é)
+println!(unicode_bytes.len());            // Should print: 5 (c=1, a=1, f=1, é=2 bytes in UTF-8)
+println!(unicode_bytes[0]);               // Should print: 99 (c)
+println!(unicode_bytes[3]);               // Should print: 195 (first byte of é)
+println!(unicode_bytes[4]);               // Should print: 169 (second byte of é)
 
 // Test emoji (multi-byte UTF-8)
 let emoji_bytes = emoji.bytes();
-println(emoji_bytes.len());              // Should print: 4 (👋 is 4 bytes in UTF-8)
-println(emoji_bytes[0]);                 // Should print: 240
-println(emoji_bytes[1]);                 // Should print: 159
-println(emoji_bytes[2]);                 // Should print: 145
-println(emoji_bytes[3]);                 // Should print: 139
+println!(emoji_bytes.len());              // Should print: 4 (👋 is 4 bytes in UTF-8)
+println!(emoji_bytes[0]);                 // Should print: 240
+println!(emoji_bytes[1]);                 // Should print: 159
+println!(emoji_bytes[2]);                 // Should print: 145
+println!(emoji_bytes[3]);                 // Should print: 139
 
 // Test empty string
 let empty_bytes = empty.bytes();
-println(empty_bytes.len());              // Should print: 0
-println(empty_bytes.is_empty());         // Should print: true
+println!(empty_bytes.len());              // Should print: 0
+println!(empty_bytes.is_empty());         // Should print: true
 
 // Test mixed content
 let mixed_bytes = mixed.bytes();
-println(mixed_bytes.len());              // Should print: 13 (Hello =5, space=1, 世=3, 界=3, !=1)
+println!(mixed_bytes.len());              // Should print: 13 (Hello =5, space=1, 世=3, 界=3, !=1)
 
 // Verify bytes are in valid range
 let test_str = "Test";
@@ -42,4 +42,4 @@ let test_bytes = test_str.bytes();
 // Check first byte is in valid range
 let first_byte = test_bytes[0];
 let is_valid = first_byte >= 0 && first_byte <= 255;
-println(is_valid);                       // Should print: true
+println!(is_valid);                       // Should print: true

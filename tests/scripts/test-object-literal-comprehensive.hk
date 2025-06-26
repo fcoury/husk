@@ -64,5 +64,5 @@ fn main() {
     };
     processOptions(keywords);
     
-    println("Object literal tests completed");
+    println!("Object literal tests completed");
 }

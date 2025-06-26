@@ -8,10 +8,10 @@ impl Counter {
   }
 
   fn hi() {
-      println("Hello from Counter!");
+      println!("Hello from Counter!");
   }
 }
 
 Counter::hi();
 let counter = Counter::create();
-println(counter.value);
+println!(counter.value);

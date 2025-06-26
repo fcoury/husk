@@ -29,7 +29,7 @@ fn test_statements_in_if() -> int {
     
     if x > 0 {
         let y = x * 2;
-        println(format!("y = {}", y));
+        println!(format!("y = {}", y));
         return y;
     } else {
         let z = 0;
@@ -39,15 +39,15 @@ fn test_statements_in_if() -> int {
 
 fn main() {
     match test_return_in_if() {
-        Ok(()) => println("test_return_in_if passed"),
-        Err(msg) => println(format!("test_return_in_if failed: {}", msg)),
+        Ok(()) => println!("test_return_in_if passed"),
+        Err(msg) => println!(format!("test_return_in_if failed: {}", msg)),
     }
     
     match test_return_in_match() {
-        Ok(val) => println(format!("test_return_in_match passed: {}", val)),
-        Err(msg) => println(format!("test_return_in_match failed: {}", msg)),
+        Ok(val) => println!(format!("test_return_in_match passed: {}", val)),
+        Err(msg) => println!(format!("test_return_in_match failed: {}", msg)),
     }
     
     let result = test_statements_in_if();
-    println(format!("test_statements_in_if returned: {}", result));
+    println!(format!("test_statements_in_if returned: {}", result));
 }

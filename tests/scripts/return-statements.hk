@@ -44,12 +44,12 @@ fn nested_return(x: int) -> int {
 }
 
 // Test all functions
-println("return_value() =", return_value());
+println!("return_value() ={}", return_value());
 return_unit();
-println("early_return(0) =", early_return(0));
-println("early_return(1) =", early_return(1));
-println("early_return(2) =", early_return(2));
-println("mixed_returns(0) =", mixed_returns(0));
-println("nested_return(15) =", nested_return(15));
-println("nested_return(5) =", nested_return(5));
-println("nested_return(0) =", nested_return(0));
+println!("early_return(0) ={}", early_return(0));
+println!("early_return(1) ={}", early_return(1));
+println!("early_return(2) ={}", early_return(2));
+println!("mixed_returns(0) ={}", mixed_returns(0));
+println!("nested_return(15) ={}", nested_return(15));
+println!("nested_return(5) ={}", nested_return(5));
+println!("nested_return(0) ={}", nested_return(0));

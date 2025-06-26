@@ -15,5 +15,5 @@ async fn test() {
 }
 
 fn main() {
-    println("Test object literal with await");
+    println!("Test object literal with await");
 }

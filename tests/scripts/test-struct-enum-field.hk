@@ -19,5 +19,5 @@ fn test() -> User {
 
 fn main() {
     let user = test();
-    println(format!("User: {}", user.name));
+    println!(format!("User: {}", user.name));
 }

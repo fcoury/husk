@@ -3,7 +3,7 @@
 fn main() {
     // Simple object literal
     let person = { name: "Alice", age: 30 };
-    println("Created object literal");
+    println!("Created object literal");
     
     // Nested object literal  
     let config = {
@@ -13,7 +13,7 @@ fn main() {
         },
         debug: true
     };
-    println("Created nested object literal");
+    println!("Created nested object literal");
     
     // Object with various types
     let mixed = {
@@ -23,5 +23,5 @@ fn main() {
         bool: true,
         array: [1, 2, 3]
     };
-    println("Created mixed object literal");
+    println!("Created mixed object literal");
 }

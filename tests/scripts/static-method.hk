@@ -9,4 +9,4 @@ impl Counter {
 }
 
 let counter = Counter::new();
-println(counter.value);
+println!(counter.value);

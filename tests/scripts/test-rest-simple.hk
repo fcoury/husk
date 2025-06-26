@@ -10,12 +10,12 @@ let config = Config {
     debug: true,
 };
 
-println("Testing rest patterns");
+println!("Testing rest patterns");
 
 // Test rest patterns - need default case for single match
 let result = match config {
     Config { host, port, .. } => format!("Server: {}:{}", host, port),
 };
 
-println(result);
-println("Rest pattern test completed");
+println!(result);
+println!("Rest pattern test completed");

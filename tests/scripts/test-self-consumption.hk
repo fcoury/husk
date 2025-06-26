@@ -16,9 +16,9 @@ impl Counter {
 fn main() {
     let counter = Counter { value: 0 };
     let incremented = counter.increment();
-    println(format!("Incremented: {}", incremented));
+    println!(format!("Incremented: {}", incremented));
     
     // Try to use counter again - would fail in Rust
     let value = counter.get_value();
-    println(format!("Value: {}", value));
+    println!(format!("Value: {}", value));
 }

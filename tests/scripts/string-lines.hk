@@ -9,61 +9,61 @@ let multiple_empty = "line1\n\n\nline2";
 
 // Test Unix-style line endings
 let lines1 = unix_lines.lines();
-println(lines1.len());              // Should print: 3
-println(lines1[0]);                 // Should print: "line1"
-println(lines1[1]);                 // Should print: "line2"
-println(lines1[2]);                 // Should print: "line3"
+println!(lines1.len());              // Should print: 3
+println!(lines1[0]);                 // Should print: "line1"
+println!(lines1[1]);                 // Should print: "line2"
+println!(lines1[2]);                 // Should print: "line3"
 
 // Test Windows-style line endings
 let lines2 = windows_lines.lines();
-println(lines2.len());              // Should print: 3
-println(lines2[0]);                 // Should print: "line1"
-println(lines2[1]);                 // Should print: "line2"
-println(lines2[2]);                 // Should print: "line3"
+println!(lines2.len());              // Should print: 3
+println!(lines2[0]);                 // Should print: "line1"
+println!(lines2[1]);                 // Should print: "line2"
+println!(lines2[2]);                 // Should print: "line3"
 
 // Test mixed line endings
 let lines3 = mixed_lines.lines();
-println(lines3.len());              // Should print: 3
-println(lines3[0]);                 // Should print: "line1"
-println(lines3[1]);                 // Should print: "line2"
-println(lines3[2]);                 // Should print: "line3"
+println!(lines3.len());              // Should print: 3
+println!(lines3[0]);                 // Should print: "line1"
+println!(lines3[1]);                 // Should print: "line2"
+println!(lines3[2]);                 // Should print: "line3"
 
 // Test empty string
 let lines4 = empty.lines();
-println(lines4.len());              // Should print: 0
-println(lines4.is_empty());         // Should print: true
+println!(lines4.len());              // Should print: 0
+println!(lines4.is_empty());         // Should print: true
 
 // Test single line with no newline
 let lines5 = single_line.lines();
-println(lines5.len());              // Should print: 1
-println(lines5[0]);                 // Should print: "just one line"
+println!(lines5.len());              // Should print: 1
+println!(lines5[0]);                 // Should print: "just one line"
 
 // Test trailing newline (should not include empty line at end)
 let lines6 = trailing_newline.lines();
-println(lines6.len());              // Should print: 2
-println(lines6[0]);                 // Should print: "line1"
-println(lines6[1]);                 // Should print: "line2"
+println!(lines6.len());              // Should print: 2
+println!(lines6[0]);                 // Should print: "line1"
+println!(lines6[1]);                 // Should print: "line2"
 
 // Test multiple empty lines
 let lines7 = multiple_empty.lines();
-println(lines7.len());              // Should print: 4
-println(lines7[0]);                 // Should print: "line1"
-println(lines7[1]);                 // Should print: ""
-println(lines7[2]);                 // Should print: ""
-println(lines7[3]);                 // Should print: "line2"
+println!(lines7.len());              // Should print: 4
+println!(lines7[0]);                 // Should print: "line1"
+println!(lines7[1]);                 // Should print: ""
+println!(lines7[2]);                 // Should print: ""
+println!(lines7[3]);                 // Should print: "line2"
 
 // Test with just newlines
 let just_newlines = "\n\n";
 let lines8 = just_newlines.lines();
-println(lines8.len());              // Should print: 2
-println(lines8[0]);                 // Should print: ""
-println(lines8[1]);                 // Should print: ""
+println!(lines8.len());              // Should print: 2
+println!(lines8[0]);                 // Should print: ""
+println!(lines8[1]);                 // Should print: ""
 
 // Test chaining with other methods
 let text = "  line1  \n  line2  \n  line3  ";
 let trimmed_lines = text.lines();
-println(trimmed_lines.len());       // Should print: 3
+println!(trimmed_lines.len());       // Should print: 3
 // Show that lines doesn't trim whitespace from individual lines
-println(trimmed_lines[0]);          // Should print: "  line1  "
-println(trimmed_lines[1]);          // Should print: "  line2  "
-println(trimmed_lines[2]);          // Should print: "  line3  "
+println!(trimmed_lines[0]);          // Should print: "  line1  "
+println!(trimmed_lines[1]);          // Should print: "  line2  "
+println!(trimmed_lines[2]);          // Should print: "  line3  "

@@ -21,19 +21,19 @@ let config = Config {
     timeout: 30,
 };
 
-println("=== Testing Rest Patterns ===");
+println!("=== Testing Rest Patterns ===");
 
 // Test extracting specific fields and ignoring rest
 match config {
     Config { host, port, .. } => {
-        println(format!("Server at {}:{}", host, port));
+        println!(format!("Server at {}:{}", host, port));
     }
 }
 
 // Test different field order with rest patterns
 match config {
     Config { debug, host, .. } => {
-        println(format!("Debug mode: {}, Host: {}", debug, host));
+        println!(format!("Debug mode: {}, Host: {}", debug, host));
     }
 }
 
@@ -42,8 +42,8 @@ let point = Point { x: 10, y: 20, z: 30 };
 
 match point {
     Point { x, y, .. } => {
-        println(format!("2D point: ({}, {})", x, y));
+        println!(format!("2D point: ({}, {})", x, y));
     }
 }
 
-println("All rest pattern tests completed!");
+println!("All rest pattern tests completed!");

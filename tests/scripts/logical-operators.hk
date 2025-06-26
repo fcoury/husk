@@ -1,47 +1,47 @@
 // Test logical operators and not equals
 
 // Basic AND operations
-println(true && true);
-println(true && false);
-println(false && true);
-println(false && false);
+println!(true && true);
+println!(true && false);
+println!(false && true);
+println!(false && false);
 
 // Basic OR operations
-println(true || true);
-println(true || false);
-println(false || true);
-println(false || false);
+println!(true || true);
+println!(true || false);
+println!(false || true);
+println!(false || false);
 
 // Not equals
-println(5 != 3);
-println(5 != 5);
-println("hello" != "world");
-println("hello" != "hello");
-println(true != false);
-println(true != true);
+println!(5 != 3);
+println!(5 != 5);
+println!("hello" != "world");
+println!("hello" != "hello");
+println!(true != false);
+println!(true != true);
 
 // Short-circuit evaluation
 let x = 0;
-println(false && (5 / x > 0));  // Should not crash
-println(true || (5 / x > 0));   // Should not crash
+println!(false && (5 / x > 0));  // Should not crash
+println!(true || (5 / x > 0));   // Should not crash
 
 // Operator precedence
-println(true || false && false);    // true (AND has higher precedence)
-println((true || false) && false);  // false
-println(5 > 3 && 2 < 4);           // true
-println(5 > 3 || 2 > 4);           // true
+println!(true || false && false);    // true (AND has higher precedence)
+println!((true || false) && false);  // false
+println!(5 > 3 && 2 < 4);           // true
+println!(5 > 3 || 2 > 4);           // true
 
 // Complex expressions
 let a = 10;
 let b = 20;
 let c = 15;
-println(a < b && b > c);
-println(a > b || c < b);
-println(!(a > b));
-println(a != b && b != c);
+println!(a < b && b > c);
+println!(a > b || c < b);
+println!(!(a > b));
+println!(a != b && b != c);
 
 // Chained logical operations
-println(true && true && true);
-println(true || false || false);
-println(true && true || false);
-println(false || true && true);
+println!(true && true && true);
+println!(true || false || false);
+println!(true && true || false);
+println!(false || true && true);
