@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runner = TestRunner::new(ast, config);
 
     // Run the tests
-    let results = runner.run_tests(test_registry);
+    let _results = runner.run_tests(test_registry);
 
     // Exit with appropriate code (handled by runner)
     Ok(())
