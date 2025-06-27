@@ -122,8 +122,8 @@ mod tests {
 
         // Define an enum type
         let mut variants = HashMap::new();
-        variants.insert("Some".to_string(), Some(point_type.clone()));
-        variants.insert("None".to_string(), None);
+        variants.insert("Some".to_string(), vec![point_type.clone()]);
+        variants.insert("None".to_string(), vec![]);
         let option_point_type = Type::Enum {
             name: "OptionPoint".to_string(),
             variants,

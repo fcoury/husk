@@ -29,7 +29,7 @@ pub enum Type {
     },
     Enum {
         name: String,
-        variants: HashMap<String, Option<Type>>,
+        variants: HashMap<String, Vec<Type>>,
     },
 
     // Function type
@@ -193,8 +193,8 @@ impl Type {
                 name: "Option".to_string(),
                 variants: {
                     let mut v = HashMap::new();
-                    v.insert("Some".to_string(), Some(Type::Unknown));
-                    v.insert("None".to_string(), None);
+                    v.insert("Some".to_string(), vec![Type::Unknown]);
+                    v.insert("None".to_string(), vec![]);
                     v
                 },
             }),
@@ -202,8 +202,8 @@ impl Type {
                 name: "Result".to_string(),
                 variants: {
                     let mut v = HashMap::new();
-                    v.insert("Ok".to_string(), Some(Type::Unknown));
-                    v.insert("Err".to_string(), Some(Type::Unknown));
+                    v.insert("Ok".to_string(), vec![Type::Unknown]);
+                    v.insert("Err".to_string(), vec![Type::Unknown]);
                     v
                 },
             }),
@@ -215,8 +215,8 @@ impl Type {
                     name: "Option".to_string(),
                     variants: {
                         let mut v = HashMap::new();
-                        v.insert("Some".to_string(), Some(Type::Unknown));
-                        v.insert("None".to_string(), None);
+                        v.insert("Some".to_string(), vec![Type::Unknown]);
+                        v.insert("None".to_string(), vec![]);
                         v
                     },
                 })
@@ -229,8 +229,8 @@ impl Type {
                     name: "Result".to_string(),
                     variants: {
                         let mut v = HashMap::new();
-                        v.insert("Ok".to_string(), Some(Type::Unknown));
-                        v.insert("Err".to_string(), Some(Type::Unknown));
+                        v.insert("Ok".to_string(), vec![Type::Unknown]);
+                        v.insert("Err".to_string(), vec![Type::Unknown]);
                         v
                     },
                 })

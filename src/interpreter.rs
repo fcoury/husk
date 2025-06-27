@@ -38,7 +38,7 @@ pub enum Value {
     Struct(String, IndexMap<String, String>),
     Enum(String, IndexMap<String, String>),
     StructInstance(String, IndexMap<String, Value>),
-    EnumVariant(String, String, Option<Box<Value>>),
+    EnumVariant(String, String, Vec<Value>),
 }
 
 impl fmt::Display for Value {
@@ -84,10 +84,14 @@ impl fmt::Display for Value {
                 write!(f, "struct {} {{{}}}", name, field_strings.join(", "))
             }
             Value::Enum(name, _) => write!(f, "enum {}", name),
-            Value::EnumVariant(name, variant, value) => match value {
-                Some(value) => write!(f, "{}::{}({})", name, variant, value),
-                None => write!(f, "{}::{}", name, variant),
-            },
+            Value::EnumVariant(name, variant, values) => {
+                if values.is_empty() {
+                    write!(f, "{}::{}", name, variant)
+                } else {
+                    let values_str: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+                    write!(f, "{}::{}({})", name, variant, values_str.join(", "))
+                }
+            }
         }
     }
 }
@@ -107,10 +111,14 @@ impl Value {
             Value::Struct(name, _) => format!("struct {name}"),
             Value::StructInstance(name, _) => format!("struct instance {name}"),
             Value::Enum(name, _) => format!("enum {name}"),
-            Value::EnumVariant(name, variant, value) => match value {
-                Some(value) => format!("{name}::{variant}({value})"),
-                None => format!("{name}::{variant}"),
-            },
+            Value::EnumVariant(name, variant, values) => {
+                if values.is_empty() {
+                    format!("{name}::{variant}")
+                } else {
+                    let values_str: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+                    format!("{name}::{variant}({})", values_str.join(", "))
+                }
+            }
         }
     }
 
@@ -177,10 +185,7 @@ pub fn stdlib_print(args: &[Value]) -> Result<Value> {
 
 pub fn stdlib_println(args: &[Value]) -> Result<Value> {
     for arg in args {
-        match arg {
-            Value::EnumVariant(_, _, Some(value)) => print!("{}", value),
-            _ => print!("{}", arg),
-        }
+        print!("{}", arg);
     }
     println!();
     Ok(Value::Unit)
@@ -490,12 +495,12 @@ pub fn stdlib_create_dir(args: &[Value]) -> Result<Value> {
         Ok(value) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Ok".to_string(),
-            Some(Box::new(value)),
+            vec![value],
         )),
         Err(error) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Err".to_string(),
-            Some(Box::new(Value::String(error.to_string()))),
+            vec![Value::String(error.to_string())],
         )),
     }
 }
@@ -523,12 +528,12 @@ pub fn stdlib_create_dir_all(args: &[Value]) -> Result<Value> {
         Ok(value) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Ok".to_string(),
-            Some(Box::new(value)),
+            vec![value],
         )),
         Err(error) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Err".to_string(),
-            Some(Box::new(Value::String(error.to_string()))),
+            vec![Value::String(error.to_string())],
         )),
     }
 }
@@ -556,12 +561,12 @@ pub fn stdlib_remove_dir(args: &[Value]) -> Result<Value> {
         Ok(value) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Ok".to_string(),
-            Some(Box::new(value)),
+            vec![value],
         )),
         Err(error) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Err".to_string(),
-            Some(Box::new(Value::String(error.to_string()))),
+            vec![Value::String(error.to_string())],
         )),
     }
 }
@@ -589,12 +594,12 @@ pub fn stdlib_remove_dir_all(args: &[Value]) -> Result<Value> {
         Ok(value) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Ok".to_string(),
-            Some(Box::new(value)),
+            vec![value],
         )),
         Err(error) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Err".to_string(),
-            Some(Box::new(Value::String(error.to_string()))),
+            vec![Value::String(error.to_string())],
         )),
     }
 }
@@ -622,12 +627,12 @@ pub fn stdlib_read_dir(args: &[Value]) -> Result<Value> {
         Ok(value) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Ok".to_string(),
-            Some(Box::new(value)),
+            vec![value],
         )),
         Err(error) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Err".to_string(),
-            Some(Box::new(Value::String(error.to_string()))),
+            vec![Value::String(error.to_string())],
         )),
     }
 }
@@ -646,12 +651,12 @@ pub fn stdlib_read_line(args: &[Value]) -> Result<Value> {
         Ok(value) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Ok".to_string(),
-            Some(Box::new(value)),
+            vec![value],
         )),
         Err(error) => Ok(Value::EnumVariant(
             "Result".to_string(),
             "Err".to_string(),
-            Some(Box::new(Value::String(error.to_string()))),
+            vec![Value::String(error.to_string())],
         )),
     }
 }
@@ -2100,6 +2105,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
     }
 
     fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> Result<Value> {
+        // Check if this is an enum variant constructor (e.g., Color.Red)
+        if let Expr::Identifier(enum_name, _) = object {
+            if let Some(Value::Enum(name, variants)) = self.get_var(enum_name) {
+                if variants.contains_key(field) {
+                    // This is a unit enum variant constructor
+                    return Ok(Value::EnumVariant(name.clone(), field.to_string(), vec![]));
+                }
+            }
+        }
+
         let obj_value = self.visit_expr(object)?;
 
         match obj_value {
@@ -2148,20 +2163,14 @@ impl AstVisitor<Value> for InterpreterVisitor {
             // Check if it's an enum variant
             if let Some(Value::Enum(enum_name, _)) = self.get_var(type_name) {
                 if enum_name == *type_name {
-                    let data = if args.is_empty() {
-                        None
-                    } else if args.len() == 1 {
-                        Some(Box::new(self.visit_expr(&args[0])?))
-                    } else {
-                        return Err(Error::new_runtime(
-                            format!("Enum variant takes at most 1 argument, got {}", args.len()),
-                            *span,
-                        ));
-                    };
+                    let mut values = Vec::new();
+                    for arg in args {
+                        values.push(self.visit_expr(arg)?);
+                    }
                     return Ok(Value::EnumVariant(
                         type_name.clone(),
                         call.to_string(),
-                        data,
+                        values,
                     ));
                 }
             }
@@ -2243,8 +2252,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 crate::parser::EnumVariant::Unit(name) => {
                     variant_map.insert(name.clone(), "unit".to_string());
                 }
-                crate::parser::EnumVariant::Tuple(name, type_name) => {
-                    variant_map.insert(name.clone(), type_name.clone());
+                crate::parser::EnumVariant::Tuple(name, type_names) => {
+                    // Store tuple variants with comma-separated types
+                    variant_map.insert(name.clone(), type_names.join(","));
                 }
                 crate::parser::EnumVariant::Struct(name, _fields) => {
                     // For struct variants, we'll store them as a special struct type
@@ -2318,14 +2328,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     {
                         if enum_name == val_enum && call == val_variant {
                             // Bind pattern variables if any
-                            if !args.is_empty() && args.len() == 1 {
-                                if let (Expr::Identifier(var_name, _), Some(data)) =
-                                    (&args[0], val_data)
-                                {
-                                    self.set_var(var_name.clone(), *data.clone());
+                            if args.len() == val_data.len() {
+                                for (i, arg) in args.iter().enumerate() {
+                                    if let Expr::Identifier(var_name, _) = arg {
+                                        self.set_var(var_name.clone(), val_data[i].clone());
+                                    }
                                 }
+                                true
+                            } else {
+                                false
                             }
-                            true
                         } else {
                             false
                         }
@@ -2640,9 +2652,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
         // Check if it's a Result type and unwrap it
         match result {
-            Value::EnumVariant(enum_name, variant, value) if enum_name == "Result" && variant == "Ok" => {
-                if let Some(val) = value {
-                    Ok(*val)
+            Value::EnumVariant(enum_name, variant, values) if enum_name == "Result" && variant == "Ok" => {
+                if !values.is_empty() {
+                    Ok(values[0].clone())
                 } else {
                     Ok(Value::Unit)
                 }
@@ -2836,6 +2848,22 @@ impl AstVisitor<Value> for InterpreterVisitor {
         args: &[Expr],
         _span: &Span,
     ) -> Result<Value> {
+        // Check if this is actually an enum variant constructor call
+        if let Expr::Identifier(enum_name, _) = object {
+            if let Some(Value::Enum(_name, variants)) = self.get_var(enum_name) {
+                if variants.contains_key(method) {
+                    // This is actually an enum variant constructor, not a method call
+                    let target_expr = object.clone();
+                    return self.visit_enum_variant_or_method_call(
+                        &target_expr,
+                        method,
+                        args,
+                        _span,
+                    );
+                }
+            }
+        }
+
         let obj_value = self.visit_expr(object)?;
 
         match &obj_value {
@@ -3090,10 +3118,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     println!("{}", formatted);
                 } else {
                     // If not a string, just print the value
-                    match &values[0] {
-                        Value::EnumVariant(_, _, Some(value)) => println!("{}", value),
-                        _ => println!("{}", values[0]),
-                    }
+                    println!("{}", values[0]);
                 }
 
                 Ok(Value::Unit)
@@ -3173,10 +3198,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     eprintln!("{}", formatted);
                 } else {
                     // If not a string, just print the value
-                    match &values[0] {
-                        Value::EnumVariant(_, _, Some(value)) => eprintln!("{}", value),
-                        _ => eprintln!("{}", values[0]),
-                    }
+                    eprintln!("{}", values[0]);
                 }
 
                 Ok(Value::Unit)
@@ -3351,7 +3373,7 @@ impl InterpreterVisitor {
                         return Ok(Value::EnumVariant(
                             "Option".to_string(),
                             "Some".to_string(),
-                            Some(Box::new(element.clone())),
+                            vec![element.clone()],
                         ));
                     }
                     Value::Bool(false) => {} // Continue searching
@@ -3368,7 +3390,7 @@ impl InterpreterVisitor {
             Ok(Value::EnumVariant(
                 "Option".to_string(),
                 "None".to_string(),
-                None,
+                vec![],
             ))
         } else {
             Err(Error::new_runtime("find() called on non-array", *span))
@@ -3397,7 +3419,7 @@ impl InterpreterVisitor {
                         return Ok(Value::EnumVariant(
                             "Option".to_string(),
                             "Some".to_string(),
-                            Some(Box::new(Value::Int(index as i64))),
+                            vec![Value::Int(index as i64)],
                         ));
                     }
                     Value::Bool(false) => {} // Continue searching
@@ -3414,7 +3436,7 @@ impl InterpreterVisitor {
             Ok(Value::EnumVariant(
                 "Option".to_string(),
                 "None".to_string(),
-                None,
+                vec![],
             ))
         } else {
             Err(Error::new_runtime("position() called on non-array", *span))

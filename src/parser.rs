@@ -556,7 +556,7 @@ pub enum Stmt {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EnumVariant {
     Unit(String),                          // Simple variant: Color
-    Tuple(String, String),                 // Tuple variant: Color(string)
+    Tuple(String, Vec<String>),            // Tuple variant: Color(int, int, int)
     Struct(String, Vec<(String, String)>), // Struct variant: Color { r: int, g: int, b: int }
 }
 
@@ -1627,17 +1627,40 @@ impl Parser {
                 })?;
 
             let variant = if self.current_token().kind == TokenKind::LParen {
-                // Tuple variant: Color(string)
+                // Tuple variant: Color(int, int, int)
                 self.advance(); // Consume '('
-                let variant_type = self.consume_type().unwrap();
+
+                let mut types = Vec::new();
+
+                // Parse the first type (required)
+                if self.current_token().kind != TokenKind::RParen {
+                    types.push(self.consume_type().ok_or_else(|| {
+                        Error::new_parse(
+                            "Expected type in tuple variant".to_string(),
+                            self.current_token().span,
+                        )
+                    })?);
+
+                    // Parse additional types
+                    while self.current_token().kind == TokenKind::Comma {
+                        self.advance(); // Consume ','
+                        types.push(self.consume_type().ok_or_else(|| {
+                            Error::new_parse(
+                                "Expected type after ',' in tuple variant".to_string(),
+                                self.current_token().span,
+                            )
+                        })?);
+                    }
+                }
+
                 if self.current_token().kind != TokenKind::RParen {
                     return Err(Error::new_parse(
-                        "Expected ')' after associated value".to_string(),
+                        "Expected ')' after tuple variant types".to_string(),
                         self.current_token().span,
                     ));
                 }
                 self.advance(); // Consume ')'
-                EnumVariant::Tuple(variant_name, variant_type)
+                EnumVariant::Tuple(variant_name, types)
             } else if self.current_token().kind == TokenKind::LBrace {
                 // Struct variant: Color { r: int, g: int, b: int }
                 self.advance(); // Consume '{'
@@ -2382,19 +2405,33 @@ impl Parser {
                     if self.current_token().kind == TokenKind::LParen {
                         self.advance(); // Consume '('
 
-                        let value = self.parse_expression()?;
+                        let mut values = Vec::new();
+                        // Parse multiple values for tuple enum variants
                         if self.current_token().kind != TokenKind::RParen {
-                            return Err(Error::new_parse(
-                                "Expected ')' after enum variant value".to_string(),
-                                self.current_token().span,
-                            ));
+                            loop {
+                                values.push(self.parse_expression()?);
+
+                                if self.current_token().kind == TokenKind::Comma {
+                                    self.advance(); // Consume ','
+                                    if self.current_token().kind == TokenKind::RParen {
+                                        break; // Trailing comma is ok
+                                    }
+                                } else if self.current_token().kind == TokenKind::RParen {
+                                    break;
+                                } else {
+                                    return Err(Error::new_parse(
+                                        "Expected ',' or ')' after enum variant value".to_string(),
+                                        self.current_token().span,
+                                    ));
+                                }
+                            }
                         }
                         self.advance(); // Consume ')'
 
                         Ok(Expr::EnumVariantOrMethodCall {
                             target,
                             call,
-                            args: vec![value],
+                            args: values,
                             span: Span::new(start_span.start, self.current_token().span.end),
                             type_annotation: TypeAnnotation::new(),
                         })
@@ -3089,6 +3126,52 @@ impl Parser {
                                 span: Span::new(start_span, end),
                                 type_annotation: TypeAnnotation::new(),
                             };
+                        }
+                        Expr::MemberAccess(obj, field, member_span) => {
+                            // Check if this is an enum variant call like Color.Rgb(...)
+                            if let Expr::Identifier(type_name, _) = &**obj {
+                                // Convert member access + call to EnumVariantOrMethodCall
+                                self.advance(); // Consume '('
+                                let mut call_args = Vec::new();
+
+                                // Parse arguments
+                                if self.current_token().kind != TokenKind::RParen {
+                                    loop {
+                                        call_args.push(self.parse_expression()?);
+
+                                        match self.current_token().kind {
+                                            TokenKind::Comma => self.advance(),
+                                            TokenKind::RParen => break,
+                                            _ => {
+                                                return Err(Error::new_parse(
+                                                    "Expected ',' or ')' in argument list"
+                                                        .to_string(),
+                                                    self.current_token().span,
+                                                ))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let end = self.current_token().span.end;
+                                self.advance(); // Consume ')'
+
+                                left = Expr::EnumVariantOrMethodCall {
+                                    target: Box::new(Expr::Identifier(
+                                        type_name.clone(),
+                                        Span::new(
+                                            member_span.start,
+                                            member_span.start + type_name.len(),
+                                        ),
+                                    )),
+                                    call: field.clone(),
+                                    args: call_args,
+                                    span: Span::new(start_span, end),
+                                    type_annotation: TypeAnnotation::new(),
+                                };
+                            } else {
+                                break; // Can't call this expression
+                            }
                         }
                         _ => break, // Can't call this expression
                     }
@@ -4388,8 +4471,8 @@ mod tests {
         assert_eq!(
             variants,
             &[
-                EnumVariant::Tuple("Existing".to_string(), "string".to_string()),
-                EnumVariant::Tuple("New".to_string(), "string".to_string()),
+                EnumVariant::Tuple("Existing".to_string(), vec!["string".to_string()]),
+                EnumVariant::Tuple("New".to_string(), vec!["string".to_string()]),
             ]
         );
     }

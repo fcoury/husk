@@ -704,15 +704,11 @@ fn string_repeat(value: &Value, args: &[Value], span: &Span) -> Result<Value> {
 // Helper functions for Option types
 
 fn make_some(value: Value) -> Value {
-    Value::EnumVariant(
-        "Option".to_string(),
-        "Some".to_string(),
-        Some(Box::new(value)),
-    )
+    Value::EnumVariant("Option".to_string(), "Some".to_string(), vec![value])
 }
 
 fn make_none() -> Value {
-    Value::EnumVariant("Option".to_string(), "None".to_string(), None)
+    Value::EnumVariant("Option".to_string(), "None".to_string(), vec![])
 }
 
 // Array method implementations
