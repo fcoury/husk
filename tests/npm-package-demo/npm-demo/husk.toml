@@ -18,3 +18,11 @@ src = "src"
 out = "dist"
 target = ""
 module = "esm"
+
+[[files]]
+path = "src/main.husk"
+output = "dist/main.js"
+
+[[files]]
+path = "src/typescript_test.husk"
+output = "dist/typescript_test.js"

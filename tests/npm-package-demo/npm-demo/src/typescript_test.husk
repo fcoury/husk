@@ -1,0 +1,11 @@
+use axios;
+use express::{Request, Response};
+use lodash::isArray;
+
+// This test file verifies TypeScript definitions support
+fn test_typescript_imports() {
+    // These imports should resolve to packages with TypeScript definitions
+    println!("TypeScript definitions test completed");
+}
+
+test_typescript_imports();

@@ -117,8 +117,22 @@ This document tracks the implementation progress of npm support improvements in 
 - `src/package_resolver.rs` - Added detect_module_type() method with comprehensive heuristics  
 
 ### Task 2.3: TypeScript Definitions Support
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: LOW  
+**Description**: Add support for resolving TypeScript definitions
+
+**Changes**:
+- [x] Added types and typings fields to PackageJson struct
+- [x] Added TypeScript info to ResolvedPackage (types field and has_types_package flag)
+- [x] Implemented resolve_types_path() method to find .d.ts files
+- [x] Added check_types_package_exists() to detect @types packages
+- [x] Added resolve_package_types() for full TypeScript resolution
+- [x] Fixed CommonJS import handling for single named imports
+- [x] Updated all tests to include new TypeScript fields
+
+**Files modified**:
+- `src/package_resolver.rs` - Added TypeScript detection and resolution methods
+- Fixed generate_import_statement to handle single named imports from CommonJS modules
 
 ---
 
@@ -189,7 +203,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 2.2 completed)
+Last Updated: 2024-12-27 (Task 2.3 completed)
 
 ## Implementation Details
 
@@ -251,3 +265,17 @@ Last Updated: 2024-12-27 (Task 2.2 completed)
 - Improved entry point selection for dual packages
 - Added comprehensive tests for all detection scenarios
 - Better handling of edge cases and modern package patterns
+
+### Task 2.3 Implementation Notes
+- Added types and typings fields to PackageJson struct for TypeScript definitions
+- Extended ResolvedPackage with types field and has_types_package boolean
+- Implemented resolve_types_path() to check for .d.ts files in multiple locations:
+  - Explicit types/typings field in package.json
+  - Alongside main file (e.g., index.js → index.d.ts)
+  - Root index.d.ts
+  - types/index.d.ts directory
+- Added check_types_package_exists() to detect @types packages
+- Handles scoped packages correctly (@org/pkg → @types/org__pkg)
+- Fixed bug in generate_import_statement where single named imports from CommonJS modules weren't handled correctly
+- Removed the imports.len() > 1 condition to ensure all named imports get the CommonJS workaround
+- All package resolver tests updated and passing

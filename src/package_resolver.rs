@@ -32,6 +32,10 @@ pub struct ResolvedPackage {
     pub module_type: ModuleType,
     /// Exported names from package.json
     pub exports: Vec<String>,
+    /// TypeScript definitions file
+    pub types: Option<String>,
+    /// Whether this package has @types available
+    pub has_types_package: bool,
 }
 
 /// JavaScript module type
@@ -53,12 +57,17 @@ pub struct PackageJson {
     pub module: Option<String>,
     #[serde(rename = "type")]
     pub module_type: Option<String>,
+    pub types: Option<String>,
+    pub typings: Option<String>,
     pub exports: Option<serde_json::Value>,
     #[allow(dead_code)]
     pub dependencies: Option<HashMap<String, String>>,
     #[allow(dead_code)]
     #[serde(rename = "peerDependencies")]
     pub peer_dependencies: Option<HashMap<String, String>>,
+    #[allow(dead_code)]
+    #[serde(rename = "devDependencies")]
+    pub dev_dependencies: Option<HashMap<String, String>>,
 }
 
 impl PackageResolver {
@@ -186,6 +195,10 @@ impl PackageResolver {
         // Extract exported names (simplified - in reality this would be more complex)
         let exports = self.extract_exports(&package_json);
 
+        // Resolve TypeScript definitions
+        let types = self.resolve_types_path(&package_json, &package_path);
+        let has_types_package = self.check_types_package_exists(name);
+
         Ok(ResolvedPackage {
             name: name.to_string(),
             version: package_json
@@ -195,6 +208,8 @@ impl PackageResolver {
             main: Some(main_file),
             module_type,
             exports,
+            types,
+            has_types_package,
         })
     }
 
@@ -240,6 +255,12 @@ impl PackageResolver {
             .map(|pkg| self.extract_exports(pkg))
             .unwrap_or_default();
 
+        // Resolve TypeScript definitions for local packages
+        let types = package_json
+            .as_ref()
+            .and_then(|pkg| self.resolve_types_path(pkg, &package_path));
+        let has_types_package = false; // Local packages don't have @types
+
         Ok(ResolvedPackage {
             name: name.to_string(),
             version: package_json
@@ -250,6 +271,8 @@ impl PackageResolver {
             main: Some(main_file),
             module_type,
             exports,
+            types,
+            has_types_package,
         })
     }
 
@@ -499,6 +522,94 @@ impl PackageResolver {
         }
     }
 
+    /// Resolve TypeScript definitions path for a package
+    fn resolve_types_path(
+        &self,
+        package_json: &PackageJson,
+        package_path: &Path,
+    ) -> Option<String> {
+        // Check explicit types/typings field
+        if let Some(types) = package_json
+            .types
+            .as_ref()
+            .or(package_json.typings.as_ref())
+        {
+            return Some(types.clone());
+        }
+
+        // Check if index.d.ts exists alongside main file
+        if let Some(main) = &package_json.main {
+            let main_path = Path::new(main);
+            if let Some(stem) = main_path.file_stem() {
+                let parent = main_path.parent().unwrap_or(Path::new(""));
+                let dts_path = parent.join(format!("{}.d.ts", stem.to_string_lossy()));
+                let full_path = package_path.join(&dts_path);
+                if full_path.exists() {
+                    return Some(dts_path.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        // Check for index.d.ts in package root
+        let index_dts = package_path.join("index.d.ts");
+        if index_dts.exists() {
+            return Some("index.d.ts".to_string());
+        }
+
+        // Check if the package has a types directory
+        let types_dir = package_path.join("types");
+        if types_dir.exists() && types_dir.join("index.d.ts").exists() {
+            return Some("types/index.d.ts".to_string());
+        }
+
+        None
+    }
+
+    /// Check if @types package exists for this package
+    fn check_types_package_exists(&self, package_name: &str) -> bool {
+        let types_package_name = self.get_types_package_name(package_name);
+        let types_path = self
+            .project_root
+            .join("node_modules")
+            .join(&types_package_name);
+        types_path.exists()
+    }
+
+    /// Get the @types package name for a given package
+    fn get_types_package_name(&self, package_name: &str) -> String {
+        // Convert scoped packages: @org/pkg -> @types/org__pkg
+        if package_name.starts_with('@') {
+            let without_at = &package_name[1..];
+            format!("@types/{}", without_at.replace('/', "__"))
+        } else {
+            format!("@types/{}", package_name)
+        }
+    }
+
+    /// Resolve TypeScript definitions for a package, including @types
+    pub fn resolve_package_types(&mut self, package_name: &str) -> Result<Option<String>> {
+        // First try to resolve the package itself
+        let package = self.resolve_package(package_name)?;
+
+        // If the package has embedded types, return those
+        if let Some(types) = &package.types {
+            return Ok(Some(format!("{}/{}", package_name, types)));
+        }
+
+        // Otherwise, check for @types package
+        if package.has_types_package {
+            let types_package_name = self.get_types_package_name(package_name);
+            // Try to resolve the @types package
+            if let Ok(types_package) = self.resolve_npm_package(&types_package_name) {
+                if let Some(main) = &types_package.main {
+                    return Ok(Some(format!("{}/{}", types_package_name, main)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Extract exported names from package.json (simplified)
     fn extract_exports(&self, package_json: &PackageJson) -> Vec<String> {
         let mut exports = Vec::new();
@@ -649,7 +760,6 @@ impl PackageResolver {
         if use_esm {
             // When using ESM, we need to handle CommonJS packages specially
             if package.module_type == ModuleType::CommonJS
-                && imports.len() > 1
                 && imports.iter().any(|i| i != &package.name && i != "default")
             {
                 // CommonJS packages with named imports need special handling in ESM
@@ -760,6 +870,8 @@ mod tests {
             main: Some("index.js".to_string()),
             module_type: ModuleType::CommonJS,
             exports: vec!["default".to_string()],
+            types: None,
+            has_types_package: false,
         };
 
         assert_eq!(resolver.get_import_path(&package, None), "express");
@@ -783,6 +895,8 @@ mod tests {
             main: Some("index.js".to_string()),
             module_type: ModuleType::ESModule,
             exports: vec!["default".to_string()],
+            types: None,
+            has_types_package: false,
         };
 
         let stmt =
@@ -797,6 +911,8 @@ mod tests {
             main: Some("index.js".to_string()),
             module_type: ModuleType::CommonJS,
             exports: vec!["default".to_string()],
+            types: None,
+            has_types_package: false,
         };
 
         let stmt =
@@ -869,6 +985,9 @@ mod tests {
             exports: Some(exports.clone()),
             dependencies: None,
             peer_dependencies: None,
+            dev_dependencies: None,
+            types: None,
+            typings: None,
         };
 
         // Test exact match
@@ -912,9 +1031,12 @@ mod tests {
             main: Some("index.js".to_string()),
             module: None,
             module_type: Some("module".to_string()),
+            types: None,
+            typings: None,
             exports: None,
             dependencies: None,
             peer_dependencies: None,
+            dev_dependencies: None,
         };
         let module_type = resolver
             .detect_module_type(&package_json, "index.js", Path::new("/tmp/test"))
@@ -931,6 +1053,9 @@ mod tests {
             exports: None,
             dependencies: None,
             peer_dependencies: None,
+            dev_dependencies: None,
+            types: None,
+            typings: None,
         };
         let module_type = resolver
             .detect_module_type(&package_json, "index.mjs", Path::new("/tmp/test"))
@@ -947,6 +1072,9 @@ mod tests {
             exports: None,
             dependencies: None,
             peer_dependencies: None,
+            dev_dependencies: None,
+            types: None,
+            typings: None,
         };
         let module_type = resolver
             .detect_module_type(&package_json, "index.cjs", Path::new("/tmp/test"))
@@ -969,6 +1097,9 @@ mod tests {
             exports: Some(exports),
             dependencies: None,
             peer_dependencies: None,
+            dev_dependencies: None,
+            types: None,
+            typings: None,
         };
         // This should detect as ESModule because it has both import and require
         let module_type = resolver
@@ -986,10 +1117,87 @@ mod tests {
             exports: None,
             dependencies: None,
             peer_dependencies: None,
+            dev_dependencies: None,
+            types: None,
+            typings: None,
         };
         let module_type = resolver
             .detect_module_type(&package_json, "esm/index.js", Path::new("/tmp/test"))
             .unwrap();
         assert_eq!(module_type, ModuleType::ESModule);
+    }
+
+    #[test]
+    fn test_typescript_definitions() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = HuskConfig::default();
+        let resolver = PackageResolver::new(temp_dir.path().to_path_buf(), config);
+
+        // Test package with types field
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            types: Some("index.d.ts".to_string()),
+            typings: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+        };
+
+        let types_path = resolver.resolve_types_path(&package_json, temp_dir.path());
+        assert_eq!(types_path, Some("index.d.ts".to_string()));
+
+        // Test package with typings field
+        let package_json_typings = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            types: None,
+            typings: Some("lib/index.d.ts".to_string()),
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+        };
+
+        let types_path = resolver.resolve_types_path(&package_json_typings, temp_dir.path());
+        assert_eq!(types_path, Some("lib/index.d.ts".to_string()));
+
+        // Test auto-detection of index.d.ts
+        let package_json_auto = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            types: None,
+            typings: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+        };
+
+        // Create index.d.ts file
+        fs::write(temp_dir.path().join("index.d.ts"), "export {}").unwrap();
+
+        let types_path = resolver.resolve_types_path(&package_json_auto, temp_dir.path());
+        assert_eq!(types_path, Some("index.d.ts".to_string()));
+
+        // Test @types package name conversion
+        assert_eq!(resolver.get_types_package_name("express"), "@types/express");
+        assert_eq!(
+            resolver.get_types_package_name("@angular/core"),
+            "@types/angular__core"
+        );
     }
 }
