@@ -1,7 +1,22 @@
 [package]
-name = "husk"
+name = "husk-lang"
 version = "0.1.0"
 edition = "2021"
+description = "Rust's syntax meets JavaScript's flexibility - Choose your own adventure: Run interpreted for rapid development or transpile to JavaScript for the entire npm ecosystem"
+license = "MIT"
+authors = ["Felipe Coury <felipe.coury@gmail.com>"]
+repository = "https://github.com/fcoury/husk"
+homepage = "https://husk-lang.org"
+documentation = "https://husk-lang.org/docs"
+keywords = [
+  "language",
+  "interpreter",
+  "transpiler",
+  "javascript",
+  "rust-syntax",
+]
+categories = ["development-tools", "compilers", "command-line-utilities"]
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.86"
