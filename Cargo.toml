@@ -1,6 +1,6 @@
 [package]
 name = "husk-lang"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Rust's syntax meets JavaScript's flexibility - Choose your own adventure: Run interpreted for rapid development or transpile to JavaScript for the entire npm ecosystem"
 license = "MIT"
