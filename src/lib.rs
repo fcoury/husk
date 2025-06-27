@@ -17,6 +17,7 @@ mod semantic_error_tests;
 mod span;
 pub mod test_registry;
 pub mod test_runner;
+pub mod test_transpiler;
 mod transpiler;
 mod transpiler_error_tests;
 mod types;
@@ -83,9 +84,11 @@ pub use error::{Error, Result};
 pub use interpreter::{InterpreterVisitor, Value};
 pub use lexer::Lexer;
 pub use package_resolver::PackageResolver;
-pub use parser::Parser;
+pub use parser::{Parser, Stmt};
 pub use repl::repl;
 pub use semantic::SemanticVisitor;
+pub use test_registry::TestRegistry;
+pub use test_runner::TestResult;
 use transpiler::JsTranspiler;
 
 pub fn execute_script(code: impl Into<String>) -> Result<Value> {
