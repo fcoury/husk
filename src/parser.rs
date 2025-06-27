@@ -4960,13 +4960,13 @@ mod tests {
 
     #[test]
     fn test_unary_negation_float() {
-        let mut parser = create_parser_for_expr("-3.14");
+        let mut parser = create_parser_for_expr("-3.15");
         let expr = parser.parse_unary_expression().unwrap();
         assert_eq!(
             expr,
             Expr::UnaryOp(
                 UnaryOp::Neg,
-                Box::new(Expr::Float(3.14, Span::new(1, 5))),
+                Box::new(Expr::Float(3.15, Span::new(1, 5))),
                 Span::new(0, 5)
             )
         );
@@ -5230,14 +5230,14 @@ mod tests {
 
     #[test]
     fn test_parse_type_cast_chain() {
-        let ast = parse("3.14 as int as float;");
+        let ast = parse("3.15 as int as float;");
         assert_eq!(ast.len(), 1);
         match &ast[0] {
             Stmt::Expression(Expr::Cast(inner, target_type, _), _) => {
                 assert_eq!(target_type, "float");
                 match &**inner {
                     Expr::Cast(inner2, target_type2, _) => {
-                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.14));
+                        assert!(matches!(**inner2, Expr::Float(f, _) if f == 3.15));
                         assert_eq!(target_type2, "int");
                     }
                     _ => panic!("Expected nested Cast expression"),
