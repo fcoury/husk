@@ -12,6 +12,10 @@ struct Cli {
 
     /// Run a hash script
     file: Option<std::path::PathBuf>,
+
+    /// Disable colored output
+    #[clap(long, global = true)]
+    no_color: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -77,6 +81,10 @@ struct Test {
     /// Number of test threads (interpreter mode only)
     #[clap(long, default_value = "1")]
     test_threads: usize,
+
+    /// Disable colored output
+    #[clap(long)]
+    no_color: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -108,23 +116,24 @@ struct Compile {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let no_color = cli.no_color;
 
     if let Some(file) = cli.file {
-        return run_command(file);
+        return run_command(file, no_color);
     }
 
     match cli.cmd {
-        Some(Command::Run(run)) => run_command(run.file)?,
-        Some(Command::Compile(compile)) => compile_command(compile)?,
-        Some(Command::Build(build)) => build_command(build)?,
+        Some(Command::Run(run)) => run_command(run.file, no_color)?,
+        Some(Command::Compile(compile)) => compile_command(compile, no_color)?,
+        Some(Command::Build(build)) => build_command(build, no_color)?,
         Some(Command::New(new)) => new_command(new)?,
-        Some(Command::Test(test)) => test_command(test)?,
+        Some(Command::Test(test)) => test_command(test, no_color)?,
         Some(Command::Repl) | None => repl()?,
     };
     Ok(())
 }
 
-fn run_command(file: PathBuf) -> anyhow::Result<()> {
+fn run_command(file: PathBuf, no_color: bool) -> anyhow::Result<()> {
     let code = std::fs::read_to_string(&file)?;
 
     // Determine project root (for now, use parent of src directory if it exists)
@@ -143,7 +152,8 @@ fn run_command(file: PathBuf) -> anyhow::Result<()> {
     match husk::execute_script_with_context(&code, Some(file), project_root) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("{}", e.pretty_print(code));
+            let mut stderr = Vec::new();
+            e.write_colored(&mut stderr, &code, no_color).unwrap();
             std::process::exit(1);
         }
     }
@@ -151,7 +161,7 @@ fn run_command(file: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_command(cli: Build) -> anyhow::Result<()> {
+fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
     use husk::HuskConfig;
     use std::fs;
 
@@ -268,12 +278,13 @@ fn find_husk_files(dir: &std::path::Path) -> anyhow::Result<Vec<std::path::PathB
     Ok(husk_files)
 }
 
-fn compile_command(cli: Compile) -> anyhow::Result<()> {
+fn compile_command(cli: Compile, no_color: bool) -> anyhow::Result<()> {
     let code = std::fs::read_to_string(cli.file)?;
     match husk::transpile_to_js_with_packages(&code) {
         Ok(js) => println!("{}", js),
         Err(e) => {
-            eprintln!("{}", e.pretty_print(code));
+            let mut stderr = Vec::new();
+            e.write_colored(&mut stderr, &code, no_color).unwrap();
             std::process::exit(1);
         }
     }
@@ -351,7 +362,7 @@ module = "esm"
     Ok(())
 }
 
-fn test_command(cli: Test) -> anyhow::Result<()> {
+fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
     use husk::test_runner::{TestConfig, TestRunner};
     use husk::{Lexer, Parser, SemanticVisitor};
     use std::fs;
@@ -389,7 +400,9 @@ fn test_command(cli: Test) -> anyhow::Result<()> {
         let ast = match parser.parse() {
             Ok(ast) => ast,
             Err(e) => {
-                eprintln!("Parse error in {:?}: {}", file_path, e.pretty_print(code));
+                eprint!("Parse error in {:?}: ", file_path);
+                let mut stderr = Vec::new();
+                e.write_colored(&mut stderr, &code, no_color).unwrap();
                 continue;
             }
         };
@@ -397,11 +410,9 @@ fn test_command(cli: Test) -> anyhow::Result<()> {
         // Run semantic analysis with test discovery
         let mut analyzer = SemanticVisitor::new();
         if let Err(e) = analyzer.analyze(&ast) {
-            eprintln!(
-                "Semantic error in {:?}: {}",
-                file_path,
-                e.pretty_print(code)
-            );
+            eprint!("Semantic error in {:?}: ", file_path);
+            let mut stderr = Vec::new();
+            e.write_colored(&mut stderr, &code, no_color).unwrap();
             continue;
         }
 
@@ -429,6 +440,7 @@ fn test_command(cli: Test) -> anyhow::Result<()> {
                 filter: cli.filter.clone(),
                 test_threads: cli.test_threads,
                 show_timing: cli.show_timing,
+                no_color: cli.no_color || no_color,
             };
 
             let runner = TestRunner::new(ast, config);

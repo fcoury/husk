@@ -1,5 +1,7 @@
 use std::fmt;
+use std::io::Write;
 
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use thiserror::Error;
 
 use crate::span::Span;
@@ -43,6 +45,85 @@ impl Error {
             Error::Transpiler(message, span) => pretty_print(code, message, span),
             Error::Config(message) => format!("Configuration Error: {}", message),
         }
+    }
+
+    pub fn pretty_print_colored(&self, code: impl Into<String>, no_color: bool) -> String {
+        // Use a string buffer to build the colored output
+        let mut buffer = Vec::new();
+        self.write_colored(&mut buffer, code, no_color).unwrap();
+        String::from_utf8(buffer).unwrap()
+    }
+
+    pub fn write_colored<W: Write>(
+        &self,
+        _writer: &mut W,
+        code: impl Into<String>,
+        no_color: bool,
+    ) -> std::io::Result<()> {
+        let code = code.into();
+
+        // Determine color choice
+        let color_choice = if no_color {
+            ColorChoice::Never
+        } else if atty::is(atty::Stream::Stderr) {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        };
+
+        // Only use color if we're writing to a TTY
+        if color_choice == ColorChoice::Auto {
+            let mut stderr = StandardStream::stderr(color_choice);
+
+            // Write error type in red
+            stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true))?;
+            write!(&mut stderr, "error")?;
+            stderr.reset()?;
+
+            // Write location info
+            if let Some(span) = self.span() {
+                write!(&mut stderr, ": ")?;
+                stderr.set_color(ColorSpec::new().set_bold(true))?;
+                write!(
+                    &mut stderr,
+                    "{}:{}",
+                    span.line_number(&code),
+                    span.column_number(&code)
+                )?;
+                stderr.reset()?;
+            }
+
+            // Write message
+            write!(&mut stderr, " - {}", self.message())?;
+
+            // Write code snippet with underline
+            if let Some(span) = self.span() {
+                writeln!(&mut stderr)?;
+                let snippet = span.pretty_print(&code);
+
+                // Split the snippet into lines
+                let lines: Vec<&str> = snippet.lines().collect();
+
+                // Write the code line
+                if !lines.is_empty() {
+                    writeln!(&mut stderr, "{}", lines[0])?;
+                }
+
+                // Write the underline in red
+                if lines.len() > 1 {
+                    stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true))?;
+                    writeln!(&mut stderr, "{}", lines[1])?;
+                    stderr.reset()?;
+                }
+            } else {
+                writeln!(&mut stderr)?;
+            }
+        } else {
+            // No color - just print plain text
+            eprintln!("{}", self.pretty_print(&code));
+        }
+
+        Ok(())
     }
 
     fn span(&self) -> Option<&Span> {
