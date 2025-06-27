@@ -337,61 +337,48 @@ impl PackageResolver {
         package: &ResolvedPackage,
         imports: &[String],
         subpath: Option<&str>,
+        use_esm: bool,
     ) -> String {
         let import_path = self.get_import_path(package, subpath);
 
-        match package.module_type {
-            ModuleType::ESModule => {
-                // Check if importing the package name itself (default import)
-                if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
-                    format!("import {} from \"{}\"", imports[0], import_path)
-                } else if imports.contains(&"default".to_string()) {
-                    let named_imports: Vec<_> =
-                        imports.iter().filter(|&name| name != "default").collect();
-                    if named_imports.is_empty() {
-                        format!("import {} from \"{}\"", package.name, import_path)
-                    } else {
-                        format!(
-                            "import {}, {{ {} }} from \"{}\"",
-                            package.name,
-                            named_imports
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                            import_path
-                        )
-                    }
+        if use_esm {
+            // Always use ESM imports when the project is configured for ESM
+            if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
+                format!("import {} from \"{}\"", imports[0], import_path)
+            } else if imports.contains(&"default".to_string()) {
+                let named_imports: Vec<_> =
+                    imports.iter().filter(|&name| name != "default").collect();
+                if named_imports.is_empty() {
+                    format!("import {} from \"{}\"", package.name, import_path)
                 } else {
                     format!(
-                        "import {{ {} }} from \"{}\"",
-                        imports.join(", "),
+                        "import {}, {{ {} }} from \"{}\"",
+                        package.name,
+                        named_imports
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         import_path
                     )
                 }
+            } else {
+                format!(
+                    "import {{ {} }} from \"{}\"",
+                    imports.join(", "),
+                    import_path
+                )
             }
-            ModuleType::CommonJS => {
-                if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
-                    format!("const {} = require(\"{}\")", imports[0], import_path)
-                } else {
-                    format!(
-                        "const {{ {} }} = require(\"{}\")",
-                        imports.join(", "),
-                        import_path
-                    )
-                }
-            }
-            _ => {
-                // Fallback to CommonJS
-                if imports.len() == 1 && imports[0] == package.name {
-                    format!("const {} = require(\"{}\")", package.name, import_path)
-                } else {
-                    format!(
-                        "const {{ {} }} = require(\"{}\")",
-                        imports.join(", "),
-                        import_path
-                    )
-                }
+        } else {
+            // Use CommonJS require
+            if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
+                format!("const {} = require(\"{}\")", imports[0], import_path)
+            } else {
+                format!(
+                    "const {{ {} }} = require(\"{}\")",
+                    imports.join(", "),
+                    import_path
+                )
             }
         }
     }
@@ -464,8 +451,9 @@ mod tests {
             exports: vec!["default".to_string()],
         };
 
-        let stmt = resolver.generate_import_statement(&esm_package, &["default".to_string()], None);
-        assert_eq!(stmt, "import express from \"express\";");
+        let stmt =
+            resolver.generate_import_statement(&esm_package, &["default".to_string()], None, true);
+        assert_eq!(stmt, "import express from \"express\"");
 
         // CommonJS package
         let cjs_package = ResolvedPackage {
@@ -477,16 +465,18 @@ mod tests {
             exports: vec!["default".to_string()],
         };
 
-        let stmt = resolver.generate_import_statement(&cjs_package, &["default".to_string()], None);
-        assert_eq!(stmt, "const lodash = require(\"lodash\");");
+        let stmt =
+            resolver.generate_import_statement(&cjs_package, &["default".to_string()], None, false);
+        assert_eq!(stmt, "const lodash = require(\"lodash\")");
 
         // Named imports
         let stmt = resolver.generate_import_statement(
             &esm_package,
             &["Router".to_string(), "json".to_string()],
             None,
+            true,
         );
-        assert_eq!(stmt, "import { Router, json } from \"express\";");
+        assert_eq!(stmt, "import { Router, json } from \"express\"");
     }
 
     #[test]

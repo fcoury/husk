@@ -46,19 +46,21 @@ This document tracks the implementation progress of npm support improvements in 
 ---
 
 ### Task 1.3: Consistent Module Format
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: HIGH  
 **Description**: Ensure consistent use of either import or require (not mixed)
 
 **Changes**:
-- [ ] Add module_format field to JsTranspiler
-- [ ] Detect target module format from config
-- [ ] Use consistent import/require based on target
-- [ ] Default to ESM for packages with "type": "module"
+- [x] Add module_format field to JsTranspiler
+- [x] Detect target module format from config
+- [x] Use consistent import/require based on target
+- [x] Default to ESM for packages with "type": "module"
+- [x] Update Node.js built-ins to use consistent format
 
-**Files to modify**:
-- `src/transpiler.rs` - Add module format support
-- `src/lib.rs` - Pass configuration to transpiler
+**Files modified**:
+- `src/transpiler.rs` - Added ModuleFormat enum and module_format field
+- `src/package_resolver.rs` - Updated generate_import_statement to respect module format
+- Fixed all Node.js built-in imports (fs, path, readline, fsPromises)
 
 ---
 
@@ -147,7 +149,7 @@ This document tracks the implementation progress of npm support improvements in 
 ### Phase 1 Commits
 - [x] feat: make package.json generation default behavior
 - [x] fix: correct import path generation for npm packages
-- [ ] feat: add consistent module format support
+- [x] feat: add consistent module format support
 - [ ] fix: improve package resolution and exports handling
 
 ---
@@ -161,7 +163,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 1.2 completed)
+Last Updated: 2024-12-27 (Task 1.3 completed)
 
 ## Implementation Details
 
@@ -179,3 +181,11 @@ Last Updated: 2024-12-27 (Task 1.2 completed)
 - Fixed generate_import_statement() to handle default imports correctly
 - Removed semicolons from import statement generation (transpiler adds them)
 - Import paths now correctly generate as "express" instead of "express/express"
+
+### Task 1.3 Implementation Notes
+- Added ModuleFormat enum to track whether to use ESM or CommonJS
+- Transpiler determines module format from husk.toml build.module setting
+- Updated generate_import_statement() to take use_esm parameter
+- All imports now consistently use the project's module format
+- Fixed Node.js built-in modules (fs, path, readline) to use import statements when in ESM mode
+- Note: CommonJS packages in ESM mode may require special handling (Task 1.4)

@@ -7,10 +7,17 @@ use crate::{
     span::Span,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleFormat {
+    CommonJS,
+    ESModule,
+}
+
 pub struct JsTranspiler {
     indent_level: usize,
     package_resolver: Option<PackageResolver>,
     method_registry: TranspilerMethodRegistry,
+    module_format: ModuleFormat,
 }
 
 impl JsTranspiler {
@@ -19,16 +26,35 @@ impl JsTranspiler {
             indent_level: 0,
             package_resolver: None,
             method_registry: TranspilerMethodRegistry::new(),
+            module_format: ModuleFormat::ESModule, // Default to ESM
         }
     }
 
     /// Create a new transpiler with package resolution enabled
     pub fn with_package_resolver() -> Result<Self> {
+        // Get the module format from the project config
+        let resolver = PackageResolver::from_current_dir()?;
+        let module_format = Self::determine_module_format(&resolver);
+
         Ok(Self {
             indent_level: 0,
-            package_resolver: Some(PackageResolver::from_current_dir()?),
+            package_resolver: Some(resolver),
             method_registry: TranspilerMethodRegistry::new(),
+            module_format,
         })
+    }
+
+    /// Determine the module format based on project configuration
+    fn determine_module_format(resolver: &PackageResolver) -> ModuleFormat {
+        let config = resolver.get_project_dependencies();
+
+        // Check if the project's package.json specifies module type
+        // For now, we'll default to ESM if the build module is "esm"
+        match config.build.module.as_str() {
+            "esm" => ModuleFormat::ESModule,
+            "cjs" | "commonjs" => ModuleFormat::CommonJS,
+            _ => ModuleFormat::ESModule, // Default to ESM
+        }
     }
 
     pub fn generate(&mut self, stmts: &[Stmt]) -> Result<String> {
@@ -154,8 +180,13 @@ impl JsTranspiler {
 
         // Add IO functions
         output.push_str("\n// File I/O functions\n");
-        output.push_str("const fs = require('fs');\n");
-        output.push_str("const path = require('path');\n\n");
+        if self.module_format == ModuleFormat::ESModule {
+            output.push_str("import fs from 'fs';\n");
+            output.push_str("import path from 'path';\n\n");
+        } else {
+            output.push_str("const fs = require('fs');\n");
+            output.push_str("const path = require('path');\n\n");
+        }
 
         // read_file
         output.push_str("function read_file(filePath) {\n");
@@ -340,7 +371,11 @@ impl JsTranspiler {
 
         // Console IO functions
         output.push_str("// Console I/O functions\n");
-        output.push_str("const readline = require('readline');\n\n");
+        if self.module_format == ModuleFormat::ESModule {
+            output.push_str("import readline from 'readline';\n\n");
+        } else {
+            output.push_str("const readline = require('readline');\n\n");
+        }
 
         output.push_str("function read_line() {\n");
         output.push_str("  try {\n");
@@ -361,7 +396,11 @@ impl JsTranspiler {
 
         // Async file I/O functions
         output.push_str("// Async File I/O functions\n");
-        output.push_str("const fsPromises = require('fs').promises;\n\n");
+        if self.module_format == ModuleFormat::ESModule {
+            output.push_str("import { promises as fsPromises } from 'fs';\n\n");
+        } else {
+            output.push_str("const fsPromises = require('fs').promises;\n\n");
+        }
 
         // read_file_async
         output.push_str("async function read_file_async(filePath) {\n");
@@ -1740,10 +1779,12 @@ impl AstVisitor<String> for JsTranspiler {
 
                     match resolver.resolve_package(package_name) {
                         Ok(resolved_package) => {
+                            let use_esm = self.module_format == ModuleFormat::ESModule;
                             let import_statement = resolver.generate_import_statement(
                                 &resolved_package,
                                 &import_names,
                                 subpath.as_deref(),
+                                use_esm,
                             );
                             Ok(import_statement)
                         }
