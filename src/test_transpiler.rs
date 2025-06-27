@@ -495,7 +495,7 @@ describe('Husk Tests', () => {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{parser::Attribute, span::Span};
+    use crate::span::Span;
 
     #[test]
     fn test_generate_husk_runtime() {

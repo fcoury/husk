@@ -3,7 +3,7 @@
 // Mock external JS function that returns a Promise
 extern fn fetch(url: string) -> Promise<string>;
 
-// Function using .await? for safe Promise handling  
+// Function using .await? for safe Promise handling
 async fn fetch_data(url: string) -> Result<string, any> {
     let response = fetch(url).await?;  // Converts Promise<string> to Result<string, JsError>
     Result::Ok(response)
@@ -20,8 +20,8 @@ async fn fetch_and_process(url: string) -> Result<string, any> {
 async fn test_demo() -> string {
     let result = fetch_and_process("https://api.example.com/data").await;
     match result {
-        Result::Ok(data) => format!("Success: {}", data)
-        Result::Err(error) => "Failed to fetch data"
+        Result::Ok(data) => format!("Success: {}", data),
+        Result::Err(error) => "Failed to fetch data",
     }
 }
 
