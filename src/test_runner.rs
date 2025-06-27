@@ -6,7 +6,9 @@ use crate::{
     test_registry::{TestFunction, TestRegistry},
     Value,
 };
+use std::io::Write;
 use std::time::{Duration, Instant};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 /// Result of running a single test
 #[derive(Debug)]
@@ -77,6 +79,8 @@ pub struct TestConfig {
     pub test_threads: usize,
     /// Whether to show detailed timing
     pub show_timing: bool,
+    /// Whether to disable colored output
+    pub no_color: bool,
 }
 
 impl Default for TestConfig {
@@ -89,6 +93,7 @@ impl Default for TestConfig {
             filter: None,
             test_threads: 1,
             show_timing: false,
+            no_color: false,
         }
     }
 }
@@ -520,13 +525,29 @@ impl TestRunner {
 
     /// Print a single test result
     fn print_test_result(&self, result: &TestResult) {
-        let status = if result.ignored {
-            "ignored"
-        } else if result.passed {
-            "ok"
+        let mut stdout = StandardStream::stdout(if self.config.no_color {
+            ColorChoice::Never
+        } else if atty::is(atty::Stream::Stdout) {
+            ColorChoice::Auto
         } else {
-            "FAILED"
+            ColorChoice::Never
+        });
+
+        write!(&mut stdout, "test {} ... ", result.name).unwrap();
+
+        let (status, color) = if result.ignored {
+            ("ignored", Color::Yellow)
+        } else if result.passed {
+            ("ok", Color::Green)
+        } else {
+            ("FAILED", Color::Red)
         };
+
+        stdout
+            .set_color(ColorSpec::new().set_fg(Some(color)))
+            .unwrap();
+        write!(&mut stdout, "{}", status).unwrap();
+        stdout.reset().unwrap();
 
         let timing = if self.config.show_timing {
             format!(" ({:.3}s)", result.duration.as_secs_f64())
@@ -534,7 +555,7 @@ impl TestRunner {
             String::new()
         };
 
-        println!("test {} ... {}{}", result.name, status, timing);
+        writeln!(&mut stdout, "{}", timing).unwrap();
 
         // Show output if requested or if test failed
         if !result.output.is_empty() && (self.config.show_output || !result.passed) {
@@ -547,7 +568,11 @@ impl TestRunner {
 
         // Show error if test failed
         if let Some(error) = &result.error {
-            println!("---- {} stderr ----", result.name);
+            stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
+                .unwrap();
+            writeln!(&mut stdout, "---- {} stderr ----", result.name).unwrap();
+            stdout.reset().unwrap();
             println!("{}", error);
             println!();
         }
@@ -555,6 +580,14 @@ impl TestRunner {
 
     /// Print test summary
     fn print_summary(&self, results: &[TestResult], total_duration: Duration) {
+        let mut stdout = StandardStream::stdout(if self.config.no_color {
+            ColorChoice::Never
+        } else if atty::is(atty::Stream::Stdout) {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        });
+
         let passed = results.iter().filter(|r| r.passed && !r.ignored).count();
         let failed = results.iter().filter(|r| !r.passed).count();
         let ignored = results.iter().filter(|r| r.ignored).count();
@@ -562,7 +595,11 @@ impl TestRunner {
         println!();
 
         if failed > 0 {
-            println!("failures:");
+            stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
+                .unwrap();
+            writeln!(&mut stdout, "failures:").unwrap();
+            stdout.reset().unwrap();
             println!();
             for result in results.iter().filter(|r| !r.passed) {
                 println!("    {}", result.name);
@@ -571,19 +608,47 @@ impl TestRunner {
         }
 
         let result_str = if failed > 0 { "FAILED" } else { "ok" };
+        let result_color = if failed > 0 { Color::Red } else { Color::Green };
 
-        print!("test result: {}. ", result_str);
-        print!("{} passed; ", passed);
+        write!(&mut stdout, "test result: ").unwrap();
+        stdout
+            .set_color(ColorSpec::new().set_fg(Some(result_color)))
+            .unwrap();
+        write!(&mut stdout, "{}", result_str).unwrap();
+        stdout.reset().unwrap();
+        write!(&mut stdout, ". ").unwrap();
+
+        stdout
+            .set_color(ColorSpec::new().set_fg(Some(Color::Green)))
+            .unwrap();
+        write!(&mut stdout, "{} passed", passed).unwrap();
+        stdout.reset().unwrap();
+        write!(&mut stdout, "; ").unwrap();
+
         if failed > 0 {
-            print!("{} failed; ", failed);
+            stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
+                .unwrap();
+            write!(&mut stdout, "{} failed", failed).unwrap();
+            stdout.reset().unwrap();
+            write!(&mut stdout, "; ").unwrap();
         }
+
         if ignored > 0 {
-            print!("{} ignored; ", ignored);
+            stdout
+                .set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))
+                .unwrap();
+            write!(&mut stdout, "{} ignored", ignored).unwrap();
+            stdout.reset().unwrap();
+            write!(&mut stdout, "; ").unwrap();
         }
-        println!(
+
+        writeln!(
+            &mut stdout,
             "0 measured; 0 filtered out; finished in {:.2}s",
             total_duration.as_secs_f64()
-        );
+        )
+        .unwrap();
 
         if failed > 0 {
             println!();
