@@ -85,14 +85,14 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czf ../../../${{ matrix.name }}.tar.gz husk-lang
+          tar -czf ../../../${{ matrix.name }}.tar.gz husk
           cd -
 
       - name: Package binary (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../${{ matrix.name }}.zip husk-lang.exe
+          7z a ../../../${{ matrix.name }}.zip husk.exe
           cd -
 
       - name: Upload binary artifact

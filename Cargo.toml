@@ -18,6 +18,10 @@ keywords = [
 categories = ["development-tools", "compilers", "command-line-utilities"]
 readme = "README.md"
 
+[[bin]]
+name = "husk"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.86"
 atty = "0.2"
