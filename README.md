@@ -12,6 +12,9 @@
   <a href="https://github.com/fcoury/husk/actions">
     <img src="https://github.com/fcoury/husk/actions/workflows/rust.yml/badge.svg" alt="Build Status" />
   </a>
+  <a href="https://crates.io/crates/husk-lang">
+    <img src="https://img.shields.io/crates/v/husk-lang.svg" alt="Crates.io" />
+  </a>
   <a href="https://opensource.org/licenses/MIT">
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   </a>
@@ -19,10 +22,6 @@
     <img src="https://img.shields.io/badge/Website-husk--lang.org-orange.svg" alt="Website" />
   </a>
 </p>
-
-<!--
-[![Crates.io](https://img.shields.io/crates/v/husk.svg)](https://crates.io/crates/husk)
--->
 
 Husk is a lightweight interpreted language that brings Rust's elegant syntax to the world of scripting and JavaScript development. Write type-safe, expressive code with the flexibility to run it instantly or compile it for production use with full access to npm's 1M+ packages.
 
@@ -91,7 +90,7 @@ node dist/app.js
 
 ```bash
 # Install Husk (requires Rust/Cargo)
-cargo install husk
+cargo install husk-lang
 ```
 
 ### Your First Husk Program
