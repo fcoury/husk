@@ -1776,9 +1776,31 @@ impl AstVisitor<Type> for SemanticVisitor {
                     )),
                 }
             }
+            Type::Tuple(element_types) => {
+                // Handle tuple index access
+                if let Ok(index) = field.parse::<usize>() {
+                    if index < element_types.len() {
+                        Ok(element_types[index].clone())
+                    } else {
+                        Err(Error::new_semantic(
+                            format!(
+                                "Tuple index {} out of bounds (tuple has {} elements)",
+                                index,
+                                element_types.len()
+                            ),
+                            *span,
+                        ))
+                    }
+                } else {
+                    Err(Error::new_semantic(
+                        format!("Invalid tuple index '{}'. Expected a number.", field),
+                        *span,
+                    ))
+                }
+            }
             _ => Err(Error::new_semantic(
                 format!(
-                    "Cannot access field '{}' on non-struct type: {}",
+                    "Cannot access field '{}' on non-struct/non-tuple type: {}",
                     field, object_type
                 ),
                 *span,

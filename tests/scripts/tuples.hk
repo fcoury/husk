@@ -1,0 +1,7 @@
+let a = (1, 2, 3);
+let b = (4, 5);
+
+println!("Tuple a: {}", a);
+println!("Tuple b: {}", b);
+println!("Sum of first elements: {}", a.0 + b.0);
+println!("Sum of second elements: {}", a.1 + b.1);

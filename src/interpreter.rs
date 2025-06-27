@@ -1795,8 +1795,31 @@ impl AstVisitor<Value> for InterpreterVisitor {
                             );
                             Ok(Value::Unit)
                         }
+                        Value::Tuple(mut elements) => {
+                            // Handle tuple index assignment
+                            if let Ok(index) = field.parse::<usize>() {
+                                if index < elements.len() {
+                                    elements[index] = value;
+                                    self.set_var(
+                                        actual_var_name.to_string(),
+                                        Value::Tuple(elements),
+                                    );
+                                    Ok(Value::Unit)
+                                } else {
+                                    Err(Error::new_runtime(
+                                        format!("Tuple index {} out of bounds", index),
+                                        *span,
+                                    ))
+                                }
+                            } else {
+                                Err(Error::new_runtime(
+                                    format!("Invalid tuple index '{}'", field),
+                                    *span,
+                                ))
+                            }
+                        }
                         _ => Err(Error::new_runtime(
-                            "Cannot assign to field of non-struct value".to_string(),
+                            "Cannot assign to field of non-struct or non-tuple value".to_string(),
                             *span,
                         )),
                     }
@@ -1913,8 +1936,40 @@ impl AstVisitor<Value> for InterpreterVisitor {
                             );
                             Ok(Value::Unit)
                         }
+                        Value::Tuple(mut elements) => {
+                            // Handle tuple index compound assignment
+                            if let Ok(index) = field.parse::<usize>() {
+                                if index < elements.len() {
+                                    let current_value = elements[index].clone();
+                                    let right_val = self.visit_expr(right)?;
+                                    let result = Self::evaluate_binary_op(
+                                        self,
+                                        current_value,
+                                        op,
+                                        right_val,
+                                        *span,
+                                    )?;
+                                    elements[index] = result;
+                                    self.set_var(
+                                        actual_var_name.to_string(),
+                                        Value::Tuple(elements),
+                                    );
+                                    Ok(Value::Unit)
+                                } else {
+                                    Err(Error::new_runtime(
+                                        format!("Tuple index {} out of bounds", index),
+                                        *span,
+                                    ))
+                                }
+                            } else {
+                                Err(Error::new_runtime(
+                                    format!("Invalid tuple index '{}'", field),
+                                    *span,
+                                ))
+                            }
+                        }
                         _ => Err(Error::new_runtime(
-                            "Cannot assign to field of non-struct value".to_string(),
+                            "Cannot assign to field of non-struct or non-tuple value".to_string(),
                             *span,
                         )),
                     }
@@ -2052,6 +2107,19 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 .get(field)
                 .cloned()
                 .ok_or_else(|| Error::new_runtime(format!("Field '{}' not found", field), *span)),
+            Value::Tuple(elements) => {
+                // Handle tuple index access
+                if let Ok(index) = field.parse::<usize>() {
+                    elements.get(index).cloned().ok_or_else(|| {
+                        Error::new_runtime(format!("Tuple index {} out of bounds", index), *span)
+                    })
+                } else {
+                    Err(Error::new_runtime(
+                        format!("Invalid tuple index '{}'", field),
+                        *span,
+                    ))
+                }
+            }
             _ => {
                 // Check if it's a method call (will be handled by function call)
                 if let Expr::Identifier(struct_name, _) = object {
