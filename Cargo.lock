@@ -229,7 +229,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "husk"
+name = "husk-lang"
 version = "0.1.0"
 dependencies = [
  "anyhow",
