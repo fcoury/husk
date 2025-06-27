@@ -44,7 +44,10 @@ This document provides an overview of the key language features implemented in H
 ### Compilation Targets
 
 - **Interpreter Mode** - Direct execution in Rust-based interpreter
-- **JavaScript Transpilation** - Compilation to modern JavaScript for web platforms
+- **[JavaScript Transpilation](advanced/javascript-transpilation.md)** - Compilation to modern JavaScript for web and Node.js deployment
+  - Zero-overhead abstractions
+  - Full npm ecosystem access
+  - Source map support for debugging
 
 ## Implementation Status
 

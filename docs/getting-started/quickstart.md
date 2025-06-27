@@ -341,6 +341,7 @@ println!("Pi is approximately {:.2}", pi); // "Pi is approximately 3.14"
 Let's combine what we've learned into a simple todo list program:
 
 ```rust
+// Save as todo.hk
 struct Todo {
     id: int,
     task: string,
@@ -400,6 +401,19 @@ fn print_todos(todos: &array<Todo>) {
     }
 }
 ```
+
+### Running the Program
+
+```bash
+# Run directly
+husk run todo.hk
+
+# Or compile to JavaScript
+husk build todo.hk --target js
+node todo.js
+```
+
+The program works identically whether run in the Husk interpreter or compiled to JavaScript!
 
 ## Key Takeaways
 

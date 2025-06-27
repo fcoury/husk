@@ -68,7 +68,7 @@ Hello, World!
 
 ### Method 2: Compile and Run
 
-Compile to JavaScript and run with Node.js:
+Husk can transpile your code to JavaScript, making it runnable anywhere JavaScript runs:
 
 ```bash
 # Compile to JavaScript
@@ -77,6 +77,17 @@ husk build hello.hk --target js
 # Run the generated JavaScript
 node hello.js
 ```
+
+The generated `hello.js` will contain:
+```javascript
+function main() {
+    console.log("Hello, World!");
+}
+
+main();
+```
+
+This JavaScript can run in Node.js, browsers, or any JavaScript environment!
 
 ### Method 3: Interactive Mode
 

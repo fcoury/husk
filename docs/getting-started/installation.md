@@ -126,17 +126,24 @@ Hello from Husk!
 
 ### 3. Check JavaScript Transpilation
 
-Compile to JavaScript:
+Husk can transpile your code to JavaScript for web and Node.js deployment:
 
 ```bash
 husk build hello.hk --target js
 ```
 
-This should create `hello.js` that you can run with Node.js:
+This creates `hello.js` that you can run with Node.js:
 
 ```bash
 node hello.js
 ```
+
+Expected output:
+```
+Hello from Husk!
+```
+
+For more details on JavaScript transpilation, see the [JavaScript Transpilation Guide](../advanced/javascript-transpilation.md).
 
 ## Environment Setup
 

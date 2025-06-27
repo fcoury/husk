@@ -42,8 +42,9 @@ Welcome to the official documentation for Husk, a modern programming language th
 - **[Migrating from JavaScript](tutorials/from-javascript.md)** - Guide for JS developers
 
 ### Advanced Topics
+- **[JavaScript Transpilation](advanced/javascript-transpilation.md)** - Compiling to JavaScript
 - **[Memory Management](advanced/memory.md)** - How Husk manages memory
-- **[JavaScript Interop](advanced/js-interop.md)** - Transpilation and interoperability
+- **[JavaScript Interop](advanced/js-interop.md)** - Working with JavaScript code
 - **[Performance Optimization](advanced/performance.md)** - Writing efficient code
 - **[Best Practices](advanced/best-practices.md)** - Idiomatic Husk patterns
 

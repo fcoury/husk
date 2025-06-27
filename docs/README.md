@@ -30,13 +30,13 @@ Welcome to the official documentation for the Husk programming language. This gu
 ### Additional Resources
 
 - **[Closures and Higher-Order Functions](language_features/CLOSURES.md)** - Deep dive into functional programming
+- **[JavaScript Transpilation](advanced/javascript-transpilation.md)** - Compiling Husk to JavaScript
 
 More documentation sections will be added here as the language evolves, including:
 - Pattern Matching Guide
 - Error Handling Guide
 - Build System Documentation
 - Module System Guide
-- JavaScript Interop Guide
 - Contributing Guidelines
 
 ## 🚀 Quick Start
