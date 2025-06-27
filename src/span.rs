@@ -27,6 +27,16 @@ impl Span {
         let code: String = code.into();
         let code_chars: Vec<char> = code.chars().collect();
 
+        // Validate span bounds
+        if self.start > code_chars.len() || self.end > code_chars.len() || self.start > self.end {
+            return format!(
+                "<invalid span: start={}, end={}, code_len={}>",
+                self.start,
+                self.end,
+                code_chars.len()
+            );
+        }
+
         // Find the start of the line containing the span
         let line_start = code_chars[..self.start]
             .iter()
