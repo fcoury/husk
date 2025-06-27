@@ -1,0 +1,25 @@
+// Test tuple index accessors
+let t1 = (1, 2, 3);
+let t2 = (4.5, "hello", true);
+let nested = ((1, 2), (3, 4));
+
+// Basic access
+println!("t1.0 = {}", t1.0);
+println!("t1.1 = {}", t1.1);
+println!("t1.2 = {}", t1.2);
+
+println!("t2.0 = {}", t2.0);
+println!("t2.1 = {}", t2.1);
+println!("t2.2 = {}", t2.2);
+
+// Nested access
+println!("nested.0.0 = {}", nested.0.0);
+println!("nested.0.1 = {}", nested.0.1);
+println!("nested.1.0 = {}", nested.1.0);
+println!("nested.1.1 = {}", nested.1.1);
+
+// In expressions
+let sum = t1.0 + t1.1 + t1.2;
+println!("Sum of t1 elements: {}", sum);
+
+// Test completed - mutation tests removed as 'let mut' is not supported yet

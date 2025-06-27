@@ -1,0 +1,4 @@
+Tuple a: (1, 2, 3)
+Tuple b: (4, 5)
+Sum of first elements: 5
+Sum of second elements: 7

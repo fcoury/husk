@@ -3121,6 +3121,63 @@ impl Parser {
                 TokenKind::Dot => {
                     self.advance(); // Consume '.'
 
+                    // First check for integer (tuple index)
+                    if let TokenKind::Int(index) = &self.current_token().kind {
+                        let field_name = index.to_string();
+                        self.advance(); // Consume the integer
+
+                        let end_span = self.current_token().span.start;
+                        left = Expr::MemberAccess(
+                            Box::new(left),
+                            field_name,
+                            Span::new(start_span, end_span),
+                        );
+                        continue;
+                    }
+
+                    // Handle the case where we get a float like 0.0 after a dot
+                    // This happens with chained tuple access like x.0.0
+                    if let TokenKind::Float(f) = &self.current_token().kind {
+                        // Check if it looks like "digit.digit" pattern
+                        let float_str = if f.fract() == 0.0 && *f >= 0.0 && *f < 10.0 {
+                            // For small integers displayed as floats, force decimal representation
+                            format!("{:.1}", f)
+                        } else {
+                            f.to_string()
+                        };
+
+                        if let Some(dot_pos) = float_str.find('.') {
+                            let before_dot = &float_str[..dot_pos];
+                            let after_dot = &float_str[dot_pos + 1..];
+
+                            // If both parts are valid integers, treat this as chained tuple access
+                            if let (Ok(first_idx), Ok(second_idx)) =
+                                (before_dot.parse::<usize>(), after_dot.parse::<usize>())
+                            {
+                                // Apply both tuple accesses
+                                self.advance(); // Consume the float
+
+                                // First access
+                                left = Expr::MemberAccess(
+                                    Box::new(left),
+                                    first_idx.to_string(),
+                                    Span::new(start_span, self.current_token().span.start),
+                                );
+
+                                // Second access
+                                let second_span = self.current_token().span.start;
+                                left = Expr::MemberAccess(
+                                    Box::new(left),
+                                    second_idx.to_string(),
+                                    Span::new(start_span, second_span),
+                                );
+
+                                continue;
+                            }
+                        }
+                        // If we get here, it's a regular float, not tuple indices
+                    }
+
                     // Check if this is .await
                     if let TokenKind::Identifier(field) = &self.current_token().kind {
                         if field == "await" {

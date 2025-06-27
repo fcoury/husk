@@ -1036,7 +1036,15 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_member_access(&mut self, object: &Expr, field: &str, _span: &Span) -> Result<String> {
         let obj_str = self.visit_expr(object)?;
-        Ok(format!("{}.{}", obj_str, field))
+
+        // Check if field is a numeric index (for tuple access)
+        if field.parse::<usize>().is_ok() {
+            // Use bracket notation for numeric indices
+            Ok(format!("{}[{}]", obj_str, field))
+        } else {
+            // Use dot notation for regular field access
+            Ok(format!("{}.{}", obj_str, field))
+        }
     }
 
     fn visit_enum_variant_or_method_call(
