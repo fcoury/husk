@@ -19,10 +19,10 @@
     <!-- Navigation -->
     <nav class="navbar">
         <div class="container">
-            <div class="nav-brand">
+            <a href="index.html" class="nav-brand">
                 <img src="assets/img/icon.svg" alt="Husk Logo" class="nav-logo">
                 <span class="nav-title">Husk</span>
-            </div>
+            </a>
             <button class="nav-toggle" aria-label="Toggle navigation">
                 <span></span>
                 <span></span>
@@ -43,7 +43,7 @@
         <div class="container">
             <div class="hero-content">
                 <h1 class="hero-title">Rust's syntax meets JavaScript's flexibility</h1>
-                <p class="hero-subtitle">A lightweight interpreted language that brings Rust's elegance to scripting</p>
+                <p class="hero-subtitle">Choose your own adventure: Run interpreted for rapid development or transpile to JavaScript for the entire npm ecosystem</p>
                 
                 <div class="hero-demo">
                     <div class="code-compare">
@@ -90,6 +90,136 @@ main();</code></pre>
         </div>
     </section>
 
+    <!-- Choose Your Path -->
+    <section class="choose-path">
+        <div class="container">
+            <h2 class="section-title">Choose Your Own Adventure</h2>
+            <p class="section-subtitle">Husk adapts to your workflow with two powerful execution modes</p>
+            
+            <div class="paths-container">
+                <div class="path-card interpreter-path">
+                    <div class="path-icon">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="9" y1="9" x2="15" y2="9"></line>
+                            <line x1="9" y1="13" x2="12" y2="13"></line>
+                            <polyline points="12 17 13 17 15 13"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Interpreter Path</h3>
+                    <div class="path-badge">Quick & Iterative</div>
+                    <p>Perfect for rapid prototyping and learning</p>
+                    
+                    <div class="path-features">
+                        <ul>
+                            <li>Zero configuration</li>
+                            <li>Instant feedback with REPL</li>
+                            <li>No build step required</li>
+                            <li>Great for scripting & CLI tools</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="path-example">
+                        <pre><code class="language-bash"># Run directly - no setup needed!
+husk run script.husk
+
+# Or use the REPL
+husk repl
+> let x = 42
+> println(x)</code></pre>
+                    </div>
+                    
+                    <div class="path-use-cases">
+                        <strong>Best for:</strong>
+                        <span class="use-case-tag">Build Scripts</span>
+                        <span class="use-case-tag">CLI Tools</span>
+                        <span class="use-case-tag">Prototyping</span>
+                        <span class="use-case-tag">Learning</span>
+                    </div>
+                </div>
+                
+                <div class="path-divider">
+                    <span>OR</span>
+                </div>
+                
+                <div class="path-card transpiler-path">
+                    <div class="path-icon">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="16 18 22 12 16 6"></polyline>
+                            <polyline points="8 6 2 12 8 18"></polyline>
+                            <path d="M12 2v20"></path>
+                        </svg>
+                    </div>
+                    <h3>Transpiler Path</h3>
+                    <div class="path-badge">Production Ready</div>
+                    <p>Tap into the entire JavaScript ecosystem</p>
+                    
+                    <div class="path-features">
+                        <ul>
+                            <li>Access 1M+ npm packages</li>
+                            <li>Deploy anywhere JS runs</li>
+                            <li>TypeScript-like workflow</li>
+                            <li>Browser & Node.js compatible</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="path-example">
+                        <pre><code class="language-bash"># Build your project
+husk build
+
+# Use with npm packages
+npm install express
+node dist/app.js</code></pre>
+                    </div>
+                    
+                    <div class="path-use-cases">
+                        <strong>Best for:</strong>
+                        <span class="use-case-tag">Web Apps</span>
+                        <span class="use-case-tag">npm Packages</span>
+                        <span class="use-case-tag">Production</span>
+                        <span class="use-case-tag">Integration</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="ecosystem-showcase">
+                <h3>Leverage the JavaScript Ecosystem</h3>
+                <p>When you transpile to JavaScript, you get access to the entire npm ecosystem</p>
+                <div class="ecosystem-logos">
+                    <div class="logo-item">
+                        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/react/react-original.svg" alt="React">
+                        <span>React</span>
+                    </div>
+                    <div class="logo-item">
+                        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/express/express-original.svg" alt="Express">
+                        <span>Express</span>
+                    </div>
+                    <div class="logo-item">
+                        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/vuejs/vuejs-original.svg" alt="Vue">
+                        <span>Vue.js</span>
+                    </div>
+                    <div class="logo-item">
+                        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/nextjs/nextjs-original.svg" alt="Next.js">
+                        <span>Next.js</span>
+                    </div>
+                    <div class="logo-item">
+                        <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/jest/jest-plain.svg" alt="Jest">
+                        <span>Jest</span>
+                    </div>
+                    <div class="logo-item more-packages">
+                        <div class="npm-indicator">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 3h18v18H3V3zm1.5 1.5v15h15v-15h-15zm7.5 3h1.5v9h-1.5v-9zm3 0h1.5v9h-1.5v-9zm-6 0h1.5v9h-1.5v-9z"/>
+                            </svg>
+                            <span class="package-count">1M+</span>
+                        </div>
+                        <span>npm packages</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Key Features -->
     <section class="features">
         <div class="container">
@@ -111,12 +241,14 @@ main();</code></pre>
                 <div class="feature-card">
                     <div class="feature-icon">
                         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="16 18 22 12 16 6"></polyline>
-                            <polyline points="8 6 2 12 8 18"></polyline>
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                            <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                            <line x1="15" y1="9" x2="15.01" y2="9"></line>
                         </svg>
                     </div>
-                    <h3>Dual Execution</h3>
-                    <p>Run your code interpreted for quick iteration or transpile to JavaScript for production deployment</p>
+                    <h3>Best of Both Worlds</h3>
+                    <p>Rust's elegant syntax with JavaScript's ecosystem - use 1M+ npm packages while writing clean, type-safe code</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">
