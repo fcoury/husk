@@ -160,20 +160,31 @@ impl PackageResolver {
         let package_json_path = package_path.join("package.json");
         let package_json = self.load_package_json(&package_json_path)?;
 
-        let main_file = package_json
-            .main
-            .clone()
-            .or_else(|| package_json.module.clone())
-            .unwrap_or_else(|| "index.js".to_string());
+        // Resolve the main entry point based on exports field if present
+        let main_file = if let Some(exports) = &package_json.exports {
+            self.resolve_exports_entry(exports, ".", &package_json)?
+        } else {
+            // Fallback to traditional main/module fields
+            package_json
+                .main
+                .clone()
+                .or_else(|| package_json.module.clone())
+                .unwrap_or_else(|| "index.js".to_string())
+        };
 
         let module_type = match package_json.module_type.as_deref() {
             Some("module") => ModuleType::ESModule,
             Some("commonjs") => ModuleType::CommonJS,
             _ => {
-                // Guess based on file extension and main field
-                if main_file.ends_with(".mjs") || package_json.module.is_some() {
+                // Guess based on file extension and presence of module field
+                if main_file.ends_with(".mjs")
+                    || package_json.module.is_some()
+                    || (package_json.exports.is_some() && package_json.module_type.is_none())
+                {
+                    // Packages with exports field and no explicit type are often ESM
                     ModuleType::ESModule
                 } else {
+                    // Default to CommonJS for compatibility
                     ModuleType::CommonJS
                 }
             }
@@ -273,6 +284,52 @@ impl PackageResolver {
         Ok(package_json)
     }
 
+    /// Resolve an entry from the exports field
+    fn resolve_exports_entry(
+        &self,
+        exports: &serde_json::Value,
+        entry_path: &str,
+        package_json: &PackageJson,
+    ) -> Result<String> {
+        match exports {
+            // Simple string export
+            serde_json::Value::String(path) => Ok(path.clone()),
+
+            // Conditional exports object
+            serde_json::Value::Object(map) => {
+                // Check for the specific entry path
+                if let Some(entry_value) = map.get(entry_path) {
+                    return self.resolve_exports_entry(entry_value, entry_path, package_json);
+                }
+
+                // Try common conditions in order of preference
+                let conditions = ["default", "node", "require", "import"];
+                for condition in &conditions {
+                    if let Some(condition_value) = map.get(*condition) {
+                        if let Ok(path) =
+                            self.resolve_exports_entry(condition_value, entry_path, package_json)
+                        {
+                            return Ok(path);
+                        }
+                    }
+                }
+
+                // Fallback to main/module
+                Ok(package_json
+                    .main
+                    .clone()
+                    .or_else(|| package_json.module.clone())
+                    .unwrap_or_else(|| "index.js".to_string()))
+            }
+
+            _ => Ok(package_json
+                .main
+                .clone()
+                .or_else(|| package_json.module.clone())
+                .unwrap_or_else(|| "index.js".to_string())),
+        }
+    }
+
     /// Extract exported names from package.json (simplified)
     fn extract_exports(&self, package_json: &PackageJson) -> Vec<String> {
         let mut exports = Vec::new();
@@ -342,10 +399,33 @@ impl PackageResolver {
         let import_path = self.get_import_path(package, subpath);
 
         if use_esm {
-            // Always use ESM imports when the project is configured for ESM
-            if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
-                format!("import {} from \"{}\"", imports[0], import_path)
+            // When using ESM, we need to handle CommonJS packages specially
+            if package.module_type == ModuleType::CommonJS
+                && imports.len() > 1
+                && imports.iter().any(|i| i != &package.name && i != "default")
+            {
+                // CommonJS packages with named imports need special handling in ESM
+                // Import as default and destructure
+                let import_var =
+                    format!("__{}_pkg", package.name.replace('-', "_").replace('@', "_"));
+                format!(
+                    "import {} from \"{}\";\nconst {{ {} }} = {}",
+                    import_var,
+                    import_path,
+                    imports.join(", "),
+                    import_var
+                )
+            } else if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default")
+            {
+                // Default import - use package name when importing "default"
+                let import_name = if imports[0] == "default" {
+                    &package.name
+                } else {
+                    &imports[0]
+                };
+                format!("import {} from \"{}\"", import_name, import_path)
             } else if imports.contains(&"default".to_string()) {
+                // Mixed default and named imports
                 let named_imports: Vec<_> =
                     imports.iter().filter(|&name| name != "default").collect();
                 if named_imports.is_empty() {
@@ -363,6 +443,7 @@ impl PackageResolver {
                     )
                 }
             } else {
+                // Named imports only
                 format!(
                     "import {{ {} }} from \"{}\"",
                     imports.join(", "),
@@ -372,7 +453,12 @@ impl PackageResolver {
         } else {
             // Use CommonJS require
             if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
-                format!("const {} = require(\"{}\")", imports[0], import_path)
+                let import_name = if imports[0] == "default" {
+                    &package.name
+                } else {
+                    &imports[0]
+                };
+                format!("const {} = require(\"{}\")", import_name, import_path)
             } else {
                 format!(
                     "const {{ {} }} = require(\"{}\")",

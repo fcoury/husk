@@ -468,7 +468,11 @@ impl JsTranspiler {
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);
-            output.push_str(";\n");
+            // Don't add semicolon if the statement already ends with one or contains multiple statements
+            if !js_code.ends_with(';') && !js_code.contains('\n') {
+                output.push_str(";");
+            }
+            output.push('\n');
         }
 
         Ok(output)

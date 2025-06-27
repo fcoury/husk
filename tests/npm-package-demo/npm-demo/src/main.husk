@@ -21,3 +21,5 @@ fn main() {
     
     println!("Express app created successfully!");
 }
+
+main();
