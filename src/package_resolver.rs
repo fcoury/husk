@@ -297,12 +297,61 @@ impl PackageResolver {
 
             // Conditional exports object
             serde_json::Value::Object(map) => {
-                // Check for the specific entry path
+                // First, try exact match for the entry path
                 if let Some(entry_value) = map.get(entry_path) {
-                    return self.resolve_exports_entry(entry_value, entry_path, package_json);
+                    // The value could be a string or another conditional object
+                    match entry_value {
+                        serde_json::Value::String(_) => {
+                            return self.resolve_exports_entry(
+                                entry_value,
+                                entry_path,
+                                package_json,
+                            );
+                        }
+                        serde_json::Value::Object(conditions) => {
+                            // Try to resolve based on conditions
+                            let condition_order = ["import", "require", "default", "node"];
+                            for condition in &condition_order {
+                                if let Some(condition_value) = conditions.get(*condition) {
+                                    if let Ok(path) = self.resolve_exports_entry(
+                                        condition_value,
+                                        entry_path,
+                                        package_json,
+                                    ) {
+                                        return Ok(path);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
 
-                // Try common conditions in order of preference
+                // Try wildcard patterns
+                for (pattern, value) in map {
+                    if pattern.contains('*') {
+                        // Simple wildcard matching: "./foo/*" matches "./foo/bar"
+                        let pattern_prefix = pattern.trim_end_matches('*');
+                        if entry_path.starts_with(pattern_prefix) {
+                            // Replace * with the matched part
+                            let matched_part = &entry_path[pattern_prefix.len()..];
+                            if let serde_json::Value::String(target) = value {
+                                let resolved = target.replace('*', matched_part);
+                                return Ok(resolved);
+                            }
+                        }
+                    }
+                }
+
+                // If entry_path is not ".", it's a subpath that wasn't found
+                if entry_path != "." {
+                    return Err(Error::new_config(format!(
+                        "Export '{}' not found in package exports",
+                        entry_path
+                    )));
+                }
+
+                // Try common conditions in order of preference for main export
                 let conditions = ["default", "node", "require", "import"];
                 for condition in &conditions {
                     if let Some(condition_value) = map.get(*condition) {
@@ -378,6 +427,48 @@ impl PackageResolver {
             && !import_path.starts_with("./")
             && !import_path.starts_with("../")
             && !import_path.starts_with("/")
+    }
+
+    /// Resolve a subpath export for a package
+    pub fn resolve_package_subpath(&mut self, package_name: &str, subpath: &str) -> Result<String> {
+        let node_modules_path = self.project_root.join("node_modules");
+        let package_path = node_modules_path.join(package_name);
+        let package_json_path = package_path.join("package.json");
+
+        if !package_json_path.exists() {
+            return Err(Error::new_config(format!(
+                "Package '{package_name}' not found in node_modules"
+            )));
+        }
+
+        let package_json = self.load_package_json(&package_json_path)?;
+
+        // If the package has exports field, use it to resolve subpath
+        if let Some(exports) = &package_json.exports {
+            let entry_path = if subpath.starts_with("./") {
+                subpath.to_string()
+            } else {
+                format!("./{}", subpath)
+            };
+
+            match self.resolve_exports_entry(exports, &entry_path, &package_json) {
+                Ok(resolved) => {
+                    // Return the resolved path relative to the package
+                    Ok(format!(
+                        "{}/{}",
+                        package_name,
+                        resolved.trim_start_matches("./")
+                    ))
+                }
+                Err(_) => {
+                    // Fallback to direct subpath if exports resolution fails
+                    Ok(format!("{}/{}", package_name, subpath))
+                }
+            }
+        } else {
+            // No exports field, use direct subpath
+            Ok(format!("{}/{}", package_name, subpath))
+        }
     }
 
     /// Get the JavaScript import path for a resolved package
@@ -594,5 +685,61 @@ mod tests {
         assert_eq!(package_json.main, Some("lib/index.js".to_string()));
         assert_eq!(package_json.module, Some("es/index.js".to_string()));
         assert_eq!(package_json.module_type, Some("module".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_exports_entry() {
+        let config = HuskConfig::default();
+        let resolver = PackageResolver::new(PathBuf::from("/tmp"), config);
+
+        // Test data
+        let exports = serde_json::json!({
+            ".": "./index.js",
+            "./utils": "./lib/utils.js",
+            "./helpers/*": "./lib/helpers/*.js",
+            "./features": {
+                "import": "./esm/features.js",
+                "require": "./cjs/features.js"
+            }
+        });
+
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            exports: Some(exports.clone()),
+            dependencies: None,
+            peer_dependencies: None,
+        };
+
+        // Test exact match
+        let result = resolver
+            .resolve_exports_entry(&exports, "./utils", &package_json)
+            .unwrap();
+        assert_eq!(result, "./lib/utils.js");
+
+        // Test wildcard match
+        let result = resolver
+            .resolve_exports_entry(&exports, "./helpers/date", &package_json)
+            .unwrap();
+        assert_eq!(result, "./lib/helpers/date.js");
+
+        // Test conditional exports
+        let result = resolver
+            .resolve_exports_entry(&exports, "./features", &package_json)
+            .unwrap();
+        assert_eq!(result, "./esm/features.js"); // Should prefer import over require
+
+        // Test main export
+        let result = resolver
+            .resolve_exports_entry(&exports, ".", &package_json)
+            .unwrap();
+        assert_eq!(result, "./index.js");
+
+        // Test non-existent export
+        let result = resolver.resolve_exports_entry(&exports, "./nonexistent", &package_json);
+        assert!(result.is_err());
     }
 }

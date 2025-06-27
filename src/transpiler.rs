@@ -1783,11 +1783,27 @@ impl AstVisitor<String> for JsTranspiler {
 
                     match resolver.resolve_package(package_name) {
                         Ok(resolved_package) => {
+                            // If we have a subpath, resolve it through exports field
+                            let resolved_subpath = if let Some(ref subpath) = subpath {
+                                match resolver.resolve_package_subpath(package_name, subpath) {
+                                    Ok(resolved) => {
+                                        // Extract just the subpath part from the resolved path
+                                        resolved
+                                            .strip_prefix(&format!("{}/", package_name))
+                                            .map(|s| s.to_string())
+                                            .or(Some(subpath.clone()))
+                                    }
+                                    Err(_) => Some(subpath.clone()),
+                                }
+                            } else {
+                                None
+                            };
+
                             let use_esm = self.module_format == ModuleFormat::ESModule;
                             let import_statement = resolver.generate_import_statement(
                                 &resolved_package,
                                 &import_names,
-                                subpath.as_deref(),
+                                resolved_subpath.as_deref(),
                                 use_esm,
                             );
                             Ok(import_statement)

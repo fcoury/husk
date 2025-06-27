@@ -85,8 +85,20 @@ This document tracks the implementation progress of npm support improvements in 
 ## Phase 2: Enhanced Package Resolution (Week 2)
 
 ### Task 2.1: Implement Exports Field Resolution
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: MEDIUM  
+**Description**: Enhanced package.json exports field resolution for subpath imports
+
+**Changes**:
+- [x] Enhanced resolve_exports_entry() to handle nested conditional exports
+- [x] Added support for wildcard patterns in exports (e.g., "./foo/*")
+- [x] Added resolve_package_subpath() method for subpath resolution
+- [x] Integrated subpath resolution into transpiler's visit_use()
+- [x] Support for conditional exports (import/require/default/node)
+
+**Files modified**:
+- `src/package_resolver.rs` - Enhanced exports field resolution with wildcard and conditional support
+- `src/transpiler.rs` - Integrated subpath resolution in visit_use method  
 
 ### Task 2.2: Better Module Type Detection
 **Status**: ⏳ Not Started  
@@ -165,7 +177,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 1.4 completed - Phase 1 complete!)
+Last Updated: 2024-12-27 (Task 2.1 completed)
 
 ## Implementation Details
 
@@ -202,3 +214,13 @@ Last Updated: 2024-12-27 (Task 1.4 completed - Phase 1 complete!)
 - Fixed generate_import_statement to use package name when importing "default"
 - All package resolver tests passing
 - Successfully tested with lodash (CommonJS) in ESM project
+
+### Task 2.1 Implementation Notes
+- Enhanced resolve_exports_entry() to handle nested conditional exports objects
+- Added support for wildcard patterns using simple string matching and replacement
+- Conditional exports resolution order: import → require → default → node
+- Added resolve_package_subpath() public method for resolving subpath imports
+- Integrated with transpiler to resolve subpaths through exports field when available
+- Falls back to direct subpath if exports resolution fails
+- Added comprehensive test for exports field resolution
+- Successfully tested with axios subpath imports (./lib/adapters/http)

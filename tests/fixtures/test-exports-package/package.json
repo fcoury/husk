@@ -1,0 +1,15 @@
+{
+  "name": "test-exports-package",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./utils": "./lib/utils.js",
+    "./helpers/*": "./lib/helpers/*.js",
+    "./features": {
+      "import": "./esm/features.js",
+      "require": "./cjs/features.js"
+    }
+  }
+}
