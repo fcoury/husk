@@ -63,7 +63,7 @@ mod tests {
                 assert!(js.contains("new_point"));
                 assert!(js.contains("console.log"));
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 
@@ -87,7 +87,7 @@ mod tests {
                 assert!(js.contains("%"));
                 assert!(js.contains("(-5)"));
             }
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 }

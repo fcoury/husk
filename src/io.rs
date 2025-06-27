@@ -12,9 +12,9 @@ pub fn read_file(path: &str, span: &Span) -> Result<Value> {
         Ok(contents) => Ok(Value::String(contents)),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("File not found: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                _ => format!("IO error reading {}: {}", path, e),
+                std::io::ErrorKind::NotFound => format!("File not found: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                _ => format!("IO error reading {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -31,9 +31,9 @@ pub fn read_file_bytes(path: &str, span: &Span) -> Result<Value> {
         }
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("File not found: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                _ => format!("IO error reading {}: {}", path, e),
+                std::io::ErrorKind::NotFound => format!("File not found: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                _ => format!("IO error reading {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -52,9 +52,9 @@ pub fn read_lines(path: &str, span: &Span) -> Result<Value> {
         }
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("File not found: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                _ => format!("IO error reading {}: {}", path, e),
+                std::io::ErrorKind::NotFound => format!("File not found: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                _ => format!("IO error reading {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -67,9 +67,9 @@ pub fn write_file(path: &str, contents: &str, span: &Span) -> Result<Value> {
         Ok(()) => Ok(Value::Unit),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                std::io::ErrorKind::InvalidInput => format!("Invalid path: {}", path),
-                _ => format!("IO error writing {}: {}", path, e),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                std::io::ErrorKind::InvalidInput => format!("Invalid path: {path}"),
+                _ => format!("IO error writing {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -85,7 +85,7 @@ pub fn write_file_bytes(path: &str, data: &[Value], span: &Span) -> Result<Value
             Value::Int(n) => {
                 if *n < 0 || *n > 255 {
                     return Err(Error::new_runtime(
-                        &format!("Byte value out of range at index {}: {}", i, n),
+                        format!("Byte value out of range at index {i}: {n}"),
                         *span,
                     ));
                 }
@@ -93,7 +93,7 @@ pub fn write_file_bytes(path: &str, data: &[Value], span: &Span) -> Result<Value
             }
             _ => {
                 return Err(Error::new_runtime(
-                    &format!("Expected integer at index {}, got {:?}", i, val),
+                    format!("Expected integer at index {i}, got {val:?}"),
                     *span,
                 ))
             }
@@ -104,9 +104,9 @@ pub fn write_file_bytes(path: &str, data: &[Value], span: &Span) -> Result<Value
         Ok(()) => Ok(Value::Unit),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                std::io::ErrorKind::InvalidInput => format!("Invalid path: {}", path),
-                _ => format!("IO error writing {}: {}", path, e),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                std::io::ErrorKind::InvalidInput => format!("Invalid path: {path}"),
+                _ => format!("IO error writing {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -122,15 +122,15 @@ pub fn append_file(path: &str, contents: &str, span: &Span) -> Result<Value> {
         Ok(mut file) => match file.write_all(contents.as_bytes()) {
             Ok(()) => Ok(Value::Unit),
             Err(e) => Err(Error::new_runtime(
-                &format!("IO error appending to {}: {}", path, e),
+                format!("IO error appending to {path}: {e}"),
                 *span,
             )),
         },
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                std::io::ErrorKind::InvalidInput => format!("Invalid path: {}", path),
-                _ => format!("IO error opening {}: {}", path, e),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                std::io::ErrorKind::InvalidInput => format!("Invalid path: {path}"),
+                _ => format!("IO error opening {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -174,7 +174,7 @@ pub fn read_line(span: &Span) -> Result<Value> {
             let error_msg = match e.kind() {
                 std::io::ErrorKind::UnexpectedEof => "Unexpected end of input".to_string(),
                 std::io::ErrorKind::Interrupted => "Input interrupted".to_string(),
-                _ => format!("IO error reading from stdin: {}", e),
+                _ => format!("IO error reading from stdin: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -187,10 +187,10 @@ pub fn create_dir(path: &str, span: &Span) -> Result<Value> {
         Ok(()) => Ok(Value::Unit),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::AlreadyExists => format!("Directory already exists: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                std::io::ErrorKind::NotFound => format!("Parent directory not found: {}", path),
-                _ => format!("IO error creating directory {}: {}", path, e),
+                std::io::ErrorKind::AlreadyExists => format!("Directory already exists: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                std::io::ErrorKind::NotFound => format!("Parent directory not found: {path}"),
+                _ => format!("IO error creating directory {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -203,9 +203,9 @@ pub fn create_dir_all(path: &str, span: &Span) -> Result<Value> {
         Ok(()) => Ok(Value::Unit),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                std::io::ErrorKind::InvalidInput => format!("Invalid path: {}", path),
-                _ => format!("IO error creating directories {}: {}", path, e),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                std::io::ErrorKind::InvalidInput => format!("Invalid path: {path}"),
+                _ => format!("IO error creating directories {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -218,23 +218,23 @@ pub fn remove_dir(path: &str, span: &Span) -> Result<Value> {
         Ok(()) => Ok(Value::Unit),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("Directory not found: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
+                std::io::ErrorKind::NotFound => format!("Directory not found: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
                 _ => {
                     // Check if directory is not empty
                     if Path::new(path).is_dir() {
                         match fs::read_dir(path) {
                             Ok(mut entries) => {
                                 if entries.next().is_some() {
-                                    format!("Directory not empty: {}", path)
+                                    format!("Directory not empty: {path}")
                                 } else {
-                                    format!("IO error removing directory {}: {}", path, e)
+                                    format!("IO error removing directory {path}: {e}")
                                 }
                             }
-                            _ => format!("IO error removing directory {}: {}", path, e),
+                            _ => format!("IO error removing directory {path}: {e}"),
                         }
                     } else {
-                        format!("IO error removing directory {}: {}", path, e)
+                        format!("IO error removing directory {path}: {e}")
                     }
                 }
             };
@@ -249,9 +249,9 @@ pub fn remove_dir_all(path: &str, span: &Span) -> Result<Value> {
         Ok(()) => Ok(Value::Unit),
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("Directory not found: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                _ => format!("IO error removing directory {}: {}", path, e),
+                std::io::ErrorKind::NotFound => format!("Directory not found: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                _ => format!("IO error removing directory {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }
@@ -334,7 +334,7 @@ pub fn read_dir(path: &str, span: &Span) -> Result<Value> {
                     }
                     Err(e) => {
                         return Err(Error::new_runtime(
-                            &format!("Error reading directory entry: {}", e),
+                            format!("Error reading directory entry: {e}"),
                             *span,
                         ))
                     }
@@ -345,10 +345,10 @@ pub fn read_dir(path: &str, span: &Span) -> Result<Value> {
         }
         Err(e) => {
             let error_msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("Directory not found: {}", path),
-                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {}", path),
-                std::io::ErrorKind::NotADirectory => format!("Not a directory: {}", path),
-                _ => format!("IO error reading directory {}: {}", path, e),
+                std::io::ErrorKind::NotFound => format!("Directory not found: {path}"),
+                std::io::ErrorKind::PermissionDenied => format!("Permission denied: {path}"),
+                std::io::ErrorKind::NotADirectory => format!("Not a directory: {path}"),
+                _ => format!("IO error reading directory {path}: {e}"),
             };
             Err(Error::new_runtime(&error_msg, *span))
         }

@@ -64,10 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let js_code = transpiler.generate_test_harness(&ast, test_registry, &config)?;
 
         // Write to file
-        let filename = format!("examples/test-{}.js", name);
+        let filename = format!("examples/test-{name}.js");
         fs::write(&filename, &js_code)?;
 
-        println!("Generated test harness: {}", filename);
+        println!("Generated test harness: {filename}");
         println!("Preview (first 500 chars):");
         println!("{}", &js_code.chars().take(500).collect::<String>());
         if js_code.len() > 500 {

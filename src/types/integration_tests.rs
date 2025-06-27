@@ -28,7 +28,7 @@ mod tests {
                         // These don't round-trip perfectly
                     }
                     _ => {
-                        assert_eq!(ty, parsed, "Round trip failed for {}", string_repr);
+                        assert_eq!(ty, parsed, "Round trip failed for {string_repr}");
                     }
                 }
             }

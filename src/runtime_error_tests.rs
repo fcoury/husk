@@ -97,7 +97,7 @@ mod tests {
                 assert!(msg.contains("match") || msg.contains("unhandled"));
             }
             Ok(_) => panic!("Expected error for non-exhaustive match"),
-            Err(e) => panic!("Unexpected error type: {:?}", e),
+            Err(e) => panic!("Unexpected error type: {e:?}"),
         }
     }
 
@@ -128,7 +128,7 @@ mod tests {
                 assert!(msg.contains("break") || msg.contains("loop"));
             }
             Ok(_) => panic!("Expected error for break outside loop"),
-            Err(e) => panic!("Unexpected error type: {:?}", e),
+            Err(e) => panic!("Unexpected error type: {e:?}"),
         }
     }
 
@@ -143,7 +143,7 @@ mod tests {
                 assert!(msg.contains("continue") || msg.contains("loop"));
             }
             Ok(_) => panic!("Expected error for continue outside loop"),
-            Err(e) => panic!("Unexpected error type: {:?}", e),
+            Err(e) => panic!("Unexpected error type: {e:?}"),
         }
     }
 

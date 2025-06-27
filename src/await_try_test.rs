@@ -11,7 +11,7 @@ mod tests {
         let result = parser.parse();
 
         if let Err(e) = &result {
-            println!("Parse error: {}", e);
+            println!("Parse error: {e}");
         }
         assert!(result.is_ok(), "Should parse .await? operator successfully");
     }

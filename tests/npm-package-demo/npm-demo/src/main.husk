@@ -1,0 +1,23 @@
+// Example demonstrating npm package usage in Husk
+use express::express;
+use lodash::{debounce, throttle, capitalize};
+use axios::axios;
+
+fn main() {
+    // Create an Express app
+    let app = express();
+    
+    // Use lodash utilities
+    let message = capitalize("hello from husk!");
+    println!("Message: {}", message);
+    
+    // Create a debounced function
+    let debounced_log = debounce(|| {
+        println!("Debounced log executed");
+    }, 1000);
+    
+    // Axios example (would be async in real usage)
+    println!("Setting up HTTP client with axios");
+    
+    println!("Express app created successfully!");
+}

@@ -67,7 +67,7 @@ mod tests {
     fn test_error_display() {
         let span = Span::new(10, 20);
         let error = Error::new_semantic("Type mismatch", span);
-        let display = format!("{}", error);
+        let display = format!("{error}");
         assert!(display.contains("Semantic error"));
         assert!(display.contains("Type mismatch"));
         // The actual format uses Debug for span which shows start and end

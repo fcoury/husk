@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  - Ignored: {}", test.ignore);
         println!("  - Should panic: {}", test.should_panic);
         if let Some(msg) = &test.panic_message {
-            println!("  - Panic message: {}", msg);
+            println!("  - Panic message: {msg}");
         }
         println!();
     }

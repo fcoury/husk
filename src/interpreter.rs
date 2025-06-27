@@ -45,10 +45,10 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Unit => write!(f, "()"),
-            Value::Int(n) => write!(f, "{}", n),
-            Value::Float(fl) => write!(f, "{}", fl),
-            Value::Bool(b) => write!(f, "{}", b),
-            Value::String(s) => write!(f, "{}", s),
+            Value::Int(n) => write!(f, "{n}"),
+            Value::Float(fl) => write!(f, "{fl}"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::String(s) => write!(f, "{s}"),
             Value::Array(elements) => {
                 let elements_str: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[{}]", elements_str.join(", "))
@@ -75,18 +75,18 @@ impl fmt::Display for Value {
                 )
             }
             Value::Function(_) => write!(f, "function"),
-            Value::Struct(name, _) => write!(f, "struct {}", name),
+            Value::Struct(name, _) => write!(f, "struct {name}"),
             Value::StructInstance(name, fields) => {
                 let mut field_strings = Vec::new();
                 for (name, value) in fields {
-                    field_strings.push(format!("{}: {:?}", name, value));
+                    field_strings.push(format!("{name}: {value:?}"));
                 }
                 write!(f, "struct {} {{{}}}", name, field_strings.join(", "))
             }
-            Value::Enum(name, _) => write!(f, "enum {}", name),
+            Value::Enum(name, _) => write!(f, "enum {name}"),
             Value::EnumVariant(name, variant, values) => {
                 if values.is_empty() {
-                    write!(f, "{}::{}", name, variant)
+                    write!(f, "{name}::{variant}")
                 } else {
                     let values_str: Vec<String> = values.iter().map(|v| v.to_string()).collect();
                     write!(f, "{}::{}({})", name, variant, values_str.join(", "))
@@ -1078,7 +1078,7 @@ impl InterpreterVisitor {
                         ) = method
                         {
                             // Create full method name with struct prefix
-                            let full_method_name = format!("{}::{}", struct_name, method_name);
+                            let full_method_name = format!("{struct_name}::{method_name}");
 
                             // Create method with closure using helper method
                             let final_func = self.create_function_with_closure(
@@ -1399,7 +1399,7 @@ impl InterpreterVisitor {
                 Operator::And => Ok(Value::Bool(a && b)),
                 Operator::Or => Ok(Value::Bool(a || b)),
                 _ => Err(Error::new_runtime(
-                    format!("Invalid operation {:?} for boolean values", op),
+                    format!("Invalid operation {op:?} for boolean values"),
                     span,
                 )),
             },
@@ -1407,7 +1407,7 @@ impl InterpreterVisitor {
                 Operator::Equals => Ok(Value::Bool(a == b)),
                 Operator::NotEquals => Ok(Value::Bool(a != b)),
                 _ => Err(Error::new_runtime(
-                    format!("Invalid operation {:?} for string values", op),
+                    format!("Invalid operation {op:?} for string values"),
                     span,
                 )),
             },
@@ -1422,12 +1422,12 @@ impl InterpreterVisitor {
                     !(type1 == type2 && variant1 == variant2 && data1 == data2),
                 )),
                 _ => Err(Error::new_runtime(
-                    format!("Invalid operation {:?} for enum values", op),
+                    format!("Invalid operation {op:?} for enum values"),
                     span,
                 )),
             },
             _ => Err(Error::new_runtime(
-                format!("Type mismatch for binary operation {:?}", op),
+                format!("Type mismatch for binary operation {op:?}"),
                 span,
             )),
         }
@@ -1574,7 +1574,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_identifier(&mut self, name: &str, span: &Span) -> Result<Value> {
         self.get_var(name)
-            .ok_or_else(|| Error::new_runtime(format!("Undefined variable: {}", name), *span))
+            .ok_or_else(|| Error::new_runtime(format!("Undefined variable: {name}"), *span))
     }
 
     fn visit_array(&mut self, elements: &[Expr], _span: &Span) -> Result<Value> {
@@ -1601,7 +1601,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             (Value::Array(elements), Value::Int(i)) => {
                 if *i < 0 || *i >= elements.len() as i64 {
                     return Err(Error::new_runtime(
-                        format!("Array index out of bounds: {}", i),
+                        format!("Array index out of bounds: {i}"),
                         *span,
                     ));
                 }
@@ -1634,10 +1634,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
             }
             (Value::Array(_), _) => Err(Error::new_runtime(
-                format!(
-                    "Array index must be an integer or range, found {:?}",
-                    index_value
-                ),
+                format!("Array index must be an integer or range, found {index_value:?}"),
                 *span,
             )),
             _ => Err(Error::new_runtime(
@@ -1749,14 +1746,14 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::Int(n) => Ok(Value::Int(-n)),
                 Value::Float(f) => Ok(Value::Float(-f)),
                 _ => Err(Error::new_runtime(
-                    format!("Cannot negate non-numeric value: {:?}", value),
+                    format!("Cannot negate non-numeric value: {value:?}"),
                     *span,
                 )),
             },
             UnaryOp::Not => match value {
                 Value::Bool(b) => Ok(Value::Bool(!b)),
                 _ => Err(Error::new_runtime(
-                    format!("Cannot apply logical NOT to non-boolean value: {:?}", value),
+                    format!("Cannot apply logical NOT to non-boolean value: {value:?}"),
                     *span,
                 )),
             },
@@ -1785,7 +1782,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
                     // Get the struct instance
                     let struct_val = self.get_var(actual_var_name).ok_or_else(|| {
-                        Error::new_runtime(format!("Undefined variable: {}", var_name), *span)
+                        Error::new_runtime(format!("Undefined variable: {var_name}"), *span)
                     })?;
 
                     match struct_val {
@@ -1812,13 +1809,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
                                     Ok(Value::Unit)
                                 } else {
                                     Err(Error::new_runtime(
-                                        format!("Tuple index {} out of bounds", index),
+                                        format!("Tuple index {index} out of bounds"),
                                         *span,
                                     ))
                                 }
                             } else {
                                 Err(Error::new_runtime(
-                                    format!("Invalid tuple index '{}'", field),
+                                    format!("Invalid tuple index '{field}'"),
                                     *span,
                                 ))
                             }
@@ -1851,7 +1848,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     Value::Array(mut elements) => {
                         if index >= elements.len() {
                             return Err(Error::new_runtime(
-                                format!("Array index out of bounds: {}", index),
+                                format!("Array index out of bounds: {index}"),
                                 *span,
                             ));
                         }
@@ -1886,7 +1883,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Expr::Identifier(name, _) => {
                 // Simple variable compound assignment (existing logic)
                 let left_val = self.get_var(name).ok_or_else(|| {
-                    Error::new_runtime(format!("Undefined variable: {}", name), *span)
+                    Error::new_runtime(format!("Undefined variable: {name}"), *span)
                 })?;
                 let right_val = self.visit_expr(right)?;
                 let result = Self::evaluate_binary_op(self, left_val, op, right_val, *span)?;
@@ -1908,7 +1905,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
                     // Get the struct instance
                     let struct_val = self.get_var(actual_var_name).ok_or_else(|| {
-                        Error::new_runtime(format!("Undefined variable: {}", var_name), *span)
+                        Error::new_runtime(format!("Undefined variable: {var_name}"), *span)
                     })?;
 
                     match struct_val {
@@ -1916,7 +1913,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                             // Get current field value
                             let current_value = fields.get(field).cloned().ok_or_else(|| {
                                 Error::new_runtime(
-                                    format!("Field '{}' not found in struct", field),
+                                    format!("Field '{field}' not found in struct"),
                                     *span,
                                 )
                             })?;
@@ -1962,13 +1959,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
                                     Ok(Value::Unit)
                                 } else {
                                     Err(Error::new_runtime(
-                                        format!("Tuple index {} out of bounds", index),
+                                        format!("Tuple index {index} out of bounds"),
                                         *span,
                                     ))
                                 }
                             } else {
                                 Err(Error::new_runtime(
-                                    format!("Invalid tuple index '{}'", field),
+                                    format!("Invalid tuple index '{field}'"),
                                     *span,
                                 ))
                             }
@@ -2013,7 +2010,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     Value::Array(mut elements) => {
                         if index >= elements.len() {
                             return Err(Error::new_runtime(
-                                format!("Array index out of bounds: {}", index),
+                                format!("Array index out of bounds: {index}"),
                                 *span,
                             ));
                         }
@@ -2044,7 +2041,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
             // Get the target struct instance
             let target_value = self.get_var(target_var).ok_or_else(|| {
-                Error::new_runtime(format!("Undefined variable: {}", target_var), *span)
+                Error::new_runtime(format!("Undefined variable: {target_var}"), *span)
             })?;
 
             // Extract the struct type name
@@ -2052,14 +2049,14 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::StructInstance(name, _) => name.clone(),
                 _ => {
                     return Err(Error::new_runtime(
-                        format!("{} is not a struct instance", target_var),
+                        format!("{target_var} is not a struct instance"),
                         *span,
                     ))
                 }
             };
 
             // Build the full method name
-            let full_method_name = format!("{}::{}", struct_name, method_name);
+            let full_method_name = format!("{struct_name}::{method_name}");
 
             // Evaluate arguments and prepend 'self'
             let mut args_with_self = vec![target_value];
@@ -2078,7 +2075,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         };
 
         let func = self.get_var(&func_name).ok_or_else(|| {
-            Error::new_runtime(format!("Function '{}' not found", func_name), *span)
+            Error::new_runtime(format!("Function '{func_name}' not found"), *span)
         })?;
 
         self.execute_function_call(func, arg_values, *span)
@@ -2093,7 +2090,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         // Check if struct exists
         let _struct_def = self
             .get_var(name)
-            .ok_or_else(|| Error::new_runtime(format!("Undefined struct: {}", name), *span))?;
+            .ok_or_else(|| Error::new_runtime(format!("Undefined struct: {name}"), *span))?;
 
         let mut field_values = IndexMap::new();
         for (field_name, field_expr) in fields {
@@ -2121,16 +2118,16 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Value::StructInstance(_, fields) => fields
                 .get(field)
                 .cloned()
-                .ok_or_else(|| Error::new_runtime(format!("Field '{}' not found", field), *span)),
+                .ok_or_else(|| Error::new_runtime(format!("Field '{field}' not found"), *span)),
             Value::Tuple(elements) => {
                 // Handle tuple index access
                 if let Ok(index) = field.parse::<usize>() {
                     elements.get(index).cloned().ok_or_else(|| {
-                        Error::new_runtime(format!("Tuple index {} out of bounds", index), *span)
+                        Error::new_runtime(format!("Tuple index {index} out of bounds"), *span)
                     })
                 } else {
                     Err(Error::new_runtime(
-                        format!("Invalid tuple index '{}'", field),
+                        format!("Invalid tuple index '{field}'"),
                         *span,
                     ))
                 }
@@ -2138,13 +2135,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
             _ => {
                 // Check if it's a method call (will be handled by function call)
                 if let Expr::Identifier(struct_name, _) = object {
-                    let method_name = format!("{}::{}", struct_name, field);
+                    let method_name = format!("{struct_name}::{field}");
                     self.get_var(&method_name).ok_or_else(|| {
-                        Error::new_runtime(format!("Field or method '{}' not found", field), *span)
+                        Error::new_runtime(format!("Field or method '{field}' not found"), *span)
                     })
                 } else {
                     Err(Error::new_runtime(
-                        format!("Cannot access field '{}' on non-struct value", field),
+                        format!("Cannot access field '{field}' on non-struct value"),
                         *span,
                     ))
                 }
@@ -2176,7 +2173,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
 
             // Check if it's a method call
-            let method_name = format!("{}::{}", type_name, call);
+            let method_name = format!("{type_name}::{call}");
             if let Some(func) = self.get_var(&method_name) {
                 let mut arg_values = Vec::new();
                 for arg in args {
@@ -2187,7 +2184,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         }
 
         Err(Error::new_runtime(
-            format!("Unknown enum variant or method: {}::{}", target, call),
+            format!("Unknown enum variant or method: {target}::{call}"),
             *span,
         ))
     }
@@ -2258,7 +2255,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
                 crate::parser::EnumVariant::Struct(name, _fields) => {
                     // For struct variants, we'll store them as a special struct type
-                    variant_map.insert(name.clone(), format!("struct_{}", name));
+                    variant_map.insert(name.clone(), format!("struct_{name}"));
                 }
             }
         }
@@ -2282,7 +2279,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             Some(Value::Struct(_, _)) => {}
             _ => {
                 return Err(Error::new_runtime(
-                    format!("Undefined struct: {}", struct_name),
+                    format!("Undefined struct: {struct_name}"),
                     *span,
                 ))
             }
@@ -2298,7 +2295,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     self.environment.clone(),
                 ));
 
-                let full_name = format!("{}::{}", struct_name, method_name);
+                let full_name = format!("{struct_name}::{method_name}");
                 self.set_var(full_name, func);
             }
         }
@@ -2474,7 +2471,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
             _ => {
                 return Err(Error::new_runtime(
-                    format!("Cannot iterate over {:?}", iter_value),
+                    format!("Cannot iterate over {iter_value:?}"),
                     *span,
                 ))
             }
@@ -2880,7 +2877,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     method_impl(&obj_value, &arg_values, _span)
                 } else {
                     Err(Error::new_runtime(
-                        format!("Unknown string method: {}", method),
+                        format!("Unknown string method: {method}"),
                         *_span,
                     ))
                 }
@@ -2905,7 +2902,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                             method_impl(&obj_value, &arg_values, _span)
                         } else {
                             Err(Error::new_runtime(
-                                format!("Unknown array method: {}", method),
+                                format!("Unknown array method: {method}"),
                                 *_span,
                             ))
                         }
@@ -2914,7 +2911,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
             }
             Value::Struct(struct_name, _) => {
                 // Look up the method directly
-                let method_name = format!("{}::{}", struct_name, method);
+                let method_name = format!("{struct_name}::{method}");
                 if let Some(func) = self.get_var(&method_name) {
                     // Evaluate all arguments, prepending self as the first one
                     let mut arg_values = vec![obj_value.clone()];
@@ -2924,7 +2921,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     self.execute_function_call(func, arg_values, *_span)
                 } else {
                     Err(Error::new_runtime(
-                        format!("Unknown method: {}", method_name),
+                        format!("Unknown method: {method_name}"),
                         *_span,
                     ))
                 }
@@ -2936,7 +2933,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 }
 
                 // Look up the method directly
-                let method_name = format!("{}::{}", name, method);
+                let method_name = format!("{name}::{method}");
                 if let Some(func) = self.get_var(&method_name) {
                     // Extract the variable name if the object is a simple identifier
                     let var_name = if let Expr::Identifier(var_name, _) = object {
@@ -2961,7 +2958,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                     result
                 } else {
                     Err(Error::new_runtime(
-                        format!("Unknown method: {}", method_name),
+                        format!("Unknown method: {method_name}"),
                         *_span,
                     ))
                 }
@@ -2969,10 +2966,9 @@ impl AstVisitor<Value> for InterpreterVisitor {
             typ => {
                 Err(Error::new_runtime(
                     format!(
-                        "Cannot call method '{}' on {:?}: unexpected type {:?}",
-                        method, obj_value, typ
+                        "Cannot call method '{method}' on {obj_value:?}: unexpected type {typ:?}"
                     ),
-                    _span.clone(),
+                    *_span,
                 ))
                 // panic!("Method calls on non-string/array/struct types are not supported yet");
             }
@@ -2990,13 +2986,13 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::String(s) => match s.parse::<i64>() {
                     Ok(i) => Ok(Value::Int(i)),
                     Err(_) => Err(Error::new_runtime(
-                        format!("Cannot parse '{}' as int", s),
+                        format!("Cannot parse '{s}' as int"),
                         *span,
                     )),
                 },
                 Value::Bool(b) => Ok(Value::Int(if b { 1 } else { 0 })),
                 _ => Err(Error::new_runtime(
-                    format!("Cannot cast {:?} to int", value),
+                    format!("Cannot cast {value:?} to int"),
                     *span,
                 )),
             },
@@ -3006,12 +3002,12 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::String(s) => match s.parse::<f64>() {
                     Ok(f) => Ok(Value::Float(f)),
                     Err(_) => Err(Error::new_runtime(
-                        format!("Cannot parse '{}' as float", s),
+                        format!("Cannot parse '{s}' as float"),
                         *span,
                     )),
                 },
                 _ => Err(Error::new_runtime(
-                    format!("Cannot cast {:?} to float", value),
+                    format!("Cannot cast {value:?} to float"),
                     *span,
                 )),
             },
@@ -3021,7 +3017,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::Float(f) => Ok(Value::String(f.to_string())),
                 Value::Bool(b) => Ok(Value::String(b.to_string())),
                 _ => Err(Error::new_runtime(
-                    format!("Cannot cast {:?} to string", value),
+                    format!("Cannot cast {value:?} to string"),
                     *span,
                 )),
             },
@@ -3030,7 +3026,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 Value::Int(i) => Ok(Value::Bool(i != 0)),
                 Value::String(s) => Ok(Value::Bool(!s.is_empty())),
                 _ => Err(Error::new_runtime(
-                    format!("Cannot cast {:?} to bool", value),
+                    format!("Cannot cast {value:?} to bool"),
                     *span,
                 )),
             },
@@ -3087,7 +3083,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Use format logic if first arg is a string
                 if let Value::String(format_str) = &values[0] {
                     let formatted = self.format_string(format_str, &values[1..])?;
-                    print!("{}", formatted);
+                    print!("{formatted}");
                 } else {
                     // If not a string, just print the value
                     print!("{}", values[0]);
@@ -3095,7 +3091,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
                 io::stdout()
                     .flush()
-                    .map_err(|e| Error::new_runtime(format!("IO error: {}", e), *span))?;
+                    .map_err(|e| Error::new_runtime(format!("IO error: {e}"), *span))?;
                 Ok(Value::Int(0)) // print! returns 0 on success
             }
             "println" => {
@@ -3115,7 +3111,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Use format logic if first arg is a string
                 if let Value::String(format_str) = &values[0] {
                     let formatted = self.format_string(format_str, &values[1..])?;
-                    println!("{}", formatted);
+                    println!("{formatted}");
                 } else {
                     // If not a string, just print the value
                     println!("{}", values[0]);
@@ -3167,7 +3163,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Use format logic if first arg is a string
                 if let Value::String(format_str) = &values[0] {
                     let formatted = self.format_string(format_str, &values[1..])?;
-                    eprint!("{}", formatted);
+                    eprint!("{formatted}");
                 } else {
                     // If not a string, just print the value
                     eprint!("{}", values[0]);
@@ -3175,7 +3171,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
                 io::stderr()
                     .flush()
-                    .map_err(|e| Error::new_runtime(format!("IO error: {}", e), *span))?;
+                    .map_err(|e| Error::new_runtime(format!("IO error: {e}"), *span))?;
                 Ok(Value::Int(0)) // eprint! returns 0 on success
             }
             "eprintln" => {
@@ -3195,7 +3191,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
                 // Use format logic if first arg is a string
                 if let Value::String(format_str) = &values[0] {
                     let formatted = self.format_string(format_str, &values[1..])?;
-                    eprintln!("{}", formatted);
+                    eprintln!("{formatted}");
                 } else {
                     // If not a string, just print the value
                     eprintln!("{}", values[0]);
@@ -3203,10 +3199,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
                 Ok(Value::Unit)
             }
-            _ => Err(Error::new_runtime(
-                format!("Unknown macro: {}!", name),
-                *span,
-            )),
+            _ => Err(Error::new_runtime(format!("Unknown macro: {name}!"), *span)),
         }
     }
 }
@@ -3478,7 +3471,7 @@ impl InterpreterVisitor {
                 }
 
                 // Execute closure body (expression)
-                let result = self.visit_expr(&body)?;
+                let result = self.visit_expr(body)?;
 
                 // Restore environment
                 self.pop_scope(saved_env);

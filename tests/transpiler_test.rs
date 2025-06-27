@@ -11,7 +11,7 @@ fn test_transpile_scripts() -> anyhow::Result<()> {
 
     if !output.status.success() {
         let output = String::from_utf8(output.stdout).unwrap();
-        panic!("script.sh failed: \n\n{}", output);
+        panic!("script.sh failed: \n\n{output}");
     }
 
     Ok(())

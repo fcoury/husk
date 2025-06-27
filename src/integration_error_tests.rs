@@ -38,10 +38,9 @@ mod tests {
 
         // Interpretation
         let mut interpreter = InterpreterVisitor::new();
-        match interpreter.interpret(&ast) {
-            Err(e) => return Ok(e),
-            Ok(_) => {} // Continue if successful
-        }
+        if let Err(e) = interpreter.interpret(&ast) {
+            return Ok(e);
+        } // Continue if successful
 
         Err("Expected error but program succeeded".to_string())
     }
@@ -383,7 +382,7 @@ mod tests {
         "#;
 
         let error = run_program_expect_error(program).unwrap();
-        eprintln!("Actual error: {}", error);
+        eprintln!("Actual error: {error}");
         assert!(
             error.to_string().contains("bounds")
                 || error.to_string().contains("field")

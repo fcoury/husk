@@ -110,7 +110,7 @@ impl TestRegistry {
             return None;
         }
 
-        let mut test = TestFunction::new(name, span.clone());
+        let mut test = TestFunction::new(name, span);
         test.module_path = self.current_module_path.clone();
         test.apply_attributes(attributes);
 

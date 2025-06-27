@@ -116,7 +116,7 @@ mod tests {
         // This tests that all visitor methods work correctly together
         let result = execute_script(code);
         if let Err(e) = &result {
-            eprintln!("Error executing script: {:?}", e);
+            eprintln!("Error executing script: {e:?}");
         }
         assert!(result.is_ok());
 

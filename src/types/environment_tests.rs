@@ -279,12 +279,12 @@ mod tests {
 
         // Add many bindings
         for i in 0..100 {
-            env.define(format!("var{}", i), Type::Int);
+            env.define(format!("var{i}"), Type::Int);
         }
 
         // All should be accessible
         for i in 0..100 {
-            assert_eq!(env.lookup(&format!("var{}", i)), Some(&Type::Int));
+            assert_eq!(env.lookup(&format!("var{i}")), Some(&Type::Int));
         }
 
         // Non-existent should still return None

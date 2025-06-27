@@ -493,8 +493,7 @@ impl JsTranspiler {
                                     for (i, arg) in args.iter().enumerate() {
                                         if let Expr::Identifier(bind_name, _) = arg {
                                             bindings.push_str(&format!(
-                                                "const {} = _matched.values[{}];\n",
-                                                bind_name, i
+                                                "const {bind_name} = _matched.values[{i}];\n"
                                             ));
                                         }
                                     }
@@ -506,7 +505,7 @@ impl JsTranspiler {
                                     // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Some')".to_string(),
-                                        format!("const {} = _matched.value;\n", bind_name),
+                                        format!("const {bind_name} = _matched.value;\n"),
                                     );
                                 }
                                 return (
@@ -528,8 +527,7 @@ impl JsTranspiler {
                                     for (i, arg) in args.iter().enumerate() {
                                         if let Expr::Identifier(bind_name, _) = arg {
                                             bindings.push_str(&format!(
-                                                "const {} = _matched.values[{}];\n",
-                                                bind_name, i
+                                                "const {bind_name} = _matched.values[{i}];\n"
                                             ));
                                         }
                                     }
@@ -541,7 +539,7 @@ impl JsTranspiler {
                                     // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Ok')".to_string(),
-                                        format!("const {} = _matched.value;\n", bind_name),
+                                        format!("const {bind_name} = _matched.value;\n"),
                                     );
                                 }
                                 return (
@@ -556,8 +554,7 @@ impl JsTranspiler {
                                     for (i, arg) in args.iter().enumerate() {
                                         if let Expr::Identifier(bind_name, _) = arg {
                                             bindings.push_str(&format!(
-                                                "const {} = _matched.values[{}];\n",
-                                                bind_name, i
+                                                "const {bind_name} = _matched.values[{i}];\n"
                                             ));
                                         }
                                     }
@@ -569,7 +566,7 @@ impl JsTranspiler {
                                     // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Err')".to_string(),
-                                        format!("const {} = _matched.value;\n", bind_name),
+                                        format!("const {bind_name} = _matched.value;\n"),
                                     );
                                 }
                                 return (
@@ -589,23 +586,22 @@ impl JsTranspiler {
                     // Handle single value for backward compatibility
                     if args.len() == 1 {
                         if let Expr::Identifier(bind_name, _) = &args[0] {
-                            bindings.push_str(&format!("const {} = _matched.value;\n", bind_name));
+                            bindings.push_str(&format!("const {bind_name} = _matched.value;\n"));
                         }
                     } else {
                         // Handle multiple values
                         for (i, arg) in args.iter().enumerate() {
                             if let Expr::Identifier(bind_name, _) = arg {
                                 bindings.push_str(&format!(
-                                    "const {} = _matched.values[{}];\n",
-                                    bind_name, i
+                                    "const {bind_name} = _matched.values[{i}];\n"
                                 ));
                             }
                         }
                     }
 
-                    (format!("_matched instanceof {}.{}", target, call), bindings)
+                    (format!("_matched instanceof {target}.{call}"), bindings)
                 } else {
-                    (format!("_matched === {}.{}", target, call), String::new())
+                    (format!("_matched === {target}.{call}"), String::new())
                 }
             }
             Expr::Identifier(var_name, _) => {
@@ -614,7 +610,7 @@ impl JsTranspiler {
                 } else {
                     (
                         "true".to_string(),
-                        format!("const {} = _matched;\n", var_name),
+                        format!("const {var_name} = _matched;\n"),
                     )
                 }
             }
@@ -632,19 +628,19 @@ impl JsTranspiler {
                         }
                         Expr::Identifier(name, _) => {
                             // Bind the element to a variable
-                            bindings.push_str(&format!("const {} = _matched[{}];\n", name, i));
+                            bindings.push_str(&format!("const {name} = _matched[{i}];\n"));
                         }
                         Expr::Int(value, _) => {
                             // Match against literal int
-                            conditions.push(format!("_matched[{}] === {}", i, value));
+                            conditions.push(format!("_matched[{i}] === {value}"));
                         }
                         Expr::String(value, _) => {
                             // Match against literal string
-                            conditions.push(format!("_matched[{}] === \"{}\"", i, value));
+                            conditions.push(format!("_matched[{i}] === \"{value}\""));
                         }
                         Expr::Bool(value, _) => {
                             // Match against literal bool
-                            conditions.push(format!("_matched[{}] === {}", i, value));
+                            conditions.push(format!("_matched[{i}] === {value}"));
                         }
                         _ => {
                             // For nested patterns, we'd need more complex handling
@@ -662,7 +658,7 @@ impl JsTranspiler {
 
                 // Check if it's the right variant
                 let condition = if variant.contains("::") {
-                    format!("_matched instanceof {}", js_variant)
+                    format!("_matched instanceof {js_variant}")
                 } else {
                     // For plain struct patterns without enum
                     "_matched && typeof _matched === 'object'".to_string()
@@ -677,7 +673,7 @@ impl JsTranspiler {
                     }
 
                     let var_name = opt_var_name.as_ref().unwrap_or(field_name);
-                    bindings.push_str(&format!("const {} = _matched.{};\n", var_name, field_name));
+                    bindings.push_str(&format!("const {var_name} = _matched.{field_name};\n"));
                 }
 
                 (condition, bindings)
@@ -690,7 +686,7 @@ impl JsTranspiler {
         let mut output = String::new();
 
         // Generate base enum class
-        output.push_str(&format!("class {} {{\n", name));
+        output.push_str(&format!("class {name} {{\n"));
         output.push_str("  constructor(variant, ...values) {\n");
         output.push_str("    this.variant = variant;\n");
         output.push_str("    this.values = values;\n");
@@ -726,7 +722,7 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("  \n");
         output.push_str("  toString() {\n");
-        output.push_str(&format!("    const name = '{}';\n", name));
+        output.push_str(&format!("    const name = '{name}';\n"));
         output.push_str("    if (this.values.length === 0) {\n");
         output.push_str("      return `${name}::${this.variant}`;\n");
         output.push_str("    } else if (this.values.length === 1) {\n");
@@ -745,21 +741,16 @@ impl JsTranspiler {
                 crate::parser::EnumVariant::Struct(name, _) => (name, false),
             };
 
+            output.push_str(&format!("{name}.{variant_name} = class extends {name} {{"));
             output.push_str(&format!(
-                "{}.{} = class extends {} {{",
-                name, variant_name, name
-            ));
-            output.push_str(&format!(
-                "constructor(...values) {{ super('{}', ...values); }}",
-                variant_name
+                "constructor(...values) {{ super('{variant_name}', ...values); }}"
             ));
             output.push_str("};\n");
 
             // Generate static instance only for unit variants (variants without data)
             if is_unit {
                 output.push_str(&format!(
-                    "{}.{} = new {}.{}();\n",
-                    name, variant_name, name, variant_name
+                    "{name}.{variant_name} = new {name}.{variant_name}();\n"
                 ));
             }
         }
@@ -788,7 +779,7 @@ impl AstVisitor<String> for JsTranspiler {
                 let function_code =
                     self.visit_function(name, generic_params, params, return_type, body, span)?;
                 if *is_pub {
-                    Ok(format!("export {}", function_code))
+                    Ok(format!("export {function_code}"))
                 } else {
                     Ok(function_code)
                 }
@@ -813,7 +804,7 @@ impl AstVisitor<String> for JsTranspiler {
                     span,
                 )?;
                 if *is_pub {
-                    Ok(format!("export {}", function_code))
+                    Ok(format!("export {function_code}"))
                 } else {
                     Ok(function_code)
                 }
@@ -879,7 +870,7 @@ impl AstVisitor<String> for JsTranspiler {
             .replace('\t', "\\t") // Escape tabs
             .replace('\0', "\\0"); // Escape null bytes
 
-        Ok(format!("\"{}\"", escaped))
+        Ok(format!("\"{escaped}\""))
     }
 
     fn visit_bool(&mut self, value: bool, _span: &Span) -> Result<String> {
@@ -920,9 +911,9 @@ impl AstVisitor<String> for JsTranspiler {
 
                 if !is_trivial {
                     // Use custom equality that handles enums
-                    let equals_expr = format!("__husk_enum_equals({}, {})", left_str, right_str);
+                    let equals_expr = format!("__husk_enum_equals({left_str}, {right_str})");
                     if matches!(op, Operator::NotEquals) {
-                        return Ok(format!("(!{})", equals_expr));
+                        return Ok(format!("(!{equals_expr})"));
                     } else {
                         return Ok(equals_expr);
                     }
@@ -934,7 +925,7 @@ impl AstVisitor<String> for JsTranspiler {
                     Operator::NotEquals => "!==",
                     _ => unreachable!(),
                 };
-                Ok(format!("({} {} {})", left_str, op_str, right_str))
+                Ok(format!("({left_str} {op_str} {right_str})"))
             }
             _ => {
                 let op_str = match op {
@@ -951,7 +942,7 @@ impl AstVisitor<String> for JsTranspiler {
                     Operator::Or => "||",
                     _ => unreachable!(),
                 };
-                Ok(format!("({} {} {})", left_str, op_str, right_str))
+                Ok(format!("({left_str} {op_str} {right_str})"))
             }
         }
     }
@@ -959,15 +950,15 @@ impl AstVisitor<String> for JsTranspiler {
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         match op {
-            UnaryOp::Neg => Ok(format!("(-{})", expr_str)),
-            UnaryOp::Not => Ok(format!("(!{})", expr_str)),
+            UnaryOp::Neg => Ok(format!("(-{expr_str})")),
+            UnaryOp::Not => Ok(format!("(!{expr_str})")),
         }
     }
 
     fn visit_assign(&mut self, left: &Expr, right: &Expr, _span: &Span) -> Result<String> {
         let left_str = self.visit_expr(left)?;
         let right_str = self.visit_expr(right)?;
-        Ok(format!("{} = {}", left_str, right_str))
+        Ok(format!("{left_str} = {right_str}"))
     }
 
     fn visit_compound_assign(
@@ -987,12 +978,12 @@ impl AstVisitor<String> for JsTranspiler {
             Operator::Modulo => "%",
             _ => {
                 return Err(Error::new_transpile(
-                    format!("Invalid compound assignment operator: {:?}", op),
+                    format!("Invalid compound assignment operator: {op:?}"),
                     *_span,
                 ))
             }
         };
-        Ok(format!("{} {}= {}", left_str, op_str, right_str))
+        Ok(format!("{left_str} {op_str}= {right_str}"))
     }
 
     fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<String> {
@@ -1026,7 +1017,7 @@ impl AstVisitor<String> for JsTranspiler {
 
                             if arg_index < args.len() {
                                 let arg_str = self.visit_expr(&args[arg_index])?;
-                                template_parts.push(format!("${{{}}}", arg_str));
+                                template_parts.push(format!("${{{arg_str}}}"));
                                 arg_index += 1;
                             }
                         } else {
@@ -1058,7 +1049,7 @@ impl AstVisitor<String> for JsTranspiler {
                     .map(|arg| self.visit_expr(arg))
                     .collect::<Result<Vec<_>>>()?
                     .join(", ");
-                Ok(format!("__format__({})", args_str))
+                Ok(format!("__format__({args_str})"))
             }
         } else {
             // Regular function call
@@ -1071,9 +1062,9 @@ impl AstVisitor<String> for JsTranspiler {
             // Handle method calls with dot notation
             if name.contains('.') {
                 let (obj, method) = name.split_once('.').unwrap();
-                Ok(format!("{}.{}({})", obj, method, args_str))
+                Ok(format!("{obj}.{method}({args_str})"))
             } else {
-                Ok(format!("{}({})", name, args_str))
+                Ok(format!("{name}({args_str})"))
             }
         }
     }
@@ -1090,13 +1081,12 @@ impl AstVisitor<String> for JsTranspiler {
         let mut result = String::new();
         result.push_str("(function() {");
         result.push_str(&format!(
-            "const __INSTANCE__ = Object.create({}.prototype);",
-            js_name
+            "const __INSTANCE__ = Object.create({js_name}.prototype);"
         ));
 
         for (field_name, field_expr) in fields {
             let field_value = self.visit_expr(field_expr)?;
-            result.push_str(&format!("__INSTANCE__.{} = {};", field_name, field_value));
+            result.push_str(&format!("__INSTANCE__.{field_name} = {field_value};"));
         }
 
         result.push_str("return __INSTANCE__;");
@@ -1110,7 +1100,7 @@ impl AstVisitor<String> for JsTranspiler {
             // Check if it's a unit variant constructor (no arguments)
             // For unit variants, generate the static instance
             if self.is_enum_unit_variant(enum_name, field) {
-                return Ok(format!("{}.{}", enum_name, field));
+                return Ok(format!("{enum_name}.{field}"));
             }
         }
 
@@ -1119,10 +1109,10 @@ impl AstVisitor<String> for JsTranspiler {
         // Check if field is a numeric index (for tuple access)
         if field.parse::<usize>().is_ok() {
             // Use bracket notation for numeric indices
-            Ok(format!("{}[{}]", obj_str, field))
+            Ok(format!("{obj_str}[{field}]"))
         } else {
             // Use dot notation for regular field access
-            Ok(format!("{}.{}", obj_str, field))
+            Ok(format!("{obj_str}.{field}"))
         }
     }
 
@@ -1153,7 +1143,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else if args.len() == 1 {
                         // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ type: 'Some', value: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Some', value: {arg_str} }}"));
                     } else {
                         return Ok("{ type: 'Some', value: undefined }".to_string());
                     }
@@ -1179,7 +1169,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else if args.len() == 1 {
                         // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ type: 'Ok', value: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Ok', value: {arg_str} }}"));
                     } else {
                         return Ok("{ type: 'Ok', value: undefined }".to_string());
                     }
@@ -1198,7 +1188,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else if args.len() == 1 {
                         // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ type: 'Err', value: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Err', value: {arg_str} }}"));
                     } else {
                         return Ok("{ type: 'Err', value: undefined }".to_string());
                     }
@@ -1245,18 +1235,18 @@ impl AstVisitor<String> for JsTranspiler {
         // Default handling for other enums and unknown methods
         if args.is_empty() {
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
-                Ok(format!("{}.{}()", target_str, call))
+                Ok(format!("{target_str}.{call}()"))
             } else {
-                Ok(format!("{}.{}", target_str, call))
+                Ok(format!("{target_str}.{call}"))
             }
         } else {
             let args_str = arg_strs.join(", ");
             // Check if it's a static method call (like Point::new) or enum variant
             // For now, we'll assume static methods don't need 'new' prefix
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
-                Ok(format!("{}.{}({})", target_str, call, args_str))
+                Ok(format!("{target_str}.{call}({args_str})"))
             } else {
-                Ok(format!("new {}.{}({})", target_str, call, args_str))
+                Ok(format!("new {target_str}.{call}({args_str})"))
             }
         }
     }
@@ -1267,7 +1257,7 @@ impl AstVisitor<String> for JsTranspiler {
             .map(|elem| self.visit_expr(elem))
             .collect::<Result<Vec<_>>>()?
             .join(", ");
-        Ok(format!("[{}]", elements_str))
+        Ok(format!("[{elements_str}]"))
     }
 
     fn visit_tuple(&mut self, elements: &[Expr], _span: &Span) -> Result<String> {
@@ -1277,7 +1267,7 @@ impl AstVisitor<String> for JsTranspiler {
             .map(|elem| self.visit_expr(elem))
             .collect::<Result<Vec<_>>>()?
             .join(", ");
-        Ok(format!("[{}]", elements_str))
+        Ok(format!("[{elements_str}]"))
     }
 
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, _span: &Span) -> Result<String> {
@@ -1289,26 +1279,26 @@ impl AstVisitor<String> for JsTranspiler {
                 if let Some(end_expr) = end {
                     end_str = self.visit_expr(end_expr)?;
                     if *inclusive {
-                        end_str = format!("{} + 1", end_str);
+                        end_str = format!("{end_str} + 1");
                     }
                 }
 
                 match (start, end) {
                     (Some(start_expr), Some(_)) => {
                         let start_str = self.visit_expr(start_expr)?;
-                        Ok(format!("{}.slice({}, {})", array_str, start_str, end_str))
+                        Ok(format!("{array_str}.slice({start_str}, {end_str})"))
                     }
                     (Some(start_expr), None) => {
                         let start_str = self.visit_expr(start_expr)?;
-                        Ok(format!("{}.slice({})", array_str, start_str))
+                        Ok(format!("{array_str}.slice({start_str})"))
                     }
-                    (None, Some(_)) => Ok(format!("{}.slice(0, {})", array_str, end_str)),
+                    (None, Some(_)) => Ok(format!("{array_str}.slice(0, {end_str})")),
                     (None, None) => Ok(array_str),
                 }
             }
             _ => {
                 let index_str = self.visit_expr(index)?;
-                Ok(format!("{}[{}]", array_str, index_str))
+                Ok(format!("{array_str}[{index_str}]"))
             }
         }
     }
@@ -1340,12 +1330,12 @@ impl AstVisitor<String> for JsTranspiler {
                 // we need to return its value
                 Stmt::Expression(expr, false) if is_last => {
                     let expr_str = self.visit_expr(expr)?;
-                    result.push_str(&format!("{}return {};\n", indent, expr_str));
+                    result.push_str(&format!("{indent}return {expr_str};\n"));
                 }
                 // Otherwise, generate the statement normally
                 _ => {
                     let stmt_str = self.visit_stmt(stmt)?;
-                    result.push_str(&format!("{}{}\n", indent, stmt_str));
+                    result.push_str(&format!("{indent}{stmt_str}\n"));
                 }
             }
         }
@@ -1360,7 +1350,7 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_let(&mut self, name: &str, expr: &Expr, _span: &Span) -> Result<String> {
         let value = self.visit_expr(expr)?;
-        Ok(format!("let {} = {}", name, value))
+        Ok(format!("let {name} = {value}"))
     }
 
     fn visit_function(
@@ -1382,10 +1372,7 @@ impl AstVisitor<String> for JsTranspiler {
         let body_str = self.generate_body(body)?;
         self.indent_level -= 1;
 
-        Ok(format!(
-            "function {}({}) {{\n{}\n}}",
-            name, params_str, body_str
-        ))
+        Ok(format!("function {name}({params_str}) {{\n{body_str}\n}}"))
     }
 
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
@@ -1399,7 +1386,7 @@ impl AstVisitor<String> for JsTranspiler {
             .join("\n");
         self.indent_level -= 1;
 
-        Ok(format!("while ({}) {{\n{}\n}}", condition_str, body_str))
+        Ok(format!("while ({condition_str}) {{\n{body_str}\n}}"))
     }
 
     fn visit_loop(&mut self, body: &[Stmt], _span: &Span) -> Result<String> {
@@ -1411,7 +1398,7 @@ impl AstVisitor<String> for JsTranspiler {
             .join("\n");
         self.indent_level -= 1;
 
-        Ok(format!("while (true) {{\n{}\n}}", body_str))
+        Ok(format!("while (true) {{\n{body_str}\n}}"))
     }
 
     fn visit_for_loop(
@@ -1475,8 +1462,7 @@ impl AstVisitor<String> for JsTranspiler {
                         self.indent_level -= 1;
 
                         Ok(format!(
-                            "for (let {} = {}; {} {} {}; {}++) {{\n{}\n}}",
-                            var, start_str, var, op, end_str, var, body_str
+                            "for (let {var} = {start_str}; {var} {op} {end_str}; {var}++) {{\n{body_str}\n}}"
                         ))
                     }
                     _ => Ok("/* Invalid range */".to_string()),
@@ -1494,8 +1480,7 @@ impl AstVisitor<String> for JsTranspiler {
                 self.indent_level -= 1;
 
                 Ok(format!(
-                    "for (const {} of {}) {{\n{}\n}}",
-                    pattern_str, iter_str, body_str
+                    "for (const {pattern_str} of {iter_str}) {{\n{body_str}\n}}"
                 ))
             }
         }
@@ -1513,7 +1498,7 @@ impl AstVisitor<String> for JsTranspiler {
         match expr {
             Some(return_expr) => {
                 let expr_js = self.visit_expr(return_expr)?;
-                Ok(format!("return {}", expr_js))
+                Ok(format!("return {expr_js}"))
             }
             None => Ok("return".to_string()),
         }
@@ -1526,7 +1511,7 @@ impl AstVisitor<String> for JsTranspiler {
         // If no semicolon, it can return its value (for block expressions)
         if has_semicolon {
             // Use void operator to ensure no return value in expression context
-            Ok(format!("void ({})", expr_js))
+            Ok(format!("void ({expr_js})"))
         } else {
             Ok(expr_js)
         }
@@ -1655,19 +1640,19 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
-        Ok(format!("await {}", expr_str))
+        Ok(format!("await {expr_str}"))
     }
 
     fn visit_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         // Generate JS code that checks if the result is an error and returns early if so
-        Ok(format!("(() => {{ const __result = {}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()", expr_str))
+        Ok(format!("(() => {{ const __result = {expr_str}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()"))
     }
 
     fn visit_await_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         // Generate the intelligent await bridge that handles both Promises and Promise<Result>
-        Ok(format!("await __husk_await_bridge({})", expr_str))
+        Ok(format!("await __husk_await_bridge({expr_str})"))
     }
 
     fn visit_closure(
@@ -1690,10 +1675,10 @@ impl AstVisitor<String> for JsTranspiler {
         // Generate arrow function
         if body_str.starts_with('{') {
             // Block body - no need for return, it's already in the block
-            Ok(format!("({}) => {}", param_list, body_str))
+            Ok(format!("({param_list}) => {body_str}"))
         } else {
             // Single expression - implicit return
-            Ok(format!("({}) => {}", param_list, body_str))
+            Ok(format!("({param_list}) => {body_str}"))
         }
     }
 
@@ -1766,10 +1751,10 @@ impl AstVisitor<String> for JsTranspiler {
             .join(", ");
 
         let mut result = String::new();
-        result.push_str(&format!("function {}({}) {{", name, params));
+        result.push_str(&format!("function {name}({params}) {{"));
 
         for (field_name, _) in fields {
-            result.push_str(&format!("this.{} = {};", field_name, field_name));
+            result.push_str(&format!("this.{field_name} = {field_name};"));
         }
 
         result.push('}');
@@ -1809,10 +1794,9 @@ impl AstVisitor<String> for JsTranspiler {
                 let fn_body = self.generate_body(body)?;
                 self.indent_level -= 1;
 
-                let fn_body = format!("const self = this;\n{}", fn_body);
+                let fn_body = format!("const self = this;\n{fn_body}");
                 format!(
-                    "{}.prototype.{} = function({}) {{\n{}\n}};\n",
-                    struct_name, name, fn_params, fn_body
+                    "{struct_name}.prototype.{name} = function({fn_params}) {{\n{fn_body}\n}};\n"
                 )
             } else {
                 // Static method
@@ -1826,10 +1810,7 @@ impl AstVisitor<String> for JsTranspiler {
                 let fn_body = self.generate_body(body)?;
                 self.indent_level -= 1;
 
-                format!(
-                    "{}.{} = function({}) {{\n{}\n}};\n",
-                    struct_name, name, fn_params, fn_body
-                )
+                format!("{struct_name}.{name} = function({fn_params}) {{\n{fn_body}\n}};\n")
             };
 
             output.push_str(&result);
@@ -1856,17 +1837,13 @@ impl AstVisitor<String> for JsTranspiler {
                 let body_str = self.generate_body(stmts)?;
                 self.indent_level -= 1;
 
-                Ok(format!(
-                    "if ({}) {{\n{}{}\n}}",
-                    condition, binding, body_str
-                ))
+                Ok(format!("if ({condition}) {{\n{binding}{body_str}\n}}"))
             })
             .collect::<Result<Vec<_>>>()?
             .join(" else ");
 
         Ok(format!(
-            "(() => {{\nconst _matched = {};\n{}\n}})()",
-            expr_str, cases_str
+            "(() => {{\nconst _matched = {expr_str};\n{cases_str}\n}})()"
         ))
     }
 
@@ -1894,7 +1871,7 @@ impl AstVisitor<String> for JsTranspiler {
 
         if has_control_flow {
             // Generate as a regular if statement (no IIFE wrapper)
-            let mut result = format!("if ({}) {{\n", condition_str);
+            let mut result = format!("if ({condition_str}) {{\n");
 
             self.indent_level += 1;
             for stmt in then_block {
@@ -1922,13 +1899,13 @@ impl AstVisitor<String> for JsTranspiler {
         } else {
             // Generate as an IIFE for the if expression
             let mut result = "(() => {\n".to_string();
-            result.push_str(&format!("  if ({}) {{\n", condition_str));
+            result.push_str(&format!("  if ({condition_str}) {{\n"));
 
             self.indent_level += 2;
             let then_str = self.generate_body(then_block)?;
             self.indent_level -= 2;
 
-            result.push_str(&format!("    {}\n", then_str));
+            result.push_str(&format!("    {then_str}\n"));
             result.push_str("  }");
 
             if !else_block.is_empty() {
@@ -1938,7 +1915,7 @@ impl AstVisitor<String> for JsTranspiler {
                 let else_str = self.generate_body(else_block)?;
                 self.indent_level -= 2;
 
-                result.push_str(&format!("    {}\n", else_str));
+                result.push_str(&format!("    {else_str}\n"));
                 result.push_str("  }");
             }
 
@@ -1958,7 +1935,7 @@ impl AstVisitor<String> for JsTranspiler {
         if let Expr::Identifier(_enum_name, _) = object {
             // For transpiler, we can't check if it's an enum easily,
             // but we can check if the method name starts with uppercase
-            if method.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if method.chars().next().is_some_and(|c| c.is_uppercase()) {
                 // This is likely an enum variant constructor
                 return self.visit_enum_variant_or_method_call(object, method, args, _span);
             }
@@ -2009,7 +1986,7 @@ impl AstVisitor<String> for JsTranspiler {
 
         // Default: assume direct method mapping for unknown methods
         if arg_strs.is_empty() {
-            Ok(format!("{}.{}()", obj_str, method))
+            Ok(format!("{obj_str}.{method}()"))
         } else {
             Ok(format!("{}.{}({})", obj_str, method, arg_strs.join(", ")))
         }
@@ -2020,10 +1997,10 @@ impl AstVisitor<String> for JsTranspiler {
 
         // Generate JavaScript type casting/conversion
         match target_type {
-            "int" => Ok(format!("Math.floor(Number({}))", expr_str)),
-            "float" => Ok(format!("Number({})", expr_str)),
-            "string" => Ok(format!("String({})", expr_str)),
-            "bool" => Ok(format!("Boolean({})", expr_str)),
+            "int" => Ok(format!("Math.floor(Number({expr_str}))")),
+            "float" => Ok(format!("Number({expr_str})")),
+            "string" => Ok(format!("String({expr_str})")),
+            "bool" => Ok(format!("Boolean({expr_str})")),
             _ => {
                 // For custom types, we trust the type system and just return the expression
                 // This allows for TypeScript-style type assertions
@@ -2048,7 +2025,7 @@ impl AstVisitor<String> for JsTranspiler {
                 .iter()
                 .map(|(field, rename)| {
                     match rename {
-                        Some(var_name) => format!("{}: {}", field, var_name),
+                        Some(var_name) => format!("{field}: {var_name}"),
                         None => field.clone(),
                     }
                 })
@@ -2079,7 +2056,7 @@ impl AstVisitor<String> for JsTranspiler {
                 format!("\"{}\"", key.replace('\"', "\\\""))
             };
 
-            field_strings.push(format!("{}: {}", key_str, value_str));
+            field_strings.push(format!("{key_str}: {value_str}"));
         }
 
         Ok(format!("{{ {} }}", field_strings.join(", ")))
@@ -2105,7 +2082,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("process.stdout.write({})", template))
+                        Ok(format!("process.stdout.write({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("process.stdout.write({})", arg_strings[0]))
@@ -2133,7 +2110,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("console.log({})", template))
+                        Ok(format!("console.log({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("console.log({})", arg_strings[0]))
@@ -2193,7 +2170,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("process.stderr.write({})", template))
+                        Ok(format!("process.stderr.write({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("process.stderr.write({})", arg_strings[0]))
@@ -2221,7 +2198,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("console.error({})", template))
+                        Ok(format!("console.error({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("console.error({})", arg_strings[0]))
@@ -2232,7 +2209,7 @@ impl AstVisitor<String> for JsTranspiler {
                 }
             }
             _ => Err(Error::new_transpile(
-                format!("Unknown macro: {}!", name),
+                format!("Unknown macro: {name}!"),
                 *_span,
             )),
         }
@@ -2244,11 +2221,11 @@ impl JsTranspiler {
     fn is_enum_unit_variant(&self, enum_name: &str, variant_name: &str) -> bool {
         // For now, we'll assume any capitalized field on a capitalized type is a unit variant
         // In a real implementation, we'd track enum definitions
-        enum_name.chars().next().map_or(false, |c| c.is_uppercase())
+        enum_name.chars().next().is_some_and(|c| c.is_uppercase())
             && variant_name
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_uppercase())
+                .is_some_and(|c| c.is_uppercase())
     }
 
     /// Convert a format string with {} placeholders to a JavaScript template literal
@@ -2396,18 +2373,18 @@ impl JsTranspiler {
                     // From project root - add .js extension for ES modules
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                        format!("./{}", base_path)
+                        format!("./{base_path}")
                     } else {
-                        format!("./{}.js", base_path)
+                        format!("./{base_path}.js")
                     }
                 }
                 UsePrefix::Self_ => {
                     // Current directory - add .js extension for ES modules
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                        format!("./{}", base_path)
+                        format!("./{base_path}")
                     } else {
-                        format!("./{}.js", base_path)
+                        format!("./{base_path}.js")
                     }
                 }
                 UsePrefix::Super(count) => {
@@ -2418,9 +2395,9 @@ impl JsTranspiler {
                     }
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                        format!("{}{}", prefix, base_path)
+                        format!("{prefix}{base_path}")
                     } else {
-                        format!("{}{}.js", prefix, base_path)
+                        format!("{prefix}{base_path}.js")
                     }
                 }
             };
@@ -2438,17 +2415,17 @@ impl JsTranspiler {
         // Generate the import statement
         let import_stmt = match &final_items {
             UseItems::All => {
-                format!("import * from '{}'", final_module_path)
+                format!("import * from '{final_module_path}'")
             }
             UseItems::Single => {
                 if path.segments.len() == 1 && path.prefix == UsePrefix::None {
                     // Single external package import
-                    format!("import '{}'", final_module_path)
+                    format!("import '{final_module_path}'")
                 } else {
                     // This shouldn't happen after our transformations above
                     // But handle it gracefully
                     let module_name = path.segments.last().unwrap_or(&String::new()).clone();
-                    format!("import {{ {} }} from '{}'", module_name, final_module_path)
+                    format!("import {{ {module_name} }} from '{final_module_path}'")
                 }
             }
             UseItems::Named(items) => {
@@ -2456,14 +2433,14 @@ impl JsTranspiler {
                     .iter()
                     .map(|(name, alias)| {
                         if let Some(alias) = alias {
-                            format!("{} as {}", name, alias)
+                            format!("{name} as {alias}")
                         } else {
                             name.clone()
                         }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("import {{ {} }} from '{}'", imports, final_module_path)
+                format!("import {{ {imports} }} from '{final_module_path}'")
             }
         };
 

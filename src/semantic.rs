@@ -257,7 +257,7 @@ impl SemanticVisitor {
                 };
 
                 self.functions.insert(
-                    format!("{}::new", name),
+                    format!("{name}::new"),
                     (params, struct_type, Span::default()),
                 );
             }
@@ -358,7 +358,7 @@ impl SemanticVisitor {
                         };
 
                         // Register as static method with struct name prefix
-                        let full_method_name = format!("{}::{}", struct_name, method_name);
+                        let full_method_name = format!("{struct_name}::{method_name}");
                         self.functions
                             .insert(full_method_name, (param_types, ret_type, Span::default()));
                     }
@@ -420,7 +420,7 @@ impl SemanticVisitor {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
-                    format!("{}::{}", prefix, name)
+                    format!("{prefix}::{name}")
                 };
 
                 // Convert parameter types
@@ -455,7 +455,7 @@ impl SemanticVisitor {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
-                    format!("{}::{}", prefix, name)
+                    format!("{prefix}::{name}")
                 };
 
                 // Register as an opaque external type
@@ -466,7 +466,7 @@ impl SemanticVisitor {
                 let new_prefix = if prefix.is_empty() {
                     name.clone()
                 } else {
-                    format!("{}::{}", prefix, name)
+                    format!("{prefix}::{name}")
                 };
 
                 // Recursively process nested items
@@ -478,7 +478,7 @@ impl SemanticVisitor {
                 // Process impl block methods
                 for item in items {
                     if let ExternItem::Function(method_name, _, params, return_type) = item {
-                        let full_name = format!("{}::{}", type_name, method_name);
+                        let full_name = format!("{type_name}::{method_name}");
 
                         // Convert parameter types
                         let param_types: Vec<(String, Type)> = params
@@ -1015,7 +1015,7 @@ impl SemanticVisitor {
                                                 variants: variants.clone(),
                                             }
                                         } else {
-                                            eprintln!("Warning: Type resolution failed for struct '{}' in method '{}', falling back to Type::Unknown", struct_name, method_name);
+                                            eprintln!("Warning: Type resolution failed for struct '{struct_name}' in method '{method_name}', falling back to Type::Unknown");
                                             Type::Unknown
                                         }
                                     } else {
@@ -1031,7 +1031,7 @@ impl SemanticVisitor {
                             };
 
                             // Register as static method with struct name prefix
-                            let full_method_name = format!("{}::{}", struct_name, method_name);
+                            let full_method_name = format!("{struct_name}::{method_name}");
                             self.functions
                                 .insert(full_method_name, (param_types, ret_type, Span::default()));
                         }
@@ -1113,8 +1113,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 span,
             ) => {
                 // Register test function if it has the #[test] attribute
-                self.test_registry
-                    .register_test(name.clone(), span.clone(), attrs);
+                self.test_registry.register_test(name.clone(), *span, attrs);
                 // Continue with normal function processing
                 self.visit_function(name, generic_params, params, return_type, body, span)
             }
@@ -1129,8 +1128,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 span,
             ) => {
                 // Register async test function if it has the #[test] attribute
-                self.test_registry
-                    .register_test(name.clone(), span.clone(), attrs);
+                self.test_registry.register_test(name.clone(), *span, attrs);
                 // Continue with normal async function processing
                 self.visit_async_function(name, generic_params, params, return_type, body, span)
             }
@@ -1221,7 +1219,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     Ok(imported_type.clone())
                 } else {
                     Err(Error::new_semantic(
-                        format!("Variable '{}' not found in scope", name),
+                        format!("Variable '{name}' not found in scope"),
                         *span,
                     ))
                 }
@@ -1242,8 +1240,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             if element_type != first_type {
                 return Err(Error::new_semantic(
                     format!(
-                        "Array elements must have the same type. Expected {}, found {}",
-                        first_type, element_type
+                        "Array elements must have the same type. Expected {first_type}, found {element_type}"
                     ),
                     *span,
                 ));
@@ -1275,14 +1272,11 @@ impl AstVisitor<Type> for SemanticVisitor {
                 Ok(Type::Array(element_type.clone()))
             }
             (Type::Array(_), _) => Err(Error::new_semantic(
-                format!(
-                    "Array index must be an integer or range, found {}",
-                    index_type
-                ),
+                format!("Array index must be an integer or range, found {index_type}"),
                 *span,
             )),
             _ => Err(Error::new_semantic(
-                format!("Cannot index non-array type: {}", array_type),
+                format!("Cannot index non-array type: {array_type}"),
                 *span,
             )),
         }
@@ -1300,7 +1294,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             let start_type = self.visit_expr(start_expr)?;
             if !self.is_numeric_type(&start_type) {
                 return Err(Error::new_semantic(
-                    format!("Range start must be numeric, found {}", start_type),
+                    format!("Range start must be numeric, found {start_type}"),
                     *span,
                 ));
             }
@@ -1311,7 +1305,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             let end_type = self.visit_expr(end_expr)?;
             if !self.is_numeric_type(&end_type) {
                 return Err(Error::new_semantic(
-                    format!("Range end must be numeric, found {}", end_type),
+                    format!("Range end must be numeric, found {end_type}"),
                     *span,
                 ));
             }
@@ -1344,8 +1338,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     return Err(Error::new_semantic(
                         format!(
-                            "Binary operation {:?} requires numeric types, found {} and {}",
-                            op, left_type, right_type
+                            "Binary operation {op:?} requires numeric types, found {left_type} and {right_type}"
                         ),
                         *span,
                     ));
@@ -1371,8 +1364,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 if left_type != Type::Bool || right_type != Type::Bool {
                     return Err(Error::new_semantic(
                         format!(
-                            "Logical operation {:?} requires bool types, found {} and {}",
-                            op, left_type, right_type
+                            "Logical operation {op:?} requires bool types, found {left_type} and {right_type}"
                         ),
                         *span,
                     ));
@@ -1389,7 +1381,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             UnaryOp::Neg => {
                 if !self.is_numeric_type(&expr_type) {
                     return Err(Error::new_semantic(
-                        format!("Unary negation requires numeric type, found {}", expr_type),
+                        format!("Unary negation requires numeric type, found {expr_type}"),
                         *_span,
                     ));
                 }
@@ -1398,7 +1390,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             UnaryOp::Not => {
                 if expr_type != Type::Bool {
                     return Err(Error::new_semantic(
-                        format!("Logical NOT requires bool type, found {}", expr_type),
+                        format!("Logical NOT requires bool type, found {expr_type}"),
                         *_span,
                     ));
                 }
@@ -1414,7 +1406,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             Expr::Identifier(name, _) => {
                 if self.type_env.lookup(name).is_none() {
                     return Err(Error::new_semantic(
-                        format!("Cannot assign to undefined variable '{}'", name),
+                        format!("Cannot assign to undefined variable '{name}'"),
                         *span,
                     ));
                 }
@@ -1459,8 +1451,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     return Err(Error::new_semantic(
                         format!(
-                            "Compound assignment {:?} requires numeric types, found {} and {}",
-                            op, left_type, right_type
+                            "Compound assignment {op:?} requires numeric types, found {left_type} and {right_type}"
                         ),
                         *span,
                     ));
@@ -1468,7 +1459,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
             _ => {
                 return Err(Error::new_semantic(
-                    format!("Invalid operator for compound assignment: {:?}", op),
+                    format!("Invalid operator for compound assignment: {op:?}"),
                     *span,
                 ));
             }
@@ -1485,7 +1476,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
             // Get the type of the target variable
             let target_type = self.type_env.lookup(target_var).ok_or_else(|| {
-                Error::new_semantic(format!("Undefined variable: {}", target_var), *span)
+                Error::new_semantic(format!("Undefined variable: {target_var}"), *span)
             })?;
 
             // Extract struct name from the type
@@ -1493,7 +1484,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 Type::Struct { name, .. } => {
                     // Get the actual struct fields
                     let fields = self.structs.get(name).ok_or_else(|| {
-                        Error::new_semantic(format!("Struct '{}' not found", name), *span)
+                        Error::new_semantic(format!("Struct '{name}' not found"), *span)
                     })?;
 
                     let field_vec: Vec<(String, Type)> =
@@ -1509,14 +1500,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
                 _ => {
                     return Err(Error::new_semantic(
-                        format!("{} is not a struct instance", target_var),
+                        format!("{target_var} is not a struct instance"),
                         *span,
                     ))
                 }
             };
 
             // Build the full method name
-            let full_method_name = format!("{}::{}", struct_name, method_name);
+            let full_method_name = format!("{struct_name}::{method_name}");
 
             // Create a synthetic expression for the self argument
             let mut args_with_self = vec![Expr::Identifier(target_var.to_string(), *span)];
@@ -1553,14 +1544,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                     ),
                     _ => {
                         return Err(Error::new_semantic(
-                            format!("'{}' is not a function", func_name),
+                            format!("'{func_name}' is not a function"),
                             *span,
                         ));
                     }
                 }
             } else {
                 return Err(Error::new_semantic(
-                    format!("Function '{}' not found", func_name),
+                    format!("Function '{func_name}' not found"),
                     *span,
                 ));
             };
@@ -1586,10 +1577,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             let format_str_type = self.visit_expr(&arg_exprs[0])?;
             if format_str_type != Type::String {
                 return Err(Error::new_semantic(
-                    format!(
-                        "format! first argument must be a string, found {}",
-                        format_str_type
-                    ),
+                    format!("format! first argument must be a string, found {format_str_type}"),
                     *span,
                 ));
             }
@@ -1602,8 +1590,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                 if placeholder_count != arg_count {
                     return Err(Error::new_semantic(
-                        format!("format! expects {} arguments after format string, but {} were provided",
-                               placeholder_count, arg_count),
+                        format!("format! expects {placeholder_count} arguments after format string, but {arg_count} were provided"),
                         *span,
                     ));
                 }
@@ -1686,7 +1673,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
 
                 return Err(Error::new_semantic(
-                    format!("Enum '{}' has no variant '{}'", enum_name, variant_name),
+                    format!("Enum '{enum_name}' has no variant '{variant_name}'"),
                     *span,
                 ));
             }
@@ -1705,7 +1692,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
 
                 return Err(Error::new_semantic(
-                    format!("Struct '{}' not found", name),
+                    format!("Struct '{name}' not found"),
                     *span,
                 ));
             }
@@ -1730,7 +1717,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 Some(ty) => ty.clone(),
                 None => {
                     return Err(Error::new_semantic(
-                        format!("Struct '{}' has no field '{}'", name, field_name),
+                        format!("Struct '{name}' has no field '{field_name}'"),
                         *span,
                     ));
                 }
@@ -1740,8 +1727,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             if !field_type.is_assignable_to(&expected_type) {
                 return Err(Error::new_semantic(
                     format!(
-                        "Struct '{}' field '{}' type mismatch: expected {}, found {}",
-                        name, field_name, expected_type, field_type
+                        "Struct '{name}' field '{field_name}' type mismatch: expected {expected_type}, found {field_type}"
                     ),
                     *span,
                 ));
@@ -1778,7 +1764,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     Some(fields) => fields,
                     None => {
                         return Err(Error::new_semantic(
-                            format!("Struct '{}' not found in type information", name),
+                            format!("Struct '{name}' not found in type information"),
                             *span,
                         ));
                     }
@@ -1787,7 +1773,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 match struct_fields.get(field) {
                     Some(field_type) => Ok(field_type.clone()),
                     None => Err(Error::new_semantic(
-                        format!("Struct '{}' has no field '{}'", name, field),
+                        format!("Struct '{name}' has no field '{field}'"),
                         *span,
                     )),
                 }
@@ -1809,15 +1795,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                     }
                 } else {
                     Err(Error::new_semantic(
-                        format!("Invalid tuple index '{}'. Expected a number.", field),
+                        format!("Invalid tuple index '{field}'. Expected a number."),
                         *span,
                     ))
                 }
             }
             _ => Err(Error::new_semantic(
                 format!(
-                    "Cannot access field '{}' on non-struct/non-tuple type: {}",
-                    field, object_type
+                    "Cannot access field '{field}' on non-struct/non-tuple type: {object_type}"
                 ),
                 *span,
             )),
@@ -1915,7 +1900,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
 
             // Check if it's a method call
-            let method_name = format!("{}::{}", resolved_type_name, call);
+            let method_name = format!("{resolved_type_name}::{call}");
             if let Some((param_types, return_type, _)) = self.functions.get(&method_name).cloned() {
                 // Check arguments
                 if args.len() != param_types.len() {
@@ -1967,7 +1952,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         }
 
         Err(Error::new_semantic(
-            format!("Unknown enum variant or method: {}::{}", target, call),
+            format!("Unknown enum variant or method: {target}::{call}"),
             *span,
         ))
     }
@@ -2058,8 +2043,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     self.type_env.pop_scope();
                     return Err(Error::new_semantic(
                         format!(
-                            "Function {} return type mismatch: expected {}, found {}",
-                            name, ret_type, expr_type
+                            "Function {name} return type mismatch: expected {ret_type}, found {expr_type}"
                         ),
                         *span,
                     ));
@@ -2214,13 +2198,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                 let ret_type = self.resolve_type_by_name(return_type);
 
                 // Register method (only if not already registered from collect_function_signatures)
-                let method_name = format!("{}::{}", struct_name, name);
-                if !self.functions.contains_key(&method_name) {
-                    self.functions.insert(
-                        method_name,
-                        (param_types.clone(), ret_type.clone(), *method_span),
-                    );
-                }
+                let method_name = format!("{struct_name}::{name}");
+                self.functions
+                    .entry(method_name)
+                    .or_insert_with(|| (param_types.clone(), ret_type.clone(), *method_span));
             }
         }
 
@@ -2229,7 +2210,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             if let Stmt::Function(_, _, name, _, params, return_type, body, method_span) = method {
                 // Now analyze the method body just like a regular function
                 self.visit_function(
-                    &format!("{}::{}", struct_name, name),
+                    &format!("{struct_name}::{name}"),
                     &[], // No generic params for now
                     params,
                     return_type,
@@ -2305,10 +2286,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         if let Some(ref expected_enum) = enum_name {
                             if enum_type != expected_enum {
                                 return Err(Error::new_semantic(
-                                    format!(
-                                        "Expected enum '{}', found '{}'",
-                                        expected_enum, enum_type
-                                    ),
+                                    format!("Expected enum '{expected_enum}', found '{enum_type}'"),
                                     pattern.span(),
                                 ));
                             }
@@ -2317,7 +2295,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         // Check if this pattern has already been exhaustively matched
                         if exhaustive_variants.contains(call) {
                             return Err(Error::new_semantic(
-                                format!("Unreachable pattern: enum variant '{}::{}' already has a catch-all pattern", enum_type, call),
+                                format!("Unreachable pattern: enum variant '{enum_type}::{call}' already has a catch-all pattern"),
                                 pattern.span(),
                             ));
                         }
@@ -2360,8 +2338,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     }
 
                                     // Bind each argument to its corresponding type
-                                    for (_i, (arg, variant_type)) in
-                                        args.iter().zip(variant_types.iter()).enumerate()
+                                    for (arg, variant_type) in args.iter().zip(variant_types.iter())
                                     {
                                         match arg {
                                             Expr::Identifier(var_name, _) if var_name != "_" => {
@@ -2467,8 +2444,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     let literal_type = self.visit_expr(elem_pattern)?;
                                     if literal_type != *elem_type {
                                         return Err(Error::new_semantic(
-                                            format!("Pattern type mismatch at tuple element {}: expected {}, found {}",
-                                                i, elem_type, literal_type),
+                                            format!("Pattern type mismatch at tuple element {i}: expected {elem_type}, found {literal_type}"),
                                             elem_pattern.span(),
                                         ));
                                     }
@@ -2476,7 +2452,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 _ => {
                                     // For now, other nested patterns are not supported
                                     return Err(Error::new_semantic(
-                                        format!("Unsupported pattern in tuple at element {}", i),
+                                        format!("Unsupported pattern in tuple at element {i}"),
                                         elem_pattern.span(),
                                     ));
                                 }
@@ -2485,8 +2461,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     } else {
                         return Err(Error::new_semantic(
                             format!(
-                                "Cannot match tuple pattern against non-tuple type {}",
-                                expr_type
+                                "Cannot match tuple pattern against non-tuple type {expr_type}"
                             ),
                             pattern.span(),
                         ));
@@ -2511,8 +2486,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if name != enum_type_name {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "Pattern type mismatch: expected {}, found {}",
-                                        expr_type, enum_type_name
+                                        "Pattern type mismatch: expected {expr_type}, found {enum_type_name}"
                                     ),
                                     pattern.span(),
                                 ));
@@ -2568,8 +2542,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         } else {
                             return Err(Error::new_semantic(
                                 format!(
-                                    "Cannot match enum pattern against non-enum type {}",
-                                    expr_type
+                                    "Cannot match enum pattern against non-enum type {expr_type}"
                                 ),
                                 pattern.span(),
                             ));
@@ -2580,8 +2553,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if name != pattern_name {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "Pattern type mismatch: expected {}, found {}",
-                                        expr_type, pattern_name
+                                        "Pattern type mismatch: expected {expr_type}, found {pattern_name}"
                                     ),
                                     pattern.span(),
                                 ));
@@ -2619,8 +2591,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         } else {
                             return Err(Error::new_semantic(
                                 format!(
-                                    "Cannot match struct pattern {} against non-struct type {}",
-                                    pattern_name, expr_type
+                                    "Cannot match struct pattern {pattern_name} against non-struct type {expr_type}"
                                 ),
                                 pattern.span(),
                             ));
@@ -2674,10 +2645,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                             _ => {
                                 return Err(Error::new_semantic(
-                                    format!(
-                                        "Cannot match {} pattern against type {}",
-                                        name, expr_type
-                                    ),
+                                    format!("Cannot match {name} pattern against type {expr_type}"),
                                     pattern.span(),
                                 ));
                             }
@@ -2688,8 +2656,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         if pattern_type != expr_type {
                             return Err(Error::new_semantic(
                                 format!(
-                                    "Pattern type mismatch: expected {}, found {}",
-                                    expr_type, pattern_type
+                                    "Pattern type mismatch: expected {expr_type}, found {pattern_type}"
                                 ),
                                 pattern.span(),
                             ));
@@ -2702,8 +2669,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     if pattern_type != expr_type {
                         return Err(Error::new_semantic(
                             format!(
-                                "Pattern type mismatch: expected {}, found {}",
-                                expr_type, pattern_type
+                                "Pattern type mismatch: expected {expr_type}, found {pattern_type}"
                             ),
                             pattern.span(),
                         ));
@@ -2728,8 +2694,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         if !matched_variants.contains(variant_name) {
                             return Err(Error::new_semantic(
                                 format!(
-                                    "Non-exhaustive match: variant '{}::{}' not covered",
-                                    enum_name, variant_name
+                                    "Non-exhaustive match: variant '{enum_name}::{variant_name}' not covered"
                                 ),
                                 *span,
                             ));
@@ -2761,8 +2726,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     }
                     _ => {
                         return Err(Error::new_semantic(
-                            format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}",
-                                    first_arm_type, i, arm_type),
+                            format!("Match arms have inconsistent types: arm 0 returns {first_arm_type}, arm {i} returns {arm_type}"),
                             *span,
                         ));
                     }
@@ -2792,7 +2756,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             _ => {
                 self.type_env.pop_scope();
                 return Err(Error::new_semantic(
-                    format!("Cannot iterate over type: {}", iterable_type),
+                    format!("Cannot iterate over type: {iterable_type}"),
                     iterable.span(),
                 ));
             }
@@ -2837,10 +2801,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     _ => {
                         self.type_env.pop_scope();
                         return Err(Error::new_semantic(
-                            format!(
-                                "Cannot destructure non-tuple type {} in for loop",
-                                element_type
-                            ),
+                            format!("Cannot destructure non-tuple type {element_type} in for loop"),
                             pattern.span(),
                         ));
                     }
@@ -2874,7 +2835,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         let condition_type = self.visit_expr(condition)?;
         if condition_type != Type::Bool {
             return Err(Error::new_semantic(
-                format!("While condition must be boolean, found {}", condition_type),
+                format!("While condition must be boolean, found {condition_type}"),
                 condition.span(),
             ));
         }
@@ -3105,10 +3066,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             Type::Promise(inner) => Ok((**inner).clone()),
             Type::Unknown => Ok(Type::Unknown), // Allow unknown types for extern functions
             _ => Err(Error::new_semantic(
-                format!(
-                    ".await can only be used on Promise types, found {}",
-                    expr_type
-                ),
+                format!(".await can only be used on Promise types, found {expr_type}"),
                 *span,
             )),
         }
@@ -3128,10 +3086,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             }
             Type::Unknown => Ok(Type::Unknown), // Allow unknown types for extern functions
             _ => Err(Error::new_semantic(
-                format!(
-                    "? operator can only be used on Result types, found {}",
-                    expr_type
-                ),
+                format!("? operator can only be used on Result types, found {expr_type}"),
                 *span,
             )),
         }
@@ -3164,10 +3119,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 variants: std::collections::HashMap::new(),
             }), // Allow unknown types for extern functions
             _ => Err(Error::new_semantic(
-                format!(
-                    ".await? can only be used on Promise types, found {}",
-                    expr_type
-                ),
+                format!(".await? can only be used on Promise types, found {expr_type}"),
                 *span,
             )),
         }
@@ -3205,10 +3157,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
             if !body_type.is_assignable_to(&expected_type) {
                 return Err(Error::new_semantic(
-                    format!(
-                        "Closure body returns {} but expected {}",
-                        body_type, expected_type
-                    ),
+                    format!("Closure body returns {body_type} but expected {expected_type}"),
                     body.span(),
                 ));
             }
@@ -3282,7 +3231,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             Ok(Type::Unit)
                         }
                         Err(e) => Err(Error::new_semantic(
-                            format!("Failed to resolve package '{}': {}", package_name, e),
+                            format!("Failed to resolve package '{package_name}': {e}"),
                             *span,
                         )),
                     }
@@ -3423,7 +3372,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         let condition_type = self.visit_expr(condition)?;
         if condition_type != Type::Bool {
             return Err(Error::new_semantic(
-                format!("If condition must be boolean, found {}", condition_type),
+                format!("If condition must be boolean, found {condition_type}"),
                 condition.span(),
             ));
         }
@@ -3437,8 +3386,7 @@ impl AstVisitor<Type> for SemanticVisitor {
             if then_type != Type::Unit {
                 return Err(Error::new_semantic(
                     format!(
-                        "If expression without else branch cannot return non-unit type {}",
-                        then_type
+                        "If expression without else branch cannot return non-unit type {then_type}"
                     ),
                     *span,
                 ));
@@ -3452,8 +3400,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Both branches must return the same type for if expression
         if then_type != else_type {
             return Err(Error::new_semantic(
-                format!("If expression branches have incompatible types: then returns {}, else returns {}",
-                        then_type, else_type),
+                format!("If expression branches have incompatible types: then returns {then_type}, else returns {else_type}"),
                 *span,
             ));
         }
@@ -3579,8 +3526,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 if arg_type != Type::Int {
                                     return Err(Error::new_semantic(
                                         format!(
-                                            "String method '{}' expects int arguments, found {}",
-                                            method, arg_type
+                                            "String method '{method}' expects int arguments, found {arg_type}"
                                         ),
                                         *span,
                                     ));
@@ -3603,8 +3549,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if arg_type != Type::String {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "String method '{}' expects string argument, found {}",
-                                        method, arg_type
+                                        "String method '{method}' expects string argument, found {arg_type}"
                                     ),
                                     *span,
                                 ));
@@ -3665,8 +3610,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if arg_type != Type::String {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "String method '{}' expects string argument, found {}",
-                                        method, arg_type
+                                        "String method '{method}' expects string argument, found {arg_type}"
                                     ),
                                     *span,
                                 ));
@@ -3688,8 +3632,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if arg_type != Type::String {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "String method '{}' expects string argument, found {}",
-                                        method, arg_type
+                                        "String method '{method}' expects string argument, found {arg_type}"
                                     ),
                                     *span,
                                 ));
@@ -3711,8 +3654,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if arg_type != Type::String {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "String method '{}' expects string argument, found {}",
-                                        method, arg_type
+                                        "String method '{method}' expects string argument, found {arg_type}"
                                     ),
                                     *span,
                                 ));
@@ -3736,8 +3678,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 if arg_type != Type::String {
                                     return Err(Error::new_semantic(
                                         format!(
-                                            "String method '{}' expects string arguments, found {}",
-                                            method, arg_type
+                                            "String method '{method}' expects string arguments, found {arg_type}"
                                         ),
                                         *span,
                                     ));
@@ -3746,7 +3687,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             Ok(Type::String)
                         }
                         _ => Err(Error::new_semantic(
-                            format!("Unknown method '{}' for string type", method),
+                            format!("Unknown method '{method}' for string type"),
                             *span,
                         )),
                     }
@@ -3845,8 +3786,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             if arg_type != **elem_type {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "Array method '{}' expects {} argument, found {}",
-                                        method, elem_type, arg_type
+                                        "Array method '{method}' expects {elem_type} argument, found {arg_type}"
                                     ),
                                     *span,
                                 ));
@@ -3868,7 +3808,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                             Ok(Type::Unknown) // For now, as we need proper Option<T> support
                         }
                         _ => Err(Error::new_semantic(
-                            format!("Unknown method '{}' for array type", method),
+                            format!("Unknown method '{method}' for array type"),
                             *span,
                         )),
                     }
@@ -3891,7 +3831,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
             }
             _ => Err(Error::new_semantic(
-                format!("Cannot call method '{}' on type {}", method, object_type),
+                format!("Cannot call method '{method}' on type {object_type}"),
                 *span,
             )),
         }
@@ -3965,7 +3905,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // These macros accept format string + arguments like format!
                 if args.is_empty() && (name == "print" || name == "eprint") {
                     return Err(Error::new_semantic(
-                        format!("{}! requires at least one argument", name),
+                        format!("{name}! requires at least one argument"),
                         *span,
                     ));
                 }
@@ -4008,8 +3948,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                     if placeholder_count != arg_count {
                         return Err(Error::new_semantic(
-                            format!("format! expects {} arguments after format string, but {} were provided",
-                                   placeholder_count, arg_count),
+                            format!("format! expects {placeholder_count} arguments after format string, but {arg_count} were provided"),
                             *span,
                         ));
                     }
@@ -4023,7 +3962,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 Ok(Type::String)
             }
             _ => Err(Error::new_semantic(
-                format!("Unknown macro: {}!", name),
+                format!("Unknown macro: {name}!"),
                 *span,
             )),
         }
@@ -4218,7 +4157,7 @@ mod tests {
             }
         "#;
         let result = analyze_code(code);
-        assert!(result.is_err(), "Expected error but got: {:?}", result);
+        assert!(result.is_err(), "Expected error but got: {result:?}");
     }
 
     #[test]
@@ -4523,8 +4462,7 @@ mod tests {
         let result = analyze_code(code);
         assert!(
             result.is_ok(),
-            "Expected static method call to be valid, but got: {:?}",
-            result
+            "Expected static method call to be valid, but got: {result:?}"
         );
 
         // Now let's also test the specific case where we want to check the return type
@@ -4540,13 +4478,13 @@ mod tests {
         // Debug: Print registered functions
         println!("DEBUG: Registered functions:");
         for (name, (params, return_type, _)) in &analyzer.functions {
-            println!("  {}: {:?} -> {:?}", name, params, return_type);
+            println!("  {name}: {params:?} -> {return_type:?}");
         }
 
         // Debug: Print type environment
         println!("DEBUG: Type environment for 'logger':");
         if let Some(logger_type) = analyzer.type_env.lookup("logger") {
-            println!("  logger: {:?}", logger_type);
+            println!("  logger: {logger_type:?}");
         } else {
             println!("  logger: NOT FOUND");
         }
@@ -4557,15 +4495,11 @@ mod tests {
                 Type::Struct { name, .. } => {
                     assert_eq!(
                         name, "Logger",
-                        "Expected logger variable to have Logger type, got struct with name: {}",
-                        name
+                        "Expected logger variable to have Logger type, got struct with name: {name}"
                     );
                 }
                 other => {
-                    panic!(
-                        "Expected logger variable to have Logger struct type, got: {:?}",
-                        other
-                    );
+                    panic!("Expected logger variable to have Logger struct type, got: {other:?}");
                 }
             }
         } else {

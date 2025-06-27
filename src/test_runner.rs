@@ -270,8 +270,7 @@ impl TestRunner {
                                                 duration,
                                                 output,
                                                 format!(
-                                                    "Expected panic message '{}', but got '{}'",
-                                                    expected_msg, error_msg
+                                                    "Expected panic message '{expected_msg}', but got '{error_msg}'"
                                                 ),
                                             )
                                         }
@@ -343,7 +342,7 @@ impl TestRunner {
                             }
                             Err(e) => {
                                 let duration = start.elapsed();
-                                let error_msg = format!("{}", e);
+                                let error_msg = format!("{e}");
 
                                 // Check if this was an expected panic
                                 if test.should_panic {
@@ -361,8 +360,7 @@ impl TestRunner {
                                                 duration,
                                                 output,
                                                 format!(
-                                                    "Expected panic message '{}', but got '{}'",
-                                                    expected_msg, error_msg
+                                                    "Expected panic message '{expected_msg}', but got '{error_msg}'"
                                                 ),
                                             )
                                         }
@@ -387,7 +385,7 @@ impl TestRunner {
                             test.qualified_name(),
                             duration,
                             output,
-                            format!("Setup failed: {}", e),
+                            format!("Setup failed: {e}"),
                         )
                     }
                 }
@@ -398,7 +396,7 @@ impl TestRunner {
                     test.qualified_name(),
                     duration,
                     output,
-                    format!("Test function not found in AST"),
+                    "Test function not found in AST".to_string(),
                 )
             }
         }
@@ -503,7 +501,7 @@ impl TestRunner {
                 // Verify test function has no parameters
                 if !params.is_empty() {
                     return Err(Error::new_test_error(
-                        format!("Test function '{}' cannot have parameters", name),
+                        format!("Test function '{name}' cannot have parameters"),
                         test.span,
                     ));
                 }
@@ -546,7 +544,7 @@ impl TestRunner {
         stdout
             .set_color(ColorSpec::new().set_fg(Some(color)))
             .unwrap();
-        write!(&mut stdout, "{}", status).unwrap();
+        write!(&mut stdout, "{status}").unwrap();
         stdout.reset().unwrap();
 
         let timing = if self.config.show_timing {
@@ -555,7 +553,7 @@ impl TestRunner {
             String::new()
         };
 
-        writeln!(&mut stdout, "{}", timing).unwrap();
+        writeln!(&mut stdout, "{timing}").unwrap();
 
         // Show output if requested or if test failed
         if !result.output.is_empty() && (self.config.show_output || !result.passed) {
@@ -573,7 +571,7 @@ impl TestRunner {
                 .unwrap();
             writeln!(&mut stdout, "---- {} stderr ----", result.name).unwrap();
             stdout.reset().unwrap();
-            println!("{}", error);
+            println!("{error}");
             println!();
         }
     }
@@ -614,14 +612,14 @@ impl TestRunner {
         stdout
             .set_color(ColorSpec::new().set_fg(Some(result_color)))
             .unwrap();
-        write!(&mut stdout, "{}", result_str).unwrap();
+        write!(&mut stdout, "{result_str}").unwrap();
         stdout.reset().unwrap();
         write!(&mut stdout, ". ").unwrap();
 
         stdout
             .set_color(ColorSpec::new().set_fg(Some(Color::Green)))
             .unwrap();
-        write!(&mut stdout, "{} passed", passed).unwrap();
+        write!(&mut stdout, "{passed} passed").unwrap();
         stdout.reset().unwrap();
         write!(&mut stdout, "; ").unwrap();
 
@@ -629,7 +627,7 @@ impl TestRunner {
             stdout
                 .set_color(ColorSpec::new().set_fg(Some(Color::Red)))
                 .unwrap();
-            write!(&mut stdout, "{} failed", failed).unwrap();
+            write!(&mut stdout, "{failed} failed").unwrap();
             stdout.reset().unwrap();
             write!(&mut stdout, "; ").unwrap();
         }
@@ -638,7 +636,7 @@ impl TestRunner {
             stdout
                 .set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))
                 .unwrap();
-            write!(&mut stdout, "{} ignored", ignored).unwrap();
+            write!(&mut stdout, "{ignored} ignored").unwrap();
             stdout.reset().unwrap();
             write!(&mut stdout, "; ").unwrap();
         }

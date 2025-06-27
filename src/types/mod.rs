@@ -252,7 +252,7 @@ impl fmt::Display for Type {
             Type::Float => write!(f, "float"),
             Type::Bool => write!(f, "bool"),
             Type::String => write!(f, "string"),
-            Type::Array(inner) => write!(f, "array<{}>", inner),
+            Type::Array(inner) => write!(f, "array<{inner}>"),
             Type::Range => write!(f, "range"),
             Type::Tuple(types) => {
                 write!(f, "(")?;
@@ -260,12 +260,12 @@ impl fmt::Display for Type {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", t)?;
+                    write!(f, "{t}")?;
                 }
                 write!(f, ")")
             }
-            Type::Struct { name, .. } => write!(f, "{}", name),
-            Type::Enum { name, .. } => write!(f, "{}", name),
+            Type::Struct { name, .. } => write!(f, "{name}"),
+            Type::Enum { name, .. } => write!(f, "{name}"),
             Type::Function {
                 params,
                 return_type,
@@ -275,12 +275,12 @@ impl fmt::Display for Type {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", p)?;
+                    write!(f, "{p}")?;
                 }
-                write!(f, ") -> {}", return_type)
+                write!(f, ") -> {return_type}")
             }
-            Type::Promise(inner) => write!(f, "Promise<{}>", inner),
-            Type::Generic { name, .. } => write!(f, "{}", name),
+            Type::Promise(inner) => write!(f, "Promise<{inner}>"),
+            Type::Generic { name, .. } => write!(f, "{name}"),
             Type::Unknown => write!(f, "?"),
         }
     }

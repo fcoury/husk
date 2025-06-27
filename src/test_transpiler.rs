@@ -47,6 +47,12 @@ impl Default for TestTranspileConfig {
     }
 }
 
+impl Default for TestTranspiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestTranspiler {
     pub fn new() -> Self {
         TestTranspiler {
@@ -75,7 +81,7 @@ impl TestTranspiler {
         if !main_code.trim().is_empty() {
             output.push_str("// Main application code\n");
             output.push_str(&main_code);
-            output.push_str("\n");
+            output.push('\n');
         }
 
         // Generate test functions
@@ -395,7 +401,7 @@ function registerTest(name, testFn, shouldPanic = false, ignore = false) {
             Stmt::Function(_, _, name, _, params, _, body, _) => {
                 if !params.is_empty() {
                     return Err(Error::new_transpile(
-                        format!("Test function '{}' cannot have parameters", name),
+                        format!("Test function '{name}' cannot have parameters"),
                         test.span,
                     ));
                 }
@@ -409,7 +415,7 @@ function registerTest(name, testFn, shouldPanic = false, ignore = false) {
                     body_code.push('\n');
                 }
 
-                format!("async function {}() {{\n{}}}\n", name, body_code)
+                format!("async function {name}() {{\n{body_code}}}\n")
             }
             _ => {
                 return Err(Error::new_transpile(
@@ -428,7 +434,7 @@ function registerTest(name, testFn, shouldPanic = false, ignore = false) {
             test.ignore
         );
 
-        Ok(format!("{}{}", function_code, registration))
+        Ok(format!("{function_code}{registration}"))
     }
 
     /// Find a test function in the AST
@@ -441,10 +447,11 @@ function registerTest(name, testFn, shouldPanic = false, ignore = false) {
         for stmt in ast {
             match stmt {
                 Stmt::Function(attrs, _, fn_name, _, _, _, _, _) => {
-                    if fn_name == name && module_path.is_empty() {
-                        if attrs.iter().any(|a| a.name == "test") {
-                            return Ok(stmt);
-                        }
+                    if fn_name == name
+                        && module_path.is_empty()
+                        && attrs.iter().any(|a| a.name == "test")
+                    {
+                        return Ok(stmt);
                     }
                 }
                 Stmt::Module(_attrs, mod_name, body, _) => {
@@ -463,7 +470,7 @@ function registerTest(name, testFn, shouldPanic = false, ignore = false) {
         }
 
         Err(Error::new_transpile(
-            format!("Test function '{}' not found in AST", name),
+            format!("Test function '{name}' not found in AST"),
             crate::span::Span::default(),
         ))
     }

@@ -126,10 +126,10 @@ impl fmt::Display for TokenKind {
             TokenKind::Continue => "Continue",
             TokenKind::Return => "Return",
             TokenKind::Identifier(s) => s,
-            TokenKind::Int(i) => return write!(f, "{}", i),
-            TokenKind::Float(fl) => return write!(f, "{}", fl),
+            TokenKind::Int(i) => return write!(f, "{i}"),
+            TokenKind::Float(fl) => return write!(f, "{fl}"),
             TokenKind::String(s) => s,
-            TokenKind::Bool(b) => return write!(f, "{}", b),
+            TokenKind::Bool(b) => return write!(f, "{b}"),
             TokenKind::Equals => "=",
             TokenKind::DblEquals => "==",
             TokenKind::Semicolon => ";",
@@ -173,7 +173,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Error(s) => s,
             TokenKind::Eof => "EOF",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -416,7 +416,7 @@ impl Lexer {
                 } else if c.is_ascii_digit() {
                     return self.read_number();
                 } else {
-                    self.create_token(TokenKind::Error(format!("Unexpected character: {}", c)))
+                    self.create_token(TokenKind::Error(format!("Unexpected character: {c}")))
                 }
             }
             None => self.create_token_no_advance(TokenKind::Eof),

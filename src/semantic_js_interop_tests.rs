@@ -27,7 +27,7 @@ mod tests {
         "#;
         match analyze_code(code) {
             Ok(_) => {}
-            Err(e) => panic!("Failed to analyze code: {:?}", e),
+            Err(e) => panic!("Failed to analyze code: {e:?}"),
         }
     }
 
@@ -141,7 +141,7 @@ mod tests {
         "#;
         match analyze_code(code) {
             Ok(_) => {}
-            Err(e) => panic!("Failed to analyze code: {:?}", e),
+            Err(e) => panic!("Failed to analyze code: {e:?}"),
         }
     }
 

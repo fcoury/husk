@@ -353,16 +353,16 @@ impl Expr {
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Expr::Int(value, _) => write!(f, "{}", value),
-            Expr::Float(value, _) => write!(f, "{}", value),
-            Expr::String(value, _) => write!(f, "\"{}\"", value),
-            Expr::Bool(value, _) => write!(f, "{}", value),
+            Expr::Int(value, _) => write!(f, "{value}"),
+            Expr::Float(value, _) => write!(f, "{value}"),
+            Expr::String(value, _) => write!(f, "\"{value}\""),
+            Expr::Bool(value, _) => write!(f, "{value}"),
             Expr::Unit(_) => write!(f, "()"),
             Expr::EnumVariantOrMethodCall {
                 target, call, args, ..
             } => {
                 if args.is_empty() {
-                    write!(f, "{}::{}", target, call)
+                    write!(f, "{target}::{call}")
                 } else {
                     write!(
                         f,
@@ -376,9 +376,9 @@ impl fmt::Display for Expr {
                     )
                 }
             }
-            Expr::Identifier(name, _) => write!(f, "{}", name),
-            Expr::BinaryOp(left, op, right, _) => write!(f, "({} {:?} {})", left, op, right),
-            Expr::UnaryOp(op, expr, _) => write!(f, "({:?} {})", op, expr),
+            Expr::Identifier(name, _) => write!(f, "{name}"),
+            Expr::BinaryOp(left, op, right, _) => write!(f, "({left} {op:?} {right})"),
+            Expr::UnaryOp(op, expr, _) => write!(f, "({op:?} {expr})"),
             Expr::FunctionCall(name, args, _) => {
                 write!(
                     f,
@@ -397,14 +397,14 @@ impl fmt::Display for Expr {
                     name,
                     fields
                         .iter()
-                        .map(|(name, value)| format!("{}: {}", name, value))
+                        .map(|(name, value)| format!("{name}: {value}"))
                         .collect::<Vec<String>>()
                         .join(", ")
                 )
             }
-            Expr::MemberAccess(expr, field, _) => write!(f, "{}.{}", expr, field),
-            Expr::Assign(left, right, _) => write!(f, "{} = {}", left, right),
-            Expr::CompoundAssign(left, op, right, _) => write!(f, "{} {:?}= {}", left, op, right),
+            Expr::MemberAccess(expr, field, _) => write!(f, "{expr}.{field}"),
+            Expr::Assign(left, right, _) => write!(f, "{left} = {right}"),
+            Expr::CompoundAssign(left, op, right, _) => write!(f, "{left} {op:?}= {right}"),
             Expr::Array(elements, _) => {
                 write!(
                     f,
@@ -416,7 +416,7 @@ impl fmt::Display for Expr {
                         .join(", ")
                 )
             }
-            Expr::ArrayIndex(array, index, _) => write!(f, "{}[{}]", array, index),
+            Expr::ArrayIndex(array, index, _) => write!(f, "{array}[{index}]"),
             Expr::Tuple(elements, _) => {
                 write!(
                     f,
@@ -430,9 +430,9 @@ impl fmt::Display for Expr {
             }
             Expr::Range(start, end, inclusive, _) => {
                 if *inclusive {
-                    write!(f, "{:?}..={:?}", start, end)?;
+                    write!(f, "{start:?}..={end:?}")?;
                 } else {
-                    write!(f, "{:?}..{:?}", start, end)?;
+                    write!(f, "{start:?}..{end:?}")?;
                 }
                 Ok(())
             }
@@ -442,9 +442,9 @@ impl fmt::Display for Expr {
             Expr::If(_cond, _then, _else, _) => {
                 write!(f, "if ... {{ ... }}") // Simple representation for now
             }
-            Expr::Await(expr, _) => write!(f, "{}.await", expr),
-            Expr::Try(expr, _) => write!(f, "{}?", expr),
-            Expr::AwaitTry(expr, _) => write!(f, "{}.await?", expr),
+            Expr::Await(expr, _) => write!(f, "{expr}.await"),
+            Expr::Try(expr, _) => write!(f, "{expr}?"),
+            Expr::AwaitTry(expr, _) => write!(f, "{expr}.await?"),
             Expr::Match(_expr, _arms, _) => {
                 write!(f, "match ... {{ ... }}") // Simple representation for now
             }
@@ -453,7 +453,7 @@ impl fmt::Display for Expr {
                     .iter()
                     .map(|(name, ty)| {
                         if let Some(ty) = ty {
-                            format!("{}: {}", name, ty)
+                            format!("{name}: {ty}")
                         } else {
                             name.clone()
                         }
@@ -462,9 +462,9 @@ impl fmt::Display for Expr {
                     .join(", ");
 
                 if let Some(ret) = ret_type {
-                    write!(f, "|{}| -> {} {{ ... }}", param_str, ret)
+                    write!(f, "|{param_str}| -> {ret} {{ ... }}")
                 } else {
-                    write!(f, "|{}| {{ ... }}", param_str)
+                    write!(f, "|{param_str}| {{ ... }}")
                 }
             }
             Expr::MethodCall(obj, method, args, _) => {
@@ -479,12 +479,12 @@ impl fmt::Display for Expr {
                         .join(", ")
                 )
             }
-            Expr::Cast(expr, target_type, _) => write!(f, "{} as {}", expr, target_type),
+            Expr::Cast(expr, target_type, _) => write!(f, "{expr} as {target_type}"),
             Expr::StructPattern(variant, fields, _) => {
                 let field_strings: Vec<String> = fields
                     .iter()
                     .map(|(field, rename)| match rename {
-                        Some(var_name) => format!("{}: {}", field, var_name),
+                        Some(var_name) => format!("{field}: {var_name}"),
                         None => field.clone(),
                     })
                     .collect();
@@ -493,7 +493,7 @@ impl fmt::Display for Expr {
             Expr::ObjectLiteral(fields, _) => {
                 let field_strings: Vec<String> = fields
                     .iter()
-                    .map(|(key, value)| format!("{}: {}", key, value))
+                    .map(|(key, value)| format!("{key}: {value}"))
                     .collect();
                 write!(f, "{{ {} }}", field_strings.join(", "))
             }
@@ -2493,7 +2493,7 @@ impl Parser {
                         self.advance(); // Consume '}'
 
                         // Create the full variant name including the enum prefix
-                        let full_variant = format!("{}::{}", target, call);
+                        let full_variant = format!("{target}::{call}");
 
                         Ok(Expr::StructPattern(
                             full_variant,
@@ -2590,7 +2590,7 @@ impl Parser {
             self.advance(); // Consume identifier
             Ok(Some(name))
         } else if let TokenKind::Error(err) = &self.current_token().kind {
-            println!("{}", err);
+            println!("{err}");
             Err(Error::new_parse(err, self.current_token().span))
         } else {
             Err(Error::new_parse(
@@ -3224,7 +3224,7 @@ impl Parser {
                         // Check if it looks like "digit.digit" pattern
                         let float_str = if f.fract() == 0.0 && *f >= 0.0 && *f < 10.0 {
                             // For small integers displayed as floats, force decimal representation
-                            format!("{:.1}", f)
+                            format!("{f:.1}")
                         } else {
                             f.to_string()
                         };
@@ -3782,7 +3782,7 @@ impl Parser {
             self.advance(); // Consume '}'
 
             // Create a struct-like variant name
-            let variant_name = format!("{}::{}", name, target_name);
+            let variant_name = format!("{name}::{target_name}");
 
             return Ok(Expr::StructInit(
                 variant_name,
@@ -4547,7 +4547,7 @@ mod tests {
 
         match parser.parse() {
             Ok(ast) => {
-                println!("{:?}", ast);
+                println!("{ast:?}");
             }
             Err(e) => {
                 panic!("{}", e.pretty_print(code))
@@ -5069,7 +5069,7 @@ mod tests {
             }
         "#;
         let x = parse(code);
-        println!("{:?}", x);
+        println!("{x:?}");
     }
 
     #[test]

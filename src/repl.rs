@@ -35,7 +35,7 @@ pub fn repl() -> anyhow::Result<()> {
                 let mut parser = Parser::new(tokens);
                 match parser.parse() {
                     Ok(ast) => match interpreter.interpret(&ast) {
-                        Ok(val) => println!("{}", val),
+                        Ok(val) => println!("{val}"),
                         Err(e) => println!("{}", e.pretty_print(line)),
                     },
                     Err(e) => println!("{}", e.pretty_print(line)),
@@ -50,7 +50,7 @@ pub fn repl() -> anyhow::Result<()> {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("Error: {err:?}");
                 break;
             }
         }

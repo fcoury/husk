@@ -55,7 +55,7 @@ impl Span {
         let arrow_end = self.end - line_start;
         let arrow = " ".repeat(arrow_start) + &"^".repeat(arrow_end - arrow_start);
 
-        format!("{}\n{}", line, arrow)
+        format!("{line}\n{arrow}")
     }
 
     pub fn location(&self, code: impl Into<String>) -> String {

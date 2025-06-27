@@ -104,8 +104,7 @@ impl PackageResolver {
             Ok(resolved)
         } else {
             Err(Error::new_config(format!(
-                "Package '{}' not found in dependencies. Add it to husk.toml [dependencies] or [dev-dependencies]",
-                package_name
+                "Package '{package_name}' not found in dependencies. Add it to husk.toml [dependencies] or [dev-dependencies]"
             )))
         }
     }
@@ -142,8 +141,7 @@ impl PackageResolver {
                 self.resolve_npm_package(name)
             }
             _ => Err(Error::new_config(format!(
-                "Invalid dependency specification for package '{}'",
-                name
+                "Invalid dependency specification for package '{name}'"
             ))),
         }
     }
@@ -155,8 +153,7 @@ impl PackageResolver {
 
         if !package_path.exists() {
             return Err(Error::new_config(format!(
-                "Package '{}' not found in node_modules. Run 'npm install' first.",
-                name
+                "Package '{name}' not found in node_modules. Run 'npm install' first."
             )));
         }
 
@@ -207,8 +204,7 @@ impl PackageResolver {
 
         if !package_path.exists() {
             return Err(Error::new_config(format!(
-                "Local dependency '{}' not found at path: {}",
-                name, relative_path
+                "Local dependency '{name}' not found at path: {relative_path}"
             )));
         }
 
