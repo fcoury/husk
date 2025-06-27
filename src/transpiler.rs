@@ -487,7 +487,23 @@ impl JsTranspiler {
                                 )
                             }
                             "Some" => {
-                                if let Some(Expr::Identifier(bind_name, _)) = args.first() {
+                                if args.len() > 1 {
+                                    // Multiple bindings - extract from values array
+                                    let mut bindings = String::new();
+                                    for (i, arg) in args.iter().enumerate() {
+                                        if let Expr::Identifier(bind_name, _) = arg {
+                                            bindings.push_str(&format!(
+                                                "const {} = _matched.values[{}];\n",
+                                                bind_name, i
+                                            ));
+                                        }
+                                    }
+                                    return (
+                                        "(_matched && _matched.type === 'Some')".to_string(),
+                                        bindings,
+                                    );
+                                } else if let Some(Expr::Identifier(bind_name, _)) = args.first() {
+                                    // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Some')".to_string(),
                                         format!("const {} = _matched.value;\n", bind_name),
@@ -506,26 +522,58 @@ impl JsTranspiler {
                     if type_name == "Result" {
                         match call.as_str() {
                             "Ok" => {
-                                if let Some(Expr::Identifier(bind_name, _)) = args.first() {
+                                if args.len() > 1 {
+                                    // Multiple bindings - extract from values array
+                                    let mut bindings = String::new();
+                                    for (i, arg) in args.iter().enumerate() {
+                                        if let Expr::Identifier(bind_name, _) = arg {
+                                            bindings.push_str(&format!(
+                                                "const {} = _matched.values[{}];\n",
+                                                bind_name, i
+                                            ));
+                                        }
+                                    }
                                     return (
-                                        "(_matched && typeof _matched === 'object' && 'Ok' in _matched)".to_string(),
-                                        format!("const {} = _matched.Ok;\n", bind_name),
+                                        "(_matched && _matched.type === 'Ok')".to_string(),
+                                        bindings,
+                                    );
+                                } else if let Some(Expr::Identifier(bind_name, _)) = args.first() {
+                                    // Single binding - maintain backward compatibility
+                                    return (
+                                        "(_matched && _matched.type === 'Ok')".to_string(),
+                                        format!("const {} = _matched.value;\n", bind_name),
                                     );
                                 }
                                 return (
-                                    "(_matched && typeof _matched === 'object' && 'Ok' in _matched)".to_string(),
+                                    "(_matched && _matched.type === 'Ok')".to_string(),
                                     String::new(),
                                 );
                             }
                             "Err" => {
-                                if let Some(Expr::Identifier(bind_name, _)) = args.first() {
+                                if args.len() > 1 {
+                                    // Multiple bindings - extract from values array
+                                    let mut bindings = String::new();
+                                    for (i, arg) in args.iter().enumerate() {
+                                        if let Expr::Identifier(bind_name, _) = arg {
+                                            bindings.push_str(&format!(
+                                                "const {} = _matched.values[{}];\n",
+                                                bind_name, i
+                                            ));
+                                        }
+                                    }
                                     return (
-                                        "(_matched && typeof _matched === 'object' && 'Err' in _matched)".to_string(),
-                                        format!("const {} = _matched.Err;\n", bind_name),
+                                        "(_matched && _matched.type === 'Err')".to_string(),
+                                        bindings,
+                                    );
+                                } else if let Some(Expr::Identifier(bind_name, _)) = args.first() {
+                                    // Single binding - maintain backward compatibility
+                                    return (
+                                        "(_matched && _matched.type === 'Err')".to_string(),
+                                        format!("const {} = _matched.value;\n", bind_name),
                                     );
                                 }
                                 return (
-                                    "(_matched && typeof _matched === 'object' && 'Err' in _matched)".to_string(),
+                                    "(_matched && _matched.type === 'Err')".to_string(),
                                     String::new(),
                                 );
                             }
@@ -1092,7 +1140,18 @@ impl AstVisitor<String> for JsTranspiler {
             match call {
                 "None" => return Ok("{ type: 'None', value: null }".to_string()),
                 "Some" => {
-                    if !args.is_empty() {
+                    if args.len() > 1 {
+                        // Multiple values - use values array
+                        let arg_strs: Vec<String> = args
+                            .iter()
+                            .map(|arg| self.visit_expr(arg))
+                            .collect::<Result<Vec<_>>>()?;
+                        return Ok(format!(
+                            "{{ type: 'Some', values: [{}] }}",
+                            arg_strs.join(", ")
+                        ));
+                    } else if args.len() == 1 {
+                        // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
                         return Ok(format!("{{ type: 'Some', value: {} }}", arg_str));
                     } else {
@@ -1107,7 +1166,18 @@ impl AstVisitor<String> for JsTranspiler {
         if target_str == "Result" {
             match call {
                 "Ok" => {
-                    if !args.is_empty() {
+                    if args.len() > 1 {
+                        // Multiple values - use values array
+                        let arg_strs: Vec<String> = args
+                            .iter()
+                            .map(|arg| self.visit_expr(arg))
+                            .collect::<Result<Vec<_>>>()?;
+                        return Ok(format!(
+                            "{{ type: 'Ok', values: [{}] }}",
+                            arg_strs.join(", ")
+                        ));
+                    } else if args.len() == 1 {
+                        // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
                         return Ok(format!("{{ type: 'Ok', value: {} }}", arg_str));
                     } else {
@@ -1115,7 +1185,18 @@ impl AstVisitor<String> for JsTranspiler {
                     }
                 }
                 "Err" => {
-                    if !args.is_empty() {
+                    if args.len() > 1 {
+                        // Multiple values - use values array
+                        let arg_strs: Vec<String> = args
+                            .iter()
+                            .map(|arg| self.visit_expr(arg))
+                            .collect::<Result<Vec<_>>>()?;
+                        return Ok(format!(
+                            "{{ type: 'Err', values: [{}] }}",
+                            arg_strs.join(", ")
+                        ));
+                    } else if args.len() == 1 {
+                        // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
                         return Ok(format!("{{ type: 'Err', value: {} }}", arg_str));
                     } else {
