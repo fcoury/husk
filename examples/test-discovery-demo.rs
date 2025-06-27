@@ -1,4 +1,4 @@
-use husk::{Lexer, Parser, SemanticVisitor};
+use husk_lang::{Lexer, Parser, SemanticVisitor};
 use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
