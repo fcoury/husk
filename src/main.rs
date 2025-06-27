@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use husk::repl;
@@ -41,6 +41,44 @@ struct New {
     name: String,
 }
 
+#[derive(Parser, Debug)]
+struct Test {
+    /// Test file or directory to run (defaults to current directory)
+    path: Option<PathBuf>,
+
+    /// Filter tests by name pattern
+    #[clap(long)]
+    filter: Option<String>,
+
+    /// Run ignored tests
+    #[clap(long)]
+    include_ignored: bool,
+
+    /// Stop on first failure
+    #[clap(long)]
+    fail_fast: bool,
+
+    /// Show output from passing tests
+    #[clap(long)]
+    show_output: bool,
+
+    /// Show timing information
+    #[clap(long)]
+    show_timing: bool,
+
+    /// Use transpiler mode (generate JavaScript)
+    #[clap(long)]
+    transpile: bool,
+
+    /// JavaScript test runner (standalone, node, jest, mocha)
+    #[clap(long, default_value = "standalone")]
+    js_runner: String,
+
+    /// Number of test threads (interpreter mode only)
+    #[clap(long, default_value = "1")]
+    test_threads: usize,
+}
+
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Start the Husk REPL
@@ -57,6 +95,9 @@ enum Command {
 
     /// Create a new Husk project
     New(New),
+
+    /// Run tests
+    Test(Test),
 }
 
 #[derive(Parser, Debug)]
@@ -77,6 +118,7 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Compile(compile)) => compile_command(compile)?,
         Some(Command::Build(build)) => build_command(build)?,
         Some(Command::New(new)) => new_command(new)?,
+        Some(Command::Test(test)) => test_command(test)?,
         Some(Command::Repl) | None => repl()?,
     };
     Ok(())
@@ -307,4 +349,195 @@ module = "esm"
     println!("  husk run src/main.husk");
 
     Ok(())
+}
+
+fn test_command(cli: Test) -> anyhow::Result<()> {
+    use husk::test_runner::{TestConfig, TestRunner};
+    use husk::{Lexer, Parser, SemanticVisitor};
+    use std::fs;
+
+    // Determine the path to search for tests
+    let test_path = cli.path.clone().unwrap_or_else(|| PathBuf::from("."));
+
+    // Collect all .husk files to process
+    let mut test_files = Vec::new();
+    collect_husk_files(&test_path, &mut test_files)?;
+
+    if test_files.is_empty() {
+        println!("No test files found in {:?}", test_path);
+        return Ok(());
+    }
+
+    println!(
+        "Discovered {} test file{}",
+        test_files.len(),
+        if test_files.len() == 1 { "" } else { "s" }
+    );
+
+    let mut all_test_results = Vec::new();
+    let mut total_tests = 0;
+
+    let num_files = test_files.len();
+    for file_path in &test_files {
+        // Read and parse the file
+        let code = fs::read_to_string(&file_path)?;
+
+        let mut lexer = Lexer::new(code.clone());
+        let tokens = lexer.lex_all();
+
+        let mut parser = Parser::new(tokens);
+        let ast = match parser.parse() {
+            Ok(ast) => ast,
+            Err(e) => {
+                eprintln!("Parse error in {:?}: {}", file_path, e.pretty_print(code));
+                continue;
+            }
+        };
+
+        // Run semantic analysis with test discovery
+        let mut analyzer = SemanticVisitor::new();
+        if let Err(e) = analyzer.analyze(&ast) {
+            eprintln!(
+                "Semantic error in {:?}: {}",
+                file_path,
+                e.pretty_print(code)
+            );
+            continue;
+        }
+
+        // Get the test registry
+        let test_registry = analyzer.get_test_registry();
+        let file_tests = test_registry.all_tests();
+
+        if file_tests.is_empty() {
+            continue; // No tests in this file
+        }
+
+        total_tests += file_tests.len();
+
+        if cli.transpile {
+            // Use transpiler mode
+            let results = run_transpiler_tests(&ast, test_registry, &cli)?;
+            all_test_results.extend(results);
+        } else {
+            // Use interpreter mode
+            let config = TestConfig {
+                show_output: cli.show_output,
+                capture_output: true,
+                fail_fast: cli.fail_fast,
+                include_ignored: cli.include_ignored,
+                filter: cli.filter.clone(),
+                test_threads: cli.test_threads,
+                show_timing: cli.show_timing,
+            };
+
+            let runner = TestRunner::new(ast, config);
+            let results = runner.run_tests_with_source(test_registry, &code);
+            all_test_results.extend(results);
+        }
+    }
+
+    if total_tests == 0 {
+        println!("No tests found");
+        return Ok(());
+    }
+
+    // Print overall summary if we ran tests from multiple files
+    if num_files > 1 {
+        let passed = all_test_results
+            .iter()
+            .filter(|r| r.passed && !r.ignored)
+            .count();
+        let failed = all_test_results.iter().filter(|r| !r.passed).count();
+        let ignored = all_test_results.iter().filter(|r| r.ignored).count();
+
+        println!("\n=== Overall Test Summary ===");
+        println!("Files processed: {}", num_files);
+        println!("Total tests: {}", total_tests);
+        println!(
+            "Passed: {}, Failed: {}, Ignored: {}",
+            passed, failed, ignored
+        );
+
+        if failed > 0 {
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_husk_files(path: &Path, files: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    use std::fs;
+
+    if path.is_file() {
+        if path.extension().and_then(|s| s.to_str()) == Some("husk") {
+            files.push(path.to_path_buf());
+        }
+    } else if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            collect_husk_files(&path, files)?;
+        }
+    }
+    Ok(())
+}
+
+fn run_transpiler_tests(
+    ast: &[husk::Stmt],
+    registry: &husk::TestRegistry,
+    cli: &Test,
+) -> anyhow::Result<Vec<husk::TestResult>> {
+    use husk::test_transpiler::{TestRunner as JsTestRunner, TestTranspileConfig, TestTranspiler};
+    use std::fs;
+    use std::process::{Command, Stdio};
+
+    // Create transpiler config
+    let js_runner = match cli.js_runner.as_str() {
+        "node" => JsTestRunner::Node,
+        "jest" => JsTestRunner::Jest,
+        "mocha" => JsTestRunner::Mocha,
+        _ => JsTestRunner::Standalone,
+    };
+
+    let config = TestTranspileConfig {
+        node_compat: true,
+        es_modules: false,
+        runner: js_runner,
+        include_timing: cli.show_timing,
+    };
+
+    // Generate test harness
+    let mut transpiler = TestTranspiler::new();
+    let js_code = transpiler.generate_test_harness(ast, registry, &config)?;
+
+    // Write to temporary file
+    let temp_file = "/tmp/husk_test_harness.js";
+    fs::write(temp_file, js_code)?;
+
+    // Run the JavaScript tests
+    println!("Running tests in JavaScript mode...");
+    let output = Command::new("node")
+        .arg(temp_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()?;
+
+    // Print the output
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    // Clean up
+    let _ = fs::remove_file(temp_file);
+
+    // For transpiler mode, we don't have detailed test results,
+    // so we return an empty vec. The exit code will be checked by the process.
+    if !output.status.success() {
+        std::process::exit(1);
+    }
+
+    Ok(Vec::new())
 }

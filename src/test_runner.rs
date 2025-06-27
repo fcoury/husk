@@ -104,6 +104,64 @@ impl TestRunner {
         TestRunner { config, ast }
     }
 
+    /// Run all tests and return results with source code for error formatting
+    pub fn run_tests_with_source(
+        &self,
+        registry: &TestRegistry,
+        source_code: &str,
+    ) -> Vec<TestResult> {
+        let mut results = Vec::new();
+
+        // Get tests to run based on filter
+        let tests: Vec<&TestFunction> = if let Some(filter) = &self.config.filter {
+            registry.filter_tests(filter)
+        } else {
+            registry.all_tests().iter().collect()
+        };
+
+        // Print test plan
+        let active_tests: Vec<_> = tests
+            .iter()
+            .filter(|t| !t.ignore || self.config.include_ignored)
+            .collect();
+
+        println!(
+            "\nrunning {} test{}",
+            active_tests.len(),
+            if active_tests.len() == 1 { "" } else { "s" }
+        );
+
+        let start_time = Instant::now();
+
+        // Run each test
+        for test in tests {
+            if test.ignore && !self.config.include_ignored {
+                results.push(TestResult::ignored(test.qualified_name()));
+                continue;
+            }
+
+            let result = self.run_single_test_with_source(test, source_code);
+            let failed = !result.passed && !result.ignored;
+
+            // Print test result
+            self.print_test_result(&result);
+
+            results.push(result);
+
+            // Stop if fail_fast is enabled and test failed
+            if failed && self.config.fail_fast {
+                break;
+            }
+        }
+
+        let total_duration = start_time.elapsed();
+
+        // Print summary
+        self.print_summary(&results, total_duration);
+
+        results
+    }
+
     /// Run all tests and return results
     pub fn run_tests(&self, registry: &TestRegistry) -> Vec<TestResult> {
         let mut results = Vec::new();
@@ -156,6 +214,98 @@ impl TestRunner {
         self.print_summary(&results, total_duration);
 
         results
+    }
+
+    /// Run a single test with source code for better error reporting
+    fn run_single_test_with_source(&self, test: &TestFunction, source_code: &str) -> TestResult {
+        let start = Instant::now();
+
+        // TODO: Implement output capture when we have proper I/O handling
+        let output = String::new();
+
+        // Find the test function in the AST
+        let test_stmt = self.find_test_function(&test.name, &test.module_path);
+
+        match test_stmt {
+            Some(stmt) => {
+                // Create a new interpreter for this test
+                let mut interpreter = InterpreterVisitor::new();
+
+                // Initialize built-in functions (like println)
+                // The interpreter should already have these initialized in new()
+
+                // Execute any necessary setup (imports, type definitions, etc.)
+                // For now, we'll run the whole program but only execute the test function
+                match self.setup_test_environment(&mut interpreter, &test.module_path) {
+                    Ok(_) => {
+                        // Execute the test function
+                        match self.execute_test_function(&mut interpreter, stmt, test) {
+                            Ok(_) => {
+                                let duration = start.elapsed();
+                                TestResult::passed(test.qualified_name(), duration, output)
+                            }
+                            Err(e) => {
+                                let duration = start.elapsed();
+                                // Use pretty_print for better error formatting
+                                let error_msg = e.pretty_print(source_code);
+
+                                // Check if this was an expected panic
+                                if test.should_panic {
+                                    // If a panic message was specified, check if it matches
+                                    if let Some(expected_msg) = &test.panic_message {
+                                        if error_msg.contains(expected_msg) {
+                                            TestResult::passed(
+                                                test.qualified_name(),
+                                                duration,
+                                                output,
+                                            )
+                                        } else {
+                                            TestResult::failed(
+                                                test.qualified_name(),
+                                                duration,
+                                                output,
+                                                format!(
+                                                    "Expected panic message '{}', but got '{}'",
+                                                    expected_msg, error_msg
+                                                ),
+                                            )
+                                        }
+                                    } else {
+                                        // No specific message expected, any panic is fine
+                                        TestResult::passed(test.qualified_name(), duration, output)
+                                    }
+                                } else {
+                                    TestResult::failed(
+                                        test.qualified_name(),
+                                        duration,
+                                        output,
+                                        error_msg,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let duration = start.elapsed();
+                        TestResult::failed(
+                            test.qualified_name(),
+                            duration,
+                            output,
+                            format!("Setup failed: {}", e.pretty_print(source_code)),
+                        )
+                    }
+                }
+            }
+            None => {
+                let duration = start.elapsed();
+                TestResult::failed(
+                    test.qualified_name(),
+                    duration,
+                    output,
+                    "Test function not found in AST".to_string(),
+                )
+            }
+        }
     }
 
     /// Run a single test

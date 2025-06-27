@@ -43,26 +43,28 @@ This document tracks the implementation of a Rust-style test framework for the H
   - [x] Handle panics and assertions (division by zero, should_panic)
   - [x] Capture test output (framework ready, I/O capture pending)
   - [x] Generate test reports (Rust-like output format)
-- [ ] **Transpiler Mode**
-  - [ ] Design JavaScript test harness
-  - [ ] Generate test runner code
-  - [ ] Map Husk assertions to JavaScript
-  - [ ] Handle async tests
-  - [ ] Integrate with Node.js test output
+- [x] **Transpiler Mode** ✅
+  - [x] Design JavaScript test harness generator
+  - [x] Generate test runner code for multiple targets (standalone, Node.js, Jest, Mocha)
+  - [x] Map Husk assertions to JavaScript (assert!, assert_eq!, assert_ne!)
+  - [x] Handle async tests (all test functions are async)
+  - [x] Generate Rust-like test output with timing and proper formatting
 
-### Phase 4: CLI Integration 📅
-- [ ] Add `test` subcommand to CLI
-- [ ] Implement test filtering options
-  - [ ] Run all tests
-  - [ ] Run tests by name/pattern
-  - [ ] Run only ignored tests
-  - [ ] Run tests from specific files
-- [ ] Add output formatting options
-  - [ ] Progress indicators
-  - [ ] Verbose mode
-  - [ ] JSON output
-  - [ ] JUnit XML output
-- [ ] Handle test parallelization settings
+### Phase 4: CLI Integration ✅
+- [x] Add `test` subcommand to CLI
+- [x] Implement test filtering options
+  - [x] Run all tests (default behavior)
+  - [x] Run tests by name/pattern (`--filter`)
+  - [x] Run only ignored tests (`--include-ignored`)
+  - [x] Run tests from specific files (pass file path as argument)
+  - [x] Recursive directory discovery (finds all .husk files)
+- [x] Add output formatting options
+  - [x] Progress indicators (built into test runner output)
+  - [x] Verbose mode (`--show-output` for passing tests)
+  - [x] Timing information (`--show-timing`)
+  - [ ] JSON output (future enhancement)
+  - [ ] JUnit XML output (future enhancement)
+- [x] Handle test parallelization settings (`--test-threads`)
 
 ### Phase 5: Build System Integration 📅
 - [ ] Update `husk build` to exclude test code
@@ -263,6 +265,20 @@ runTests();
   - Division by zero and runtime errors correctly trigger should_panic tests
   - Rust-like test output with timing, pass/fail counts, and error details
   - Test framework is fully functional for interpreter mode
+- **Phase 3 Complete (Transpiler)**: JavaScript test harness generator for transpiler mode  
+  - TestTranspiler generates complete JavaScript test harnesses
+  - Support for multiple target environments (standalone, Node.js, Jest, Mocha)
+  - Full Husk runtime functions (println, panic, assert!, assert_eq!, assert_ne!)
+  - Proper handling of test attributes with should_panic and ignore support
+  - Generated tests produce Rust-like output format matching interpreter mode
+- **Phase 4 Complete**: CLI Integration with comprehensive options
+  - Added `husk test` subcommand with full argument parsing
+  - Recursive test file discovery (.husk files in directories)
+  - Test filtering by name pattern with `--filter` option
+  - Support for ignored tests with `--include-ignored` flag
+  - Fail-fast mode, output control, and timing options
+  - Dual-mode support: interpreter (default) and transpiler (`--transpile`)
+  - Multiple JavaScript test runners (standalone, Node.js, Jest, Mocha)
 - Test framework should feel natural to Rust developers
 - Start with minimal viable features, add complexity later
 - Ensure good error messages for common mistakes

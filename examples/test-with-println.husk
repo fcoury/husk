@@ -1,0 +1,5 @@
+#[test]
+fn test_with_println() {
+    let x = 42;
+    println!("Testing with value: {}", x);
+}
