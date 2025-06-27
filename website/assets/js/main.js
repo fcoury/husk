@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let textToCopy;
             
             if (targetId === 'install-cmd') {
-                textToCopy = 'cargo install husk';
+                textToCopy = 'cargo install husk-lang';
             } else {
                 const targetElement = document.getElementById(targetId);
                 if (targetElement) {
