@@ -101,8 +101,20 @@ This document tracks the implementation progress of npm support improvements in 
 - `src/transpiler.rs` - Integrated subpath resolution in visit_use method  
 
 ### Task 2.2: Better Module Type Detection
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: MEDIUM  
+**Description**: Improved module type detection with multiple heuristics
+
+**Changes**:
+- [x] Check package.json "type" field (highest priority)
+- [x] Detect .mjs and .cjs file extensions
+- [x] Handle dual packages (both main and module fields)
+- [x] Analyze exports field for module type hints
+- [x] File content analysis for ESM/CommonJS/UMD patterns
+- [x] Smart selection of entry point based on build target
+
+**Files modified**:
+- `src/package_resolver.rs` - Added detect_module_type() method with comprehensive heuristics  
 
 ### Task 2.3: TypeScript Definitions Support
 **Status**: ⏳ Not Started  
@@ -177,7 +189,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 2.1 completed)
+Last Updated: 2024-12-27 (Task 2.2 completed)
 
 ## Implementation Details
 
@@ -224,3 +236,18 @@ Last Updated: 2024-12-27 (Task 2.1 completed)
 - Falls back to direct subpath if exports resolution fails
 - Added comprehensive test for exports field resolution
 - Successfully tested with axios subpath imports (./lib/adapters/http)
+
+### Task 2.2 Implementation Notes
+- Created detect_module_type() method with 8-step detection process:
+  1. Explicit "type" field in package.json (highest priority)
+  2. File extension detection (.mjs → ESM, .cjs → CommonJS)
+  3. Dual package handling based on build target
+  4. Exports field analysis for import/require conditions
+  5. File content analysis with improved pattern matching
+  6. Modern packages with only "module" field → ESM
+  7. Packages with exports field → ESM (modern convention)
+  8. Default to CommonJS for backward compatibility
+- Added UMD detection through content analysis
+- Improved entry point selection for dual packages
+- Added comprehensive tests for all detection scenarios
+- Better handling of edge cases and modern package patterns
