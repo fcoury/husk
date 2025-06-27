@@ -53,9 +53,9 @@ mod tests {
     #[test]
     fn test_enum_type() {
         let mut variants1 = HashMap::new();
-        variants1.insert("Red".to_string(), None);
-        variants1.insert("Green".to_string(), None);
-        variants1.insert("Blue".to_string(), None);
+        variants1.insert("Red".to_string(), vec![]);
+        variants1.insert("Green".to_string(), vec![]);
+        variants1.insert("Blue".to_string(), vec![]);
 
         let color_type = Type::Enum {
             name: "Color".to_string(),
@@ -68,8 +68,8 @@ mod tests {
         };
 
         let mut variants2 = HashMap::new();
-        variants2.insert("Some".to_string(), Some(Type::Int));
-        variants2.insert("None".to_string(), None);
+        variants2.insert("Some".to_string(), vec![Type::Int]);
+        variants2.insert("None".to_string(), vec![]);
 
         let option_type = Type::Enum {
             name: "Option".to_string(),
@@ -229,8 +229,8 @@ mod tests {
 
         // Enum with associated data
         let mut variants = HashMap::new();
-        variants.insert("Some".to_string(), Some(Type::Array(Box::new(Type::Int))));
-        variants.insert("None".to_string(), None);
+        variants.insert("Some".to_string(), vec![Type::Array(Box::new(Type::Int))]);
+        variants.insert("None".to_string(), vec![]);
 
         let option_array = Type::Enum {
             name: "OptionArray".to_string(),

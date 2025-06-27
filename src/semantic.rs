@@ -16,7 +16,7 @@ use crate::{
 // Type aliases to simplify complex types
 type FunctionSignature = (Vec<(String, Type)>, Type, Span);
 type StructFields = HashMap<String, Type>;
-type EnumVariants = HashMap<String, Option<Type>>;
+type EnumVariants = HashMap<String, Vec<Type>>;
 
 /// Semantic analyzer implemented using the visitor pattern
 pub struct SemanticVisitor {
@@ -266,15 +266,18 @@ impl SemanticVisitor {
                 for variant in variants {
                     match variant {
                         crate::parser::EnumVariant::Unit(variant_name) => {
-                            variant_types.insert(variant_name.clone(), None);
+                            variant_types.insert(variant_name.clone(), vec![]);
                         }
-                        crate::parser::EnumVariant::Tuple(variant_name, type_str) => {
-                            let variant_type = Type::from_string(type_str).unwrap_or(Type::Unknown);
-                            variant_types.insert(variant_name.clone(), Some(variant_type));
+                        crate::parser::EnumVariant::Tuple(variant_name, type_strs) => {
+                            let variant_types_vec: Vec<Type> = type_strs
+                                .iter()
+                                .map(|t| Type::from_string(t).unwrap_or(Type::Unknown))
+                                .collect();
+                            variant_types.insert(variant_name.clone(), variant_types_vec);
                         }
                         crate::parser::EnumVariant::Struct(variant_name, _fields) => {
                             // For now, treat struct variants as having no associated type
-                            variant_types.insert(variant_name.clone(), None);
+                            variant_types.insert(variant_name.clone(), vec![]);
                         }
                     }
                 }
@@ -533,16 +536,16 @@ impl SemanticVisitor {
                 name: "Option".to_string(),
                 variants: {
                     let mut variants = HashMap::new();
-                    variants.insert("Some".to_string(), Some(Type::Unknown)); // Generic T
-                    variants.insert("None".to_string(), None);
+                    variants.insert("Some".to_string(), vec![Type::Unknown]); // Generic T
+                    variants.insert("None".to_string(), vec![]);
                     variants
                 },
             },
         );
         self.enums.insert("Option".to_string(), {
             let mut variants = HashMap::new();
-            variants.insert("Some".to_string(), Some(Type::Unknown));
-            variants.insert("None".to_string(), None);
+            variants.insert("Some".to_string(), vec![Type::Unknown]);
+            variants.insert("None".to_string(), vec![]);
             variants
         });
 
@@ -553,16 +556,16 @@ impl SemanticVisitor {
                 name: "Result".to_string(),
                 variants: {
                     let mut variants = HashMap::new();
-                    variants.insert("Ok".to_string(), Some(Type::Unknown)); // Generic T
-                    variants.insert("Err".to_string(), Some(Type::Unknown)); // Generic E
+                    variants.insert("Ok".to_string(), vec![Type::Unknown]); // Generic T
+                    variants.insert("Err".to_string(), vec![Type::Unknown]); // Generic E
                     variants
                 },
             },
         );
         self.enums.insert("Result".to_string(), {
             let mut variants = HashMap::new();
-            variants.insert("Ok".to_string(), Some(Type::Unknown));
-            variants.insert("Err".to_string(), Some(Type::Unknown));
+            variants.insert("Ok".to_string(), vec![Type::Unknown]);
+            variants.insert("Err".to_string(), vec![Type::Unknown]);
             variants
         });
 
@@ -1750,6 +1753,19 @@ impl AstVisitor<Type> for SemanticVisitor {
     }
 
     fn visit_member_access(&mut self, object: &Expr, field: &str, span: &Span) -> Result<Type> {
+        // Check if this is an enum variant constructor (e.g., Color.Red)
+        if let Expr::Identifier(enum_name, _) = object {
+            if let Some(enum_variants) = self.enums.get(enum_name) {
+                if enum_variants.contains_key(field) {
+                    // This is an enum variant constructor
+                    return Ok(Type::Enum {
+                        name: enum_name.clone(),
+                        variants: enum_variants.clone(),
+                    });
+                }
+            }
+        }
+
         let object_type = self.visit_expr(object)?;
 
         match &object_type {
@@ -1838,44 +1854,60 @@ impl AstVisitor<Type> for SemanticVisitor {
 
             // Check if it's an enum variant
             if let Some(enum_variants) = self.enums.get(&resolved_type_name).cloned() {
-                if let Some(variant_type) = enum_variants.get(call) {
-                    match variant_type {
-                        Some(associated_type) => {
-                            if args.len() != 1 {
-                                return Err(Error::new_semantic(
-                                    format!(
-                                        "Enum variant '{}::{}' expects 1 argument, but {} were provided",
-                                        resolved_type_name, call, args.len()
-                                    ),
-                                    *span,
-                                ));
-                            }
-                            let arg_type = self.visit_expr(&args[0])?;
+                if let Some(variant_types) = enum_variants.get(call) {
+                    if !variant_types.is_empty() {
+                        if args.len() != variant_types.len() {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "Enum variant '{}::{}' expects {} argument{}, but {} {} provided",
+                                    resolved_type_name,
+                                    call,
+                                    variant_types.len(),
+                                    if variant_types.len() == 1 { "" } else { "s" },
+                                    args.len(),
+                                    if args.len() == 1 { "was" } else { "were" }
+                                ),
+                                *span,
+                            ));
+                        }
+
+                        // Check each argument type
+                        for (i, (arg, expected_type)) in
+                            args.iter().zip(variant_types.iter()).enumerate()
+                        {
+                            let arg_type = self.visit_expr(arg)?;
                             // For built-in generic enums (Option, Result), accept any type
                             if (resolved_type_name == "Option" || resolved_type_name == "Result")
-                                && *associated_type == Type::Unknown
+                                && *expected_type == Type::Unknown
                             {
                                 // Accept any type for generic built-in enums
-                            } else if !arg_type.is_assignable_to(associated_type) {
+                            } else if !arg_type.is_assignable_to(expected_type) {
                                 return Err(Error::new_semantic(
                                     format!(
-                                        "Enum variant '{}::{}' expects {}, found {}",
-                                        resolved_type_name, call, associated_type, arg_type
+                                        "Enum variant '{}::{}' argument {} expects {}, found {}",
+                                        resolved_type_name,
+                                        call,
+                                        i + 1,
+                                        expected_type,
+                                        arg_type
                                     ),
                                     *span,
                                 ));
                             }
                         }
-                        None => {
-                            if !args.is_empty() {
-                                return Err(Error::new_semantic(
-                                    format!(
-                                        "Enum variant '{}::{}' takes no arguments, but {} were provided",
-                                        resolved_type_name, call, args.len()
-                                    ),
-                                    *span,
-                                ));
-                            }
+                    } else {
+                        // Unit variant (no arguments)
+                        if !args.is_empty() {
+                            return Err(Error::new_semantic(
+                                format!(
+                                    "Enum variant '{}::{}' takes no arguments, but {} {} provided",
+                                    resolved_type_name,
+                                    call,
+                                    args.len(),
+                                    if args.len() == 1 { "was" } else { "were" }
+                                ),
+                                *span,
+                            ));
                         }
                     }
                     return Ok(self.resolve_type_by_name(&resolved_type_name));
@@ -2095,11 +2127,14 @@ impl AstVisitor<Type> for SemanticVisitor {
         for variant in variants {
             match variant {
                 crate::parser::EnumVariant::Unit(name) => {
-                    enum_variants.insert(name.clone(), None);
+                    enum_variants.insert(name.clone(), vec![]);
                 }
-                crate::parser::EnumVariant::Tuple(name, type_str) => {
-                    let variant_type = self.resolve_type_by_name(type_str);
-                    enum_variants.insert(name.clone(), Some(variant_type));
+                crate::parser::EnumVariant::Tuple(name, type_strs) => {
+                    let variant_types: Vec<Type> = type_strs
+                        .iter()
+                        .map(|t| self.resolve_type_by_name(t))
+                        .collect();
+                    enum_variants.insert(name.clone(), variant_types);
                 }
                 crate::parser::EnumVariant::Struct(name, fields) => {
                     // For struct variants, we'll create a struct type
@@ -2115,10 +2150,10 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                     enum_variants.insert(
                         name.clone(),
-                        Some(crate::types::Type::Struct {
+                        vec![crate::types::Type::Struct {
                             name: name.clone(),
                             fields: struct_fields,
-                        }),
+                        }],
                     );
                 }
             }
@@ -2310,60 +2345,80 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                         // Bind variables from enum variant
                         if !args.is_empty() {
-                            match &args[0] {
-                                Expr::Identifier(var_name, _) if var_name != "_" => {
-                                    // Simple identifier binding
-                                    if let Some(enum_variants) = self.enums.get(enum_type) {
-                                        if let Some(Some(variant_type)) = enum_variants.get(call) {
-                                            // For built-in generic enums with Unknown type, infer from usage context
-                                            if (enum_type == "Option" || enum_type == "Result")
-                                                && *variant_type == Type::Unknown
-                                            {
-                                                // For now, bind as Unknown and let type inference figure it out
-                                                self.match_bound_vars
-                                                    .insert(var_name.clone(), Type::Unknown);
-                                            } else {
-                                                self.match_bound_vars
-                                                    .insert(var_name.clone(), variant_type.clone());
-                                            }
-                                        }
+                            // Get the variant types for this enum variant
+                            if let Some(enum_variants) = self.enums.get(enum_type) {
+                                if let Some(variant_types) = enum_variants.get(call) {
+                                    // Check that the number of arguments matches the variant's arity
+                                    if args.len() != variant_types.len() {
+                                        return Err(Error::new_semantic(
+                                            format!(
+                                                "Enum variant '{}::{}' expects {} arguments, but {} were provided",
+                                                enum_type, call, variant_types.len(), args.len()
+                                            ),
+                                            pattern.span(),
+                                        ));
                                     }
-                                }
-                                Expr::StructPattern(_struct_name, fields, _) => {
-                                    // Nested struct pattern (e.g., Ok(Command::Process { input, output }))
-                                    // First, verify the type matches
-                                    if let Some(enum_variants) = self.enums.get(enum_type) {
-                                        if let Some(Some(Type::Struct {
-                                            name: _,
-                                            fields: struct_fields,
-                                        })) = enum_variants.get(call)
-                                        {
-                                            // Convert Vec<(String, Type)> to HashMap for easy lookup
-                                            let field_types: HashMap<String, Type> =
-                                                struct_fields.iter().cloned().collect();
 
-                                            // Bind variables from the struct pattern fields
-                                            for (field_name, opt_var_name) in fields {
-                                                let field_type = field_types
-                                                    .get(field_name)
-                                                    .cloned()
-                                                    .unwrap_or(Type::Unknown);
-
-                                                if let Some(var_name) = opt_var_name {
-                                                    // Field bound to a different variable name
+                                    // Bind each argument to its corresponding type
+                                    for (_i, (arg, variant_type)) in
+                                        args.iter().zip(variant_types.iter()).enumerate()
+                                    {
+                                        match arg {
+                                            Expr::Identifier(var_name, _) if var_name != "_" => {
+                                                // Simple identifier binding
+                                                // For built-in generic enums with Unknown type, infer from usage context
+                                                if (enum_type == "Option" || enum_type == "Result")
+                                                    && *variant_type == Type::Unknown
+                                                {
+                                                    // For now, bind as Unknown and let type inference figure it out
                                                     self.match_bound_vars
-                                                        .insert(var_name.clone(), field_type);
+                                                        .insert(var_name.clone(), Type::Unknown);
                                                 } else {
-                                                    // Shorthand: field name is also the variable name
-                                                    self.match_bound_vars
-                                                        .insert(field_name.clone(), field_type);
+                                                    self.match_bound_vars.insert(
+                                                        var_name.clone(),
+                                                        variant_type.clone(),
+                                                    );
                                                 }
                                             }
+                                            Expr::StructPattern(_struct_name, fields, _) => {
+                                                // Nested struct pattern (e.g., Ok(Command::Process { input, output }))
+                                                if let Type::Struct {
+                                                    name: _,
+                                                    fields: struct_fields,
+                                                } = variant_type
+                                                {
+                                                    // Convert Vec<(String, Type)> to HashMap for easy lookup
+                                                    let field_types: HashMap<String, Type> =
+                                                        struct_fields.iter().cloned().collect();
+
+                                                    // Bind variables from the struct pattern fields
+                                                    for (field_name, opt_var_name) in fields {
+                                                        let field_type = field_types
+                                                            .get(field_name)
+                                                            .cloned()
+                                                            .unwrap_or(Type::Unknown);
+
+                                                        if let Some(var_name) = opt_var_name {
+                                                            // Field bound to a different variable name
+                                                            self.match_bound_vars.insert(
+                                                                var_name.clone(),
+                                                                field_type,
+                                                            );
+                                                        } else {
+                                                            // Shorthand: field name is also the variable name
+                                                            self.match_bound_vars.insert(
+                                                                field_name.clone(),
+                                                                field_type,
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {
+                                                // Other patterns (literals, etc.) don't bind variables
+                                            }
                                         }
                                     }
-                                }
-                                _ => {
-                                    // Other patterns (literals, etc.) don't bind variables
                                 }
                             }
                         }
@@ -2469,11 +2524,20 @@ impl AstVisitor<Type> for SemanticVisitor {
                             // Look up the variant's field types
                             let field_types =
                                 if let Some(enum_variants) = self.enums.get(enum_type_name) {
-                                    if let Some(Some(Type::Struct { fields, .. })) =
-                                        enum_variants.get(variant_name)
-                                    {
-                                        // Convert Vec<(String, Type)> to HashMap for easy lookup
-                                        fields.iter().cloned().collect::<HashMap<String, Type>>()
+                                    if let Some(variant_types) = enum_variants.get(variant_name) {
+                                        if variant_types.len() == 1 {
+                                            if let Type::Struct { fields, .. } = &variant_types[0] {
+                                                // Convert Vec<(String, Type)> to HashMap for easy lookup
+                                                fields
+                                                    .iter()
+                                                    .cloned()
+                                                    .collect::<HashMap<String, Type>>()
+                                            } else {
+                                                HashMap::new()
+                                            }
+                                        } else {
+                                            HashMap::new()
+                                        }
                                     } else {
                                         HashMap::new()
                                     }
@@ -3404,6 +3468,22 @@ impl AstVisitor<Type> for SemanticVisitor {
         args: &[Expr],
         span: &Span,
     ) -> Result<Type> {
+        // Check if this is actually an enum variant constructor call
+        if let Expr::Identifier(enum_name, _) = object {
+            if let Some(enum_variants) = self.enums.get(enum_name) {
+                if enum_variants.contains_key(method) {
+                    // This is actually an enum variant constructor, not a method call
+                    let target_expr = object.clone();
+                    return self.visit_enum_variant_or_method_call(
+                        &target_expr,
+                        method,
+                        args,
+                        span,
+                    );
+                }
+            }
+        }
+
         let object_type = self.visit_expr(object)?;
 
         match &object_type {

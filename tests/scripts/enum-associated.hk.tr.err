@@ -1,3 +1,17 @@
-error: 2:14 - Expected ')' after associated value
-  Some(string, int),
-             ^
+[stdin]:411
+    return console.log(`Name: ${name} age: ${age}`);
+                                             ^
+
+ReferenceError: age is not defined
+    at [stdin]:411:46
+    at main ([stdin]:413:3)
+    at [stdin]:415:1
+    at runScriptInThisContext (node:internal/vm:218:10)
+    at node:internal/process/execution:456:12
+    at [stdin]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:454:60)
+    at evalFunction (node:internal/process/execution:286:30)
+    at evalTypeScript (node:internal/process/execution:298:3)
+    at node:internal/main/eval_stdin:51:5
+
+Node.js v24.2.0

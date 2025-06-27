@@ -67,14 +67,14 @@ mod tests {
             match &variants[0] {
                 EnumVariant::Tuple(name, type_param) => {
                     assert_eq!(name, "Ok");
-                    assert_eq!(type_param, "T");
+                    assert_eq!(type_param, &vec!["T".to_string()]);
                 }
                 _ => panic!("Expected tuple variant"),
             }
             match &variants[1] {
                 EnumVariant::Tuple(name, type_param) => {
                     assert_eq!(name, "Err");
-                    assert_eq!(type_param, "E");
+                    assert_eq!(type_param, &vec!["E".to_string()]);
                 }
                 _ => panic!("Expected tuple variant"),
             }

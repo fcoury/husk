@@ -1,0 +1,14 @@
+enum Color {
+  Red,
+  Green,
+  Blue,
+  Rgb(int, int, int),
+}
+
+let red = Color::Red;
+let green = Color::Green;
+let custom = Color::Rgb(100, 150, 200);
+
+println!("Red: {}", red);
+println!("Green: {}", green);
+println!("Custom RGB: {}", custom);

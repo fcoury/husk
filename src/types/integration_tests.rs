@@ -50,8 +50,8 @@ mod tests {
 
         // Function returning enum
         let mut option_variants = HashMap::new();
-        option_variants.insert("Some".to_string(), Some(Type::Int));
-        option_variants.insert("None".to_string(), None);
+        option_variants.insert("Some".to_string(), vec![Type::Int]);
+        option_variants.insert("None".to_string(), vec![]);
         let option_type = Type::Enum {
             name: "Option".to_string(),
             variants: option_variants,
@@ -120,16 +120,16 @@ mod tests {
 
         // Nested enums
         let mut inner_variants = HashMap::new();
-        inner_variants.insert("Ok".to_string(), Some(Type::Int));
-        inner_variants.insert("Err".to_string(), Some(Type::String));
+        inner_variants.insert("Ok".to_string(), vec![Type::Int]);
+        inner_variants.insert("Err".to_string(), vec![Type::String]);
         let result_type = Type::Enum {
             name: "Result".to_string(),
             variants: inner_variants,
         };
 
         let mut outer_variants = HashMap::new();
-        outer_variants.insert("Success".to_string(), Some(result_type.clone()));
-        outer_variants.insert("Pending".to_string(), None);
+        outer_variants.insert("Success".to_string(), vec![result_type.clone()]);
+        outer_variants.insert("Pending".to_string(), vec![]);
         let status_type = Type::Enum {
             name: "Status".to_string(),
             variants: outer_variants,
@@ -151,8 +151,8 @@ mod tests {
     fn test_type_display_formatting() {
         // Test that complex types display correctly
         let mut variants = HashMap::new();
-        variants.insert("Some".to_string(), Some(Type::Array(Box::new(Type::Int))));
-        variants.insert("None".to_string(), None);
+        variants.insert("Some".to_string(), vec![Type::Array(Box::new(Type::Int))]);
+        variants.insert("None".to_string(), vec![]);
 
         let complex_enum = Type::Enum {
             name: "OptionIntArray".to_string(),

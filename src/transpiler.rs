@@ -535,18 +535,27 @@ impl JsTranspiler {
                 }
 
                 // Default enum handling
-                if let Some(value) = args.first() {
-                    if let Expr::Identifier(bind_name, _) = value {
-                        (
-                            format!("_matched instanceof {}.{}", target, call),
-                            format!("const {} = _matched.value;\n", bind_name),
-                        )
+                if !args.is_empty() {
+                    let mut bindings = String::new();
+
+                    // Handle single value for backward compatibility
+                    if args.len() == 1 {
+                        if let Expr::Identifier(bind_name, _) = &args[0] {
+                            bindings.push_str(&format!("const {} = _matched.value;\n", bind_name));
+                        }
                     } else {
-                        (
-                            format!("_matched instanceof {}.{}", target, call),
-                            String::new(),
-                        )
+                        // Handle multiple values
+                        for (i, arg) in args.iter().enumerate() {
+                            if let Expr::Identifier(bind_name, _) = arg {
+                                bindings.push_str(&format!(
+                                    "const {} = _matched.values[{}];\n",
+                                    bind_name, i
+                                ));
+                            }
+                        }
                     }
+
+                    (format!("_matched instanceof {}.{}", target, call), bindings)
                 } else {
                     (format!("_matched === {}.{}", target, call), String::new())
                 }
@@ -634,9 +643,11 @@ impl JsTranspiler {
 
         // Generate base enum class
         output.push_str(&format!("class {} {{\n", name));
-        output.push_str("  constructor(variant, value) {\n");
+        output.push_str("  constructor(variant, ...values) {\n");
         output.push_str("    this.variant = variant;\n");
-        output.push_str("    this.value = value;\n");
+        output.push_str("    this.values = values;\n");
+        output.push_str("    // For backward compatibility with single-value enums\n");
+        output.push_str("    this.value = values.length === 1 ? values[0] : values;\n");
         output.push_str("  }\n");
         output.push_str("  \n");
         output.push_str("  equals(other) {\n");
@@ -665,6 +676,17 @@ impl JsTranspiler {
         output.push_str("    }\n");
         output.push_str("    return false;\n");
         output.push_str("  }\n");
+        output.push_str("  \n");
+        output.push_str("  toString() {\n");
+        output.push_str(&format!("    const name = '{}';\n", name));
+        output.push_str("    if (this.values.length === 0) {\n");
+        output.push_str("      return `${name}::${this.variant}`;\n");
+        output.push_str("    } else if (this.values.length === 1) {\n");
+        output.push_str("      return `${name}::${this.variant}(${this.value})`;\n");
+        output.push_str("    } else {\n");
+        output.push_str("      return `${name}::${this.variant}(${this.values.join(', ')})`;\n");
+        output.push_str("    }\n");
+        output.push_str("  }\n");
         output.push_str("}\n");
 
         // Generate variant constructors
@@ -680,7 +702,7 @@ impl JsTranspiler {
                 name, variant_name, name
             ));
             output.push_str(&format!(
-                "constructor(value) {{ super('{}', value); }}",
+                "constructor(...values) {{ super('{}', ...values); }}",
                 variant_name
             ));
             output.push_str("};\n");
@@ -1035,6 +1057,15 @@ impl AstVisitor<String> for JsTranspiler {
     }
 
     fn visit_member_access(&mut self, object: &Expr, field: &str, _span: &Span) -> Result<String> {
+        // Check if this is an enum variant constructor (e.g., Color.Red)
+        if let Expr::Identifier(enum_name, _) = object {
+            // Check if it's a unit variant constructor (no arguments)
+            // For unit variants, generate the static instance
+            if self.is_enum_unit_variant(enum_name, field) {
+                return Ok(format!("{}.{}", enum_name, field));
+            }
+        }
+
         let obj_str = self.visit_expr(object)?;
 
         // Check if field is a numeric index (for tuple access)
@@ -1842,6 +1873,16 @@ impl AstVisitor<String> for JsTranspiler {
         args: &[Expr],
         _span: &Span,
     ) -> Result<String> {
+        // Check if this is actually an enum variant constructor call
+        if let Expr::Identifier(_enum_name, _) = object {
+            // For transpiler, we can't check if it's an enum easily,
+            // but we can check if the method name starts with uppercase
+            if method.chars().next().map_or(false, |c| c.is_uppercase()) {
+                // This is likely an enum variant constructor
+                return self.visit_enum_variant_or_method_call(object, method, args, _span);
+            }
+        }
+
         let obj_str = self.visit_expr(object)?;
 
         // Evaluate arguments
@@ -2118,6 +2159,17 @@ impl AstVisitor<String> for JsTranspiler {
 }
 
 impl JsTranspiler {
+    /// Check if a field name is a unit enum variant
+    fn is_enum_unit_variant(&self, enum_name: &str, variant_name: &str) -> bool {
+        // For now, we'll assume any capitalized field on a capitalized type is a unit variant
+        // In a real implementation, we'd track enum definitions
+        enum_name.chars().next().map_or(false, |c| c.is_uppercase())
+            && variant_name
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_uppercase())
+    }
+
     /// Convert a format string with {} placeholders to a JavaScript template literal
     fn format_to_template_literal(&self, format_str: &str, args: &[String]) -> Result<String> {
         let mut result = String::from("`");

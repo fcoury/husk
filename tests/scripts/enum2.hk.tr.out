@@ -1,2 +1,2 @@
-MyOption { variant: 'Some', value: 'Felipe' }
-MyOption { variant: 'None', value: undefined }
+MyOption { variant: 'Some', values: [ 'Felipe' ], value: 'Felipe' }
+MyOption { variant: 'None', values: [], value: [] }
