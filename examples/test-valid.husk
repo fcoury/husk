@@ -1,0 +1,44 @@
+// Valid test file that passes semantic analysis
+
+#[test]
+fn test_pass() {
+    let a = 2;
+    let b = 2;
+    let result = a + b;
+    // Test passes if no error occurs
+}
+
+#[test]
+#[ignore]
+fn test_ignored() {
+    let x = 1;
+    // This test should be ignored
+}
+
+#[test]
+fn test_arithmetic() {
+    let x = 10;
+    let y = 5;
+    let sum = x + y;
+    let diff = x - y;
+    let prod = x * y;
+    let quot = x / y;
+    // All should work without errors
+}
+
+#[test]
+#[should_panic]
+fn test_should_fail() {
+    // We need to make this fail at runtime, not during semantic analysis
+    let x = 1;
+    let y = 0;
+    let result = x / y;  // Division by zero should cause runtime error
+}
+
+fn helper_function(x: int) -> int {
+    x * 2
+}
+
+fn main() {
+    // Main function - not a test
+}

@@ -7,8 +7,11 @@ use crate::{
     error::{Error, Result},
     lexer::Lexer,
     package_resolver::PackageResolver,
-    parser::{Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
+    parser::{
+        Attribute, Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix,
+    },
     span::Span,
+    test_registry::TestRegistry,
     types::{Type, TypeEnvironment},
 };
 
@@ -33,6 +36,7 @@ pub struct SemanticVisitor {
     analyzed_modules: HashMap<PathBuf, ()>, // Cache to avoid circular imports
     current_impl_type: Option<String>, // Track the current type being impl'd for Self resolution
     method_signatures: MethodSignatureRegistry,
+    test_registry: TestRegistry,
 }
 
 impl Default for SemanticVisitor {
@@ -58,6 +62,7 @@ impl SemanticVisitor {
             analyzed_modules: HashMap::new(),
             current_impl_type: None,
             method_signatures: MethodSignatureRegistry::new(),
+            test_registry: TestRegistry::new(),
         };
         visitor.init_standard_library();
         visitor
@@ -277,7 +282,16 @@ impl SemanticVisitor {
                 }
                 self.enums.insert(name.clone(), variant_types);
             }
-            Stmt::Function(_visibility, name, _generics, params, return_type, _body, _span) => {
+            Stmt::Function(
+                _attrs,
+                _visibility,
+                name,
+                _generics,
+                params,
+                return_type,
+                _body,
+                _span,
+            ) => {
                 let param_types: Vec<(String, Type)> = params
                     .iter()
                     .map(|(param_name, param_type)| {
@@ -299,6 +313,7 @@ impl SemanticVisitor {
                 // Process methods in impl blocks
                 for method in methods {
                     if let Stmt::Function(
+                        _attrs,
                         _visibility,
                         method_name,
                         _generics,
@@ -940,7 +955,7 @@ impl SemanticVisitor {
     fn collect_function_signatures(&mut self, stmts: &[Stmt]) -> Result<()> {
         for stmt in stmts {
             match stmt {
-                Stmt::Function(_, name, _generic_params, params, return_type, _body, span) => {
+                Stmt::Function(_, _, name, _generic_params, params, return_type, _body, span) => {
                     // Convert parameter types (same logic as visit_function)
                     let param_types: Vec<(String, Type)> = params
                         .iter()
@@ -970,6 +985,7 @@ impl SemanticVisitor {
                     // Process methods in impl blocks
                     for method in methods {
                         if let Stmt::Function(
+                            _attrs,
                             _visibility,
                             method_name,
                             _generics,
@@ -1068,6 +1084,11 @@ impl SemanticVisitor {
         )
     }
 
+    /// Get the test registry containing all discovered tests
+    pub fn get_test_registry(&self) -> &TestRegistry {
+        &self.test_registry
+    }
+
     /// Helper method to check if a type is numeric
     fn is_numeric_type(&self, ty: &Type) -> bool {
         matches!(ty, Type::Int | Type::Float)
@@ -1076,6 +1097,93 @@ impl SemanticVisitor {
 
 impl AstVisitor<Type> for SemanticVisitor {
     type Error = Error;
+
+    // Override visit_stmt to handle test discovery
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<Type> {
+        match stmt {
+            Stmt::Function(
+                attrs,
+                _is_pub,
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+                span,
+            ) => {
+                // Register test function if it has the #[test] attribute
+                self.test_registry
+                    .register_test(name.clone(), span.clone(), attrs);
+                // Continue with normal function processing
+                self.visit_function(name, generic_params, params, return_type, body, span)
+            }
+            Stmt::AsyncFunction(
+                attrs,
+                _is_pub,
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+                span,
+            ) => {
+                // Register async test function if it has the #[test] attribute
+                self.test_registry
+                    .register_test(name.clone(), span.clone(), attrs);
+                // Continue with normal async function processing
+                self.visit_async_function(name, generic_params, params, return_type, body, span)
+            }
+            Stmt::Module(attrs, name, body, span) => {
+                // Enter the module
+                self.test_registry.enter_module(name, attrs);
+                // Visit the module
+                let result = self.visit_module(name, body, span);
+                // Exit the module
+                self.test_registry.exit_module();
+                result
+            }
+            // For all other statements, use the default implementation
+            _ => {
+                // Call parent's visit_stmt implementation
+                match stmt {
+                    Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
+                    Stmt::Struct(name, generic_params, fields, span) => {
+                        self.visit_struct(name, generic_params, fields, span)
+                    }
+                    Stmt::Enum(name, generic_params, variants, span) => {
+                        self.visit_enum(name, generic_params, variants, span)
+                    }
+                    Stmt::Impl(struct_name, methods, span) => {
+                        self.visit_impl(struct_name, methods, span)
+                    }
+                    Stmt::Match(expr, arms, span) => self.visit_match(expr, arms, span),
+                    Stmt::ForLoop(pattern, iterable, body, span) => {
+                        self.visit_for_loop(pattern, iterable, body, span)
+                    }
+                    Stmt::While(condition, body, span) => self.visit_while(condition, body, span),
+                    Stmt::Loop(body, span) => self.visit_loop(body, span),
+                    Stmt::Break(span) => self.visit_break(span),
+                    Stmt::Continue(span) => self.visit_continue(span),
+                    Stmt::Return(expr, span) => self.visit_return(expr.as_ref(), span),
+                    Stmt::Expression(expr, has_semicolon) => {
+                        self.visit_expression_stmt(expr, *has_semicolon)
+                    }
+                    Stmt::Use(path, items, span) => self.visit_use(path, items, span),
+                    Stmt::ExternFunction(name, generic_params, params, return_type, span) => {
+                        self.visit_extern_function(name, generic_params, params, return_type, span)
+                    }
+                    Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
+                    Stmt::ExternType(name, generic_params, span) => {
+                        self.visit_extern_type(name, generic_params, span)
+                    }
+                    // These cases are already handled above
+                    Stmt::Function(_, _, _, _, _, _, _, _)
+                    | Stmt::AsyncFunction(_, _, _, _, _, _, _, _)
+                    | Stmt::Module(_, _, _, _) => unreachable!(),
+                }
+            }
+        }
+    }
 
     // ===== Expression visit methods =====
 
@@ -2006,7 +2114,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // First pass: register all method signatures
         for method in methods {
-            if let Stmt::Function(_, name, _, params, return_type, _body, method_span) = method {
+            if let Stmt::Function(_, _, name, _, params, return_type, _body, method_span) = method {
                 // Convert parameter types
                 let mut param_types: Vec<(String, Type)> = vec![];
 
@@ -2063,7 +2171,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // Second pass: analyze method bodies
         for method in methods {
-            if let Stmt::Function(_, name, _, params, return_type, body, method_span) = method {
+            if let Stmt::Function(_, _, name, _, params, return_type, body, method_span) = method {
                 // Now analyze the method body just like a regular function
                 self.visit_function(
                     &format!("{}::{}", struct_name, name),
@@ -2875,6 +2983,14 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Restore async context
         self.in_async_function = prev_async;
 
+        Ok(Type::Unit)
+    }
+
+    fn visit_module(&mut self, _name: &str, body: &[Stmt], _span: &Span) -> Result<Type> {
+        // Process module body statements
+        for stmt in body {
+            self.visit_stmt(stmt)?;
+        }
         Ok(Type::Unit)
     }
 

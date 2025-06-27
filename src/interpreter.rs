@@ -1041,7 +1041,7 @@ impl InterpreterVisitor {
         // Then collect all function definitions
         for stmt in stmts {
             match stmt {
-                Stmt::Function(_, name, _generic_params, params, _return_type, body, _span) => {
+                Stmt::Function(_, _, name, _generic_params, params, _return_type, body, _span) => {
                     // Create function with closure using helper method
                     let final_func = self.create_function_with_closure(
                         name.to_string(),
@@ -1062,6 +1062,7 @@ impl InterpreterVisitor {
                     // Process methods in impl blocks
                     for method in methods {
                         if let Stmt::Function(
+                            _,
                             _,
                             method_name,
                             _generic_params,
@@ -2211,7 +2212,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
         // Register methods
         for method in methods {
-            if let Stmt::Function(_, method_name, _, params, _, body, _) = method {
+            if let Stmt::Function(_, _, method_name, _, params, _, body, _) = method {
                 let func = Value::Function(Function::UserDefined(
                     method_name.clone(),
                     params.clone(),
@@ -2538,6 +2539,14 @@ impl AstVisitor<Value> for InterpreterVisitor {
             "Async functions are not supported in interpreter mode. Use 'husk transpile' to generate JavaScript.",
             *_span,
         ))
+    }
+
+    fn visit_module(&mut self, _name: &str, body: &[Stmt], _span: &Span) -> Result<Value> {
+        // Process module body statements
+        for stmt in body {
+            self.visit_stmt(stmt)?;
+        }
+        Ok(Value::Unit)
     }
 
     fn visit_match_expr(

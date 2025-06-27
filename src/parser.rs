@@ -7,6 +7,27 @@ use crate::{
     span::Span,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Attribute {
+    pub name: String,
+    pub args: Vec<String>,
+    pub span: Span,
+}
+
+impl Attribute {
+    pub fn new(name: String, span: Span) -> Self {
+        Attribute {
+            name,
+            args: vec![],
+            span,
+        }
+    }
+
+    pub fn with_args(name: String, args: Vec<String>, span: Span) -> Self {
+        Attribute { name, args, span }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Expr {
     Int(i64, Span),
@@ -495,6 +516,7 @@ impl fmt::Display for Expr {
 pub enum Stmt {
     Let(String, Expr, Span),
     Function(
+        Vec<Attribute>,
         bool,
         String,
         Vec<String>,
@@ -502,7 +524,7 @@ pub enum Stmt {
         String,
         Vec<Stmt>,
         Span,
-    ), // Added visibility flag and generic params
+    ), // attributes, visibility flag, name, generic params, params, return type, body, span
     Match(Expr, Vec<(Expr, Vec<Stmt>)>, Span),
     Expression(Expr, bool), // Second bool indicates if there's a semicolon
     Struct(String, Vec<String>, Vec<(String, String)>, Span), // Added generic params
@@ -519,6 +541,7 @@ pub enum Stmt {
     ExternMod(String, Vec<ExternItem>, Span),
     ExternType(String, Vec<String>, Span), // name, generic params, span
     AsyncFunction(
+        Vec<Attribute>,
         bool,
         String,
         Vec<String>,
@@ -526,7 +549,8 @@ pub enum Stmt {
         String,
         Vec<Stmt>,
         Span,
-    ), // Added visibility flag and generic params
+    ), // attributes, visibility flag, name, generic params, params, return type, body, span
+    Module(Vec<Attribute>, String, Vec<Stmt>, Span), // attributes, name, body, span
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -626,7 +650,89 @@ impl Parser {
         Ok(statements)
     }
 
+    fn parse_attributes(&mut self) -> Result<Vec<Attribute>> {
+        let mut attributes = Vec::new();
+
+        while self.current_token().kind == TokenKind::Hash {
+            let start_span = self.current_token().span;
+            self.advance(); // consume #
+
+            // Expect [
+            if self.current_token().kind != TokenKind::LSquare {
+                return Err(Error::new_parse(
+                    "Expected '[' after '#' in attribute".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            self.advance(); // consume [
+
+            // Parse attribute name
+            let name = match &self.current_token().kind {
+                TokenKind::Identifier(name) => name.clone(),
+                _ => {
+                    return Err(Error::new_parse(
+                        "Expected attribute name".to_string(),
+                        self.current_token().span,
+                    ))
+                }
+            };
+            self.advance();
+
+            let mut args = Vec::new();
+
+            // Check for attribute arguments
+            if self.current_token().kind == TokenKind::LParen {
+                self.advance(); // consume (
+
+                // Parse arguments
+                while self.current_token().kind != TokenKind::RParen {
+                    match &self.current_token().kind {
+                        TokenKind::Identifier(arg) => {
+                            args.push(arg.clone());
+                            self.advance();
+
+                            if self.current_token().kind == TokenKind::Comma {
+                                self.advance();
+                            } else if self.current_token().kind != TokenKind::RParen {
+                                return Err(Error::new_parse(
+                                    "Expected ',' or ')' in attribute arguments".to_string(),
+                                    self.current_token().span,
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(Error::new_parse(
+                                "Expected identifier in attribute arguments".to_string(),
+                                self.current_token().span,
+                            ))
+                        }
+                    }
+                }
+
+                self.advance(); // consume )
+            }
+
+            // Expect ]
+            if self.current_token().kind != TokenKind::RSquare {
+                return Err(Error::new_parse(
+                    "Expected ']' to close attribute".to_string(),
+                    self.current_token().span,
+                ));
+            }
+            let end_span = self.current_token().span;
+            self.advance(); // consume ]
+
+            let span = Span::new(start_span.start, end_span.end);
+            attributes.push(Attribute::with_args(name, args, span));
+        }
+
+        Ok(attributes)
+    }
+
     fn parse_statement(&mut self) -> Result<Stmt> {
+        // Parse attributes first
+        let attributes = self.parse_attributes()?;
+
         // Check for pub keyword
         let is_pub = if self.current_token().kind == TokenKind::Pub {
             self.advance(); // Consume 'pub'
@@ -634,6 +740,21 @@ impl Parser {
         } else {
             false
         };
+
+        // Validate that attributes are only used where allowed
+        if !attributes.is_empty() {
+            match self.current_token().kind {
+                TokenKind::Function | TokenKind::Async | TokenKind::Mod => {
+                    // Attributes are allowed
+                }
+                _ => {
+                    return Err(Error::new_parse(
+                        "Attributes can only be applied to functions and modules".to_string(),
+                        attributes[0].span,
+                    ));
+                }
+            }
+        }
 
         let stmt = match self.current_token().kind {
             TokenKind::Struct => self.parse_struct(),
@@ -657,12 +778,23 @@ impl Parser {
                 }
                 self.parse_use_statement()
             }
-            TokenKind::Function => self.parse_function(is_pub),
+            TokenKind::Function => self.parse_function(attributes, is_pub),
             TokenKind::Async => {
                 if is_pub {
                     // pub async fn is allowed
                 }
-                self.parse_async_function(is_pub)
+                self.parse_async_function(attributes, is_pub)
+            }
+            TokenKind::Mod => {
+                if !attributes.is_empty() {
+                    // Handle #[cfg(test)] mod tests { ... }
+                    self.parse_module(attributes)
+                } else {
+                    return Err(Error::new_parse(
+                        "Module declarations require attributes".to_string(),
+                        self.current_token().span,
+                    ));
+                }
             }
             TokenKind::Extern => {
                 if is_pub {
@@ -1127,7 +1259,42 @@ impl Parser {
         Ok(params)
     }
 
-    fn parse_async_function(&mut self, is_pub: bool) -> Result<Stmt> {
+    fn parse_module(&mut self, attributes: Vec<Attribute>) -> Result<Stmt> {
+        let start_span = self.current_token().span.start;
+        self.advance(); // Consume 'mod'
+
+        let name = self.consume_identifier("module")?.ok_or_else(|| {
+            Error::new_parse(
+                "Expected module name".to_string(),
+                self.current_token().span,
+            )
+        })?;
+
+        if self.current_token().kind != TokenKind::LBrace {
+            return Err(Error::new_parse(
+                "Expected '{' after module name".to_string(),
+                self.current_token().span,
+            ));
+        }
+        self.advance(); // Consume '{'
+
+        let mut body = Vec::new();
+        while self.current_token().kind != TokenKind::RBrace {
+            body.push(self.parse_statement()?);
+        }
+
+        let end_span = self.current_token().span.end;
+        self.advance(); // Consume '}'
+
+        Ok(Stmt::Module(
+            attributes,
+            name,
+            body,
+            Span::new(start_span, end_span),
+        ))
+    }
+
+    fn parse_async_function(&mut self, attributes: Vec<Attribute>, is_pub: bool) -> Result<Stmt> {
         let start_span = self.current_token().span.start;
         self.advance(); // Consume 'async'
 
@@ -1139,13 +1306,22 @@ impl Parser {
         }
 
         // Parse the function normally
-        let func_stmt = self.parse_function(is_pub)?;
+        let func_stmt = self.parse_function(attributes.clone(), is_pub)?;
 
         // Convert Function to AsyncFunction
-        if let Stmt::Function(is_pub, name, generic_params, params, return_type, body, func_span) =
-            func_stmt
+        if let Stmt::Function(
+            attributes,
+            is_pub,
+            name,
+            generic_params,
+            params,
+            return_type,
+            body,
+            func_span,
+        ) = func_stmt
         {
             Ok(Stmt::AsyncFunction(
+                attributes,
                 is_pub,
                 name,
                 generic_params,
@@ -2391,7 +2567,7 @@ impl Parser {
         }
     }
 
-    fn parse_function(&mut self, is_pub: bool) -> Result<Stmt> {
+    fn parse_function(&mut self, attributes: Vec<Attribute>, is_pub: bool) -> Result<Stmt> {
         let start_span = self.current_token().span.start;
 
         // Consume 'fn'
@@ -2494,6 +2670,7 @@ impl Parser {
         let end_span = self.current_token().span.end;
         self.advance(); // Consume '}'
         Ok(Stmt::Function(
+            attributes,
             is_pub,
             name,
             generic_params,

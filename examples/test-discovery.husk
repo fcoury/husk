@@ -1,0 +1,43 @@
+// Test file to verify test discovery works
+
+#[test]
+fn test_basic_addition() {
+    let result = 2 + 2;
+    println(format!("2 + 2 = {}", result));
+}
+
+#[test]
+#[ignore]
+fn test_ignored_function() {
+    println("This test should be ignored");
+}
+
+#[test]
+#[should_panic]
+fn test_expected_panic() {
+    println("This test should panic");
+    // Will implement panic! macro later
+}
+
+// Regular function - not a test
+fn helper_function() {
+    println("This is not a test");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_in_module() {
+        println("Test inside a test module");
+    }
+    
+    #[test]
+    #[ignore]
+    fn test_ignored_in_module() {
+        println("Ignored test in module");
+    }
+}
+
+fn main() {
+    println("Main function - running test discovery example");
+}

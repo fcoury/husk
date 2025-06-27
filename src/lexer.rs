@@ -32,6 +32,7 @@ pub enum TokenKind {
     Let,
     Use,
     Pub,
+    Mod,
     Extern,
     Async,
     As,
@@ -89,6 +90,7 @@ pub enum TokenKind {
     Underscore,
     Bang,
     Question,
+    Hash,
     Error(String),
     Eof,
 }
@@ -109,6 +111,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Let => "Let",
             TokenKind::Use => "Use",
             TokenKind::Pub => "Pub",
+            TokenKind::Mod => "Mod",
             TokenKind::Extern => "Extern",
             TokenKind::Async => "Async",
             TokenKind::As => "As",
@@ -166,6 +169,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Underscore => "_",
             TokenKind::Bang => "!",
             TokenKind::Question => "?",
+            TokenKind::Hash => "#",
             TokenKind::Error(s) => s,
             TokenKind::Eof => "EOF",
         };
@@ -404,6 +408,7 @@ impl Lexer {
                 }
             }
             Some('?') => self.create_token(TokenKind::Question),
+            Some('#') => self.create_token(TokenKind::Hash),
             Some(c) => {
                 if c.is_alphabetic() {
                     let token = self.read_identifier_or_type();
@@ -469,6 +474,7 @@ impl Lexer {
             "let" => TokenKind::Let,
             "use" => TokenKind::Use,
             "pub" => TokenKind::Pub,
+            "mod" => TokenKind::Mod,
             "extern" => TokenKind::Extern,
             "async" => TokenKind::Async,
             "as" => TokenKind::As,

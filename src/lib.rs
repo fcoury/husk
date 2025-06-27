@@ -15,6 +15,8 @@ mod runtime_error_tests;
 mod semantic;
 mod semantic_error_tests;
 mod span;
+pub mod test_registry;
+pub mod test_runner;
 mod transpiler;
 mod transpiler_error_tests;
 mod types;
