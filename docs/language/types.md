@@ -37,7 +37,7 @@ Husk's type system provides:
 
 ### Numeric Types
 
-```husk
+```rust
 // Integers
 let a: int = 42;              // 32-bit signed integer
 let b: int = -100;            // Negative integers
@@ -55,7 +55,7 @@ let inferred_float = 3.14;    // Inferred as float
 
 ### Boolean Type
 
-```husk
+```rust
 let is_ready: bool = true;
 let is_done: bool = false;
 
@@ -66,7 +66,7 @@ let is_even = 10 % 2 == 0;    // true
 
 ### String Type
 
-```husk
+```rust
 let name: string = "Alice";
 let greeting: string = "Hello, World!";
 let empty: string = "";
@@ -83,7 +83,7 @@ And so are you!";
 
 ### Character Type
 
-```husk
+```rust
 let ch: char = 'A';
 let emoji: char = '🎉';
 let newline: char = '\n';
@@ -94,7 +94,7 @@ let unicode: char = '\u{1F600}'; // 😀
 
 ### Unit Type
 
-```husk
+```rust
 // Unit type () represents "no value"
 fn print_message(msg: string) -> () {
     println!(msg);
@@ -111,7 +111,7 @@ fn print_message2(msg: string) {
 
 Husk infers types based on usage:
 
-```husk
+```rust
 // Basic inference
 let x = 42;                    // Inferred as int
 let y = 3.14;                  // Inferred as float
@@ -132,7 +132,7 @@ let names = ["Alice", "Bob"];  // Inferred as array<string>
 
 ### Inference Limitations
 
-```husk
+```rust
 // Sometimes inference needs help
 let empty_array: array<int> = [];  // Type annotation required
 
@@ -145,7 +145,7 @@ let result: int = identity(42);    // Type hint helps inference
 
 ### When to Use Annotations
 
-```husk
+```rust
 // Function parameters always need annotations
 fn add(a: int, b: int) -> int {
     a + b
@@ -162,7 +162,7 @@ let lookup: HashMap<string, int> = HashMap::new();
 
 ### Annotation Syntax
 
-```husk
+```rust
 // Basic syntax
 let variable: Type = value;
 
@@ -185,7 +185,7 @@ let maybe: Option<string> = Some("value");
 
 ### Arrays
 
-```husk
+```rust
 // Array declaration
 let numbers: array<int> = [1, 2, 3, 4, 5];
 let strings: array<string> = ["hello", "world"];
@@ -207,7 +207,7 @@ let matrix: array<array<int>> = [
 
 ### Tuples
 
-```husk
+```rust
 // Tuple types
 let point: (int, int) = (10, 20);
 let person: (string, int, bool) = ("Alice", 30, true);
@@ -229,7 +229,7 @@ let (lat, lon) = get_coordinates();
 
 ### Slices
 
-```husk
+```rust
 // Slices are views into arrays
 let numbers = [1, 2, 3, 4, 5];
 let slice: &[int] = &numbers[1..4];  // [2, 3, 4]
@@ -243,7 +243,7 @@ let hello: &str = &text[0..5];  // "Hello"
 
 ### Structs
 
-```husk
+```rust
 // Define a struct
 struct Point {
     x: float,
@@ -273,7 +273,7 @@ impl Point {
 
 ### Enums
 
-```husk
+```rust
 // Simple enum
 enum Direction {
     North,
@@ -307,7 +307,7 @@ match msg {
 
 ### Option<T>
 
-```husk
+```rust
 // Option represents a value that might be absent
 enum Option<T> {
     Some(T),
@@ -337,7 +337,7 @@ let z = x.unwrap_or(0);          // 5
 
 ### Result<T, E>
 
-```husk
+```rust
 // Result represents success or failure
 enum Result<T, E> {
     Ok(T),
@@ -367,7 +367,7 @@ let result = divide(10.0, 2.0)
 
 ## Type Aliases
 
-```husk
+```rust
 // Create type aliases for clarity
 type UserId = int;
 type Username = string;
@@ -389,7 +389,7 @@ let location: Coordinate = (10.5, 20.3);
 
 ## Generics
 
-```husk
+```rust
 // Generic functions
 fn identity<T>(value: T) -> T {
     value
@@ -425,7 +425,7 @@ let string_container = Container::new("Hello");
 
 ### Explicit Conversions
 
-```husk
+```rust
 // Numeric conversions
 let x: int = 42;
 let y: float = x as float;        // 42.0
@@ -448,7 +448,7 @@ impl From<int> for MyType {
 
 ### Safe Conversions
 
-```husk
+```rust
 // Use Result for fallible conversions
 fn safe_divide(a: int, b: int) -> Result<float, string> {
     if b == 0 {
@@ -467,7 +467,7 @@ let small: i16 = big.try_into()?;  // May fail
 
 ### Builder Pattern
 
-```husk
+```rust
 struct Config {
     host: string,
     port: int,
@@ -502,7 +502,7 @@ impl ConfigBuilder {
 
 ### Newtype Pattern
 
-```husk
+```rust
 // Wrap primitive types for type safety
 struct Meters(float);
 struct Feet(float);
@@ -523,7 +523,7 @@ fn calculate_area(width: Meters, height: Meters) -> float {
 
 ### 1. Use Type Annotations for Clarity
 
-```husk
+```rust
 // Good: Clear intent
 let max_retries: int = 3;
 let timeout_seconds: float = 30.0;
@@ -535,7 +535,7 @@ let timeout = 30.0;
 
 ### 2. Leverage Type Inference
 
-```husk
+```rust
 // Good: Let inference work
 let result = calculate_something();
 
@@ -545,7 +545,7 @@ let result: int = calculate_something();  // If return type is clear
 
 ### 3. Use Custom Types
 
-```husk
+```rust
 // Good: Domain-specific types
 struct Email(string);
 struct UserId(int);
@@ -557,7 +557,7 @@ let user_id: int = 123;
 
 ### 4. Prefer Option over Null
 
-```husk
+```rust
 // Good: Explicit absence
 fn find_user(id: int) -> Option<User> {
     // ...
@@ -571,7 +571,7 @@ fn find_user(id: int) -> User {
 
 ### 5. Use Result for Errors
 
-```husk
+```rust
 // Good: Explicit error handling
 fn parse_config(data: string) -> Result<Config, ParseError> {
     // ...
@@ -587,7 +587,7 @@ fn parse_config(data: string) -> Config {
 
 ### Type Mismatch
 
-```husk
+```rust
 // Error: Type mismatch
 let x: int = 3.14;  // Error: expected int, found float
 
@@ -597,7 +597,7 @@ let x: float = 3.14;
 
 ### Missing Annotations
 
-```husk
+```rust
 // Error: Cannot infer type
 let empty = [];  // Error: type annotations needed
 
@@ -607,7 +607,7 @@ let empty: array<int> = [];
 
 ### Implicit Conversions
 
-```husk
+```rust
 // Error: No implicit conversion
 let x: int = 42;
 let y: float = x;  // Error: mismatched types

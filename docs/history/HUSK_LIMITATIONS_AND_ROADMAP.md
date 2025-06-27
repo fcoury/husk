@@ -8,7 +8,7 @@ This document captures the limitations discovered while building the Express.js 
 Strings don't have built-in methods like `.len()`, `.trim()`, `.substring()`, etc.
 
 ### Current Workaround
-```husk
+```rust
 // Have to use extern functions
 extern fn String_length(s: string) -> int;
 let len = String_length(myString);
@@ -17,7 +17,7 @@ let len = String_length(myString);
 ### Proposed Solution
 Implement built-in methods for primitive types:
 
-```husk
+```rust
 // String methods
 impl string {
     fn len(self) -> int;
@@ -46,14 +46,14 @@ impl string {
 Arrays don't have methods like `.len()`, `.push()`, `.pop()`, `.map()`, etc.
 
 ### Current Workaround
-```husk
+```rust
 // Cannot dynamically modify arrays
 // Have to create new arrays instead
 let newArray = [...oldArray, newItem];  // Spread not implemented either
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Array methods
 impl<T> array<T> {
     fn len(self) -> int;
@@ -82,7 +82,7 @@ impl<T> array<T> {
 Cannot use pattern matching to destructure in let bindings or function parameters.
 
 ### Current State
-```husk
+```rust
 // This doesn't work
 let CreateTodoDto { title, description } = dto;
 
@@ -92,7 +92,7 @@ let description = dto.description;
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Destructuring in let bindings
 let Point { x, y } = point;
 let [first, second, ...rest] = array;
@@ -115,7 +115,7 @@ fn process({ title, description }: CreateTodoDto) {
 Cannot check if a property exists without explicit comparison.
 
 ### Current State
-```husk
+```rust
 // This doesn't work
 if body.title { ... }
 
@@ -123,7 +123,7 @@ if body.title { ... }
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Property existence checking
 if let Some(title) = body.title { 
     // Use title
@@ -144,7 +144,7 @@ let title = body?.title;
 Cannot properly type dynamic JavaScript objects and their properties.
 
 ### Current State
-```husk
+```rust
 // Have to use 'any' type
 impl Request {
     fn body: any;
@@ -156,7 +156,7 @@ let dto = req.body as CreateTodoDto;
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Better extern type definitions
 extern type Request {
     body: unknown;  // New unknown type
@@ -185,7 +185,7 @@ let dto = req.body as? CreateTodoDto;  // Returns Option<CreateTodoDto>
 Async functions only work in transpiler mode, not in interpreter.
 
 ### Current State
-```husk
+```rust
 // This only works when transpiled to JavaScript
 async fn fetchData() -> Result<string, Error> {
     let response = fetch(url).await?;
@@ -210,14 +210,14 @@ Implement async runtime in the interpreter using Rust's async infrastructure.
 - No glob imports working properly
 
 ### Current State
-```husk
+```rust
 // These don't work
 pub use local::types::*;  // Glob re-export
 use local::very::long::path as short;  // Module aliasing
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Re-exports
 pub use local::types::{Todo, CreateTodoDto};
 pub use local::types::*;
@@ -247,7 +247,7 @@ pub mod api {
 - No error chaining or context
 
 ### Current State
-```husk
+```rust
 enum ApiError {
     NotFound(string),
     BadRequest(string),
@@ -256,7 +256,7 @@ enum ApiError {
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Error trait
 trait Error {
     fn message(self) -> string;
@@ -292,7 +292,7 @@ result.map_err(|e| ApiError::BadRequest(e.message()))?;
 Cannot check types at runtime for dynamic JavaScript values.
 
 ### Current State
-```husk
+```rust
 // This doesn't work
 if err is ApiError {
     let api_err = err as ApiError;
@@ -300,7 +300,7 @@ if err is ApiError {
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Type checking
 if value is string {
     // value is known to be string here
@@ -330,7 +330,7 @@ match typeof(value) {
 No built-in functions for common operations.
 
 ### Current State
-```husk
+```rust
 // Have to use extern for everything
 extern fn Date() -> DateInstance;
 extern fn parseInt(s: string) -> int;
@@ -338,7 +338,7 @@ extern fn parseFloat(s: string) -> float;
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Built-in functions in std module
 mod std {
     fn parse_int(s: string) -> Result<int, ParseError>;
@@ -374,13 +374,13 @@ mod time {
 - Limited generic inference
 
 ### Current State
-```husk
+```rust
 // This is all we have
 fn map<T, U>(items: array<T>, f: fn(T) -> U) -> array<U>
 ```
 
 ### Proposed Solution
-```husk
+```rust
 // Generic constraints
 fn sort<T: Ord>(items: array<T>) -> array<T>
 
@@ -406,7 +406,7 @@ let result = vec.map(|x| x * 2);  // T and U inferred
 Only `format!` is hard-coded, no way to define custom macros.
 
 ### Proposed Solution
-```husk
+```rust
 // Macro definitions
 macro_rules! vec {
     () => { [] };

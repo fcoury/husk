@@ -16,7 +16,7 @@ This document outlines the plan for implementing Option and Result as built-in e
 
 ### Option<T> Type
 
-```husk
+```rust
 enum Option<T> {
     Some(T),
     None,
@@ -34,7 +34,7 @@ enum Option<T> {
    - `Option::Some(value)` → `value`
 
 3. **Special Transpilation:**
-   ```husk
+   ```rust
    // Husk
    let user: Option<User> = get_user();
    match user {
@@ -53,7 +53,7 @@ enum Option<T> {
 
 ### Result<T, E> Type
 
-```husk
+```rust
 enum Result<T, E> {
     Ok(T),
     Err(E),
@@ -67,7 +67,7 @@ enum Result<T, E> {
    - Rejected promise → `Result::Err(error)`
 
 2. **For Try-Catch:**
-   ```husk
+   ```rust
    // Husk
    fn parse_json(s: string) -> Result<JsonValue, string> {
        // Implementation will use try-catch internally
@@ -84,7 +84,7 @@ enum Result<T, E> {
    ```
 
 3. **Async Function Error Propagation:**
-   ```husk
+   ```rust
    // Husk
    async fn fetch_user(id: int) -> Result<User, Error> {
        let response = await fetch(`/api/users/${id}`)?;  // ? operator
@@ -168,7 +168,7 @@ enum Result<T, E> {
 ### Phase 4: Standard Library Functions
 
 1. **Option Methods**
-   ```husk
+   ```rust
    impl Option<T> {
        fn is_some(&self) -> bool;
        fn is_none(&self) -> bool;
@@ -179,7 +179,7 @@ enum Result<T, E> {
    ```
 
 2. **Result Methods**
-   ```husk
+   ```rust
    impl Result<T, E> {
        fn is_ok(&self) -> bool;
        fn is_err(&self) -> bool;
@@ -192,7 +192,7 @@ enum Result<T, E> {
 
 ### Phase 5: External Type Declarations
 
-```husk
+```rust
 // Automatic conversions for JavaScript APIs
 extern fn getElementById(id: string) -> Option<Element>;
 extern fn querySelector(selector: string) -> Option<Element>;
@@ -206,7 +206,7 @@ extern fn fetch(url: string) -> Promise<Response>;
 
 ### Basic Option Usage
 
-```husk
+```rust
 fn find_user(id: int) -> Option<User> {
     if id == 1 {
         Some(User { name: "Alice", id: 1 })
@@ -229,7 +229,7 @@ if let Some(u) = find_user(1) {
 
 ### Result with Error Handling
 
-```husk
+```rust
 fn divide(a: float, b: float) -> Result<float, string> {
     if b == 0.0 {
         Err("Division by zero")
@@ -247,7 +247,7 @@ match result {
 
 ### Async Error Propagation
 
-```husk
+```rust
 async fn fetch_and_parse(url: string) -> Result<Data, Error> {
     let response = await fetch(url)?;
     let text = await response.text()?;
@@ -265,7 +265,7 @@ match data {
 
 ### JavaScript Interop Examples
 
-```husk
+```rust
 // Working with DOM APIs that might return null
 extern fn getElementById(id: string) -> Option<Element>;
 

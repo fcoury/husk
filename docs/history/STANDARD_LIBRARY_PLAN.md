@@ -51,7 +51,7 @@ std/
 
 ### 1. Prelude (Auto-imported)
 
-```husk
+```rust
 // Core types already built-in: Option<T>, Result<T, E>
 
 // Essential macros and functions (matching Rust's prelude)
@@ -91,7 +91,7 @@ trait Into<T> {
 
 ### 2. String Module
 
-```husk
+```rust
 // String type - unified string type (no str/String distinction)
 impl string {
     // Length and emptiness
@@ -169,7 +169,7 @@ mod string {
 
 ### 3. Array and Vec Modules
 
-```husk
+```rust
 // Array methods - built-in primitive array type
 impl<T> array<T> {
     // Length and emptiness
@@ -268,7 +268,7 @@ mod vec {
 
 ### 4. Iterator Module (Rust: std::iter)
 
-```husk
+```rust
 // Iterator trait - core of Rust's iteration (Rust: Iterator)
 trait Iterator {
     type Item;
@@ -369,7 +369,7 @@ struct Once<T> { value: Option<T> }                  // JS: [value]
 
 ### 5. IO Module (Rust: std::io)
 
-```husk
+```rust
 mod io {
     // Error type for I/O operations (Rust: std::io::Error)
     struct Error {
@@ -472,7 +472,7 @@ mod io {
 
 ### 6. File System Module (Rust: std::fs)
 
-```husk
+```rust
 mod fs {
     use io::{Read, Write, Error};
     
@@ -776,7 +776,7 @@ JavaScript strings use UTF-16 encoding internally, which presents several challe
 
 ### Implementation Design
 
-```husk
+```rust
 // In std/string.husk
 impl string {
     // Returns an array of single-character strings, properly handling Unicode
@@ -832,7 +832,7 @@ Array.from(str) // ['H','e','l','l','o',' ','👋',' ','W','o','r','l','d']
 
 ### Test Cases
 
-```husk
+```rust
 // Basic ASCII
 assert_eq("hello".chars(), ["h", "e", "l", "l", "o"]);
 

@@ -16,7 +16,7 @@ This document captures the design decisions made for Husk's type system during t
 - Covers the most common use cases (let bindings, array literals, etc.)
 
 **Examples**:
-```husk
+```rust
 let x = 5;              // Infers x: int
 let y = x + 10;         // Infers y: int  
 let arr = [1, 2, 3];    // Infers arr: array<int>
@@ -48,7 +48,7 @@ function add(a: int, b: int) -> int {
 - Parser can be extended to parse generic syntax
 
 **Future generic syntax** (not implemented yet):
-```husk
+```rust
 // What we're preparing for
 function identity<T>(x: T) -> T { x }
 function map<T, U>(arr: array<T>, f: fn(T) -> U) -> array<U> { ... }
@@ -70,7 +70,7 @@ struct Box<T> {
 - Allows domain-specific naming without type safety overhead
 
 **Syntax and semantics**:
-```husk
+```rust
 type UserId = int;
 type Username = string;
 type Score = float;
@@ -105,7 +105,7 @@ let sum = id + 10;            // OK - works like int
 - Clean JavaScript interop strategy available
 
 **Syntax**:
-```husk
+```rust
 // Cannot have null values
 let name: string = "Alice";        // Must have a value
 // let bad: string = null;         // COMPILE ERROR!
@@ -122,7 +122,7 @@ match maybe_name {
 ```
 
 **JavaScript Interoperability**:
-```husk
+```rust
 // At JS boundary, automatic conversion:
 // JS null/undefined → Husk None  
 // JS value → Husk Some(value)
@@ -142,7 +142,7 @@ let button = querySelector("#submit");  // Might be None if not found
 - `if let` syntax for simpler matching
 
 **Result Type for Error Handling**:
-```husk
+```rust
 // Result type for explicit error handling
 enum Result<T, E> {
     Ok(T),
@@ -177,7 +177,7 @@ match result {
 - No surprising behavior or precision loss
 
 **Examples**:
-```husk
+```rust
 let x: int = 5;
 let y: float = 3.14;
 

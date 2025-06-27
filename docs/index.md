@@ -69,7 +69,7 @@ Husk is a statically-typed, memory-safe programming language designed for:
 
 ### Example
 
-```husk
+```rust
 // A simple Husk program demonstrating key features
 fn main() {
     let numbers = [1, 2, 3, 4, 5];

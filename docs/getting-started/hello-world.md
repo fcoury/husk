@@ -16,7 +16,7 @@ Welcome to your first Husk program! This tutorial will guide you through creatin
 
 Let's start with the traditional "Hello World" program. Create a new file called `hello.hk` (or `hello.husk`):
 
-```husk
+```rust
 fn main() {
     println!("Hello, World!");
 }
@@ -30,7 +30,7 @@ Let's break down each part of this program:
 
 ### The `main` Function
 
-```husk
+```rust
 fn main() {
     // Your code here
 }
@@ -43,7 +43,7 @@ fn main() {
 
 ### The `println!` Macro
 
-```husk
+```rust
 println!("Hello, World!");
 ```
 
@@ -94,7 +94,7 @@ Let's explore variations to learn more Husk features:
 
 ### 1. Using Variables
 
-```husk
+```rust
 fn main() {
     let greeting = "Hello, World!";
     println!(greeting);
@@ -108,7 +108,7 @@ Key concepts:
 
 ### 2. String Formatting
 
-```husk
+```rust
 fn main() {
     let name = "Husk";
     let version = 0.1;
@@ -127,7 +127,7 @@ Key concepts:
 
 ### 3. User Input
 
-```husk
+```rust
 fn main() {
     print!("What's your name? ");
     let name = read_line();
@@ -142,7 +142,7 @@ Key concepts:
 
 ### 4. Function Calls
 
-```husk
+```rust
 fn greet(name: string) {
     println!("Hello, {}!", name);
 }
@@ -166,7 +166,7 @@ Key concepts:
 
 ### 5. Return Values
 
-```husk
+```rust
 fn create_greeting(name: string) -> string {
     format!("Hello, {}!", name)
 }
@@ -186,7 +186,7 @@ Key concepts:
 
 ### Multiple Greetings
 
-```husk
+```rust
 fn main() {
     let greetings = ["Hello", "Hola", "Bonjour", "Hallo"];
     let target = "World";
@@ -207,7 +207,7 @@ Hallo, World!
 
 ### Conditional Greetings
 
-```husk
+```rust
 fn main() {
     let hour = 14; // 2 PM
     
@@ -225,7 +225,7 @@ fn main() {
 
 ### Pattern Matching
 
-```husk
+```rust
 fn get_greeting(language: string) -> string {
     match language {
         "English" => "Hello",

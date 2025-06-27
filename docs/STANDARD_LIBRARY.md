@@ -29,25 +29,25 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
 #### Length and Inspection
 
 - **`len() -> int`** - Returns the length of the string
-  ```husk
+  ```rust
   let s = "hello";
   println!(s.len()); // 5
   ```
 
 - **`is_empty() -> bool`** - Checks if the string is empty
-  ```husk
+  ```rust
   let s = "";
   println!(s.is_empty()); // true
   ```
 
 - **`chars() -> array<string>`** - Returns an array of single-character strings (Unicode-aware)
-  ```husk
+  ```rust
   let s = "hello👋";
   let chars = s.chars(); // ["h", "e", "l", "l", "o", "👋"]
   ```
 
 - **`bytes() -> array<int>`** - Returns UTF-8 bytes as an array of integers
-  ```husk
+  ```rust
   let s = "hello";
   let bytes = s.bytes(); // [104, 101, 108, 108, 111]
   ```
@@ -55,19 +55,19 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
 #### Whitespace Handling
 
 - **`trim() -> string`** - Removes whitespace from both ends
-  ```husk
+  ```rust
   let s = "  hello  ";
   println!(s.trim()); // "hello"
   ```
 
 - **`trim_start() -> string`** - Removes leading whitespace
-  ```husk
+  ```rust
   let s = "  hello";
   println!(s.trim_start()); // "hello"
   ```
 
 - **`trim_end() -> string`** - Removes trailing whitespace
-  ```husk
+  ```rust
   let s = "hello  ";
   println!(s.trim_end()); // "hello"
   ```
@@ -75,25 +75,25 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
 #### Pattern Searching
 
 - **`contains(pattern: string) -> bool`** - Checks if string contains pattern
-  ```husk
+  ```rust
   let s = "hello world";
   println!(s.contains("world")); // true
   ```
 
 - **`starts_with(prefix: string) -> bool`** - Checks if string starts with prefix
-  ```husk
+  ```rust
   let s = "hello world";
   println!(s.starts_with("hello")); // true
   ```
 
 - **`ends_with(suffix: string) -> bool`** - Checks if string ends with suffix
-  ```husk
+  ```rust
   let s = "hello world";
   println!(s.ends_with("world")); // true
   ```
 
 - **`find(pattern: string) -> Option<int>`** - Finds first occurrence of pattern
-  ```husk
+  ```rust
   let s = "hello world";
   match s.find("world") {
       Some(pos) => println!("Found at {}", pos), // Found at 6
@@ -102,7 +102,7 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
   ```
 
 - **`rfind(pattern: string) -> Option<int>`** - Finds last occurrence of pattern
-  ```husk
+  ```rust
   let s = "hello hello";
   match s.rfind("hello") {
       Some(pos) => println!("Last at {}", pos), // Last at 6
@@ -113,19 +113,19 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
 #### String Splitting
 
 - **`split(delimiter: string) -> array<string>`** - Splits string by delimiter
-  ```husk
+  ```rust
   let s = "a,b,c";
   let parts = s.split(","); // ["a", "b", "c"]
   ```
 
 - **`splitn(n: int, delimiter: string) -> array<string>`** - Splits with limit
-  ```husk
+  ```rust
   let s = "a,b,c,d";
   let parts = s.splitn(2, ","); // ["a", "b,c,d"]
   ```
 
 - **`split_once(delimiter: string) -> Option<(string, string)>`** - Splits at first occurrence
-  ```husk
+  ```rust
   let s = "key=value=extra";
   match s.split_once("=") {
       Some((k, v)) => println!("{}: {}", k, v), // key: value=extra
@@ -134,7 +134,7 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
   ```
 
 - **`lines() -> array<string>`** - Splits by line breaks
-  ```husk
+  ```rust
   let s = "line1\nline2\nline3";
   let lines = s.lines(); // ["line1", "line2", "line3"]
   ```
@@ -142,13 +142,13 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
 #### Case Conversion
 
 - **`to_lowercase() -> string`** - Converts to lowercase
-  ```husk
+  ```rust
   let s = "HELLO World";
   println!(s.to_lowercase()); // "hello world"
   ```
 
 - **`to_uppercase() -> string`** - Converts to uppercase
-  ```husk
+  ```rust
   let s = "hello WORLD";
   println!(s.to_uppercase()); // "HELLO WORLD"
   ```
@@ -156,25 +156,25 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
 #### String Manipulation
 
 - **`replace(from: string, to: string) -> string`** - Replaces all occurrences
-  ```husk
+  ```rust
   let s = "hello world";
   println!(s.replace("o", "0")); // "hell0 w0rld"
   ```
 
 - **`substring(start: int, end: int) -> string`** - Extracts substring
-  ```husk
+  ```rust
   let s = "hello world";
   println!(s.substring(0, 5)); // "hello"
   ```
 
 - **`slice(start: int, end: int) -> string`** - Slices string (supports negative indices)
-  ```husk
+  ```rust
   let s = "hello world";
   println!(s.slice(-5, -1)); // "worl"
   ```
 
 - **`char_at(index: int) -> Option<string>`** - Gets character at index
-  ```husk
+  ```rust
   let s = "hello";
   match s.char_at(1) {
       Some(c) => println!("Char: {}", c), // Char: e
@@ -183,7 +183,7 @@ Husk provides a unified `string` type with extensive built-in methods. All strin
   ```
 
 - **`repeat(n: int) -> string`** - Repeats string n times
-  ```husk
+  ```rust
   let s = "ha";
   println!(s.repeat(3)); // "hahaha"
   ```
@@ -197,19 +197,19 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
 #### Length and Access
 
 - **`len() -> int`** - Returns array length
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   println!(arr.len()); // 3
   ```
 
 - **`is_empty() -> bool`** - Checks if array is empty
-  ```husk
+  ```rust
   let arr = [];
   println!(arr.is_empty()); // true
   ```
 
 - **`first() -> Option<T>`** - Gets first element
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   match arr.first() {
       Some(x) => println!("First: {}", x), // First: 1
@@ -218,7 +218,7 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
   ```
 
 - **`last() -> Option<T>`** - Gets last element
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   match arr.last() {
       Some(x) => println!("Last: {}", x), // Last: 3
@@ -227,7 +227,7 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
   ```
 
 - **`get(index: int) -> Option<T>`** - Gets element at index safely
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   match arr.get(1) {
       Some(x) => println!("Value: {}", x), // Value: 2
@@ -238,26 +238,26 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
 #### Array Transformation
 
 - **`slice(start: int, end: int) -> array<T>`** - Extracts sub-array
-  ```husk
+  ```rust
   let arr = [1, 2, 3, 4, 5];
   let sub = arr.slice(1, 4); // [2, 3, 4]
   ```
 
 - **`concat(other: array<T>) -> array<T>`** - Concatenates arrays
-  ```husk
+  ```rust
   let arr1 = [1, 2];
   let arr2 = [3, 4];
   let combined = arr1.concat(arr2); // [1, 2, 3, 4]
   ```
 
 - **`reverse() -> array<T>`** - Returns reversed array
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   let rev = arr.reverse(); // [3, 2, 1]
   ```
 
 - **`sort() -> array<T>`** - Sorts array (requires Ord trait)
-  ```husk
+  ```rust
   let arr = [3, 1, 4, 1, 5];
   let sorted = arr.sort(); // [1, 1, 3, 4, 5]
   ```
@@ -265,19 +265,19 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
 #### Functional Operations
 
 - **`map<U>(f: fn(T) -> U) -> array<U>`** - Transforms each element
-  ```husk
+  ```rust
   let numbers = [1, 2, 3];
   let doubled = numbers.map(|x| x * 2); // [2, 4, 6]
   ```
 
 - **`filter(f: fn(T) -> bool) -> array<T>`** - Filters elements
-  ```husk
+  ```rust
   let numbers = [1, 2, 3, 4, 5];
   let evens = numbers.filter(|x| x % 2 == 0); // [2, 4]
   ```
 
 - **`find(f: fn(T) -> bool) -> Option<T>`** - Finds first matching element
-  ```husk
+  ```rust
   let numbers = [1, 2, 3, 4];
   match numbers.find(|x| x > 2) {
       Some(x) => println!("Found: {}", x), // Found: 3
@@ -286,7 +286,7 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
   ```
 
 - **`position(f: fn(T) -> bool) -> Option<int>`** - Finds index of first match
-  ```husk
+  ```rust
   let numbers = [10, 20, 30, 40];
   match numbers.position(|x| x == 30) {
       Some(i) => println!("At index: {}", i), // At index: 2
@@ -297,13 +297,13 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
 #### Array Modification
 
 - **`push(values...: T) -> array<T>`** - Returns new array with elements appended
-  ```husk
+  ```rust
   let arr = [1, 2];
   let new_arr = arr.push(3, 4); // [1, 2, 3, 4]
   ```
 
 - **`pop() -> (array<T>, Option<T>)`** - Returns tuple of new array and popped element
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   let (new_arr, popped) = arr.pop(); // ([1, 2], Some(3))
   ```
@@ -311,13 +311,13 @@ Arrays in Husk are primitive types with extensive built-in methods for functiona
 #### Utility Methods
 
 - **`join(separator: string) -> string`** - Joins elements into string
-  ```husk
+  ```rust
   let words = ["hello", "world"];
   println!(words.join(" ")); // "hello world"
   ```
 
 - **`contains(value: T) -> bool`** - Checks if array contains value
-  ```husk
+  ```rust
   let arr = [1, 2, 3];
   println!(arr.contains(2)); // true
   ```
@@ -331,7 +331,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
 #### Reading Files
 
 - **`read_file(path: string) -> Result<string, Error>`** - Reads entire file as string
-  ```husk
+  ```rust
   match read_file("config.txt") {
       Ok(contents) => println!("File: {}", contents),
       Err(e) => println!("Error: {}", e)
@@ -339,7 +339,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`read_file_bytes(path: string) -> Result<array<int>, Error>`** - Reads file as bytes
-  ```husk
+  ```rust
   match read_file_bytes("image.png") {
       Ok(bytes) => println!("Size: {} bytes", bytes.len()),
       Err(e) => println!("Error: {}", e)
@@ -347,7 +347,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`read_lines(path: string) -> Result<array<string>, Error>`** - Reads file as lines
-  ```husk
+  ```rust
   match read_lines("data.txt") {
       Ok(lines) => {
           for line in lines {
@@ -361,7 +361,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
 #### Writing Files
 
 - **`write_file(path: string, contents: string) -> Result<(), Error>`** - Writes string to file
-  ```husk
+  ```rust
   match write_file("output.txt", "Hello, World!") {
       Ok(()) => println!("File written"),
       Err(e) => println!("Error: {}", e)
@@ -369,7 +369,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`write_file_bytes(path: string, data: array<int>) -> Result<(), Error>`** - Writes bytes
-  ```husk
+  ```rust
   let data = [72, 101, 108, 108, 111]; // "Hello" in ASCII
   match write_file_bytes("binary.dat", data) {
       Ok(()) => println!("Binary file written"),
@@ -378,7 +378,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`append_file(path: string, contents: string) -> Result<(), Error>`** - Appends to file
-  ```husk
+  ```rust
   match append_file("log.txt", "New log entry\n") {
       Ok(()) => println!("Appended to log"),
       Err(e) => println!("Error: {}", e)
@@ -388,21 +388,21 @@ Husk provides comprehensive I/O operations for file system and console interacti
 #### Path Operations
 
 - **`exists(path: string) -> bool`** - Checks if path exists
-  ```husk
+  ```rust
   if exists("config.json") {
       println!("Config file found");
   }
   ```
 
 - **`is_file(path: string) -> bool`** - Checks if path is a file
-  ```husk
+  ```rust
   if is_file("document.txt") {
       println!("It's a file");
   }
   ```
 
 - **`is_dir(path: string) -> bool`** - Checks if path is a directory
-  ```husk
+  ```rust
   if is_dir("src") {
       println!("Source directory exists");
   }
@@ -411,7 +411,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
 ### Directory Operations
 
 - **`create_dir(path: string) -> Result<(), Error>`** - Creates a directory
-  ```husk
+  ```rust
   match create_dir("output") {
       Ok(()) => println!("Directory created"),
       Err(e) => println!("Error: {}", e)
@@ -419,7 +419,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`create_dir_all(path: string) -> Result<(), Error>`** - Creates directory and parents
-  ```husk
+  ```rust
   match create_dir_all("output/data/cache") {
       Ok(()) => println!("All directories created"),
       Err(e) => println!("Error: {}", e)
@@ -427,7 +427,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`remove_dir(path: string) -> Result<(), Error>`** - Removes empty directory
-  ```husk
+  ```rust
   match remove_dir("temp") {
       Ok(()) => println!("Directory removed"),
       Err(e) => println!("Error: {}", e)
@@ -435,7 +435,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`remove_dir_all(path: string) -> Result<(), Error>`** - Removes directory recursively
-  ```husk
+  ```rust
   match remove_dir_all("old_project") {
       Ok(()) => println!("Directory tree removed"),
       Err(e) => println!("Error: {}", e)
@@ -443,7 +443,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`read_dir(path: string) -> Result<array<DirEntry>, Error>`** - Lists directory contents
-  ```husk
+  ```rust
   match read_dir(".") {
       Ok(entries) => {
           for entry in entries {
@@ -458,7 +458,7 @@ Husk provides comprehensive I/O operations for file system and console interacti
 ### Console Operations
 
 - **`read_line() -> Result<string, Error>`** - Reads line from stdin
-  ```husk
+  ```rust
   println!("Enter your name:");
   match read_line() {
       Ok(name) => println!("Hello, {}!", name.trim()),
@@ -467,13 +467,13 @@ Husk provides comprehensive I/O operations for file system and console interacti
   ```
 
 - **`eprint(message: string) -> int`** - Prints to stderr without newline
-  ```husk
+  ```rust
   let bytes = eprint("Error: ");
   eprintln("Something went wrong");
   ```
 
 - **`eprintln(message: string)`** - Prints to stderr with newline
-  ```husk
+  ```rust
   eprintln("Warning: This is a warning message");
   ```
 
@@ -486,7 +486,7 @@ When compiling to JavaScript, async versions of file operations are available:
 - **`append_file_async(path: string, contents: string) -> Promise<Result<(), Error>>`**
 
 Example:
-```husk
+```rust
 async fn load_config() -> Result<Config, Error> {
     let contents = await read_file_async("config.json")?;
     Ok(parse_config(contents))
@@ -499,7 +499,7 @@ async fn load_config() -> Result<Config, Error> {
 
 The `Option<T>` type represents an optional value:
 
-```husk
+```rust
 enum Option<T> {
     Some(T),
     None
@@ -507,7 +507,7 @@ enum Option<T> {
 ```
 
 Used by methods that may not return a value:
-```husk
+```rust
 let arr = [1, 2, 3];
 match arr.first() {
     Some(x) => println!("First element: {}", x),
@@ -519,7 +519,7 @@ match arr.first() {
 
 The `Result<T, E>` type represents either success or failure:
 
-```husk
+```rust
 enum Result<T, E> {
     Ok(T),
     Err(E)
@@ -527,7 +527,7 @@ enum Result<T, E> {
 ```
 
 Used by operations that can fail:
-```husk
+```rust
 match read_file("data.txt") {
     Ok(contents) => process_data(contents),
     Err(error) => println!("Failed to read file: {}", error)
@@ -539,29 +539,29 @@ match read_file("data.txt") {
 ### Printing
 
 - **`print!(format, args...)`** - Prints formatted text without newline
-  ```husk
+  ```rust
   print!("Hello, {}!", "world");
   ```
 
 - **`println!(format, args...)`** - Prints formatted text with newline
-  ```husk
+  ```rust
   println!("The answer is {}", 42);
   ```
 
 - **`format!(format, args...) -> string`** - Returns formatted string
-  ```husk
+  ```rust
   let msg = format!("Score: {}/{}", 8, 10);
   ```
 
 ### Assertions
 
 - **`assert!(condition)`** - Panics if condition is false
-  ```husk
+  ```rust
   assert!(x > 0);
   ```
 
 - **`assert_eq!(left, right)`** - Panics if values are not equal
-  ```husk
+  ```rust
   assert_eq!(result, expected);
   ```
 
@@ -617,7 +617,7 @@ All standard library functions compile to efficient JavaScript:
 ## Examples
 
 ### Reading and Processing a File
-```husk
+```rust
 fn process_config() -> Result<(), Error> {
     let contents = read_file("config.txt")?;
     let lines = contents.lines();
@@ -636,7 +636,7 @@ fn process_config() -> Result<(), Error> {
 ```
 
 ### String Processing
-```husk
+```rust
 fn normalize_name(name: string) -> string {
     name.trim()
         .to_lowercase()
@@ -646,7 +646,7 @@ fn normalize_name(name: string) -> string {
 ```
 
 ### Array Transformation
-```husk
+```rust
 let numbers = [1, 2, 3, 4, 5];
 let result = numbers
     .map(|x| x * 2)

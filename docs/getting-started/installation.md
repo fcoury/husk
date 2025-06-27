@@ -107,7 +107,7 @@ husk 0.1.0
 
 Create a test file `hello.hk`:
 
-```husk
+```rust
 fn main() {
     println!("Hello from Husk!");
 }

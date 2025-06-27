@@ -201,7 +201,7 @@ fn visit_method_call(&mut self, object: &Expr, method: &str, args: &[Expr], _spa
 ## Minimum JavaScript Parity Methods
 
 ### String Methods (Phase 1)
-```husk
+```rust
 impl string {
     fn len() -> int;               // JS: .length (property)
     fn charAt(index: int) -> string;
@@ -219,7 +219,7 @@ impl string {
 ```
 
 ### Array Methods (Phase 1)
-```husk
+```rust
 impl<T> array<T> {
     fn len() -> int;               // JS: .length (property)
     fn push(item: T) -> void;
@@ -268,7 +268,7 @@ impl<T> array<T> {
 ## Testing Strategy
 
 ### Unit Tests
-```husk
+```rust
 // String method tests
 fn test_string_methods() {
     let s = "  hello world  ";
@@ -310,7 +310,7 @@ fn test_array_methods() {
 
 ### 1. Module-based Approach
 Instead of methods, use module functions:
-```husk
+```rust
 use std::string;
 let len = string::len(myStr);
 ```
@@ -319,7 +319,7 @@ let len = string::len(myStr);
 
 ### 2. Extension Methods
 Allow defining methods on existing types:
-```husk
+```rust
 impl string {
     fn custom_method(self) -> string {
         // ...
@@ -331,7 +331,7 @@ impl string {
 
 ### 3. Macro-based Solution
 Use macros to generate method calls:
-```husk
+```rust
 let len = len!(myStr);
 ```
 **Pros**: No parser changes

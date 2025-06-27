@@ -18,7 +18,7 @@ Learn the essential features of Husk in 15 minutes. This guide assumes you have 
 
 ### Basic Variables
 
-```husk
+```rust
 // Immutable by default
 let name = "Alice";           // string (inferred)
 let age = 30;                 // int (inferred)
@@ -38,7 +38,7 @@ score = score + 10;          // OK - mutable
 
 Husk infers types when possible:
 
-```husk
+```rust
 let numbers = [1, 2, 3, 4, 5];        // array<int>
 let doubled = numbers.map(|n| n * 2); // array<int>
 let message = format!("Count: {}", numbers.len()); // string
@@ -48,7 +48,7 @@ let message = format!("Count: {}", numbers.len()); // string
 
 ### Basic Functions
 
-```husk
+```rust
 // Simple function
 fn add(a: int, b: int) -> int {
     a + b  // implicit return
@@ -72,7 +72,7 @@ fn power(base: int, exp: int = 2) -> int {
 
 ### Higher-Order Functions
 
-```husk
+```rust
 // Functions as parameters
 fn apply_twice(f: fn(int) -> int, x: int) -> int {
     f(f(x))
@@ -93,7 +93,7 @@ let numbers = [1, 2, 3].map(add_one); // [2, 3, 4]
 
 ### If Expressions
 
-```husk
+```rust
 // If as expression
 let status = if age >= 18 { "adult" } else { "minor" };
 
@@ -109,7 +109,7 @@ if score > 100 {
 
 ### Loops
 
-```husk
+```rust
 // For loop
 for i in 0..5 {
     println!("Count: {}", i);
@@ -141,7 +141,7 @@ loop {
 
 ### Arrays
 
-```husk
+```rust
 // Array literal
 let fruits = ["apple", "banana", "cherry"];
 
@@ -158,7 +158,7 @@ let last = fruits[fruits.len() - 1]; // "cherry"
 
 ### Tuples
 
-```husk
+```rust
 // Tuple creation
 let point = (10, 20);
 let person = ("Alice", 30, true);
@@ -174,7 +174,7 @@ let y_coord = point.1;
 
 ### Custom Types (Structs)
 
-```husk
+```rust
 // Define a struct
 struct User {
     name: string,
@@ -204,7 +204,7 @@ impl User {
 
 ### Option Type
 
-```husk
+```rust
 // Option represents a value that might be absent
 fn find_user(id: int) -> Option<User> {
     if id == 1 {
@@ -230,7 +230,7 @@ if maybe_user.is_some() {
 
 ### Result Type
 
-```husk
+```rust
 // Result represents success or error
 fn divide(a: float, b: float) -> Result<float, string> {
     if b == 0.0 {
@@ -256,7 +256,7 @@ let result = divide(10.0, 2.0)
 
 ### Match Expressions
 
-```husk
+```rust
 // Basic pattern matching
 let day = "Monday";
 let day_type = match day {
@@ -288,7 +288,7 @@ match point {
 
 ### String Operations
 
-```husk
+```rust
 let text = "Hello, World!";
 
 // String methods
@@ -305,7 +305,7 @@ let message = format!("{} is {} years old", name, age);
 
 ### File I/O
 
-```husk
+```rust
 // Reading a file
 match read_file("config.txt") {
     Ok(contents) => println!("File contents: {}", contents),
@@ -322,7 +322,7 @@ match write_file("output.txt", data) {
 
 ### Console I/O
 
-```husk
+```rust
 // Output
 println!("Hello, World!");          // with newline
 print!("Enter your name: ");        // without newline
@@ -340,7 +340,7 @@ println!("Pi is approximately {:.2}", pi); // "Pi is approximately 3.14"
 
 Let's combine what we've learned into a simple todo list program:
 
-```husk
+```rust
 struct Todo {
     id: int,
     task: string,
@@ -424,7 +424,7 @@ Ready to dive deeper? Explore:
 
 ## Quick Reference Card
 
-```husk
+```rust
 // Variables
 let x = 42;              // immutable
 let mut y = 0;           // mutable

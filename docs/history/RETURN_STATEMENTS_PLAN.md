@@ -69,7 +69,7 @@ Add explicit `return` statements to Husk for early returns from functions, while
 
 ## Syntax Examples
 
-```husk
+```rust
 // Early return with value
 fn find_positive(arr: [int]) -> int {
     for item in arr {

@@ -75,7 +75,7 @@ For detailed information about any specific feature, follow the links above to t
 
 Quick examples of key language features:
 
-```husk
+```rust
 // Closures and higher-order functions
 let numbers = [1, 2, 3, 4, 5];
 let doubled = numbers.map(|x| x * 2);

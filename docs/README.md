@@ -51,7 +51,7 @@ Husk is a modern programming language that combines the safety and expressivenes
 
 ### Example Code
 
-```husk
+```rust
 // Define a function with pattern matching
 fn greet(name: string) -> string {
     match name {

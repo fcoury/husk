@@ -20,20 +20,20 @@ IO operations are fundamental for practical programming. This plan introduces a 
 
 #### `read_file(path: string) -> Result<string, Error>`
 Read entire file contents as a string.
-```husk
+```rust
 let contents = read_file("config.json")?;
 println(contents);
 ```
 
 #### `read_file_bytes(path: string) -> Result<array<u8>, Error>`
 Read file contents as raw bytes.
-```husk
+```rust
 let data = read_file_bytes("image.png")?;
 ```
 
 #### `read_lines(path: string) -> Result<array<string>, Error>`
 Read file as an array of lines.
-```husk
+```rust
 let lines = read_lines("data.txt")?;
 for line in lines {
     process_line(line);
@@ -44,19 +44,19 @@ for line in lines {
 
 #### `write_file(path: string, contents: string) -> Result<(), Error>`
 Write string contents to a file (overwrites if exists).
-```husk
+```rust
 write_file("output.txt", "Hello, World!")?;
 ```
 
 #### `write_file_bytes(path: string, data: array<u8>) -> Result<(), Error>`
 Write raw bytes to a file.
-```husk
+```rust
 write_file_bytes("data.bin", bytes)?;
 ```
 
 #### `append_file(path: string, contents: string) -> Result<(), Error>`
 Append string to an existing file.
-```husk
+```rust
 append_file("log.txt", "New log entry\n")?;
 ```
 
@@ -64,31 +64,31 @@ append_file("log.txt", "New log entry\n")?;
 
 #### `create_dir(path: string) -> Result<(), Error>`
 Create a directory (fails if exists).
-```husk
+```rust
 create_dir("output")?;
 ```
 
 #### `create_dir_all(path: string) -> Result<(), Error>`
 Create directory and all parent directories.
-```husk
+```rust
 create_dir_all("output/images/thumbnails")?;
 ```
 
 #### `remove_dir(path: string) -> Result<(), Error>`
 Remove an empty directory.
-```husk
+```rust
 remove_dir("temp")?;
 ```
 
 #### `remove_dir_all(path: string) -> Result<(), Error>`
 Remove directory and all contents recursively.
-```husk
+```rust
 remove_dir_all("old_project")?;
 ```
 
 #### `read_dir(path: string) -> Result<array<DirEntry>, Error>`
 List directory contents.
-```husk
+```rust
 let entries = read_dir(".")?;
 for entry in entries {
     println(entry.name);
@@ -99,7 +99,7 @@ for entry in entries {
 
 #### `exists(path: string) -> bool`
 Check if a path exists.
-```husk
+```rust
 if exists("config.json") {
     let config = read_file("config.json")?;
 }
@@ -113,7 +113,7 @@ Check if path is a directory.
 
 #### `join_path(parts: array<string>) -> string`
 Join path segments with proper separators.
-```husk
+```rust
 let config_path = join_path(["home", "user", ".config", "app.json"]);
 ```
 
@@ -121,7 +121,7 @@ let config_path = join_path(["home", "user", ".config", "app.json"]);
 
 #### `read_line() -> Result<string, Error>`
 Read a line from stdin.
-```husk
+```rust
 print("Enter your name: ");
 let name = read_line()?;
 println("Hello, " + name + "!");
@@ -132,7 +132,7 @@ Print without newline (already exists as println with newline).
 
 #### `eprint(message: string)` / `eprintln(message: string)`
 Print to stderr.
-```husk
+```rust
 eprintln("Error: File not found");
 ```
 
@@ -151,7 +151,7 @@ All file operations will have async variants:
 - `write_file_async(path: string, contents: string) -> Promise<Result<(), Error>>`
 - etc.
 
-```husk
+```rust
 async fn process_files() -> Result<(), Error> {
     let contents = read_file_async("input.txt").await?;
     let processed = transform(contents);
@@ -196,7 +196,7 @@ async fn process_files() -> Result<(), Error> {
 
 ## Error Types
 
-```husk
+```rust
 enum IOError {
     FileNotFound(String),
     PermissionDenied(String),
@@ -211,7 +211,7 @@ enum IOError {
 ## Example Programs
 
 ### Simple File Copy
-```husk
+```rust
 fn copy_file(source: string, dest: string) -> Result<(), Error> {
     let contents = read_file(source)?;
     write_file(dest, contents)?;
@@ -220,7 +220,7 @@ fn copy_file(source: string, dest: string) -> Result<(), Error> {
 ```
 
 ### Directory Listing
-```husk
+```rust
 fn list_files(dir: string) -> Result<(), Error> {
     let entries = read_dir(dir)?;
     for entry in entries {
@@ -235,7 +235,7 @@ fn list_files(dir: string) -> Result<(), Error> {
 ```
 
 ### Interactive Program
-```husk
+```rust
 fn main() -> Result<(), Error> {
     print("What's your name? ");
     let name = read_line()?.trim();

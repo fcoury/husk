@@ -109,7 +109,7 @@ Detailed explanation of the concept...
 
 ## Syntax
 
-```husk
+```rust
 // Syntax examples with comments
 ```
 ````
@@ -118,13 +118,13 @@ Detailed explanation of the concept...
 
 ### Basic Example
 
-```husk
+```rust
 // Simple, runnable example
 ```
 
 ### Advanced Example
 
-```husk
+```rust
 // More complex example showing advanced usage
 ```
 
