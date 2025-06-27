@@ -28,18 +28,20 @@ This document tracks the implementation progress of npm support improvements in 
 ---
 
 ### Task 1.2: Fix Import Path Generation
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: HIGH  
 **Description**: Fix incorrect import paths (e.g., "express/express" → "express")
 
 **Changes**:
-- [ ] Remove duplicate package names in import paths
-- [ ] Handle default exports correctly
-- [ ] Fix named import syntax
-- [ ] Distinguish between package imports and subpath imports
+- [x] Remove duplicate package names in import paths
+- [x] Handle default exports correctly
+- [x] Fix named import syntax
+- [x] Distinguish between package imports and subpath imports
+- [x] Remove double semicolons from import statements
 
-**Files to modify**:
-- `src/transpiler.rs` - Update visit_use() method
+**Files modified**:
+- `src/transpiler.rs` - Updated visit_use() method to properly handle import names vs subpaths
+- `src/package_resolver.rs` - Removed semicolons from generate_import_statement()
 
 ---
 
@@ -144,7 +146,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ### Phase 1 Commits
 - [x] feat: make package.json generation default behavior
-- [ ] fix: correct import path generation for npm packages
+- [x] fix: correct import path generation for npm packages
 - [ ] feat: add consistent module format support
 - [ ] fix: improve package resolution and exports handling
 
@@ -169,3 +171,11 @@ Last Updated: 2024-12-27
 - Smart detection compares existing package.json dependencies to avoid unnecessary regeneration
 - Shows helpful reminder to run `npm install` when node_modules doesn't exist
 - All integration tests updated and passing
+
+### Task 1.2 Implementation Notes
+- Fixed visit_use() in transpiler.rs to properly distinguish between import names and subpaths
+- For `use package::item;`, the second segment is the import name, not a subpath
+- For `use package::subpath::item;`, middle segments are subpath, last is import name
+- Fixed generate_import_statement() to handle default imports correctly
+- Removed semicolons from import statement generation (transpiler adds them)
+- Import paths now correctly generate as "express" instead of "express/express"

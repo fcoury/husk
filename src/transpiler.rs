@@ -1694,29 +1694,56 @@ impl AstVisitor<String> for JsTranspiler {
 
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
-                    let subpath_string = if path.segments.len() > 1 {
-                        Some(path.segments[1..].join("/"))
-                    } else {
-                        None
+                    // For single imports like `use express::express;`, we need to determine
+                    // if the second segment is an import name or a subpath
+                    let (subpath, import_names) = match (items, path.segments.len()) {
+                        (UseItems::Single, 2) => {
+                            // Single import with two segments: package::item
+                            // The second segment is the import name, not a subpath
+                            let import_name = path.segments[1].clone();
+                            (None, vec![import_name])
+                        }
+                        (UseItems::Single, len) if len > 2 => {
+                            // Single import with more than two segments: package::subpath::item
+                            // The middle segments are the subpath, the last is the import name
+                            let subpath = path.segments[1..len - 1].join("/");
+                            let import_name = path.segments[len - 1].clone();
+                            (Some(subpath), vec![import_name])
+                        }
+                        (UseItems::Single, _) => {
+                            // Single segment: just the package name
+                            (None, vec![package_name.clone()])
+                        }
+                        (UseItems::Named(imports), _) => {
+                            // Named imports: package::{a, b}
+                            let subpath = if path.segments.len() > 1 {
+                                Some(path.segments[1..].join("/"))
+                            } else {
+                                None
+                            };
+                            let names = imports
+                                .iter()
+                                .map(|(name, alias)| alias.as_ref().unwrap_or(name).clone())
+                                .collect();
+                            (subpath, names)
+                        }
+                        (UseItems::All, _) => {
+                            // Wildcard import: package::*
+                            let subpath = if path.segments.len() > 1 {
+                                Some(path.segments[1..].join("/"))
+                            } else {
+                                None
+                            };
+                            (subpath, vec!["*".to_string()])
+                        }
                     };
-                    let subpath = subpath_string.as_deref();
 
                     match resolver.resolve_package(package_name) {
                         Ok(resolved_package) => {
-                            // Extract import names
-                            let import_names = match items {
-                                UseItems::Named(imports) => imports
-                                    .iter()
-                                    .map(|(name, alias)| alias.as_ref().unwrap_or(name).clone())
-                                    .collect(),
-                                UseItems::Single => vec![package_name.clone()],
-                                UseItems::All => vec!["*".to_string()],
-                            };
-
                             let import_statement = resolver.generate_import_statement(
                                 &resolved_package,
                                 &import_names,
-                                subpath,
+                                subpath.as_deref(),
                             );
                             Ok(import_statement)
                         }

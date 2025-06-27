@@ -342,16 +342,17 @@ impl PackageResolver {
 
         match package.module_type {
             ModuleType::ESModule => {
-                if imports.len() == 1 && imports[0] == "default" {
-                    format!("import {} from \"{}\";", package.name, import_path)
+                // Check if importing the package name itself (default import)
+                if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
+                    format!("import {} from \"{}\"", imports[0], import_path)
                 } else if imports.contains(&"default".to_string()) {
                     let named_imports: Vec<_> =
                         imports.iter().filter(|&name| name != "default").collect();
                     if named_imports.is_empty() {
-                        format!("import {} from \"{}\";", package.name, import_path)
+                        format!("import {} from \"{}\"", package.name, import_path)
                     } else {
                         format!(
-                            "import {}, {{ {} }} from \"{}\";",
+                            "import {}, {{ {} }} from \"{}\"",
                             package.name,
                             named_imports
                                 .iter()
@@ -363,18 +364,18 @@ impl PackageResolver {
                     }
                 } else {
                     format!(
-                        "import {{ {} }} from \"{}\";",
+                        "import {{ {} }} from \"{}\"",
                         imports.join(", "),
                         import_path
                     )
                 }
             }
             ModuleType::CommonJS => {
-                if imports.len() == 1 && (imports[0] == "default" || imports[0] == package.name) {
-                    format!("const {} = require(\"{}\");", package.name, import_path)
+                if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
+                    format!("const {} = require(\"{}\")", imports[0], import_path)
                 } else {
                     format!(
-                        "const {{ {} }} = require(\"{}\");",
+                        "const {{ {} }} = require(\"{}\")",
                         imports.join(", "),
                         import_path
                     )
@@ -382,7 +383,15 @@ impl PackageResolver {
             }
             _ => {
                 // Fallback to CommonJS
-                format!("const {} = require(\"{}\");", package.name, import_path)
+                if imports.len() == 1 && imports[0] == package.name {
+                    format!("const {} = require(\"{}\")", package.name, import_path)
+                } else {
+                    format!(
+                        "const {{ {} }} = require(\"{}\")",
+                        imports.join(", "),
+                        import_path
+                    )
+                }
             }
         }
     }
