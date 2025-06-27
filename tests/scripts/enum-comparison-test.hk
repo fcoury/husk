@@ -1,0 +1,28 @@
+enum Greet {
+    Hi(string),
+    Bye,
+}
+
+let hi1 = Greet::Hi("Alice");
+let hi2 = Greet::Hi("Alice");
+let hi3 = Greet::Hi("Bob");
+
+let bye = Greet::Bye;
+
+if hi1 == hi2 {
+    println!("hi1 and hi2 are equal");
+} else {
+    println!("hi1 and hi2 are not equal");
+}
+
+if hi1 == hi3 {
+    println!("hi1 and hi3 are equal");
+} else {
+    println!("hi1 and hi3 are not equal");
+}
+
+if hi1 == bye {
+    println!("hi1 and bye are equal");
+} else {
+    println!("hi1 and bye are not equal");
+}

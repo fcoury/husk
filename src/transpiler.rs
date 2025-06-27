@@ -125,6 +125,33 @@ impl JsTranspiler {
         output.push_str("  return result;\n");
         output.push_str("}\n");
 
+        // Add enum equality helper function
+        output.push_str("function __husk_enum_equals(a, b) {\n");
+        output.push_str("  // Handle null/undefined\n");
+        output.push_str("  if (a === b) return true;\n");
+        output.push_str("  if (a == null || b == null) return false;\n");
+        output.push_str("  \n");
+        output.push_str("  // Handle Option/Result object literals\n");
+        output.push_str("  if (typeof a === 'object' && typeof b === 'object' && \n");
+        output.push_str("      'type' in a && 'type' in b) {\n");
+        output.push_str("    if (a.type !== b.type) return false;\n");
+        output.push_str("    // Deep equality for values\n");
+        output.push_str("    if (a.value === b.value) return true;\n");
+        output.push_str("    if (typeof a.value === 'object' && typeof b.value === 'object') {\n");
+        output.push_str("      return JSON.stringify(a.value) === JSON.stringify(b.value);\n");
+        output.push_str("    }\n");
+        output.push_str("    return false;\n");
+        output.push_str("  }\n");
+        output.push_str("  \n");
+        output.push_str("  // Handle class-based enums\n");
+        output.push_str("  if (typeof a.equals === 'function') {\n");
+        output.push_str("    return a.equals(b);\n");
+        output.push_str("  }\n");
+        output.push_str("  \n");
+        output.push_str("  // Fallback to regular equality\n");
+        output.push_str("  return a === b;\n");
+        output.push_str("}\n");
+
         // Add IO functions
         output.push_str("\n// File I/O functions\n");
         output.push_str("const fs = require('fs');\n");
@@ -431,9 +458,14 @@ impl JsTranspiler {
                     || matches!(stmt, Stmt::Match(_, _, _)));
 
             if should_return {
-                result.push_str(&format!("return {};", stmt_str));
+                result.push_str(&format!("{}return {};", self.indent(), stmt_str));
             } else {
-                result.push_str(&format!("{};", stmt_str));
+                result.push_str(&format!("{}{};", self.indent(), stmt_str));
+            }
+
+            // Add newline if not the last statement
+            if !is_last {
+                result.push('\n');
             }
         }
         Ok(result)
@@ -606,6 +638,33 @@ impl JsTranspiler {
         output.push_str("    this.variant = variant;\n");
         output.push_str("    this.value = value;\n");
         output.push_str("  }\n");
+        output.push_str("  \n");
+        output.push_str("  equals(other) {\n");
+        output.push_str(
+            "    if (!other || !(other instanceof this.constructor.prototype.constructor)) {\n",
+        );
+        output.push_str("      return false;\n");
+        output.push_str("    }\n");
+        output.push_str("    if (this.variant !== other.variant) {\n");
+        output.push_str("      return false;\n");
+        output.push_str("    }\n");
+        output.push_str("    // Deep equality for value\n");
+        output.push_str("    if (this.value === other.value) {\n");
+        output.push_str("      return true;\n");
+        output.push_str("    }\n");
+        output.push_str("    if (this.value === null || this.value === undefined || \n");
+        output.push_str("        other.value === null || other.value === undefined) {\n");
+        output.push_str("      return false;\n");
+        output.push_str("    }\n");
+        output.push_str(
+            "    // For arrays and objects, use JSON comparison as a simple deep equals\n",
+        );
+        output.push_str("    if (typeof this.value === 'object') {\n");
+        output
+            .push_str("      return JSON.stringify(this.value) === JSON.stringify(other.value);\n");
+        output.push_str("    }\n");
+        output.push_str("    return false;\n");
+        output.push_str("  }\n");
         output.push_str("}\n");
 
         // Generate variant constructors
@@ -755,22 +814,57 @@ impl AstVisitor<String> for JsTranspiler {
     ) -> Result<String> {
         let left_str = self.visit_expr(left)?;
         let right_str = self.visit_expr(right)?;
-        let op_str = match op {
-            Operator::Plus => "+",
-            Operator::Minus => "-",
-            Operator::Multiply => "*",
-            Operator::Divide => "/",
-            Operator::Equals => "===",
-            Operator::NotEquals => "!==",
-            Operator::Modulo => "%",
-            Operator::LessThan => "<",
-            Operator::LessThanEquals => "<=",
-            Operator::GreaterThan => ">",
-            Operator::GreaterThanEquals => ">=",
-            Operator::And => "&&",
-            Operator::Or => "||",
-        };
-        Ok(format!("({} {} {})", left_str, op_str, right_str))
+
+        // Special handling for equality operators
+        match op {
+            Operator::Equals | Operator::NotEquals => {
+                // Check if this might be an enum comparison
+                // We can't easily determine at transpile time, so we'll use a runtime check
+                // for all non-trivial comparisons
+                let is_trivial = matches!(
+                    (left, right),
+                    (Expr::String(_, _), Expr::String(_, _))
+                        | (Expr::Int(_, _), Expr::Int(_, _))
+                        | (Expr::Float(_, _), Expr::Float(_, _))
+                        | (Expr::Bool(_, _), Expr::Bool(_, _))
+                );
+
+                if !is_trivial {
+                    // Use custom equality that handles enums
+                    let equals_expr = format!("__husk_enum_equals({}, {})", left_str, right_str);
+                    if matches!(op, Operator::NotEquals) {
+                        return Ok(format!("(!{})", equals_expr));
+                    } else {
+                        return Ok(equals_expr);
+                    }
+                }
+
+                // Regular comparison for primitives
+                let op_str = match op {
+                    Operator::Equals => "===",
+                    Operator::NotEquals => "!==",
+                    _ => unreachable!(),
+                };
+                Ok(format!("({} {} {})", left_str, op_str, right_str))
+            }
+            _ => {
+                let op_str = match op {
+                    Operator::Plus => "+",
+                    Operator::Minus => "-",
+                    Operator::Multiply => "*",
+                    Operator::Divide => "/",
+                    Operator::Modulo => "%",
+                    Operator::LessThan => "<",
+                    Operator::LessThanEquals => "<=",
+                    Operator::GreaterThan => ">",
+                    Operator::GreaterThanEquals => ">=",
+                    Operator::And => "&&",
+                    Operator::Or => "||",
+                    _ => unreachable!(),
+                };
+                Ok(format!("({} {} {})", left_str, op_str, right_str))
+            }
+        }
     }
 
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<String> {
@@ -1400,7 +1494,7 @@ impl AstVisitor<String> for JsTranspiler {
         self.indent_level -= 1;
         result.push_str(&format!("{}}}\n", self.indent()));
         self.indent_level -= 1;
-        result.push_str(&format!("{}}})({})", self.indent(), expr_str));
+        result.push_str(&format!("{}}}))({})", self.indent(), expr_str));
 
         Ok(result)
     }
@@ -2322,11 +2416,21 @@ mod tests {
 
     #[test]
     fn test_transpile_comparison_operations() {
-        assert_eq!(transpile_expr("a == b").unwrap(), "(a === b)");
+        // Variable comparisons now use __husk_enum_equals for safety
+        assert_eq!(
+            transpile_expr("a == b").unwrap(),
+            "__husk_enum_equals(a, b)"
+        );
         assert_eq!(transpile_expr("x < y").unwrap(), "(x < y)");
         assert_eq!(transpile_expr("x <= y").unwrap(), "(x <= y)");
         assert_eq!(transpile_expr("x > y").unwrap(), "(x > y)");
         assert_eq!(transpile_expr("x >= y").unwrap(), "(x >= y)");
+        // Literal comparisons still use ===
+        assert_eq!(transpile_expr("1 == 2").unwrap(), "(1 === 2)");
+        assert_eq!(
+            transpile_expr("\"a\" == \"b\"").unwrap(),
+            "(\"a\" === \"b\")"
+        );
     }
 
     #[test]
@@ -2619,7 +2723,7 @@ mod tests {
         let result = transpile_program(input).unwrap();
         assert!(result.contains("const _matched = x;"));
         // The wildcard pattern should generate a simple "if (true)" condition without binding
-        assert!(result.contains("} else if (true) {\nreturn \"other\";"));
+        assert!(result.contains("} else if (true) {\n    return \"other\";"));
     }
 
     #[test]
@@ -2690,9 +2794,10 @@ mod tests {
     fn test_transpile_unary_in_expressions() {
         assert_eq!(transpile_expr("5 + -3").unwrap(), "(5 + (-3))");
         assert_eq!(transpile_expr("-5 * 2").unwrap(), "((-5) * 2)");
+        // Boolean literals are still compared with ===
         assert_eq!(
             transpile_expr("!true == false").unwrap(),
-            "((!true) === false)"
+            "__husk_enum_equals((!true), false)"
         );
     }
 

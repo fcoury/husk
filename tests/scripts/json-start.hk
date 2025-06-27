@@ -1,0 +1,82 @@
+enum TokenType {
+  ObjectStart,
+  ObjectEnd,
+  ArrayStart,
+  ArrayEnd,
+  Quote,
+}
+
+struct Token {
+  token_type: TokenType,
+  start: int,
+  end: int,
+}
+
+struct JsonLexer {
+  idx: int,
+  content: string,
+}
+
+impl JsonLexer {
+  fn consume_whitespace(self) {
+      // TODO: Implement a more robust whitespace handling according to JSON
+      // spec https://www.json.org/json-en.html
+      while self.idx < self.content.len() && self.content.char_at(self.idx) == Some(" ") {
+          self.idx += 1;
+      }
+  }
+
+  fn scan_value(self) -> Option<Token> {
+      if self.idx >= self.content.len() {
+          return None;
+      }
+      println!(format!("Scanning value at index: {}", self.idx));
+      let r = self.content.char_at(self.idx);
+      println!(format!("Scanning character: [{}]", r));
+      let token_type = match r {
+          Some(c) => if c == "{" {
+              Some(TokenType::ObjectStart)
+          } else if c == "}" {
+              Some(TokenType::ObjectEnd)
+          } else if c == "[" {
+              Some(TokenType::ArrayStart)
+          } else if c == "]" {
+              Some(TokenType::ArrayStart)
+          } else if c == "\"" {
+              Some(TokenType::Quote)
+          } else {
+              None
+          },
+          None => {
+              println!("No character found at index: {}", self.idx);
+              None
+          }
+      };
+      
+      // Return the token if found
+      match token_type {
+          Some(tt) => Some(Token { token_type: tt, start: self.idx, end: self.idx + 1 }),
+          None => None
+      }
+  }
+
+  fn next(self) -> Option<Token> {
+      println!("Current index: ", self.idx);
+      self.consume_whitespace();
+      println!("After consuming whitespace, index: ", self.idx);
+      self.scan_value()
+  }
+}
+
+fn main() {
+  let json = "    { \"name\": \"Husk\", \"version\": \"1.0.0\", \"description\": \"A simple Rust application\", \"authors\": [\"Your Name <your-email@example.com>\"], \"license\": \"MIT\", \"dependencies\": { \"serde\": \"1.0\", \"serde_json\": \"1.0\" }, \"features\": { \"default\": [\"serde\", \"serde_json\"] } }";
+  let lexer = JsonLexer {
+      idx: 0,
+      content: json,
+  };
+
+  let token = lexer.next();
+  println!("Token: {}", token);
+}
+
+main();
