@@ -1,0 +1,32 @@
+// Test file to verify attribute parsing
+
+#[test]
+fn test_addition() {
+    let result = 2 + 2;
+    println(format!("2 + 2 = {}", result));
+}
+
+#[test]
+#[ignore]
+fn test_expensive_operation() {
+    println("This test is ignored");
+}
+
+#[test]
+#[should_panic]
+fn test_panic() {
+    println("This test should panic");
+    // panic!("Expected panic");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_in_module() {
+        println("Test inside a test module");
+    }
+}
+
+fn main() {
+    println("Main function - not a test");
+}

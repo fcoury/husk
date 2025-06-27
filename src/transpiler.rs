@@ -705,7 +705,16 @@ impl AstVisitor<String> for JsTranspiler {
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<String> {
         match stmt {
             // Handle function statements with visibility
-            Stmt::Function(is_pub, name, generic_params, params, return_type, body, span) => {
+            Stmt::Function(
+                _attrs,
+                is_pub,
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+                span,
+            ) => {
                 let function_code =
                     self.visit_function(name, generic_params, params, return_type, body, span)?;
                 if *is_pub {
@@ -715,7 +724,16 @@ impl AstVisitor<String> for JsTranspiler {
                 }
             }
             // Handle async function statements with visibility
-            Stmt::AsyncFunction(is_pub, name, generic_params, params, return_type, body, span) => {
+            Stmt::AsyncFunction(
+                _attrs,
+                is_pub,
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+                span,
+            ) => {
                 let function_code = self.visit_async_function(
                     name,
                     generic_params,
@@ -764,6 +782,7 @@ impl AstVisitor<String> for JsTranspiler {
                     Stmt::ExternType(name, generic_params, span) => {
                         self.visit_extern_type(name, generic_params, span)
                     }
+                    Stmt::Module(_attrs, name, body, span) => self.visit_module(name, body, span),
                     _ => unreachable!("All statement types should be handled above"),
                 }
             }
@@ -1455,6 +1474,21 @@ impl AstVisitor<String> for JsTranspiler {
         ))
     }
 
+    fn visit_module(&mut self, name: &str, body: &[Stmt], _span: &Span) -> Result<String> {
+        // For now, modules are transpiled as comments
+        // In the future, this could generate module patterns or namespaces
+        let mut result = format!("{}// Module: {}\n", self.indent(), name);
+
+        // Process module body
+        for stmt in body {
+            result.push_str(&self.visit_stmt(stmt)?);
+            result.push('\n');
+        }
+
+        result.push_str(&format!("{}// End module: {}", self.indent(), name));
+        Ok(result)
+    }
+
     fn visit_match_expr(
         &mut self,
         expr: &Expr,
@@ -1636,7 +1670,7 @@ impl AstVisitor<String> for JsTranspiler {
         let mut output = String::new();
 
         for method in methods {
-            let Stmt::Function(_, name, _, params, _return_type, body, _) = method else {
+            let Stmt::Function(_, _, name, _, params, _return_type, body, _) = method else {
                 return Err(Error::new_transpile(
                     "Impl methods must be function definitions",
                     *span,

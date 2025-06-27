@@ -161,9 +161,16 @@ pub trait AstVisitor<T> {
     fn visit_stmt(&mut self, stmt: &Stmt) -> std::result::Result<T, Self::Error> {
         match stmt {
             Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
-            Stmt::Function(_is_pub, name, generic_params, params, return_type, body, span) => {
-                self.visit_function(name, generic_params, params, return_type, body, span)
-            }
+            Stmt::Function(
+                _attrs,
+                _is_pub,
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+                span,
+            ) => self.visit_function(name, generic_params, params, return_type, body, span),
             Stmt::Struct(name, generic_params, fields, span) => {
                 self.visit_struct(name, generic_params, fields, span)
             }
@@ -191,9 +198,17 @@ pub trait AstVisitor<T> {
             Stmt::ExternType(name, generic_params, span) => {
                 self.visit_extern_type(name, generic_params, span)
             }
-            Stmt::AsyncFunction(_is_pub, name, generic_params, params, return_type, body, span) => {
-                self.visit_async_function(name, generic_params, params, return_type, body, span)
-            }
+            Stmt::AsyncFunction(
+                _attrs,
+                _is_pub,
+                name,
+                generic_params,
+                params,
+                return_type,
+                body,
+                span,
+            ) => self.visit_async_function(name, generic_params, params, return_type, body, span),
+            Stmt::Module(_attrs, name, body, span) => self.visit_module(name, body, span),
         }
     }
 
@@ -297,6 +312,12 @@ pub trait AstVisitor<T> {
         generic_params: &[String],
         params: &[(String, String)],
         return_type: &str,
+        body: &[Stmt],
+        span: &Span,
+    ) -> std::result::Result<T, Self::Error>;
+    fn visit_module(
+        &mut self,
+        name: &str,
         body: &[Stmt],
         span: &Span,
     ) -> std::result::Result<T, Self::Error>;
