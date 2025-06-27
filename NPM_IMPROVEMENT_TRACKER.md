@@ -139,16 +139,61 @@ This document tracks the implementation progress of npm support improvements in 
 ## Phase 3: Build Target Integration (Week 3)
 
 ### Task 3.1: Wire Up Target Configuration
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: MEDIUM  
+**Description**: Connect build targets to module resolution and transpilation
+
+**Changes**:
+- [x] Added TargetPlatform enum (NodeJs, Browser, Deno, Bun)
+- [x] Added TargetInfo struct to hold platform, module format, and external deps
+- [x] Created JsTranspiler::with_target() method for target-specific transpilation
+- [x] Added transpile_to_js_with_target() function in lib.rs
+- [x] Updated build command to use target-aware transpilation
+- [x] Added parse_target() to parse target strings (node-esm, node-cjs, browser, etc.)
+- [x] Platform-specific handling of Node.js built-ins (skip for browser)
+- [x] Support for external dependencies configuration
+- [x] Module format selection based on target (ESM vs CommonJS)
+
+**Files modified**:
+- `src/transpiler.rs` - Added target support and platform-specific logic
+- `src/lib.rs` - Added transpile_to_js_with_target function
+- `src/main.rs` - Updated build command to use target
+- `src/package_resolver.rs` - Use select_entry_point method consistently
 
 ### Task 3.2: Platform-Specific Imports
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: MEDIUM  
+**Description**: Implement platform-specific module resolution and imports
+
+**Changes**:
+- [x] Added browser field to PackageJson struct
+- [x] Added target_platform field to PackageResolver
+- [x] Implemented PackageResolver::with_target() constructor
+- [x] Added browser field resolution in select_entry_point()
+- [x] Created resolve_browser_mapping() for subpath browser field mappings
+- [x] Implemented generate_browser_polyfill_import() for browser polyfills
+- [x] Implemented generate_deno_builtin_import() for Deno node: prefix
+- [x] Updated transpiler to use platform-specific import generation
+
+**Files modified**:
+- `src/package_resolver.rs` - Added browser field support and platform-aware resolution
+- `src/transpiler.rs` - Added platform-specific import generation methods  
 
 ### Task 3.3: External Dependencies
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: LOW  
+**Description**: Ensure external dependencies are not resolved through node_modules
+
+**Changes**:
+- [x] External dependency check already implemented in visit_use method
+- [x] Packages listed in targets.{target}.external bypass package resolution
+- [x] External packages use basic import generation
+- [x] Comprehensive unit tests for external dependencies
+- [x] Tested with different targets and configurations
+
+**Files modified**:
+- `src/transpiler.rs` - External dependency check at lines 1845-1851
+- `src/transpiler_external_deps_test.rs` - New comprehensive test suite  
 
 ---
 
@@ -203,7 +248,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 2.3 completed)
+Last Updated: 2024-12-27 (Task 3.3 completed)
 
 ## Implementation Details
 
@@ -279,3 +324,50 @@ Last Updated: 2024-12-27 (Task 2.3 completed)
 - Fixed bug in generate_import_statement where single named imports from CommonJS modules weren't handled correctly
 - Removed the imports.len() > 1 condition to ensure all named imports get the CommonJS workaround
 - All package resolver tests updated and passing
+
+### Task 3.1 Implementation Notes
+- Created TargetPlatform enum with NodeJs, Browser, Deno, and Bun variants
+- Added TargetInfo struct containing platform, module_format, and external_deps
+- Implemented JsTranspiler::with_target() that parses target strings like "node-esm", "browser"
+- Added transpile_to_js_with_target() public function for target-aware transpilation
+- Platform-specific features:
+  - Browser target skips Node.js built-in modules (fs, path, readline)
+  - Node.js built-in imports return comment "// Skipped Node.js built-in: {module}"
+  - Module format automatically set based on target (CommonJS for node-cjs, ESM for others)
+- External dependencies support:
+  - Packages listed in targets.{target}.external are not resolved through node_modules
+  - External packages use basic import generation without package resolution
+- Updated build command to pass target through to transpiler
+- select_entry_point method now used consistently in package resolver
+
+### Task 3.2 Implementation Notes
+- Browser field support added to PackageJson and used in module resolution
+- Platform-specific import generation for Node.js built-ins:
+  - Browser: Maps to polyfill packages (e.g., buffer → buffer, crypto → crypto-browserify)
+  - Deno: Uses node: prefix (e.g., fs → node:fs)
+  - Node.js/Bun: Standard imports
+- Browser field resolution supports:
+  - String value: Direct browser entry point
+  - Object value: Path mappings and exclusions (false = exclude module)
+- resolve_browser_mapping() handles subpath mappings for browser builds
+- PackageResolver now takes optional target_platform for platform-aware resolution
+- Successfully tested with different targets:
+  - Browser: Uses polyfills for available modules, skips unsupported ones
+  - Deno: Uses node: prefix for all Node.js built-ins
+  - Node.js: Standard module imports
+
+### Task 3.3 Implementation Notes
+- External dependencies feature was already partially implemented in Task 3.1
+- The check happens in visit_use() at the package resolution stage
+- If a package name is in target_info.external_deps list, it bypasses package resolution
+- External packages use generate_basic_import() which creates simple imports without node_modules resolution
+- Added comprehensive test suite covering:
+  - External packages with different targets
+  - Named imports from external packages
+  - Non-external packages (for comparison)
+  - Empty external dependencies list
+  - Different platforms (Browser, Node.js)
+- External dependencies are useful for:
+  - CDN-loaded libraries in browser builds
+  - Peer dependencies that shouldn't be bundled
+  - Platform-specific modules that are provided by the runtime

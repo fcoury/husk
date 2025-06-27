@@ -1,0 +1,18 @@
+// Test platform-specific imports
+use fs;
+use path;
+use process;
+use crypto;
+use url;
+use os;
+use child_process;
+use axios::axios;
+
+fn test_platform_imports() {
+    println!("Testing platform-specific imports");
+    
+    // These should work in Node.js but be handled differently in browser
+    println!("Platform imports test completed");
+}
+
+test_platform_imports();

@@ -264,7 +264,7 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
         let code = fs::read_to_string(&husk_file)?;
 
-        match husk::transpile_to_js_with_packages(&code) {
+        match husk::transpile_to_js_with_target(&code, target) {
             Ok(js) => {
                 fs::write(&js_file, js)?;
                 println!(

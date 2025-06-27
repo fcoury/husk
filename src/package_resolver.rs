@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{DependencySpec, HuskConfig};
 use crate::error::{Error, Result};
+use crate::transpiler::TargetPlatform;
 
 /// Handles npm package resolution and dependency management
 pub struct PackageResolver {
@@ -15,6 +16,8 @@ pub struct PackageResolver {
     package_cache: HashMap<String, ResolvedPackage>,
     /// Cache of package.json contents
     package_json_cache: HashMap<PathBuf, PackageJson>,
+    /// Target platform for module resolution
+    target_platform: Option<TargetPlatform>,
 }
 
 /// Information about a resolved npm package
@@ -55,6 +58,7 @@ pub struct PackageJson {
     pub version: Option<String>,
     pub main: Option<String>,
     pub module: Option<String>,
+    pub browser: Option<serde_json::Value>,
     #[serde(rename = "type")]
     pub module_type: Option<String>,
     pub types: Option<String>,
@@ -78,6 +82,22 @@ impl PackageResolver {
             config,
             package_cache: HashMap::new(),
             package_json_cache: HashMap::new(),
+            target_platform: None,
+        }
+    }
+
+    /// Create a new package resolver with target platform
+    pub fn with_target(
+        project_root: PathBuf,
+        config: HuskConfig,
+        target_platform: TargetPlatform,
+    ) -> Self {
+        Self {
+            project_root,
+            config,
+            package_cache: HashMap::new(),
+            package_json_cache: HashMap::new(),
+            target_platform: Some(target_platform),
         }
     }
 
@@ -169,26 +189,8 @@ impl PackageResolver {
         let package_json_path = package_path.join("package.json");
         let package_json = self.load_package_json(&package_json_path)?;
 
-        // Resolve the main entry point based on exports field if present
-        let main_file = if let Some(exports) = &package_json.exports {
-            self.resolve_exports_entry(exports, ".", &package_json)?
-        } else {
-            // For dual packages, choose based on our build target
-            match self.config.build.module.as_str() {
-                "esm" if package_json.module.is_some() => {
-                    // Prefer module field for ESM builds
-                    package_json.module.clone().unwrap()
-                }
-                _ => {
-                    // Fallback to traditional main field
-                    package_json
-                        .main
-                        .clone()
-                        .or_else(|| package_json.module.clone())
-                        .unwrap_or_else(|| "index.js".to_string())
-                }
-            }
-        };
+        // Use the select_entry_point method for consistency
+        let main_file = self.select_entry_point(&package_json);
 
         let module_type = self.detect_module_type(&package_json, &main_file, &package_path)?;
 
@@ -674,6 +676,23 @@ impl PackageResolver {
 
         let package_json = self.load_package_json(&package_json_path)?;
 
+        // Check for browser field mapping first
+        if let Some(browser_mapped) = self.resolve_browser_mapping(&package_json, subpath) {
+            if browser_mapped.is_empty() {
+                // Empty string means this module should be excluded for browser
+                return Err(Error::new_config(format!(
+                    "Module '{}/{}' is excluded for browser target",
+                    package_name, subpath
+                )));
+            }
+            // Return the browser-mapped path
+            return Ok(format!(
+                "{}/{}",
+                package_name,
+                browser_mapped.trim_start_matches("./")
+            ));
+        }
+
         // If the package has exports field, use it to resolve subpath
         if let Some(exports) = &package_json.exports {
             let entry_path = if subpath.starts_with("./") {
@@ -684,6 +703,23 @@ impl PackageResolver {
 
             match self.resolve_exports_entry(exports, &entry_path, &package_json) {
                 Ok(resolved) => {
+                    // Check for browser mapping of the resolved path
+                    if let Some(browser_mapped) =
+                        self.resolve_browser_mapping(&package_json, &resolved)
+                    {
+                        if browser_mapped.is_empty() {
+                            return Err(Error::new_config(format!(
+                                "Module '{}/{}' is excluded for browser target",
+                                package_name, resolved
+                            )));
+                        }
+                        return Ok(format!(
+                            "{}/{}",
+                            package_name,
+                            browser_mapped.trim_start_matches("./")
+                        ));
+                    }
+
                     // Return the resolved path relative to the package
                     Ok(format!(
                         "{}/{}",
@@ -704,6 +740,36 @@ impl PackageResolver {
 
     /// Select the best entry point for a package based on module type and available fields
     fn select_entry_point(&self, package_json: &PackageJson) -> String {
+        // Check if we're targeting browser and have a browser field
+        if let Some(TargetPlatform::Browser) = self.target_platform {
+            if let Some(browser_field) = &package_json.browser {
+                match browser_field {
+                    // If browser field is a string, it's the browser entry point
+                    serde_json::Value::String(browser_entry) => {
+                        return browser_entry.clone();
+                    }
+                    // If browser field is an object, it's a mapping of replacements
+                    serde_json::Value::Object(browser_map) => {
+                        // Check if there's a mapping for the main entry
+                        if let Some(main) = &package_json.main {
+                            if let Some(browser_main) = browser_map.get(main) {
+                                if let serde_json::Value::String(path) = browser_main {
+                                    return path.clone();
+                                }
+                            }
+                        }
+                        // Check for "." entry in browser field
+                        if let Some(browser_main) = browser_map.get(".") {
+                            if let serde_json::Value::String(path) = browser_main {
+                                return path.clone();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Priority order based on our build target
         match self.config.build.module.as_str() {
             "esm" => {
@@ -737,6 +803,38 @@ impl PackageResolver {
                     .unwrap_or_else(|| "index.js".to_string())
             }
         }
+    }
+
+    /// Resolve browser field mapping for a given path
+    fn resolve_browser_mapping(&self, package_json: &PackageJson, path: &str) -> Option<String> {
+        if let Some(TargetPlatform::Browser) = self.target_platform {
+            if let Some(serde_json::Value::Object(browser_map)) = &package_json.browser {
+                // Check for direct mapping
+                if let Some(mapped) = browser_map.get(path) {
+                    match mapped {
+                        serde_json::Value::String(new_path) => return Some(new_path.clone()),
+                        serde_json::Value::Bool(false) => return Some(String::new()), // False means exclude this module
+                        _ => {}
+                    }
+                }
+
+                // Check for relative path mapping (e.g., "./lib/node.js" -> "./lib/browser.js")
+                let relative_path = if path.starts_with("./") {
+                    path.to_string()
+                } else {
+                    format!("./{}", path)
+                };
+
+                if let Some(mapped) = browser_map.get(&relative_path) {
+                    match mapped {
+                        serde_json::Value::String(new_path) => return Some(new_path.clone()),
+                        serde_json::Value::Bool(false) => return Some(String::new()),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Get the JavaScript import path for a resolved package
@@ -986,6 +1084,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
             types: None,
             typings: None,
         };
@@ -1037,6 +1136,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
         };
         let module_type = resolver
             .detect_module_type(&package_json, "index.js", Path::new("/tmp/test"))
@@ -1054,6 +1154,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
             types: None,
             typings: None,
         };
@@ -1073,6 +1174,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
             types: None,
             typings: None,
         };
@@ -1098,6 +1200,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
             types: None,
             typings: None,
         };
@@ -1118,6 +1221,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
             types: None,
             typings: None,
         };
@@ -1149,6 +1253,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
         };
 
         let types_path = resolver.resolve_types_path(&package_json, temp_dir.path());
@@ -1167,6 +1272,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
         };
 
         let types_path = resolver.resolve_types_path(&package_json_typings, temp_dir.path());
@@ -1185,6 +1291,7 @@ mod tests {
             dependencies: None,
             peer_dependencies: None,
             dev_dependencies: None,
+            browser: None,
         };
 
         // Create index.d.ts file

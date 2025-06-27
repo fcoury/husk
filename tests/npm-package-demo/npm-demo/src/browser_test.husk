@@ -1,0 +1,13 @@
+use axios;
+
+// This file tests browser-specific builds
+// Should not include fs, path, readline imports
+
+fn test_browser_build() {
+    println!("Testing browser build");
+    
+    // axios should still be available
+    println!("Browser build completed");
+}
+
+test_browser_build();

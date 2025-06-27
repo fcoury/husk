@@ -1,0 +1,13 @@
+// Test browser field package resolution
+use buffer;
+use stream;
+use util;
+
+fn test_browser_packages() {
+    println!("Testing browser field package resolution");
+    
+    // These packages often have browser field mappings
+    println!("Browser package test completed");
+}
+
+test_browser_packages();

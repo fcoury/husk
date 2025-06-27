@@ -19,6 +19,11 @@ out = "dist"
 target = ""
 module = "esm"
 
+[targets.browser]
+platform = "browser"
+format = "esm"
+external = ["axios"]
+
 [[files]]
 path = "src/main.husk"
 output = "dist/main.js"
@@ -26,3 +31,15 @@ output = "dist/main.js"
 [[files]]
 path = "src/typescript_test.husk"
 output = "dist/typescript_test.js"
+
+[[files]]
+path = "src/browser_test.husk"
+output = "dist/browser_test.js"
+
+[[files]]
+path = "src/platform_test.husk"
+output = "dist/platform_test.js"
+
+[[files]]
+path = "src/external_test.husk"
+output = "dist/external_test.js"

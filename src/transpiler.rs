@@ -1,6 +1,7 @@
 use crate::{
     ast::visitor::AstVisitor,
     builtin_methods::TranspilerMethodRegistry,
+    config::HuskConfig,
     error::{Error, Result},
     package_resolver::PackageResolver,
     parser::{Expr, ExternItem, Operator, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
@@ -13,11 +14,27 @@ pub enum ModuleFormat {
     ESModule,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetPlatform {
+    NodeJs,
+    Browser,
+    Deno,
+    Bun,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInfo {
+    pub platform: TargetPlatform,
+    pub module_format: ModuleFormat,
+    pub external_deps: Vec<String>,
+}
+
 pub struct JsTranspiler {
     indent_level: usize,
     package_resolver: Option<PackageResolver>,
     method_registry: TranspilerMethodRegistry,
     module_format: ModuleFormat,
+    target_info: Option<TargetInfo>,
 }
 
 impl JsTranspiler {
@@ -27,6 +44,7 @@ impl JsTranspiler {
             package_resolver: None,
             method_registry: TranspilerMethodRegistry::new(),
             module_format: ModuleFormat::ESModule, // Default to ESM
+            target_info: None,
         }
     }
 
@@ -41,6 +59,50 @@ impl JsTranspiler {
             package_resolver: Some(resolver),
             method_registry: TranspilerMethodRegistry::new(),
             module_format,
+            target_info: None,
+        })
+    }
+
+    /// Create a new transpiler with target configuration
+    pub fn with_target(target: &str) -> Result<Self> {
+        let (config, project_root) = HuskConfig::find_and_load()?;
+        let target_info = Self::parse_target_with_config(target, &config)?;
+        let module_format = target_info.module_format;
+
+        // Create package resolver with target platform
+        let resolver = PackageResolver::with_target(project_root, config, target_info.platform);
+
+        Ok(Self {
+            indent_level: 0,
+            package_resolver: Some(resolver),
+            method_registry: TranspilerMethodRegistry::new(),
+            module_format,
+            target_info: Some(target_info),
+        })
+    }
+
+    /// Parse target string into TargetInfo
+    fn parse_target_with_config(target: &str, config: &HuskConfig) -> Result<TargetInfo> {
+        let (platform, module_format) = match target {
+            "node-esm" => (TargetPlatform::NodeJs, ModuleFormat::ESModule),
+            "node-cjs" => (TargetPlatform::NodeJs, ModuleFormat::CommonJS),
+            "browser" => (TargetPlatform::Browser, ModuleFormat::ESModule),
+            "deno" => (TargetPlatform::Deno, ModuleFormat::ESModule),
+            "bun" => (TargetPlatform::Bun, ModuleFormat::ESModule),
+            _ => return Err(Error::new_config(format!("Unknown target: {}", target))),
+        };
+
+        // Get external dependencies from config
+        let external_deps = if let Some(target_config) = config.targets.get(target) {
+            target_config.external.clone()
+        } else {
+            Vec::new()
+        };
+
+        Ok(TargetInfo {
+            platform,
+            module_format,
+            external_deps,
         })
     }
 
@@ -178,292 +240,320 @@ impl JsTranspiler {
         output.push_str("  return a === b;\n");
         output.push_str("}\n");
 
-        // Add IO functions
-        output.push_str("\n// File I/O functions\n");
-        if self.module_format == ModuleFormat::ESModule {
-            output.push_str("import fs from 'fs';\n");
-            output.push_str("import path from 'path';\n\n");
-        } else {
-            output.push_str("const fs = require('fs');\n");
-            output.push_str("const path = require('path');\n\n");
+        // Add IO functions (skip for browser target)
+        let skip_node_builtins = self
+            .target_info
+            .as_ref()
+            .map(|t| t.platform == TargetPlatform::Browser)
+            .unwrap_or(false);
+
+        if !skip_node_builtins {
+            output.push_str("\n// File I/O functions\n");
+            if self.module_format == ModuleFormat::ESModule {
+                output.push_str("import fs from 'fs';\n");
+                output.push_str("import path from 'path';\n\n");
+            } else {
+                output.push_str("const fs = require('fs');\n");
+                output.push_str("const path = require('path');\n\n");
+            }
         }
 
-        // read_file
-        output.push_str("function read_file(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    return { type: 'Ok', value: fs.readFileSync(filePath, 'utf8') };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+        if !skip_node_builtins {
+            // read_file
+            output.push_str("function read_file(filePath) {\n");
+            output.push_str("  try {\n");
+            output
+                .push_str("    return { type: 'Ok', value: fs.readFileSync(filePath, 'utf8') };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_file_bytes
-        output.push_str("function read_file_bytes(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = fs.readFileSync(filePath);\n");
-        output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_file_bytes
+            output.push_str("function read_file_bytes(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = fs.readFileSync(filePath);\n");
+            output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_lines
-        output.push_str("function read_lines(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const content = fs.readFileSync(filePath, 'utf8');\n");
-        output.push_str("    const lines = content.split('\\n');\n");
-        output.push_str("    // Remove last empty line if file ends with newline\n");
-        output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
-        output.push_str("    return { type: 'Ok', value: lines };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_lines
+            output.push_str("function read_lines(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const content = fs.readFileSync(filePath, 'utf8');\n");
+            output.push_str("    const lines = content.split('\\n');\n");
+            output.push_str("    // Remove last empty line if file ends with newline\n");
+            output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
+            output.push_str("    return { type: 'Ok', value: lines };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file
-        output.push_str("function write_file(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.writeFileSync(filePath, contents);\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    throw new Error(e.message);\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file
+            output.push_str("function write_file(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.writeFileSync(filePath, contents);\n");
+            output.push_str("    return undefined; // unit\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    throw new Error(e.message);\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file_bytes
-        output.push_str("function write_file_bytes(filePath, data) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = Buffer.from(data);\n");
-        output.push_str("    fs.writeFileSync(filePath, buffer);\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    throw new Error(e.message);\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file_bytes
+            output.push_str("function write_file_bytes(filePath, data) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = Buffer.from(data);\n");
+            output.push_str("    fs.writeFileSync(filePath, buffer);\n");
+            output.push_str("    return undefined; // unit\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    throw new Error(e.message);\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // append_file
-        output.push_str("function append_file(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.appendFileSync(filePath, contents);\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    throw new Error(e.message);\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // append_file
+            output.push_str("function append_file(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.appendFileSync(filePath, contents);\n");
+            output.push_str("    return undefined; // unit\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    throw new Error(e.message);\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // Path functions
-        output.push_str("function exists(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.accessSync(filePath);\n");
-        output.push_str("    return true;\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return false;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // Path functions
+            output.push_str("function exists(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.accessSync(filePath);\n");
+            output.push_str("    return true;\n");
+            output.push_str("  } catch {\n");
+            output.push_str("    return false;\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function is_file(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    return fs.statSync(filePath).isFile();\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return false;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function is_file(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    return fs.statSync(filePath).isFile();\n");
+            output.push_str("  } catch {\n");
+            output.push_str("    return false;\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function is_dir(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    return fs.statSync(filePath).isDirectory();\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return false;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function is_dir(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    return fs.statSync(filePath).isDirectory();\n");
+            output.push_str("  } catch {\n");
+            output.push_str("    return false;\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function create_dir(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.mkdirSync(dirPath);\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'EEXIST') {\n");
-        output.push_str(
-            "      return { type: 'Err', error: `Directory already exists: ${dirPath}` };\n",
-        );
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'ENOENT') {\n");
-        output.push_str(
-            "      return { type: 'Err', error: `Parent directory not found: ${dirPath}` };\n",
-        );
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error creating directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function create_dir(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.mkdirSync(dirPath);\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'EEXIST') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory already exists: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Parent directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error creating directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function create_dir_all(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.mkdirSync(dirPath, { recursive: true });\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error creating directories ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function create_dir_all(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.mkdirSync(dirPath, { recursive: true });\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error creating directories ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function remove_dir(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.rmdirSync(dirPath);\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'ENOENT') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'ENOTEMPTY') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not empty: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function remove_dir(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.rmdirSync(dirPath);\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'ENOTEMPTY') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not empty: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function remove_dir_all(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.rmSync(dirPath, { recursive: true });\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'ENOENT') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function remove_dir_all(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.rmSync(dirPath, { recursive: true });\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function read_dir(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const entries = fs.readdirSync(dirPath, { withFileTypes: true });\n");
-        output.push_str("    const result = entries.map(entry => ({\n");
-        output.push_str("      name: entry.name,\n");
-        output.push_str("      is_file: entry.isFile(),\n");
-        output.push_str("      is_dir: entry.isDirectory()\n");
-        output.push_str("    }));\n");
-        output.push_str("    return { type: 'Ok', value: result };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'ENOENT') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'ENOTDIR') {\n");
-        output.push_str("      return { type: 'Err', error: `Not a directory: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error reading directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function read_dir(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str(
+                "    const entries = fs.readdirSync(dirPath, { withFileTypes: true });\n",
+            );
+            output.push_str("    const result = entries.map(entry => ({\n");
+            output.push_str("      name: entry.name,\n");
+            output.push_str("      is_file: entry.isFile(),\n");
+            output.push_str("      is_dir: entry.isDirectory()\n");
+            output.push_str("    }));\n");
+            output.push_str("    return { type: 'Ok', value: result };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'ENOTDIR') {\n");
+            output
+                .push_str("      return { type: 'Err', error: `Not a directory: ${dirPath}` };\n");
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error reading directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // Console IO functions
-        output.push_str("// Console I/O functions\n");
-        if self.module_format == ModuleFormat::ESModule {
-            output.push_str("import readline from 'readline';\n\n");
-        } else {
-            output.push_str("const readline = require('readline');\n\n");
-        }
+            // Console IO functions
+            output.push_str("// Console I/O functions\n");
+            if self.module_format == ModuleFormat::ESModule {
+                output.push_str("import readline from 'readline';\n\n");
+            } else {
+                output.push_str("const readline = require('readline');\n\n");
+            }
 
-        output.push_str("function read_line() {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const rl = readline.createInterface({\n");
-        output.push_str("      input: process.stdin,\n");
-        output.push_str("      output: process.stdout\n");
-        output.push_str("    });\n");
-        output.push_str("    return new Promise((resolve) => {\n");
-        output.push_str("      rl.question('', (answer) => {\n");
-        output.push_str("        rl.close();\n");
-        output.push_str("        resolve({ type: 'Ok', value: answer });\n");
-        output.push_str("      });\n");
-        output.push_str("    });\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    return { type: 'Err', value: error.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function read_line() {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const rl = readline.createInterface({\n");
+            output.push_str("      input: process.stdin,\n");
+            output.push_str("      output: process.stdout\n");
+            output.push_str("    });\n");
+            output.push_str("    return new Promise((resolve) => {\n");
+            output.push_str("      rl.question('', (answer) => {\n");
+            output.push_str("        rl.close();\n");
+            output.push_str("        resolve({ type: 'Ok', value: answer });\n");
+            output.push_str("      });\n");
+            output.push_str("    });\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    return { type: 'Err', value: error.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // Async file I/O functions
-        output.push_str("// Async File I/O functions\n");
-        if self.module_format == ModuleFormat::ESModule {
-            output.push_str("import { promises as fsPromises } from 'fs';\n\n");
-        } else {
-            output.push_str("const fsPromises = require('fs').promises;\n\n");
-        }
+            // Async file I/O functions
+            output.push_str("// Async File I/O functions\n");
+            if self.module_format == ModuleFormat::ESModule {
+                output.push_str("import { promises as fsPromises } from 'fs';\n\n");
+            } else {
+                output.push_str("const fsPromises = require('fs').promises;\n\n");
+            }
 
-        // read_file_async
-        output.push_str("async function read_file_async(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
-        output.push_str("    return { type: 'Ok', value: content };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_file_async
+            output.push_str("async function read_file_async(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
+            output.push_str("    return { type: 'Ok', value: content };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_file_bytes_async
-        output.push_str("async function read_file_bytes_async(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = await fsPromises.readFile(filePath);\n");
-        output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_file_bytes_async
+            output.push_str("async function read_file_bytes_async(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = await fsPromises.readFile(filePath);\n");
+            output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_lines_async
-        output.push_str("async function read_lines_async(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
-        output.push_str("    const lines = content.split('\\n');\n");
-        output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
-        output.push_str("    return { type: 'Ok', value: lines };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_lines_async
+            output.push_str("async function read_lines_async(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
+            output.push_str("    const lines = content.split('\\n');\n");
+            output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
+            output.push_str("    return { type: 'Ok', value: lines };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file_async
-        output.push_str("async function write_file_async(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    await fsPromises.writeFile(filePath, contents);\n");
-        output.push_str("    return { type: 'Ok', value: undefined };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file_async
+            output.push_str("async function write_file_async(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    await fsPromises.writeFile(filePath, contents);\n");
+            output.push_str("    return { type: 'Ok', value: undefined };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file_bytes_async
-        output.push_str("async function write_file_bytes_async(filePath, data) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = Buffer.from(data);\n");
-        output.push_str("    await fsPromises.writeFile(filePath, buffer);\n");
-        output.push_str("    return { type: 'Ok', value: undefined };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file_bytes_async
+            output.push_str("async function write_file_bytes_async(filePath, data) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = Buffer.from(data);\n");
+            output.push_str("    await fsPromises.writeFile(filePath, buffer);\n");
+            output.push_str("    return { type: 'Ok', value: undefined };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // append_file_async
-        output.push_str("async function append_file_async(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    await fsPromises.appendFile(filePath, contents);\n");
-        output.push_str("    return { type: 'Ok', value: undefined };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // append_file_async
+            output.push_str("async function append_file_async(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    await fsPromises.appendFile(filePath, contents);\n");
+            output.push_str("    return { type: 'Ok', value: undefined };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
+        } // End of skip_node_builtins check
 
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
@@ -1731,8 +1821,33 @@ impl AstVisitor<String> for JsTranspiler {
                 // Check if it's a Node.js built-in module
                 let package_name = &path.segments[0];
                 if is_nodejs_builtin(package_name) {
-                    // Node.js built-in modules don't need package resolution
+                    // Check if we should handle Node.js built-ins differently for the current target
+                    if let Some(ref target_info) = self.target_info {
+                        match target_info.platform {
+                            TargetPlatform::Browser => {
+                                // Generate browser polyfill imports for certain Node.js modules
+                                return self.generate_browser_polyfill_import(package_name, items);
+                            }
+                            TargetPlatform::Deno => {
+                                // Deno uses different import paths for Node.js built-ins
+                                return self.generate_deno_builtin_import(package_name, items);
+                            }
+                            _ => {
+                                // Node.js and Bun use standard Node.js built-ins
+                                return self.generate_basic_import(path, items);
+                            }
+                        }
+                    }
+                    // Default: Node.js built-in modules don't need package resolution
                     return self.generate_basic_import(path, items);
+                }
+
+                // Check if this package is marked as external
+                if let Some(ref target_info) = self.target_info {
+                    if target_info.external_deps.contains(package_name) {
+                        // External packages should not be resolved, just imported directly
+                        return self.generate_basic_import(path, items);
+                    }
                 }
 
                 // External package - use package resolver if available
@@ -2534,6 +2649,84 @@ impl JsTranspiler {
 
         Ok(import_stmt)
     }
+
+    /// Generate browser polyfill imports for Node.js built-in modules
+    fn generate_browser_polyfill_import(
+        &self,
+        module_name: &str,
+        items: &UseItems,
+    ) -> Result<String> {
+        // Map Node.js modules to browser polyfills
+        let polyfill_package = match module_name {
+            "buffer" => Some("buffer"),
+            "crypto" => Some("crypto-browserify"),
+            "stream" => Some("stream-browserify"),
+            "util" => Some("util"),
+            "assert" => Some("assert"),
+            "events" => Some("events"),
+            "path" => Some("path-browserify"),
+            "url" => Some("url"),
+            "querystring" => Some("querystring-es3"),
+            "punycode" => Some("punycode"),
+            _ => None,
+        };
+
+        if let Some(package) = polyfill_package {
+            // Generate import for the polyfill package
+            match items {
+                UseItems::All => Ok(format!("import * from '{}'", package)),
+                UseItems::Single => Ok(format!("import '{}'", package)),
+                UseItems::Named(imports) => {
+                    let import_list = imports
+                        .iter()
+                        .map(|(name, alias)| {
+                            if let Some(alias) = alias {
+                                format!("{} as {}", name, alias)
+                            } else {
+                                name.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    Ok(format!("import {{ {} }} from '{}'", import_list, package))
+                }
+            }
+        } else {
+            // No polyfill available, skip the import
+            Ok(format!(
+                "// No browser polyfill available for Node.js module: {}",
+                module_name
+            ))
+        }
+    }
+
+    /// Generate Deno-compatible imports for Node.js built-in modules
+    fn generate_deno_builtin_import(&self, module_name: &str, items: &UseItems) -> Result<String> {
+        // Deno uses node: prefix for Node.js built-ins
+        let deno_module = format!("node:{}", module_name);
+
+        match items {
+            UseItems::All => Ok(format!("import * from '{}'", deno_module)),
+            UseItems::Single => Ok(format!("import '{}'", deno_module)),
+            UseItems::Named(imports) => {
+                let import_list = imports
+                    .iter()
+                    .map(|(name, alias)| {
+                        if let Some(alias) = alias {
+                            format!("{} as {}", name, alias)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Ok(format!(
+                    "import {{ {} }} from '{}'",
+                    import_list, deno_module
+                ))
+            }
+        }
+    }
 }
 
 /// Check if a module name is a Node.js built-in module
@@ -2578,6 +2771,10 @@ fn is_nodejs_builtin(module: &str) -> bool {
             | "zlib"
     )
 }
+
+#[cfg(test)]
+#[path = "transpiler_external_deps_test.rs"]
+mod transpiler_external_deps_test;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,19 @@
+// Test external dependencies feature
+// When a package is marked as external, it should not be resolved through node_modules
+
+use axios;
+use axios::{get, post};
+use lodash::debounce;
+
+fn test_external_dependencies() -> void {
+    // axios is marked as external for browser target
+    // It should be imported directly without resolution
+    println!("Testing external dependencies");
+    
+    // Simulating API call - axios will be external in browser build
+    let url = "https://api.example.com/data";
+    
+    // These will use axios but since it's external,
+    // the import will be direct (not resolved through node_modules)
+    println!("External dependencies test completed");
+}
