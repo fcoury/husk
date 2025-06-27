@@ -2794,7 +2794,7 @@ mod tests {
         let mut transpiler = JsTranspiler::new();
 
         for stmt in &program {
-            if let Stmt::Function(_, _, _, _, _, _, _) = stmt {
+            if let Stmt::Function(_, _, _, _, _, _, _, _) = stmt {
                 let result = transpiler.visit_stmt(stmt).unwrap();
                 assert!(result.contains("function factorial(n)"));
                 assert!(result.contains("return 1"));

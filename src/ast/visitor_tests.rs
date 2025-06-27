@@ -440,6 +440,19 @@ mod tests {
             Ok("visited_async_function".to_string())
         }
 
+        fn visit_module(
+            &mut self,
+            name: &str,
+            body: &[Stmt],
+            _span: &Span,
+        ) -> Result<String, Self::Error> {
+            self.track(&format!("module_{}", name))?;
+            for stmt in body {
+                self.visit_stmt(stmt)?;
+            }
+            Ok("visited_module".to_string())
+        }
+
         fn visit_match_expr(
             &mut self,
             expr: &Expr,
@@ -719,6 +732,7 @@ mod tests {
         )];
 
         let stmt = Stmt::Function(
+            vec![], // attributes
             false,
             "add".to_string(),
             vec![],

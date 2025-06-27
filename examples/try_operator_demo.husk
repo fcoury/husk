@@ -23,11 +23,11 @@ fn calculate_manual() -> Result<int, string> {
         Result::Ok(x) => {
             let y_result = divide(x, 0);
             match y_result {
-                Result::Ok(y) => Result::Ok(y * 2)
-                Result::Err(e) => Result::Err(e)
+                Result::Ok(y) => Result::Ok(y * 2),
+                Result::Err(e) => Result::Err(e),
             }
         }
-        Result::Err(e) => Result::Err(e)
+        Result::Err(e) => Result::Err(e),
     }
 }
 

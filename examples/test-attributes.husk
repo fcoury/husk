@@ -3,19 +3,19 @@
 #[test]
 fn test_addition() {
     let result = 2 + 2;
-    println(format!("2 + 2 = {}", result));
+    println!(format!("2 + 2 = {}", result));
 }
 
 #[test]
 #[ignore]
 fn test_expensive_operation() {
-    println("This test is ignored");
+    println!("This test is ignored");
 }
 
 #[test]
 #[should_panic]
 fn test_panic() {
-    println("This test should panic");
+    println!("This test should panic");
     // panic!("Expected panic");
 }
 
@@ -23,10 +23,10 @@ fn test_panic() {
 mod tests {
     #[test]
     fn test_in_module() {
-        println("Test inside a test module");
+        println!("Test inside a test module");
     }
 }
 
 fn main() {
-    println("Main function - not a test");
+    println!("Main function - not a test");
 }

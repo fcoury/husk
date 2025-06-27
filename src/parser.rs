@@ -1380,7 +1380,7 @@ impl Parser {
                     start_span,
                 ))
             }
-            TokenKind::Identifier(s) if s == "mod" => {
+            TokenKind::Mod => {
                 // extern mod name { ... }
                 self.advance(); // Consume 'mod'
                 let name = self.consume_identifier("extern module")?.ok_or_else(|| {
@@ -1479,7 +1479,7 @@ impl Parser {
                 self.expect_token(TokenKind::Semicolon)?;
                 Ok(ExternItem::Type(name, generic_params))
             }
-            TokenKind::Identifier(s) if s == "mod" => {
+            TokenKind::Mod => {
                 // mod name { ... }
                 self.advance(); // Consume 'mod'
                 let name = self.consume_identifier("extern module")?.ok_or_else(|| {
@@ -4137,7 +4137,8 @@ mod tests {
         assert_eq!(
             ast[0],
             Stmt::Function(
-                false, // Not public
+                vec![], // attributes
+                false,  // Not public
                 "add".to_string(),
                 vec![], // Generic params
                 vec![
@@ -4175,7 +4176,8 @@ mod tests {
         assert_eq!(
             ast[0],
             Stmt::Function(
-                false, // Not public
+                vec![], // attributes
+                false,  // Not public
                 "create_person".to_string(),
                 vec![], // Generic params
                 vec![
@@ -5027,7 +5029,7 @@ mod tests {
         let ast = parse("pub fn hello() { println!(\"Hello\"); }");
         assert_eq!(ast.len(), 1);
         // Check that pub is properly stored in AST
-        if let Stmt::Function(is_pub, name, _, params, ret_type, body, _) = &ast[0] {
+        if let Stmt::Function(_, is_pub, name, _, params, ret_type, body, _) = &ast[0] {
             assert!(*is_pub);
             assert_eq!(name, "hello");
             assert_eq!(params.len(), 0);
@@ -5282,7 +5284,7 @@ mod tests {
         let ast = parse("fn handler(req: express::Request, res: express::Response) {}");
         assert_eq!(ast.len(), 1);
         match &ast[0] {
-            Stmt::Function(_, name, _, params, _, _, _) => {
+            Stmt::Function(_, _, name, _, params, _, _, _) => {
                 assert_eq!(name, "handler");
                 assert_eq!(params.len(), 2);
                 assert_eq!(params[0].0, "req");
@@ -5299,7 +5301,7 @@ mod tests {
         let ast = parse("fn create_app() -> framework::Application {}");
         assert_eq!(ast.len(), 1);
         match &ast[0] {
-            Stmt::Function(_, name, _, _, return_type, _, _) => {
+            Stmt::Function(_, _, name, _, _, return_type, _, _) => {
                 assert_eq!(name, "create_app");
                 assert_eq!(return_type, "framework::Application");
             }
@@ -5401,7 +5403,7 @@ mod tests {
         let ast = parse("async fn fetch_data() -> string {}");
         assert_eq!(ast.len(), 1);
         match &ast[0] {
-            Stmt::AsyncFunction(_, name, _, _, return_type, _, _) => {
+            Stmt::AsyncFunction(_, _, name, _, _, return_type, _, _) => {
                 assert_eq!(name, "fetch_data");
                 assert_eq!(return_type, "string");
             }

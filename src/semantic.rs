@@ -7,9 +7,7 @@ use crate::{
     error::{Error, Result},
     lexer::Lexer,
     package_resolver::PackageResolver,
-    parser::{
-        Attribute, Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix,
-    },
+    parser::{Expr, ExternItem, Operator, Parser, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
     test_registry::TestRegistry,
     types::{Type, TypeEnvironment},
@@ -1601,7 +1599,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                 if placeholder_count != arg_count {
                     return Err(Error::new_semantic(
-                        format!("format! expects {} arguments after format string, but {} were provided", 
+                        format!("format! expects {} arguments after format string, but {} were provided",
                                placeholder_count, arg_count),
                         *span,
                     ));
@@ -2392,7 +2390,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     let literal_type = self.visit_expr(elem_pattern)?;
                                     if literal_type != *elem_type {
                                         return Err(Error::new_semantic(
-                                            format!("Pattern type mismatch at tuple element {}: expected {}, found {}", 
+                                            format!("Pattern type mismatch at tuple element {}: expected {}, found {}",
                                                 i, elem_type, literal_type),
                                             elem_pattern.span(),
                                         ));
@@ -2677,7 +2675,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                     }
                     _ => {
                         return Err(Error::new_semantic(
-                            format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}", 
+                            format!("Match arms have inconsistent types: arm 0 returns {}, arm {} returns {}",
                                     first_arm_type, i, arm_type),
                             *span,
                         ));
@@ -2727,7 +2725,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                         if elements.len() != tuple_types.len() {
                             self.type_env.pop_scope();
                             return Err(Error::new_semantic(
-                                format!("Tuple pattern has {} elements but iterable contains tuples with {} elements", 
+                                format!("Tuple pattern has {} elements but iterable contains tuples with {} elements",
                                     elements.len(), tuple_types.len()),
                                 pattern.span(),
                             ));
@@ -3368,7 +3366,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         // Both branches must return the same type for if expression
         if then_type != else_type {
             return Err(Error::new_semantic(
-                format!("If expression branches have incompatible types: then returns {}, else returns {}", 
+                format!("If expression branches have incompatible types: then returns {}, else returns {}",
                         then_type, else_type),
                 *span,
             ));
@@ -4090,10 +4088,10 @@ mod tests {
         // Test if statement (not expression) with consistent types
         let code = r#"
             fn test() -> int {
-                if true { 
-                    42 
-                } else { 
-                    0 
+                if true {
+                    42
+                } else {
+                    0
                 }
             }
         "#;
@@ -4102,10 +4100,10 @@ mod tests {
         // Test type mismatch in branches
         let code = r#"
             fn test() -> int {
-                if true { 
-                    42 
-                } else { 
-                    "hello" 
+                if true {
+                    42
+                } else {
+                    "hello"
                 }
             }
         "#;
@@ -4186,7 +4184,7 @@ mod tests {
                 Some(int),
                 None,
             }
-            
+
             let opt = Option::Some(42);
             match opt {
                 Option::Some(x) => x,
@@ -4205,7 +4203,7 @@ mod tests {
                 Some(int),
                 None,
             }
-            
+
             let opt = Option::None;
             match opt {
                 Option::Some(x) => x,
@@ -4223,7 +4221,7 @@ mod tests {
                 Some(int),
                 None,
             }
-            
+
             fn test(opt: Option) -> int {
                 match opt {
                     Option::Some(x) => x,
@@ -4239,7 +4237,7 @@ mod tests {
                 Some(int),
                 None,
             }
-            
+
             fn test(opt: Option) -> int {
                 match opt {
                     Option::Some(x) => x,
@@ -4258,7 +4256,7 @@ mod tests {
                 x: int,
                 y: int,
             }
-            
+
             let p = Point { x: 1, y: 2 };
             let x = p.x;
         "#;
@@ -4270,7 +4268,7 @@ mod tests {
                 x: int,
                 y: int,
             }
-            
+
             let p = Point { x: 1, y: 2 };
             let z = p.z;
         "#;
@@ -4405,17 +4403,17 @@ mod tests {
                 Info,
                 Error,
             }
-            
+
             struct Logger {
                 level: LogLevel,
             }
-            
+
             impl Logger {
                 fn new(level: LogLevel) -> Logger {
                     Logger { level: level }
                 }
             }
-            
+
             let logger = Logger::new(LogLevel::Info);
         "#;
 
