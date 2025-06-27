@@ -1,0 +1,15 @@
+use react::{useState, useEffect};
+use lodash::{debounce, throttle};
+use axios;
+
+fn main() {
+    let state = useState(0);
+    println!("Import maps demo with React state: {}", state);
+    
+    let debounced_fn = debounce(|| {
+        println!("Debounced function called");
+    }, 300);
+    
+    println!("Axios available for HTTP requests");
+    println!("Import maps successfully mapped packages to custom URLs!");
+}

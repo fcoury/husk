@@ -27,6 +27,8 @@ pub struct TargetInfo {
     pub platform: TargetPlatform,
     pub module_format: ModuleFormat,
     pub external_deps: Vec<String>,
+    pub import_map: std::collections::HashMap<String, String>,
+    pub tree_shaking: bool,
 }
 
 pub struct JsTranspiler {
@@ -92,17 +94,24 @@ impl JsTranspiler {
             _ => return Err(Error::new_config(format!("Unknown target: {}", target))),
         };
 
-        // Get external dependencies from config
-        let external_deps = if let Some(target_config) = config.targets.get(target) {
-            target_config.external.clone()
-        } else {
-            Vec::new()
-        };
+        // Get external dependencies, import map, and tree shaking from config
+        let (external_deps, import_map, tree_shaking) =
+            if let Some(target_config) = config.targets.get(target) {
+                (
+                    target_config.external.clone(),
+                    target_config.import_map.clone(),
+                    target_config.tree_shaking,
+                )
+            } else {
+                (Vec::new(), std::collections::HashMap::new(), false)
+            };
 
         Ok(TargetInfo {
             platform,
             module_format,
             external_deps,
+            import_map,
+            tree_shaking,
         })
     }
 
@@ -1192,12 +1201,19 @@ impl AstVisitor<String> for JsTranspiler {
                 .collect::<Result<Vec<_>>>()?
                 .join(", ");
 
+            // Add tree shaking hints for pure functions
+            let pure_hint = if self.should_add_pure_annotation(name) {
+                "/*#__PURE__*/"
+            } else {
+                ""
+            };
+
             // Handle method calls with dot notation
             if name.contains('.') {
                 let (obj, method) = name.split_once('.').unwrap();
-                Ok(format!("{obj}.{method}({args_str})"))
+                Ok(format!("{pure_hint}{obj}.{method}({args_str})"))
             } else {
-                Ok(format!("{name}({args_str})"))
+                Ok(format!("{pure_hint}{name}({args_str})"))
             }
         }
     }
@@ -1850,6 +1866,14 @@ impl AstVisitor<String> for JsTranspiler {
                     }
                 }
 
+                // Check if this package is mapped in the import map
+                if let Some(ref target_info) = self.target_info {
+                    if let Some(mapped_specifier) = target_info.import_map.get(package_name) {
+                        // Package is mapped in the import map - use the mapped specifier
+                        return self.generate_import_map_import(mapped_specifier, items);
+                    }
+                }
+
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
                     // For single imports like `use express::express;`, we need to determine
@@ -2188,10 +2212,23 @@ impl AstVisitor<String> for JsTranspiler {
         }
 
         // Default: assume direct method mapping for unknown methods
-        if arg_strs.is_empty() {
-            Ok(format!("{obj_str}.{method}()"))
+        // Add tree shaking hints for pure method calls
+        let method_call_name = format!("{}.{}", obj_str, method);
+        let pure_hint = if self.should_add_pure_annotation(&method_call_name) {
+            "/*#__PURE__*/"
         } else {
-            Ok(format!("{}.{}({})", obj_str, method, arg_strs.join(", ")))
+            ""
+        };
+
+        if arg_strs.is_empty() {
+            Ok(format!("{pure_hint}{obj_str}.{method}()"))
+        } else {
+            Ok(format!(
+                "{pure_hint}{}.{}({})",
+                obj_str,
+                method,
+                arg_strs.join(", ")
+            ))
         }
     }
 
@@ -2727,6 +2764,77 @@ impl JsTranspiler {
             }
         }
     }
+
+    /// Generate import statement using import map
+    fn generate_import_map_import(
+        &self,
+        mapped_specifier: &str,
+        items: &UseItems,
+    ) -> Result<String> {
+        match items {
+            UseItems::All => Ok(format!("import * from '{}'", mapped_specifier)),
+            UseItems::Single => Ok(format!("import '{}'", mapped_specifier)),
+            UseItems::Named(imports) => {
+                let import_list = imports
+                    .iter()
+                    .map(|(name, alias)| {
+                        if let Some(alias) = alias {
+                            format!("{} as {}", name, alias)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Ok(format!(
+                    "import {{ {} }} from '{}'",
+                    import_list, mapped_specifier
+                ))
+            }
+        }
+    }
+
+    /// Check if a function call should have a pure annotation for tree shaking
+    fn should_add_pure_annotation(&self, function_name: &str) -> bool {
+        // Only add pure annotations if tree shaking is enabled
+        if let Some(ref target_info) = self.target_info {
+            if !target_info.tree_shaking {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // List of known pure functions that can be safely tree-shaken
+        // These are functions that have no side effects
+        match function_name {
+            // Math functions
+            "Math.abs" | "Math.max" | "Math.min" | "Math.floor" | "Math.ceil" | "Math.round"
+            | "Math.sqrt" | "Math.pow" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.log"
+            | "Math.random" => true,
+
+            // Object/Array creation functions (pure constructors)
+            "Object.create" | "Object.assign" | "Object.keys" | "Object.values"
+            | "Object.entries" | "Array.from" | "Array.of" => true,
+
+            // String methods (when used functionally)
+            "String.fromCharCode" | "String.fromCodePoint" => true,
+
+            // Type conversion functions
+            "Number" | "String" | "Boolean" | "parseInt" | "parseFloat" => true,
+
+            // JSON functions (when used for pure data transformation)
+            "JSON.parse" | "JSON.stringify" => true,
+
+            // Husk-specific utility functions that are pure
+            "__format__" | "__husk_safe_call" | "huskSafeCall" => true,
+
+            // Constructor calls (often pure)
+            name if name.chars().next().map_or(false, |c| c.is_uppercase()) => true,
+
+            _ => false,
+        }
+    }
 }
 
 /// Check if a module name is a Node.js built-in module
@@ -2775,6 +2883,12 @@ fn is_nodejs_builtin(module: &str) -> bool {
 #[cfg(test)]
 #[path = "transpiler_external_deps_test.rs"]
 mod transpiler_external_deps_test;
+#[cfg(test)]
+#[path = "transpiler_import_maps_test.rs"]
+mod transpiler_import_maps_test;
+#[cfg(test)]
+#[path = "transpiler_tree_shaking_test.rs"]
+mod transpiler_tree_shaking_test;
 
 #[cfg(test)]
 mod tests {

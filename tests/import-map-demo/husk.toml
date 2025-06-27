@@ -1,0 +1,37 @@
+[package]
+name = "import-map-demo"
+version = "0.1.0"
+description = "Demo of import maps functionality"
+
+[dependencies]
+react = "^18.0.0"
+lodash = "^4.17.21"
+axios = "^1.0.0"
+express = "^4.18.0"
+oak = "^1.0.0"
+
+[build]
+src = "src"
+out = "dist"
+module = "esm"
+
+[targets.browser]
+platform = "browser"
+format = "esm"
+entry = "src/main.husk"
+output = "dist/main.js"
+
+[targets.browser.import_map]
+react = "https://esm.sh/react@18"
+lodash = "/vendor/lodash.js"
+axios = "https://cdn.skypack.dev/axios"
+
+[targets.deno]
+platform = "deno"
+format = "esm"
+entry = "src/deno_main.husk"
+output = "dist/main_deno.js"
+
+[targets.deno.import_map]
+express = "https://deno.land/x/express@v1.0.0/mod.ts"
+oak = "https://deno.land/x/oak/mod.ts"

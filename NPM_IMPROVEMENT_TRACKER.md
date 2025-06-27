@@ -200,12 +200,46 @@ This document tracks the implementation progress of npm support improvements in 
 ## Phase 4: Advanced Features (Week 4)
 
 ### Task 4.1: Import Maps Support
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: LOW  
+**Description**: Implement import maps (Web Standard) for controlling module specifier resolution
+
+**Changes**:
+- [x] Added `import_map: HashMap<String, String>` field to `TargetConfig` in config.rs
+- [x] Added `import_map` field to `TargetInfo` struct in transpiler.rs
+- [x] Updated `parse_target_with_config` to extract import_map from configuration
+- [x] Implemented import map resolution logic in `visit_use` method
+- [x] Added `generate_import_map_import` method to handle mapped imports
+- [x] Created comprehensive test suite for import maps functionality
+- [x] Modified semantic analyzer to handle packages that might be resolved by import maps
+- [x] Tested with real projects and multiple targets (browser, deno)
+
+**Files modified**:
+- `src/config.rs` - Added import_map field to TargetConfig
+- `src/transpiler.rs` - Added import map resolution logic and generate_import_map_import method
+- `src/semantic.rs` - Made semantic analyzer more lenient for import map packages
+- `src/transpiler_import_maps_test.rs` - Comprehensive test suite
+- Multiple test files updated to include import_map field
 
 ### Task 4.2: Tree Shaking Hints
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: LOW  
+**Description**: Add pure function annotations for dead code elimination by bundlers
+
+**Changes**:
+- [x] Added `tree_shaking: bool` field to `TargetConfig` and `TargetInfo`
+- [x] Implemented `should_add_pure_annotation` method with extensive list of pure functions
+- [x] Added pure annotation support to `visit_function_call` method
+- [x] Added tree shaking support to `visit_method_call` for method calls like `Math.max()`
+- [x] Modified package.json generation to include `sideEffects: false` when tree shaking is enabled
+- [x] Created comprehensive test suite for tree shaking functionality
+- [x] Updated all test files with new `tree_shaking` field
+
+**Files modified**:
+- `src/transpiler.rs` - Added tree shaking logic and pure function annotation generation
+- `src/config.rs` - Added tree_shaking field to TargetConfig and package.json generation
+- `src/transpiler_tree_shaking_test.rs` - New comprehensive test suite with 8 tests
+- Multiple test files updated to include tree_shaking field
 
 ### Task 4.3: Development vs Production Mode
 **Status**: ⏳ Not Started  
@@ -248,7 +282,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 3.3 completed)
+Last Updated: 2024-12-27 (Task 4.2 completed)
 
 ## Implementation Details
 
@@ -371,3 +405,38 @@ Last Updated: 2024-12-27 (Task 3.3 completed)
   - CDN-loaded libraries in browser builds
   - Peer dependencies that shouldn't be bundled
   - Platform-specific modules that are provided by the runtime
+
+### Task 4.1 Implementation Notes
+- Import maps follow the Web Standard for controlling module specifier resolution
+- Added import_map field as HashMap<String, String> to support key-value mappings
+- Import map resolution happens before package resolution but after external dependencies check
+- Order of resolution in transpiler: Node.js built-ins → External deps → Import maps → Package resolver
+- Semantic analyzer was made more lenient to allow packages that might be resolved by import maps
+- Import maps work with all import styles: basic imports, named imports, wildcard imports, and aliases
+- Different targets can have different import maps (e.g., browser uses CDN URLs, Deno uses deno.land URLs)
+- Import maps are particularly useful for:
+  - Mapping packages to CDN URLs for browser builds
+  - Using Deno-specific module URLs for Deno builds  
+  - Overriding specific package versions or implementations
+  - Supporting ESM-only environments with custom module resolution
+- Configuration format: `[targets.{target}.import_map]` in husk.toml
+- Successfully tested with React, Lodash, Axios (browser) and Express, Oak (Deno)
+
+### Task 4.2 Implementation Notes
+- Tree shaking hints use `/*#__PURE__*/` comments to mark function calls as pure (no side effects)
+- Pure annotations are only added when tree_shaking is enabled for the target in configuration
+- Extensive list of known pure functions includes:
+  - Math functions: abs, max, min, floor, ceil, round, sqrt, pow, sin, cos, tan, log, random
+  - Object/Array creation: Object.create, Object.assign, Object.keys, Object.values, Object.entries, Array.from, Array.of
+  - Type conversion: Number, String, Boolean, parseInt, parseFloat
+  - JSON methods: JSON.parse, JSON.stringify  
+  - Husk utilities: __format__, __husk_safe_call, huskSafeCall
+  - Constructor calls (capital first letter) are considered pure by default
+- Both function calls and method calls get tree shaking support
+- Package.json generation includes `sideEffects: false` when any target has tree shaking enabled
+- Comprehensive test suite covers:
+  - Pure annotations enabled/disabled
+  - Different function types (Math, Object, JSON, constructors, Husk utilities)
+  - Non-pure functions that shouldn't get annotations
+  - Behavior when no target info is available
+- Tree shaking integration at target level allows different optimization settings per build target

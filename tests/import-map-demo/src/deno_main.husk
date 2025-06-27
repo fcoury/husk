@@ -1,0 +1,7 @@
+use express;
+use oak::{Application, Router};
+
+fn main() {
+    println!("Deno import maps demo");
+    println!("Express and Oak frameworks mapped to Deno URLs");
+}

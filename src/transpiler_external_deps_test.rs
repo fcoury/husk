@@ -6,7 +6,7 @@ use crate::transpiler::{JsTranspiler, ModuleFormat, TargetInfo, TargetPlatform};
 use std::collections::HashMap;
 
 fn create_test_config_with_external() -> HuskConfig {
-    let config = HuskConfig::default();
+    let mut config = HuskConfig::default();
 
     // Add browser target with axios as external
     let browser_target = TargetConfig {
@@ -16,6 +16,8 @@ fn create_test_config_with_external() -> HuskConfig {
         entry: None,
         globals: HashMap::new(),
         output: None,
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
     config.targets.insert("browser".to_string(), browser_target);
 
@@ -27,6 +29,8 @@ fn create_test_config_with_external() -> HuskConfig {
         entry: None,
         globals: HashMap::new(),
         output: None,
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
     config.targets.insert("node-esm".to_string(), node_target);
 
@@ -40,16 +44,18 @@ fn test_external_dependency_browser() {
         platform: TargetPlatform::Browser,
         module_format: ModuleFormat::ESModule,
         external_deps: vec!["axios".to_string(), "react".to_string()],
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
 
-    let transpiler = JsTranspiler::new();
+    let mut transpiler = JsTranspiler::new();
     transpiler.target_info = Some(target_info);
 
     // Test: axios should be imported directly without resolution
     let input = "use axios;";
-    let lexer = Lexer::new(input.to_string());
+    let mut lexer = Lexer::new(input.to_string());
     let tokens = lexer.lex_all();
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = parser.parse().unwrap();
 
     let result =
@@ -64,16 +70,18 @@ fn test_external_dependency_with_named_imports() {
         platform: TargetPlatform::Browser,
         module_format: ModuleFormat::ESModule,
         external_deps: vec!["axios".to_string()],
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
 
-    let transpiler = JsTranspiler::new();
+    let mut transpiler = JsTranspiler::new();
     transpiler.target_info = Some(target_info);
 
     // Test: Named imports from external package
     let input = "use axios::{get, post};";
-    let lexer = Lexer::new(input.to_string());
+    let mut lexer = Lexer::new(input.to_string());
     let tokens = lexer.lex_all();
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = parser.parse().unwrap();
 
     let result =
@@ -88,17 +96,19 @@ fn test_non_external_dependency() {
         platform: TargetPlatform::Browser,
         module_format: ModuleFormat::ESModule,
         external_deps: vec!["axios".to_string()],
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
 
-    let transpiler = JsTranspiler::new();
+    let mut transpiler = JsTranspiler::new();
     transpiler.target_info = Some(target_info);
 
     // Test: lodash is not external, so it should fall back to basic import
     // (without package resolver it will still generate basic import)
     let input = "use lodash;";
-    let lexer = Lexer::new(input.to_string());
+    let mut lexer = Lexer::new(input.to_string());
     let tokens = lexer.lex_all();
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = parser.parse().unwrap();
 
     let result =
@@ -113,15 +123,17 @@ fn test_external_dependency_different_targets() {
         platform: TargetPlatform::NodeJs,
         module_format: ModuleFormat::ESModule,
         external_deps: vec!["aws-sdk".to_string()],
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
 
-    let transpiler = JsTranspiler::new();
+    let mut transpiler = JsTranspiler::new();
     transpiler.target_info = Some(target_info);
 
     let input = "use aws_sdk;";
-    let lexer = Lexer::new(input.to_string());
+    let mut lexer = Lexer::new(input.to_string());
     let tokens = lexer.lex_all();
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = parser.parse().unwrap();
 
     let result =
@@ -138,15 +150,17 @@ fn test_no_external_dependencies() {
         platform: TargetPlatform::Browser,
         module_format: ModuleFormat::ESModule,
         external_deps: vec![],
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
 
-    let transpiler = JsTranspiler::new();
+    let mut transpiler = JsTranspiler::new();
     transpiler.target_info = Some(target_info);
 
     let input = "use axios;";
-    let lexer = Lexer::new(input.to_string());
+    let mut lexer = Lexer::new(input.to_string());
     let tokens = lexer.lex_all();
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = parser.parse().unwrap();
 
     // Without external deps, axios should still generate basic import
@@ -161,16 +175,18 @@ fn test_external_dependency_subpath() {
         platform: TargetPlatform::Browser,
         module_format: ModuleFormat::ESModule,
         external_deps: vec!["react".to_string()],
+        import_map: HashMap::new(),
+        tree_shaking: false,
     };
 
-    let transpiler = JsTranspiler::new();
+    let mut transpiler = JsTranspiler::new();
     transpiler.target_info = Some(target_info);
 
     // Test: Named imports from external package
     let input = "use react::{Component, useState};";
-    let lexer = Lexer::new(input.to_string());
+    let mut lexer = Lexer::new(input.to_string());
     let tokens = lexer.lex_all();
-    let parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens);
     let program = parser.parse().unwrap();
 
     let result =

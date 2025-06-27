@@ -110,6 +110,10 @@ pub struct TargetConfig {
     pub external: Vec<String>,
     #[serde(default)]
     pub globals: HashMap<String, String>,
+    #[serde(default)]
+    pub import_map: HashMap<String, String>,
+    #[serde(default)]
+    pub tree_shaking: bool,
 }
 
 fn default_src_dir() -> String {
@@ -317,6 +321,13 @@ impl HuskConfig {
             serde_json::Value::String("husk run".to_string()),
         );
         pkg.insert("scripts".to_string(), serde_json::Value::Object(scripts));
+
+        // Tree shaking support
+        // Check if any target has tree shaking enabled
+        let has_tree_shaking = self.targets.values().any(|target| target.tree_shaking);
+        if has_tree_shaking {
+            pkg.insert("sideEffects".to_string(), serde_json::Value::Bool(false));
+        }
 
         serde_json::to_string_pretty(&serde_json::Value::Object(pkg))
             .map_err(|e| Error::new_config(format!("Failed to generate package.json: {e}")))

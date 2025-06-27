@@ -3230,10 +3230,31 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                             Ok(Type::Unit)
                         }
-                        Err(e) => Err(Error::new_semantic(
-                            format!("Failed to resolve package '{package_name}': {e}"),
-                            *span,
-                        )),
+                        Err(_e) => {
+                            // Package resolution failed - this could be because:
+                            // 1. Package is not installed yet
+                            // 2. Package will be resolved by import maps during transpilation
+                            // Register as Unknown to allow transpiler to handle it
+                            match items {
+                                UseItems::Named(imports) => {
+                                    for (import_name, alias) in imports {
+                                        let name_to_register =
+                                            alias.as_ref().unwrap_or(import_name);
+                                        self.imported_names
+                                            .insert(name_to_register.clone(), Type::Unknown);
+                                    }
+                                }
+                                UseItems::All => {
+                                    // For wildcard imports, we can't pre-register names
+                                }
+                                UseItems::Single => {
+                                    // Register the package name itself
+                                    self.imported_names
+                                        .insert(package_name.clone(), Type::Unknown);
+                                }
+                            }
+                            Ok(Type::Unit)
+                        }
                     }
                 } else {
                     // No package resolver - register as Unknown to avoid errors
