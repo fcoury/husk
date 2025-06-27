@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Husk - Rust's syntax meets JavaScript's flexibility</title>
+    <meta name="description" content="A lightweight interpreted language that brings Rust's elegance to scripting. Write scripts with Rust's clean syntax and run them interpreted or transpiled to JavaScript.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="assets/css/main.css">
+    
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <img src="assets/img/icon.svg" alt="Husk Logo" class="nav-logo">
+                <span class="nav-title">Husk</span>
+            </div>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="playground.html">Playground</a></li>
+                <li><a href="docs.html">Documentation</a></li>
+                <li><a href="examples.html">Examples</a></li>
+                <li><a href="community.html">Community</a></li>
+                <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">Rust's syntax meets JavaScript's flexibility</h1>
+                <p class="hero-subtitle">A lightweight interpreted language that brings Rust's elegance to scripting</p>
+                
+                <div class="hero-demo">
+                    <div class="code-compare">
+                        <div class="code-panel">
+                            <div class="code-header">
+                                <span class="code-label">Husk</span>
+                                <button class="copy-btn" data-target="husk-code">Copy</button>
+                            </div>
+                            <pre><code class="language-rust" id="husk-code">fn greet(name: string) -> string {
+    format!("Hello, {}!", name)
+}
+
+fn main() {
+    let message = greet("World");
+    println(message);
+}</code></pre>
+                        </div>
+                        <div class="code-arrow">→</div>
+                        <div class="code-panel">
+                            <div class="code-header">
+                                <span class="code-label">JavaScript</span>
+                                <button class="copy-btn" data-target="js-code">Copy</button>
+                            </div>
+                            <pre><code class="language-javascript" id="js-code">function greet(name) {
+    return `Hello, ${name}!`;
+}
+
+function main() {
+    const message = greet("World");
+    console.log(message);
+}
+
+main();</code></pre>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="hero-actions">
+                    <a href="playground.html" class="btn btn-primary">Try in Playground</a>
+                    <a href="#get-started" class="btn btn-secondary">Get Started</a>
+                    <a href="https://github.com/fcoury/husk" class="btn btn-outline" target="_blank" rel="noopener">View on GitHub</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Key Features -->
+    <section class="features">
+        <div class="container">
+            <h2 class="section-title">Why Husk?</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Familiar Syntax</h3>
+                    <p>Write scripts with Rust's clean, expressive syntax without the complexity of memory management</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="16 18 22 12 16 6"></polyline>
+                            <polyline points="8 6 2 12 8 18"></polyline>
+                        </svg>
+                    </div>
+                    <h3>Dual Execution</h3>
+                    <p>Run your code interpreted for quick iteration or transpile to JavaScript for production deployment</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+                        </svg>
+                    </div>
+                    <h3>Type Safety</h3>
+                    <p>Static typing with inference catches errors early while keeping your code concise and readable</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Showcase -->
+    <section class="showcase">
+        <div class="container">
+            <h2 class="section-title">See Husk in Action</h2>
+            <div class="showcase-tabs">
+                <button class="tab-btn active" data-tab="pattern-matching">Pattern Matching</button>
+                <button class="tab-btn" data-tab="async-await">Async/Await</button>
+                <button class="tab-btn" data-tab="modules">Module System</button>
+                <button class="tab-btn" data-tab="type-casting">Type Casting</button>
+            </div>
+            
+            <div class="showcase-content">
+                <div class="tab-panel active" id="pattern-matching">
+                    <pre><code class="language-rust">enum Result {
+    Ok(int),
+    Err(string),
+}
+
+fn divide(a: int, b: int) -> Result {
+    if b == 0 {
+        Result::Err("Division by zero")
+    } else {
+        Result::Ok(a / b)
+    }
+}
+
+fn main() {
+    match divide(10, 2) {
+        Result::Ok(value) => println(format!("Result: {}", value)),
+        Result::Err(msg) => println(format!("Error: {}", msg)),
+    }
+}</code></pre>
+                </div>
+                
+                <div class="tab-panel" id="async-await">
+                    <pre><code class="language-rust">async fn fetchUser(id: int) -> Result&lt;string, string&gt; {
+    let response = fetch(format!("/api/users/{}", id)).await?;
+    let user = response.json().await?;
+    Ok(user.name)
+}
+
+async fn main() {
+    match fetchUser(123).await {
+        Ok(name) => println(format!("User: {}", name)),
+        Err(error) => println(format!("Failed: {}", error)),
+    }
+}</code></pre>
+                </div>
+                
+                <div class="tab-panel" id="modules">
+                    <pre><code class="language-rust">// In utils.husk
+pub fn log(message: string) {
+    println(format!("[LOG] {}", message));
+}
+
+// In main.husk
+use local::utils::log;
+
+fn main() {
+    log("Application started");
+    
+    let numbers = [1, 2, 3, 4, 5];
+    for n in numbers {
+        log(format!("Processing: {}", n));
+    }
+}</code></pre>
+                </div>
+                
+                <div class="tab-panel" id="type-casting">
+                    <pre><code class="language-rust">fn main() {
+    // Numeric conversions
+    let i = 42;
+    let f = i as float;  // 42.0
+    
+    // String parsing
+    let input = "123";
+    let num = input as int;
+    let doubled = num * 2;
+    println(format!("{} * 2 = {}", input, doubled));
+    
+    // To string conversion
+    let result = doubled as string;
+    println(format!("Result: {}", result));
+}</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Get Started -->
+    <section class="get-started" id="get-started">
+        <div class="container">
+            <h2 class="section-title">Get Started with Husk</h2>
+            <div class="install-section">
+                <div class="install-command">
+                    <code>cargo install husk</code>
+                    <button class="copy-btn" data-target="install-cmd">Copy</button>
+                </div>
+                <p class="install-note">Requires Rust and Cargo. <a href="https://rustup.rs/" target="_blank" rel="noopener">Install Rust</a></p>
+            </div>
+            
+            <div class="quick-start">
+                <h3>Quick Start</h3>
+                <div class="steps">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Create a file</h4>
+                            <pre><code class="language-rust">// hello.husk
+fn main() {
+    println("Hello, Husk!");
+}</code></pre>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Run it</h4>
+                            <pre><code class="language-bash">husk run hello.husk</code></pre>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Or transpile to JS</h4>
+                            <pre><code class="language-bash">husk compile hello.husk | node</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="cta-section">
+                <a href="docs.html" class="btn btn-primary">Read Documentation</a>
+                <a href="examples.html" class="btn btn-secondary">Browse Examples</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <img src="assets/img/logo-small.png" alt="Husk Logo" class="footer-logo">
+                    <p>A Rust-inspired scripting language</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="docs.html">Documentation</a></li>
+                        <li><a href="examples.html">Examples</a></li>
+                        <li><a href="playground.html">Playground</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+                        <li><a href="https://github.com/fcoury/husk/issues" target="_blank" rel="noopener">Issues</a></li>
+                        <li><a href="community.html">Forums</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Husk Language. MIT License.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="assets/js/main.js"></script>
+</body>
+</html>
