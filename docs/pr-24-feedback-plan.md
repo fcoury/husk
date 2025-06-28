@@ -34,12 +34,12 @@ This document tracks the feedback received on PR #24 (npm improvements - import 
 ## Priority 2: Documentation Improvements
 
 ### 1. Main Documentation
-- [ ] Add configuration examples to main README
-- [ ] Document feature interactions:
-  - [ ] Tree shaking automatically disabled in dev mode
-  - [ ] Import maps take precedence over package resolution
-  - [ ] How external deps interact with import maps
-- [ ] Document import map security considerations
+- [x] Add configuration examples to main README
+- [x] Document feature interactions:
+  - [x] Tree shaking automatically disabled in dev mode
+  - [x] Import maps take precedence over package resolution
+  - [x] How external deps interact with import maps
+- [x] Document import map security considerations
 
 ### 2. Feature Precedence Documentation
 - [ ] Document the precedence order of import resolution
@@ -75,8 +75,8 @@ This document tracks the feedback received on PR #24 (npm improvements - import 
 | 1 | Repository Cleanup | ✅ Completed | All backup files and test artifacts removed |
 | 1 | Import Map URL Validation | ✅ Completed | Added validation and tests |
 | 1 | Adjust Pure Function List | 🟡 In Progress | Math.random and JSON methods removed, need docs |
-| 2 | Main Documentation | 🔴 Not Started | |
-| 2 | Feature Precedence Docs | 🔴 Not Started | |
+| 2 | Main Documentation | ✅ Completed | Added examples for all new features |
+| 2 | Feature Precedence Docs | 🟡 In Progress | Documented interactions, need import resolution order |
 | 3 | Pure Annotation Optimization | 🔴 Not Started | |
 | 3 | Import Map Caching | 🔴 Not Started | |
 | 4 | Dev Mode Enhancements | 🔴 Not Started | |

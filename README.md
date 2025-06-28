@@ -190,6 +190,200 @@ out = "dist"
 
 Place your Husk source files in the `src` directory. The build command will compile all `.husk` files and generate corresponding JavaScript files in the output directory.
 
+#### Advanced Configuration
+
+##### Import Maps
+
+Import maps allow you to customize module resolution, useful for CDN imports or aliasing:
+
+```toml
+[targets.browser]
+platform = "browser"
+format = "esm"
+tree_shaking = true
+
+[targets.browser.import_map]
+react = "https://esm.sh/react@18"
+"react-dom" = "https://esm.sh/react-dom@18"
+lodash = "https://cdn.skypack.dev/lodash"
+utils = "/utils/index.js"
+shared = "./shared/lib.js"
+```
+
+With this configuration, imports like `use external::react` will resolve to the CDN URLs.
+
+###### Import Map Security Considerations
+
+When using import maps, especially with external URLs, consider these security aspects:
+
+**URL Validation**: Husk validates import map URLs to prevent injection attacks:
+- ✅ Allowed: `https://`, `http://`, `/`, `./`, `../`
+- ❌ Rejected: `javascript:`, `data:`, `file://`, arbitrary protocols
+
+**Best Practices**:
+1. **Use HTTPS**: Always prefer HTTPS URLs for external dependencies
+2. **Pin Versions**: Include specific versions in CDN URLs to prevent unexpected updates
+3. **Trusted Sources**: Only use reputable CDNs (esm.sh, skypack.dev, unpkg.com)
+4. **Subresource Integrity**: Consider using CDNs that support SRI hashes
+
+```toml
+[targets.browser.import_map]
+# Good: HTTPS with pinned version
+react = "https://esm.sh/react@18.2.0"
+
+# Risky: No version pinning
+lodash = "https://cdn.skypack.dev/lodash"  # Could change unexpectedly
+
+# Bad: HTTP is vulnerable to MITM attacks
+insecure = "http://example.com/lib.js"  # Avoid HTTP in production
+```
+
+**Local Development**: For development, prefer local paths over external URLs:
+```toml
+[targets.dev.import_map]
+"@company/ui" = "./vendor/company-ui.js"  # Local copy for development
+```
+
+##### Tree Shaking
+
+Enable tree shaking to eliminate dead code in production builds:
+
+```toml
+[targets.production]
+platform = "browser"
+format = "esm"
+tree_shaking = true  # Enables dead code elimination
+dev = false          # Production mode (default)
+
+[targets.development]
+platform = "browser"
+format = "esm"
+tree_shaking = false  # Disable for faster builds
+dev = true            # Development mode with debugging features
+```
+
+##### Development Mode
+
+Development mode adds helpful debugging features:
+
+```toml
+[targets.dev]
+platform = "node"
+format = "esm"
+dev = true  # Enables:
+            # - Variable type comments
+            # - Runtime type assertions
+            # - Debugging hints
+            # - Disables tree shaking automatically
+```
+
+Example output in dev mode:
+```javascript
+/* Husk variable: x (type: int) */
+let x = 42;
+if (typeof x !== 'number') { console.warn('Type mismatch: x expected number, got ' + typeof x); }
+```
+
+##### Multiple Target Configurations
+
+You can define multiple build targets for different environments:
+
+```toml
+# Browser production build
+[targets.browser-prod]
+platform = "browser"
+format = "esm"
+entry = "src/client.husk"
+output = "dist/bundle.min.js"
+tree_shaking = true
+external = ["fs", "path", "crypto"]  # Exclude Node.js modules
+
+# Node.js CommonJS build
+[targets.node-cjs]
+platform = "node"
+format = "cjs"
+entry = "src/server.husk"
+output = "dist/server.cjs"
+
+# Development build with import maps
+[targets.dev]
+platform = "browser"
+format = "esm"
+dev = true
+[targets.dev.import_map]
+"@dev/logger" = "./dev/logger.js"
+"@dev/debug" = "./dev/debug-utils.js"
+```
+
+Build specific targets:
+```bash
+husk build --target browser-prod
+husk build --target node-cjs
+husk build --target dev
+```
+
+#### Feature Interactions and Precedence
+
+Understanding how Husk's features interact helps you configure your project effectively:
+
+##### Tree Shaking and Development Mode
+- **Automatic Disable**: Tree shaking is automatically disabled when `dev = true`
+- **Rationale**: Development mode prioritizes debugging over optimization
+- **Override**: You cannot enable tree shaking in dev mode (dev mode takes precedence)
+
+```toml
+[targets.dev]
+dev = true
+tree_shaking = true  # This will be ignored - tree shaking stays disabled
+```
+
+##### Import Maps and Package Resolution
+- **Import Map Priority**: Import maps take precedence over standard package resolution
+- **Partial Mapping**: Only mapped packages use import map URLs; others use standard resolution
+
+```toml
+[targets.browser.import_map]
+lodash = "https://cdn.skypack.dev/lodash"  # Uses CDN
+# express not mapped - uses standard npm resolution
+```
+
+```rust
+use external::lodash;   // Resolves to https://cdn.skypack.dev/lodash
+use external::express;  // Resolves to node_modules/express
+```
+
+##### External Dependencies and Import Maps
+- **Externals First**: Packages marked as external are excluded from bundling
+- **Import Maps Apply**: External packages can still use import map URLs
+
+```toml
+[targets.browser]
+external = ["react", "react-dom"]
+[targets.browser.import_map]
+react = "https://esm.sh/react@18"
+"react-dom" = "https://esm.sh/react-dom@18"
+```
+
+Generated imports:
+```javascript
+import React from 'https://esm.sh/react@18';  // External + mapped
+```
+
+##### Platform-Specific Behavior
+- **Node.js Built-ins**: Automatically external in browser builds
+- **Browser APIs**: Not available in Node.js builds
+- **Import Maps**: More commonly used for browser targets
+
+```toml
+[targets.browser]
+platform = "browser"
+# fs, path, crypto automatically marked as external
+
+[targets.node]
+platform = "node"
+# Browser APIs like localStorage not available
+```
+
 ## Real-World Example
 
 Here's how Husk enables you to move seamlessly from rapid prototyping to production:
