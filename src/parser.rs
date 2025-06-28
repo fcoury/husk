@@ -1246,6 +1246,22 @@ impl Parser {
                 )
             })?;
 
+            // Special handling for 'self' parameter
+            if param_name == "self" {
+                params.push(("self".to_string(), "self".to_string()));
+
+                // Check for comma after self
+                if self.current_token().kind == TokenKind::Comma {
+                    self.advance(); // Consume ','
+                } else if self.current_token().kind != TokenKind::RParen {
+                    return Err(Error::new_parse(
+                        "Expected ',' or ')' after 'self' parameter".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                continue;
+            }
+
             self.expect_token(TokenKind::Colon)?;
             let param_type = self.consume_type().unwrap_or_else(|| "Unknown".to_string());
 

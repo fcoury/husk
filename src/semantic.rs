@@ -460,6 +460,9 @@ impl SemanticVisitor {
 
                 // Register as an opaque external type
                 self.type_env.define(full_name.clone(), Type::Unknown);
+                // IMPORTANT: When Type::from_string is called with "express::Application",
+                // it creates a Type::Struct { name: "express::Application", ... }
+                // So we register the full name to match
                 self.imported_names.insert(full_name, Type::Unknown);
             }
             ExternItem::Mod(name, items) => {
@@ -478,11 +481,18 @@ impl SemanticVisitor {
                 // Process impl block methods
                 for item in items {
                     if let ExternItem::Function(method_name, _, params, return_type) = item {
-                        let full_name = format!("{type_name}::{method_name}");
+                        // For impl blocks inside extern mod, we need to include the module prefix
+                        let full_type_name = if prefix.is_empty() {
+                            type_name.clone()
+                        } else {
+                            format!("{prefix}::{type_name}")
+                        };
+                        let full_method_name = format!("{full_type_name}::{method_name}");
 
-                        // Convert parameter types
+                        // Convert parameter types, filtering out 'self'
                         let param_types: Vec<(String, Type)> = params
                             .iter()
+                            .filter(|(param_name, _)| param_name != "self")
                             .map(|(param_name, type_str)| {
                                 (
                                     param_name.clone(),
@@ -495,12 +505,12 @@ impl SemanticVisitor {
 
                         // Register method
                         self.functions.insert(
-                            full_name.clone(),
+                            full_method_name.clone(),
                             (param_types, ret_type.clone(), Span::default()),
                         );
 
                         self.imported_names.insert(
-                            full_name,
+                            full_method_name,
                             Type::Function {
                                 params: vec![],
                                 return_type: Box::new(ret_type),
@@ -2949,15 +2959,10 @@ impl AstVisitor<Type> for SemanticVisitor {
         Ok(Type::Unit)
     }
 
-    fn visit_extern_mod(
-        &mut self,
-        _name: &str,
-        items: &[ExternItem],
-        _span: &Span,
-    ) -> Result<Type> {
-        // Process all items in the extern mod block
+    fn visit_extern_mod(&mut self, name: &str, items: &[ExternItem], _span: &Span) -> Result<Type> {
+        // Process all items in the extern mod block with the module name as prefix
         for item in items {
-            self.process_extern_item(item, "")?;
+            self.process_extern_item(item, name)?;
         }
         Ok(Type::Unit)
     }
@@ -3872,20 +3877,36 @@ impl AstVisitor<Type> for SemanticVisitor {
                 }
             }
             Type::Struct { name, .. } => {
-                // For struct methods, prepend 'self' (the object) as the first argument
-                let mut method_args = vec![object.clone()];
-                method_args.extend_from_slice(args);
+                // Check if this is an extern type
+                let is_extern = self.imported_names.contains_key(name);
 
                 let target_expr = Expr::Identifier(name.clone(), *span);
-                self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
+
+                if is_extern {
+                    // For extern types, don't prepend self - it's already handled
+                    self.visit_enum_variant_or_method_call(&target_expr, method, args, span)
+                } else {
+                    // For regular struct methods, prepend 'self' (the object) as the first argument
+                    let mut method_args = vec![object.clone()];
+                    method_args.extend_from_slice(args);
+                    self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
+                }
             }
             Type::Enum { name, .. } => {
-                // For enum methods, prepend 'self' (the object) as the first argument
-                let mut method_args = vec![object.clone()];
-                method_args.extend_from_slice(args);
+                // Check if this is an extern type
+                let is_extern = self.imported_names.contains_key(name);
 
                 let target_expr = Expr::Identifier(name.clone(), *span);
-                self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
+
+                if is_extern {
+                    // For extern types, don't prepend self - it's already handled
+                    self.visit_enum_variant_or_method_call(&target_expr, method, args, span)
+                } else {
+                    // For regular enum methods, prepend 'self' (the object) as the first argument
+                    let mut method_args = vec![object.clone()];
+                    method_args.extend_from_slice(args);
+                    self.visit_enum_variant_or_method_call(&target_expr, method, &method_args, span)
+                }
             }
             _ => Err(Error::new_semantic(
                 format!("Cannot call method '{method}' on type {object_type}"),
