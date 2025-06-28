@@ -1,0 +1,9 @@
+// Test importing default exports using package::default syntax
+// This test only verifies the transpilation output, not runtime behavior
+
+use test_pkg_c::default;
+use test_pkg_d::default;
+
+fn main() {
+    println("Package default syntax test");
+}

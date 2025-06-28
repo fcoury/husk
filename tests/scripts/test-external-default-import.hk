@@ -1,0 +1,11 @@
+// Test importing default exports from external packages
+// This test only verifies the transpilation output, not runtime behavior
+
+// These imports should generate: import name from 'package'
+use external::test_package_a::default;
+use external::test_package_b::default;
+
+fn main() {
+    // Just verify the imports are generated correctly
+    println("Default import test");
+}
