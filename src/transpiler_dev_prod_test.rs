@@ -165,10 +165,13 @@ fn test_development_mode_runtime_type_assertions() {
     let result =
         <JsTranspiler as AstVisitor<String>>::visit_stmt(&mut transpiler, &program[0]).unwrap();
 
-    // Should contain runtime type assertions
-    assert!(result.contains("if (typeof userName !== 'string')"));
-    assert!(result.contains("if (typeof age !== 'number')"));
-    assert!(result.contains("if (typeof isActive !== 'boolean')"));
+    // Should contain runtime type assertions with null checks
+    assert!(result.contains("if (userName == null)"));
+    assert!(result.contains("else if (typeof userName !== 'string')"));
+    assert!(result.contains("if (age == null)"));
+    assert!(result.contains("else if (typeof age !== 'number')"));
+    assert!(result.contains("if (isActive == null)"));
+    assert!(result.contains("else if (typeof isActive !== 'boolean')"));
 }
 
 #[test]

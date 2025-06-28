@@ -7,6 +7,7 @@ use crate::{
     parser::{Expr, ExternItem, Operator, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
 };
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleFormat {
@@ -2881,6 +2882,52 @@ impl JsTranspiler {
         }
     }
 
+    /// Get the set of known pure functions for tree shaking
+    fn get_pure_functions() -> HashSet<&'static str> {
+        let mut pure_functions = HashSet::new();
+
+        // Math functions
+        pure_functions.insert("Math.abs");
+        pure_functions.insert("Math.max");
+        pure_functions.insert("Math.min");
+        pure_functions.insert("Math.floor");
+        pure_functions.insert("Math.ceil");
+        pure_functions.insert("Math.round");
+        pure_functions.insert("Math.sqrt");
+        pure_functions.insert("Math.pow");
+        pure_functions.insert("Math.sin");
+        pure_functions.insert("Math.cos");
+        pure_functions.insert("Math.tan");
+        pure_functions.insert("Math.log");
+
+        // Object/Array creation functions (pure constructors)
+        pure_functions.insert("Object.create");
+        pure_functions.insert("Object.assign");
+        pure_functions.insert("Object.keys");
+        pure_functions.insert("Object.values");
+        pure_functions.insert("Object.entries");
+        pure_functions.insert("Array.from");
+        pure_functions.insert("Array.of");
+
+        // String methods (when used functionally)
+        pure_functions.insert("String.fromCharCode");
+        pure_functions.insert("String.fromCodePoint");
+
+        // Type conversion functions
+        pure_functions.insert("Number");
+        pure_functions.insert("String");
+        pure_functions.insert("Boolean");
+        pure_functions.insert("parseInt");
+        pure_functions.insert("parseFloat");
+
+        // Husk-specific utility functions that are pure
+        pure_functions.insert("__format__");
+        pure_functions.insert("__husk_safe_call");
+        pure_functions.insert("huskSafeCall");
+
+        pure_functions
+    }
+
     /// Check if a function call should have a pure annotation for tree shaking
     fn should_add_pure_annotation(&self, function_name: &str) -> bool {
         // Only add pure annotations if tree shaking is enabled and not in dev mode
@@ -2892,32 +2939,25 @@ impl JsTranspiler {
             return false;
         }
 
-        // List of known pure functions that can be safely tree-shaken
-        // These are functions that have no side effects
-        match function_name {
-            // Math functions
-            "Math.abs" | "Math.max" | "Math.min" | "Math.floor" | "Math.ceil" | "Math.round"
-            | "Math.sqrt" | "Math.pow" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.log" => true,
-
-            // Object/Array creation functions (pure constructors)
-            "Object.create" | "Object.assign" | "Object.keys" | "Object.values"
-            | "Object.entries" | "Array.from" | "Array.of" => true,
-
-            // String methods (when used functionally)
-            "String.fromCharCode" | "String.fromCodePoint" => true,
-
-            // Type conversion functions
-            "Number" | "String" | "Boolean" | "parseInt" | "parseFloat" => true,
-
-            // Husk-specific utility functions that are pure
-            "__format__" | "__husk_safe_call" | "huskSafeCall" => true,
-
-            // Constructor calls (often pure) - but exclude JSON methods which can throw
-            name if name.starts_with("JSON.") => false,
-            name if name.chars().next().map_or(false, |c| c.is_uppercase()) => true,
-
-            _ => false,
+        // Special cases first
+        if function_name.starts_with("JSON.") {
+            return false; // JSON methods can throw
         }
+
+        // Check against known pure functions set
+        static PURE_FUNCTIONS: std::sync::OnceLock<HashSet<&'static str>> =
+            std::sync::OnceLock::new();
+        let pure_functions = PURE_FUNCTIONS.get_or_init(|| Self::get_pure_functions());
+
+        if pure_functions.contains(function_name) {
+            return true;
+        }
+
+        // Constructor calls (often pure) - check if starts with uppercase
+        function_name
+            .chars()
+            .next()
+            .map_or(false, |c| c.is_uppercase())
     }
 
     /// Add debugging comment if in development mode
@@ -2942,15 +2982,27 @@ impl JsTranspiler {
     /// Add runtime type checking assertion if in development mode
     fn add_runtime_assertion(&self, var_name: &str, expected_type: &str) -> String {
         if self.is_dev_mode() {
-            format!(
-                "{}if (typeof {} !== '{}') {{ console.warn('Type mismatch: {} expected {}, got ' + typeof {}); }}",
+            // First check for null/undefined
+            let null_check = format!(
+                "{}if ({} == null) {{ console.warn('Runtime warning: {} is ' + ({})); }}",
+                self.indent(),
+                var_name,
+                var_name,
+                var_name
+            );
+
+            // Then check the type (only if not null/undefined)
+            let type_check = format!(
+                "{}else if (typeof {} !== '{}') {{ console.warn('Type mismatch: {} expected {}, got ' + typeof {}); }}",
                 self.indent(),
                 var_name,
                 expected_type,
                 var_name,
                 expected_type,
                 var_name
-            )
+            );
+
+            format!("{}\n{}", null_check, type_check)
         } else {
             String::new()
         }
