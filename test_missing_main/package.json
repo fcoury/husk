@@ -1,0 +1,14 @@
+{
+  "author": "",
+  "description": "Test missing main function",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "name": "test-missing-main",
+  "scripts": {
+    "build": "husk build",
+    "dev": "husk dev",
+    "start": "husk run"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}

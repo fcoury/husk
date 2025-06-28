@@ -1,0 +1,13 @@
+// This file has an async main function
+fn add(a: int, b: int) -> int {
+    a + b
+}
+
+fn greet(name: string) {
+    println!("Hello, {}!", name);
+}
+
+async fn main() {
+    greet("World");
+    println!("2 + 3 = {}", add(2, 3));
+}

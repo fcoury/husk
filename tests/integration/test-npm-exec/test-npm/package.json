@@ -1,0 +1,15 @@
+{
+  "author": "",
+  "description": "Test npm JavaScript execution",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "name": "test-npm",
+  "scripts": {
+    "build": "husk build",
+    "dev": "husk dev",
+    "start": "husk run"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "version": "0.1.0"
+}

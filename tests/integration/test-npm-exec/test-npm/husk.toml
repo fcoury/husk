@@ -1,0 +1,26 @@
+[package]
+name = "test-npm"
+version = "0.1.0"
+description = "Test npm JavaScript execution"
+author = ""
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build]
+src = "src"
+out = "dist"
+target = ""
+module = "esm"
+
+[targets.browser]
+tree_shaking = true
+dev = false
+[targets.browser.import_map]
+lodash = "https://cdn.skypack.dev/lodash"
+
+[targets.dev]
+dev = true
+tree_shaking = false
