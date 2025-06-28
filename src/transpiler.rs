@@ -1969,9 +1969,15 @@ impl AstVisitor<String> for JsTranspiler {
                     let (subpath, import_names) = match (items, path.segments.len()) {
                         (UseItems::Single, 2) => {
                             // Single import with two segments: package::item
-                            // The second segment is the import name, not a subpath
+                            // Check if the second segment is "default" for default export
                             let import_name = path.segments[1].clone();
-                            (None, vec![import_name])
+                            if import_name == "default" {
+                                // Special case: package::default means import default export
+                                (None, vec!["default".to_string()])
+                            } else {
+                                // The second segment is the import name, not a subpath
+                                (None, vec![import_name])
+                            }
                         }
                         (UseItems::Single, len) if len > 2 => {
                             // Single import with more than two segments: package::subpath::item
@@ -2674,9 +2680,43 @@ impl JsTranspiler {
                     }
                 }
             } else {
-                // Non-builtin or single-segment paths
-                let module_segments = path.segments.clone();
-                (module_segments.join("/"), items.clone())
+                // Non-builtin external packages
+                // Check if it starts with "external"
+                if !path.segments.is_empty() && path.segments[0] == "external" {
+                    // external::package::item or external::package::default
+                    if path.segments.len() == 3
+                        && path.segments[2] == "default"
+                        && matches!(items, UseItems::Single)
+                    {
+                        // external::package::default - import default export
+                        let package_name = path.segments[1].clone();
+                        (
+                            package_name,
+                            UseItems::Named(vec![("default".to_string(), None)]),
+                        )
+                    } else if path.segments.len() >= 2 {
+                        // external::package or external::package::item
+                        let module_segments = path.segments[1..].to_vec();
+                        (module_segments.join("/"), items.clone())
+                    } else {
+                        // Just "external" - invalid
+                        ("external".to_string(), items.clone())
+                    }
+                } else if path.segments.len() == 2
+                    && path.segments[1] == "default"
+                    && matches!(items, UseItems::Single)
+                {
+                    // package::default - import default export (without external prefix)
+                    let package_name = path.segments[0].clone();
+                    (
+                        package_name,
+                        UseItems::Named(vec![("default".to_string(), None)]),
+                    )
+                } else {
+                    // Normal path handling
+                    let module_segments = path.segments.clone();
+                    (module_segments.join("/"), items.clone())
+                }
             }
         } else {
             // Local imports - handle the path construction
@@ -2757,18 +2797,38 @@ impl JsTranspiler {
                 }
             }
             UseItems::Named(items) => {
-                let imports = items
-                    .iter()
-                    .map(|(name, alias)| {
-                        if let Some(alias) = alias {
-                            format!("{name} as {alias}")
+                // Check if it's a default import (single item named "default")
+                if items.len() == 1 && items[0].0 == "default" {
+                    // Generate default import
+                    // Use the package name from the module path as the default alias
+                    let default_alias =
+                        if path.prefix == UsePrefix::None && !path.segments.is_empty() {
+                            // If path starts with "external", use the second segment (the actual package name)
+                            if path.segments[0] == "external" && path.segments.len() > 1 {
+                                path.segments[1].clone()
+                            } else {
+                                path.segments[0].clone()
+                            }
                         } else {
-                            name.clone()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("import {{ {imports} }} from '{final_module_path}'")
+                            "defaultExport".to_string()
+                        };
+                    let alias = items[0].1.as_ref().unwrap_or(&default_alias);
+                    format!("import {alias} from '{final_module_path}'")
+                } else {
+                    // Normal named imports
+                    let imports = items
+                        .iter()
+                        .map(|(name, alias)| {
+                            if let Some(alias) = alias {
+                                format!("{name} as {alias}")
+                            } else {
+                                name.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("import {{ {imports} }} from '{final_module_path}'")
+                }
             }
         };
 

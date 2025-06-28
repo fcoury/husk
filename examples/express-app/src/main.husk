@@ -1,0 +1,16 @@
+// Import express using the new ::default syntax
+use external::express::default;
+
+fn main() {
+    // Now the import brings in 'express' thanks to our special handling
+    let app = express();
+
+    // Since express returns an unknown type, we can call any method on it
+    app.get("/", |req, res| {
+        res.send("Hello, World!");
+    });
+
+    app.listen(3000, || {
+        println("Server is running on http://localhost:3000");
+    });
+}

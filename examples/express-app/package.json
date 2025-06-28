@@ -1,0 +1,17 @@
+{
+  "author": "",
+  "dependencies": {
+    "express": "5.1.0"
+  },
+  "description": "A new Husk project",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "name": "express-app",
+  "scripts": {
+    "build": "husk build",
+    "dev": "husk dev",
+    "start": "husk run"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
