@@ -1,6 +1,0 @@
-// Test file to check import generation with simple express import
-use external::express;
-
-fn main() {
-    println("Import test 2");
-}

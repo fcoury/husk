@@ -177,9 +177,13 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
     println!("Building project: {}", config.package.name);
 
-    // Generate package.json by default (unless skipped)
+    // Create output directory first (needed for package.json)
+    let out_dir = project_root.join(&config.build.out);
+    fs::create_dir_all(&out_dir)?;
+
+    // Generate package.json in dist folder by default (unless skipped)
     if !cli.skip_package_json {
-        let package_json_path = project_root.join("package.json");
+        let package_json_path = out_dir.join("package.json");
         let new_package_json = config.generate_package_json()?;
 
         // Check if package.json exists and if it needs updating
@@ -208,11 +212,14 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
         if should_generate {
             fs::write(&package_json_path, &new_package_json)?;
-            println!("✓ Generated package.json");
+            println!("✓ Generated package.json in {}", config.build.out);
 
             // Remind user to run npm install if needed
-            if !project_root.join("node_modules").exists() {
-                println!("  → Run 'npm install' to install dependencies");
+            if !out_dir.join("node_modules").exists() {
+                println!(
+                    "  → Run 'cd {} && npm install' to install dependencies",
+                    config.build.out
+                );
             }
         }
     }
@@ -230,16 +237,13 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
     println!("Target: {target}");
 
-    // Create output directory
+    // Create source directory path
     let src_dir = project_root.join(&config.build.src);
-    let out_dir = project_root.join(&config.build.out);
 
     if !src_dir.exists() {
         eprintln!("Error: Source directory '{}' not found", config.build.src);
         std::process::exit(1);
     }
-
-    fs::create_dir_all(&out_dir)?;
 
     // Find all .husk files in src directory
     let husk_files = find_husk_files(&src_dir)?;
