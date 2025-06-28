@@ -10,6 +10,10 @@ This document provides an overview of the key language features implemented in H
 - **Higher-Order Functions** - Functions that take or return other functions
 - **Pattern Matching** - Match expressions for control flow and destructuring
 
+### JavaScript Interoperability
+
+- **[Extern Declarations](language_features/EXTERN_DECLARATIONS.md)** - Interface with JavaScript libraries and APIs
+
 ### Type System
 
 - **Static Type Checking** - Compile-time type verification
@@ -55,6 +59,7 @@ This document provides an overview of the key language features implemented in H
 - Core data types and operations
 - String and array standard library
 - JavaScript transpilation
+- Extern declarations for JavaScript interop
 
 ### 🚧 In Progress
 - Generic type system
