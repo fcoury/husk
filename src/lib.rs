@@ -188,5 +188,152 @@ pub fn transpile_to_js_with_target(code: impl Into<String>, target: &str) -> Res
             JsTranspiler::new()
         }
     };
-    js_generator.generate(&ast)
+    js_generator.transpile(&ast)
+}
+
+/// Transpile Husk code to JavaScript with target configuration and entry point validation
+pub fn transpile_to_js_with_entry_validation(
+    code: impl Into<String>,
+    target: &str,
+    is_main_entry: bool,
+) -> Result<String> {
+    let code = code.into();
+    let mut lexer = Lexer::new(code.to_string());
+    let tokens = lexer.lex_all();
+
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse()?;
+
+    // Check for main function if this is the main entry point
+    if is_main_entry {
+        let has_main = ast.iter().any(|stmt| {
+            matches!(
+                stmt,
+                crate::parser::Stmt::Function(_, _, name, _, _, _, _, _)
+                | crate::parser::Stmt::AsyncFunction(_, _, name, _, _, _, _, _)
+                if name == "main"
+            )
+        });
+
+        if !has_main {
+            return Err(Error::new_semantic(
+                "Main entry point must contain a 'main' function".to_string(),
+                crate::span::Span::default(),
+            ));
+        }
+    }
+
+    // Use visitor pattern for semantic analysis with package resolution
+    let mut analyzer = SemanticVisitor::with_package_resolver().unwrap_or_default();
+    analyzer.analyze(&ast)?;
+
+    // Use transpiler with target configuration
+    let mut js_generator = match JsTranspiler::with_target(target) {
+        Ok(transpiler) => transpiler,
+        Err(_) => {
+            // Fall back to basic transpiler if target parsing fails
+            JsTranspiler::new()
+        }
+    };
+    js_generator.transpile(&ast)
+}
+
+#[cfg(test)]
+mod lib_tests {
+    use super::*;
+
+    #[test]
+    fn test_entry_validation_with_main() {
+        let code = r#"
+            fn helper() {
+                println!("Helper function");
+            }
+            
+            fn main() {
+                println!("Hello from main!");
+                helper();
+            }
+        "#;
+
+        // Should succeed when main is present and is_main_entry is true
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", true);
+        assert!(result.is_ok());
+        let js = result.unwrap();
+        assert!(js.contains("function main()"));
+        assert!(js.contains("main();"));
+    }
+
+    #[test]
+    fn test_entry_validation_without_main() {
+        let code = r#"
+            fn helper() {
+                println!("Helper function");
+            }
+            
+            fn another_function() {
+                println!("Another function");
+            }
+        "#;
+
+        // Should fail when main is missing and is_main_entry is true
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", true);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Main entry point must contain a 'main' function"));
+    }
+
+    #[test]
+    fn test_entry_validation_non_entry_file() {
+        let code = r#"
+            fn helper() {
+                println!("Helper function");
+            }
+            
+            fn another_function() {
+                println!("Another function");
+            }
+        "#;
+
+        // Should succeed when main is missing but is_main_entry is false
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", false);
+        assert!(result.is_ok());
+        let js = result.unwrap();
+        assert!(js.contains("function helper()"));
+        assert!(js.contains("function another_function()"));
+        assert!(!js.contains("main();"));
+    }
+
+    #[test]
+    fn test_entry_validation_async_main() {
+        let code = r#"
+            async fn main() {
+                println!("Hello from async main!");
+            }
+        "#;
+
+        // Should succeed with async main when is_main_entry is true
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", true);
+        assert!(result.is_ok());
+        let js = result.unwrap();
+
+        assert!(js.contains("async function main()"));
+        assert!(js.contains("main();"));
+    }
+
+    #[test]
+    fn test_entry_validation_with_different_targets() {
+        let code = r#"
+            fn main() {
+                println!("Hello!");
+            }
+        "#;
+
+        // Test with different targets
+        for target in &["node-esm", "node-cjs", "browser", "deno", "bun"] {
+            let result = transpile_to_js_with_entry_validation(code, target, true);
+            assert!(result.is_ok(), "Failed for target: {}", target);
+        }
+    }
 }
