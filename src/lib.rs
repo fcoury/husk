@@ -29,6 +29,9 @@ mod interpreter_modules_test;
 mod extern_test;
 
 #[cfg(test)]
+mod extern_transpiler_test;
+
+#[cfg(test)]
 mod async_test;
 
 #[cfg(test)]
