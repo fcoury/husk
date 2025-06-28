@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use husk_lang::repl;
-use serde_json;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
