@@ -1,0 +1,5 @@
+import test_pkg_c from 'test_pkg_c';
+import test_pkg_d from 'test_pkg_d';
+function main() {
+  void (println("Package default syntax test"));
+}
