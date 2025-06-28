@@ -3204,9 +3204,17 @@ impl AstVisitor<Type> for SemanticVisitor {
                     return Ok(Type::Unit);
                 }
 
+                // Check if it's an external:: import
+                let (actual_package_name, is_external_import) =
+                    if package_name == "external" && path.segments.len() > 1 {
+                        (&path.segments[1], true)
+                    } else {
+                        (package_name, false)
+                    };
+
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
-                    match resolver.resolve_package(package_name) {
+                    match resolver.resolve_package(actual_package_name) {
                         Ok(_resolved_package) => {
                             // Register imported names as Unknown for now
                             // In a full implementation, we'd load type definitions
@@ -3223,9 +3231,19 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     // For wildcard imports, we can't pre-register names
                                 }
                                 UseItems::Single => {
-                                    // Register the package name itself
-                                    self.imported_names
-                                        .insert(package_name.clone(), Type::Unknown);
+                                    // Handle external::package::default specially
+                                    if is_external_import
+                                        && path.segments.len() == 3
+                                        && path.segments[2] == "default"
+                                    {
+                                        // Register the package name (express) instead of "default"
+                                        self.imported_names
+                                            .insert(actual_package_name.clone(), Type::Unknown);
+                                    } else {
+                                        // Register the package name itself
+                                        self.imported_names
+                                            .insert(actual_package_name.clone(), Type::Unknown);
+                                    }
                                 }
                             }
                             Ok(Type::Unit)
@@ -3248,9 +3266,19 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     // For wildcard imports, we can't pre-register names
                                 }
                                 UseItems::Single => {
-                                    // Register the package name itself
-                                    self.imported_names
-                                        .insert(package_name.clone(), Type::Unknown);
+                                    // Handle external::package::default specially
+                                    if is_external_import
+                                        && path.segments.len() == 3
+                                        && path.segments[2] == "default"
+                                    {
+                                        // Register the package name (express) instead of "default"
+                                        self.imported_names
+                                            .insert(actual_package_name.clone(), Type::Unknown);
+                                    } else {
+                                        // Register the package name itself
+                                        self.imported_names
+                                            .insert(actual_package_name.clone(), Type::Unknown);
+                                    }
                                 }
                             }
                             Ok(Type::Unit)
@@ -3267,7 +3295,15 @@ impl AstVisitor<Type> for SemanticVisitor {
                             }
                         }
                         UseItems::Single => {
-                            if let Some(module_name) = path.segments.last() {
+                            // Handle external::package::default specially
+                            if is_external_import
+                                && path.segments.len() == 3
+                                && path.segments[2] == "default"
+                            {
+                                // Register the package name (express) instead of "default"
+                                self.imported_names
+                                    .insert(actual_package_name.clone(), Type::Unknown);
+                            } else if let Some(module_name) = path.segments.last() {
                                 self.imported_names
                                     .insert(module_name.clone(), Type::Unknown);
                             }

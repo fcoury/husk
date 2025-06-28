@@ -1,0 +1,17 @@
+[package]
+name = "express-app"
+version = "0.1.0"
+description = "A new Husk project"
+author = ""
+license = "MIT"
+
+[dependencies]
+express = "5.1.0"
+
+[ev-dependencies]
+
+[build]
+src = "src"
+out = "dist"
+target = ""
+module = "esm"
