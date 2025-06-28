@@ -110,6 +110,12 @@ pub struct TargetConfig {
     pub external: Vec<String>,
     #[serde(default)]
     pub globals: HashMap<String, String>,
+    #[serde(default)]
+    pub import_map: HashMap<String, String>,
+    #[serde(default)]
+    pub tree_shaking: bool,
+    #[serde(default)]
+    pub dev: bool,
 }
 
 fn default_src_dir() -> String {
@@ -124,7 +130,7 @@ impl HuskConfig {
     /// Load configuration from husk.toml file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path)
-            .map_err(|e| Error::new_config(format!("Failed to read husk.toml: {}", e)))?;
+            .map_err(|e| Error::new_config(format!("Failed to read husk.toml: {e}")))?;
 
         Self::parse_from_str(&content)
     }
@@ -132,13 +138,13 @@ impl HuskConfig {
     /// Parse configuration from TOML string
     pub fn parse_from_str(content: &str) -> Result<Self> {
         toml::from_str(content)
-            .map_err(|e| Error::new_config(format!("Invalid husk.toml format: {}", e)))
+            .map_err(|e| Error::new_config(format!("Invalid husk.toml format: {e}")))
     }
 
     /// Find and load husk.toml from current directory or parent directories
     pub fn find_and_load() -> Result<(Self, PathBuf)> {
         let mut current_dir = std::env::current_dir()
-            .map_err(|e| Error::new_config(format!("Failed to get current directory: {}", e)))?;
+            .map_err(|e| Error::new_config(format!("Failed to get current directory: {e}")))?;
 
         loop {
             let config_path = current_dir.join("husk.toml");
@@ -271,7 +277,7 @@ impl HuskConfig {
                     DependencySpec::Detailed { git: Some(git), .. } => git.clone(),
                     DependencySpec::Detailed {
                         path: Some(path), ..
-                    } => format!("file:{}", path),
+                    } => format!("file:{path}"),
                     _ => "latest".to_string(),
                 };
                 deps.insert(name.clone(), serde_json::Value::String(version));
@@ -291,7 +297,7 @@ impl HuskConfig {
                     DependencySpec::Detailed { git: Some(git), .. } => git.clone(),
                     DependencySpec::Detailed {
                         path: Some(path), ..
-                    } => format!("file:{}", path),
+                    } => format!("file:{path}"),
                     _ => "latest".to_string(),
                 };
                 deps.insert(name.clone(), serde_json::Value::String(version));
@@ -318,8 +324,15 @@ impl HuskConfig {
         );
         pkg.insert("scripts".to_string(), serde_json::Value::Object(scripts));
 
+        // Tree shaking support
+        // Check if any target has tree shaking enabled
+        let has_tree_shaking = self.targets.values().any(|target| target.tree_shaking);
+        if has_tree_shaking {
+            pkg.insert("sideEffects".to_string(), serde_json::Value::Bool(false));
+        }
+
         serde_json::to_string_pretty(&serde_json::Value::Object(pkg))
-            .map_err(|e| Error::new_config(format!("Failed to generate package.json: {}", e)))
+            .map_err(|e| Error::new_config(format!("Failed to generate package.json: {e}")))
     }
 
     /// Validate the configuration

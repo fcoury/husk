@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{DependencySpec, HuskConfig};
 use crate::error::{Error, Result};
+use crate::transpiler::TargetPlatform;
 
 /// Handles npm package resolution and dependency management
 pub struct PackageResolver {
@@ -15,6 +16,8 @@ pub struct PackageResolver {
     package_cache: HashMap<String, ResolvedPackage>,
     /// Cache of package.json contents
     package_json_cache: HashMap<PathBuf, PackageJson>,
+    /// Target platform for module resolution
+    target_platform: Option<TargetPlatform>,
 }
 
 /// Information about a resolved npm package
@@ -32,6 +35,10 @@ pub struct ResolvedPackage {
     pub module_type: ModuleType,
     /// Exported names from package.json
     pub exports: Vec<String>,
+    /// TypeScript definitions file
+    pub types: Option<String>,
+    /// Whether this package has @types available
+    pub has_types_package: bool,
 }
 
 /// JavaScript module type
@@ -51,14 +58,20 @@ pub struct PackageJson {
     pub version: Option<String>,
     pub main: Option<String>,
     pub module: Option<String>,
+    pub browser: Option<serde_json::Value>,
     #[serde(rename = "type")]
     pub module_type: Option<String>,
+    pub types: Option<String>,
+    pub typings: Option<String>,
     pub exports: Option<serde_json::Value>,
     #[allow(dead_code)]
     pub dependencies: Option<HashMap<String, String>>,
     #[allow(dead_code)]
     #[serde(rename = "peerDependencies")]
     pub peer_dependencies: Option<HashMap<String, String>>,
+    #[allow(dead_code)]
+    #[serde(rename = "devDependencies")]
+    pub dev_dependencies: Option<HashMap<String, String>>,
 }
 
 impl PackageResolver {
@@ -69,6 +82,22 @@ impl PackageResolver {
             config,
             package_cache: HashMap::new(),
             package_json_cache: HashMap::new(),
+            target_platform: None,
+        }
+    }
+
+    /// Create a new package resolver with target platform
+    pub fn with_target(
+        project_root: PathBuf,
+        config: HuskConfig,
+        target_platform: TargetPlatform,
+    ) -> Self {
+        Self {
+            project_root,
+            config,
+            package_cache: HashMap::new(),
+            package_json_cache: HashMap::new(),
+            target_platform: Some(target_platform),
         }
     }
 
@@ -104,8 +133,7 @@ impl PackageResolver {
             Ok(resolved)
         } else {
             Err(Error::new_config(format!(
-                "Package '{}' not found in dependencies. Add it to husk.toml [dependencies] or [dev-dependencies]",
-                package_name
+                "Package '{package_name}' not found in dependencies. Add it to husk.toml [dependencies] or [dev-dependencies]"
             )))
         }
     }
@@ -142,8 +170,7 @@ impl PackageResolver {
                 self.resolve_npm_package(name)
             }
             _ => Err(Error::new_config(format!(
-                "Invalid dependency specification for package '{}'",
-                name
+                "Invalid dependency specification for package '{name}'"
             ))),
         }
     }
@@ -155,35 +182,24 @@ impl PackageResolver {
 
         if !package_path.exists() {
             return Err(Error::new_config(format!(
-                "Package '{}' not found in node_modules. Run 'npm install' first.",
-                name
+                "Package '{name}' not found in node_modules. Run 'npm install' first."
             )));
         }
 
         let package_json_path = package_path.join("package.json");
         let package_json = self.load_package_json(&package_json_path)?;
 
-        let main_file = package_json
-            .main
-            .clone()
-            .or_else(|| package_json.module.clone())
-            .unwrap_or_else(|| "index.js".to_string());
+        // Use the select_entry_point method for consistency
+        let main_file = self.select_entry_point(&package_json);
 
-        let module_type = match package_json.module_type.as_deref() {
-            Some("module") => ModuleType::ESModule,
-            Some("commonjs") => ModuleType::CommonJS,
-            _ => {
-                // Guess based on file extension and main field
-                if main_file.ends_with(".mjs") || package_json.module.is_some() {
-                    ModuleType::ESModule
-                } else {
-                    ModuleType::CommonJS
-                }
-            }
-        };
+        let module_type = self.detect_module_type(&package_json, &main_file, &package_path)?;
 
         // Extract exported names (simplified - in reality this would be more complex)
         let exports = self.extract_exports(&package_json);
+
+        // Resolve TypeScript definitions
+        let types = self.resolve_types_path(&package_json, &package_path);
+        let has_types_package = self.check_types_package_exists(name);
 
         Ok(ResolvedPackage {
             name: name.to_string(),
@@ -194,6 +210,8 @@ impl PackageResolver {
             main: Some(main_file),
             module_type,
             exports,
+            types,
+            has_types_package,
         })
     }
 
@@ -207,8 +225,7 @@ impl PackageResolver {
 
         if !package_path.exists() {
             return Err(Error::new_config(format!(
-                "Local dependency '{}' not found at path: {}",
-                name, relative_path
+                "Local dependency '{name}' not found at path: {relative_path}"
             )));
         }
 
@@ -240,6 +257,12 @@ impl PackageResolver {
             .map(|pkg| self.extract_exports(pkg))
             .unwrap_or_default();
 
+        // Resolve TypeScript definitions for local packages
+        let types = package_json
+            .as_ref()
+            .and_then(|pkg| self.resolve_types_path(pkg, &package_path));
+        let has_types_package = false; // Local packages don't have @types
+
         Ok(ResolvedPackage {
             name: name.to_string(),
             version: package_json
@@ -250,6 +273,8 @@ impl PackageResolver {
             main: Some(main_file),
             module_type,
             exports,
+            types,
+            has_types_package,
         })
     }
 
@@ -275,6 +300,316 @@ impl PackageResolver {
         self.package_json_cache
             .insert(path.to_path_buf(), package_json.clone());
         Ok(package_json)
+    }
+
+    /// Resolve an entry from the exports field
+    fn resolve_exports_entry(
+        &self,
+        exports: &serde_json::Value,
+        entry_path: &str,
+        package_json: &PackageJson,
+    ) -> Result<String> {
+        match exports {
+            // Simple string export
+            serde_json::Value::String(path) => Ok(path.clone()),
+
+            // Conditional exports object
+            serde_json::Value::Object(map) => {
+                // First, try exact match for the entry path
+                if let Some(entry_value) = map.get(entry_path) {
+                    // The value could be a string or another conditional object
+                    match entry_value {
+                        serde_json::Value::String(_) => {
+                            return self.resolve_exports_entry(
+                                entry_value,
+                                entry_path,
+                                package_json,
+                            );
+                        }
+                        serde_json::Value::Object(conditions) => {
+                            // Try to resolve based on conditions
+                            let condition_order = ["import", "require", "default", "node"];
+                            for condition in &condition_order {
+                                if let Some(condition_value) = conditions.get(*condition) {
+                                    if let Ok(path) = self.resolve_exports_entry(
+                                        condition_value,
+                                        entry_path,
+                                        package_json,
+                                    ) {
+                                        return Ok(path);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Try wildcard patterns
+                for (pattern, value) in map {
+                    if pattern.contains('*') {
+                        // Simple wildcard matching: "./foo/*" matches "./foo/bar"
+                        let pattern_prefix = pattern.trim_end_matches('*');
+                        if entry_path.starts_with(pattern_prefix) {
+                            // Replace * with the matched part
+                            let matched_part = &entry_path[pattern_prefix.len()..];
+                            if let serde_json::Value::String(target) = value {
+                                let resolved = target.replace('*', matched_part);
+                                return Ok(resolved);
+                            }
+                        }
+                    }
+                }
+
+                // If entry_path is not ".", it's a subpath that wasn't found
+                if entry_path != "." {
+                    return Err(Error::new_config(format!(
+                        "Export '{}' not found in package exports",
+                        entry_path
+                    )));
+                }
+
+                // Try common conditions in order of preference for main export
+                let conditions = ["default", "node", "require", "import"];
+                for condition in &conditions {
+                    if let Some(condition_value) = map.get(*condition) {
+                        if let Ok(path) =
+                            self.resolve_exports_entry(condition_value, entry_path, package_json)
+                        {
+                            return Ok(path);
+                        }
+                    }
+                }
+
+                // Fallback to main/module
+                Ok(package_json
+                    .main
+                    .clone()
+                    .or_else(|| package_json.module.clone())
+                    .unwrap_or_else(|| "index.js".to_string()))
+            }
+
+            _ => Ok(package_json
+                .main
+                .clone()
+                .or_else(|| package_json.module.clone())
+                .unwrap_or_else(|| "index.js".to_string())),
+        }
+    }
+
+    /// Detect the module type of a package using various heuristics
+    fn detect_module_type(
+        &self,
+        package_json: &PackageJson,
+        main_file: &str,
+        package_path: &Path,
+    ) -> Result<ModuleType> {
+        // 1. Explicit type field in package.json (highest priority)
+        if let Some(module_type) = package_json.module_type.as_deref() {
+            return Ok(match module_type {
+                "module" => ModuleType::ESModule,
+                "commonjs" => ModuleType::CommonJS,
+                _ => ModuleType::Unknown,
+            });
+        }
+
+        // 2. Check file extensions
+        if main_file.ends_with(".mjs") {
+            return Ok(ModuleType::ESModule);
+        }
+        if main_file.ends_with(".cjs") {
+            return Ok(ModuleType::CommonJS);
+        }
+
+        // 3. Check for dual package setup (both "main" and "module" fields)
+        if package_json.module.is_some() && package_json.main.is_some() {
+            // This is likely a dual package - the "module" field points to ESM
+            // We should use ESM if we're in an ESM context (based on our build config)
+            match self.config.build.module.as_str() {
+                "esm" => return Ok(ModuleType::ESModule),
+                "cjs" | "commonjs" => return Ok(ModuleType::CommonJS),
+                _ => {} // Continue with other heuristics
+            }
+        }
+
+        // 4. Check exports field patterns
+        if let Some(exports) = &package_json.exports {
+            if let Some(module_type) = self.detect_module_type_from_exports(exports) {
+                return Ok(module_type);
+            }
+        }
+
+        // 5. Analyze the main file content if it exists
+        let main_path = package_path.join(main_file);
+        if main_path.exists() {
+            if let Ok(content) = fs::read_to_string(&main_path) {
+                // Improved heuristics with better pattern matching
+                let trimmed = content.trim_start();
+
+                // Check for ESM syntax (more precise)
+                if trimmed.starts_with("export ")
+                    || trimmed.starts_with("import ")
+                    || content.contains("\nexport ")
+                    || content.contains("\nimport ")
+                    || content.contains("export {")
+                    || content.contains("export default")
+                {
+                    return Ok(ModuleType::ESModule);
+                }
+
+                // Check for UMD pattern
+                if content.contains("typeof exports === 'object'")
+                    && content.contains("typeof define === 'function'")
+                    && content.contains("define.amd")
+                {
+                    return Ok(ModuleType::Umd);
+                }
+
+                // Look for CommonJS patterns
+                if content.contains("module.exports")
+                    || content.contains("exports.")
+                    || content.contains("require(")
+                    || content.contains("__dirname")
+                    || content.contains("__filename")
+                {
+                    return Ok(ModuleType::CommonJS);
+                }
+            }
+        }
+
+        // 6. Modern packages with only "module" field are ESM
+        if package_json.module.is_some() && package_json.main.is_none() {
+            return Ok(ModuleType::ESModule);
+        }
+
+        // 7. Packages with exports field but no type are often ESM
+        if package_json.exports.is_some() {
+            return Ok(ModuleType::ESModule);
+        }
+
+        // 8. Default to CommonJS for compatibility with older packages
+        Ok(ModuleType::CommonJS)
+    }
+
+    /// Detect module type from exports field patterns
+    fn detect_module_type_from_exports(&self, exports: &serde_json::Value) -> Option<ModuleType> {
+        match exports {
+            serde_json::Value::Object(map) => {
+                // Check if there are separate import/require conditions
+                let has_import = map.keys().any(|k| k == "import");
+                let has_require = map.keys().any(|k| k == "require");
+
+                if has_import && !has_require {
+                    Some(ModuleType::ESModule)
+                } else if has_require && !has_import {
+                    Some(ModuleType::CommonJS)
+                } else {
+                    // Check nested conditions
+                    for (_, value) in map {
+                        if let serde_json::Value::Object(conditions) = value {
+                            let has_import = conditions.contains_key("import");
+                            let has_require = conditions.contains_key("require");
+
+                            if has_import && !has_require {
+                                return Some(ModuleType::ESModule);
+                            } else if has_require && !has_import {
+                                return Some(ModuleType::CommonJS);
+                            }
+                        }
+                    }
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolve TypeScript definitions path for a package
+    fn resolve_types_path(
+        &self,
+        package_json: &PackageJson,
+        package_path: &Path,
+    ) -> Option<String> {
+        // Check explicit types/typings field
+        if let Some(types) = package_json
+            .types
+            .as_ref()
+            .or(package_json.typings.as_ref())
+        {
+            return Some(types.clone());
+        }
+
+        // Check if index.d.ts exists alongside main file
+        if let Some(main) = &package_json.main {
+            let main_path = Path::new(main);
+            if let Some(stem) = main_path.file_stem() {
+                let parent = main_path.parent().unwrap_or(Path::new(""));
+                let dts_path = parent.join(format!("{}.d.ts", stem.to_string_lossy()));
+                let full_path = package_path.join(&dts_path);
+                if full_path.exists() {
+                    return Some(dts_path.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        // Check for index.d.ts in package root
+        let index_dts = package_path.join("index.d.ts");
+        if index_dts.exists() {
+            return Some("index.d.ts".to_string());
+        }
+
+        // Check if the package has a types directory
+        let types_dir = package_path.join("types");
+        if types_dir.exists() && types_dir.join("index.d.ts").exists() {
+            return Some("types/index.d.ts".to_string());
+        }
+
+        None
+    }
+
+    /// Check if @types package exists for this package
+    fn check_types_package_exists(&self, package_name: &str) -> bool {
+        let types_package_name = self.get_types_package_name(package_name);
+        let types_path = self
+            .project_root
+            .join("node_modules")
+            .join(&types_package_name);
+        types_path.exists()
+    }
+
+    /// Get the @types package name for a given package
+    fn get_types_package_name(&self, package_name: &str) -> String {
+        // Convert scoped packages: @org/pkg -> @types/org__pkg
+        if package_name.starts_with('@') {
+            let without_at = &package_name[1..];
+            format!("@types/{}", without_at.replace('/', "__"))
+        } else {
+            format!("@types/{}", package_name)
+        }
+    }
+
+    /// Resolve TypeScript definitions for a package, including @types
+    pub fn resolve_package_types(&mut self, package_name: &str) -> Result<Option<String>> {
+        // First try to resolve the package itself
+        let package = self.resolve_package(package_name)?;
+
+        // If the package has embedded types, return those
+        if let Some(types) = &package.types {
+            return Ok(Some(format!("{}/{}", package_name, types)));
+        }
+
+        // Otherwise, check for @types package
+        if package.has_types_package {
+            let types_package_name = self.get_types_package_name(package_name);
+            // Try to resolve the @types package
+            if let Ok(types_package) = self.resolve_npm_package(&types_package_name) {
+                if let Some(main) = &types_package.main {
+                    return Ok(Some(format!("{}/{}", types_package_name, main)));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Extract exported names from package.json (simplified)
@@ -327,6 +662,181 @@ impl PackageResolver {
             && !import_path.starts_with("/")
     }
 
+    /// Resolve a subpath export for a package
+    pub fn resolve_package_subpath(&mut self, package_name: &str, subpath: &str) -> Result<String> {
+        let node_modules_path = self.project_root.join("node_modules");
+        let package_path = node_modules_path.join(package_name);
+        let package_json_path = package_path.join("package.json");
+
+        if !package_json_path.exists() {
+            return Err(Error::new_config(format!(
+                "Package '{package_name}' not found in node_modules"
+            )));
+        }
+
+        let package_json = self.load_package_json(&package_json_path)?;
+
+        // Check for browser field mapping first
+        if let Some(browser_mapped) = self.resolve_browser_mapping(&package_json, subpath) {
+            if browser_mapped.is_empty() {
+                // Empty string means this module should be excluded for browser
+                return Err(Error::new_config(format!(
+                    "Module '{}/{}' is excluded for browser target",
+                    package_name, subpath
+                )));
+            }
+            // Return the browser-mapped path
+            return Ok(format!(
+                "{}/{}",
+                package_name,
+                browser_mapped.trim_start_matches("./")
+            ));
+        }
+
+        // If the package has exports field, use it to resolve subpath
+        if let Some(exports) = &package_json.exports {
+            let entry_path = if subpath.starts_with("./") {
+                subpath.to_string()
+            } else {
+                format!("./{}", subpath)
+            };
+
+            match self.resolve_exports_entry(exports, &entry_path, &package_json) {
+                Ok(resolved) => {
+                    // Check for browser mapping of the resolved path
+                    if let Some(browser_mapped) =
+                        self.resolve_browser_mapping(&package_json, &resolved)
+                    {
+                        if browser_mapped.is_empty() {
+                            return Err(Error::new_config(format!(
+                                "Module '{}/{}' is excluded for browser target",
+                                package_name, resolved
+                            )));
+                        }
+                        return Ok(format!(
+                            "{}/{}",
+                            package_name,
+                            browser_mapped.trim_start_matches("./")
+                        ));
+                    }
+
+                    // Return the resolved path relative to the package
+                    Ok(format!(
+                        "{}/{}",
+                        package_name,
+                        resolved.trim_start_matches("./")
+                    ))
+                }
+                Err(_) => {
+                    // Fallback to direct subpath if exports resolution fails
+                    Ok(format!("{}/{}", package_name, subpath))
+                }
+            }
+        } else {
+            // No exports field, use direct subpath
+            Ok(format!("{}/{}", package_name, subpath))
+        }
+    }
+
+    /// Select the best entry point for a package based on module type and available fields
+    fn select_entry_point(&self, package_json: &PackageJson) -> String {
+        // Check if we're targeting browser and have a browser field
+        if let Some(TargetPlatform::Browser) = self.target_platform {
+            if let Some(browser_field) = &package_json.browser {
+                match browser_field {
+                    // If browser field is a string, it's the browser entry point
+                    serde_json::Value::String(browser_entry) => {
+                        return browser_entry.clone();
+                    }
+                    // If browser field is an object, it's a mapping of replacements
+                    serde_json::Value::Object(browser_map) => {
+                        // Check if there's a mapping for the main entry
+                        if let Some(main) = &package_json.main {
+                            if let Some(browser_main) = browser_map.get(main) {
+                                if let serde_json::Value::String(path) = browser_main {
+                                    return path.clone();
+                                }
+                            }
+                        }
+                        // Check for "." entry in browser field
+                        if let Some(browser_main) = browser_map.get(".") {
+                            if let serde_json::Value::String(path) = browser_main {
+                                return path.clone();
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Priority order based on our build target
+        match self.config.build.module.as_str() {
+            "esm" => {
+                // For ESM, prefer: module > exports["."].import > main
+                if let Some(module) = &package_json.module {
+                    return module.clone();
+                }
+                if let Some(exports) = &package_json.exports {
+                    if let Ok(entry) = self.resolve_exports_entry(exports, ".", package_json) {
+                        return entry;
+                    }
+                }
+                package_json
+                    .main
+                    .clone()
+                    .unwrap_or_else(|| "index.js".to_string())
+            }
+            _ => {
+                // For CommonJS, prefer: main > exports["."].require > module
+                if let Some(main) = &package_json.main {
+                    return main.clone();
+                }
+                if let Some(exports) = &package_json.exports {
+                    if let Ok(entry) = self.resolve_exports_entry(exports, ".", package_json) {
+                        return entry;
+                    }
+                }
+                package_json
+                    .module
+                    .clone()
+                    .unwrap_or_else(|| "index.js".to_string())
+            }
+        }
+    }
+
+    /// Resolve browser field mapping for a given path
+    fn resolve_browser_mapping(&self, package_json: &PackageJson, path: &str) -> Option<String> {
+        if let Some(TargetPlatform::Browser) = self.target_platform {
+            if let Some(serde_json::Value::Object(browser_map)) = &package_json.browser {
+                // Check for direct mapping
+                if let Some(mapped) = browser_map.get(path) {
+                    match mapped {
+                        serde_json::Value::String(new_path) => return Some(new_path.clone()),
+                        serde_json::Value::Bool(false) => return Some(String::new()), // False means exclude this module
+                        _ => {}
+                    }
+                }
+
+                // Check for relative path mapping (e.g., "./lib/node.js" -> "./lib/browser.js")
+                let relative_path = if path.starts_with("./") {
+                    path.to_string()
+                } else {
+                    format!("./{}", path)
+                };
+
+                if let Some(mapped) = browser_map.get(&relative_path) {
+                    match mapped {
+                        serde_json::Value::String(new_path) => return Some(new_path.clone()),
+                        serde_json::Value::Bool(false) => return Some(String::new()),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Get the JavaScript import path for a resolved package
     pub fn get_import_path(&self, package: &ResolvedPackage, subpath: Option<&str>) -> String {
         match subpath {
@@ -341,52 +851,76 @@ impl PackageResolver {
         package: &ResolvedPackage,
         imports: &[String],
         subpath: Option<&str>,
+        use_esm: bool,
     ) -> String {
         let import_path = self.get_import_path(package, subpath);
 
-        match package.module_type {
-            ModuleType::ESModule => {
-                if imports.len() == 1 && imports[0] == "default" {
-                    format!("import {} from \"{}\";", package.name, import_path)
-                } else if imports.contains(&"default".to_string()) {
-                    let named_imports: Vec<_> =
-                        imports.iter().filter(|&name| name != "default").collect();
-                    if named_imports.is_empty() {
-                        format!("import {} from \"{}\";", package.name, import_path)
-                    } else {
-                        format!(
-                            "import {}, {{ {} }} from \"{}\";",
-                            package.name,
-                            named_imports
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                            import_path
-                        )
-                    }
+        if use_esm {
+            // When using ESM, we need to handle CommonJS packages specially
+            if package.module_type == ModuleType::CommonJS
+                && imports.iter().any(|i| i != &package.name && i != "default")
+            {
+                // CommonJS packages with named imports need special handling in ESM
+                // Import as default and destructure
+                let import_var =
+                    format!("__{}_pkg", package.name.replace('-', "_").replace('@', "_"));
+                format!(
+                    "import {} from \"{}\";\nconst {{ {} }} = {}",
+                    import_var,
+                    import_path,
+                    imports.join(", "),
+                    import_var
+                )
+            } else if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default")
+            {
+                // Default import - use package name when importing "default"
+                let import_name = if imports[0] == "default" {
+                    &package.name
+                } else {
+                    &imports[0]
+                };
+                format!("import {} from \"{}\"", import_name, import_path)
+            } else if imports.contains(&"default".to_string()) {
+                // Mixed default and named imports
+                let named_imports: Vec<_> =
+                    imports.iter().filter(|&name| name != "default").collect();
+                if named_imports.is_empty() {
+                    format!("import {} from \"{}\"", package.name, import_path)
                 } else {
                     format!(
-                        "import {{ {} }} from \"{}\";",
-                        imports.join(", "),
+                        "import {}, {{ {} }} from \"{}\"",
+                        package.name,
+                        named_imports
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         import_path
                     )
                 }
+            } else {
+                // Named imports only
+                format!(
+                    "import {{ {} }} from \"{}\"",
+                    imports.join(", "),
+                    import_path
+                )
             }
-            ModuleType::CommonJS => {
-                if imports.len() == 1 && (imports[0] == "default" || imports[0] == package.name) {
-                    format!("const {} = require(\"{}\");", package.name, import_path)
+        } else {
+            // Use CommonJS require
+            if imports.len() == 1 && (imports[0] == package.name || imports[0] == "default") {
+                let import_name = if imports[0] == "default" {
+                    &package.name
                 } else {
-                    format!(
-                        "const {{ {} }} = require(\"{}\");",
-                        imports.join(", "),
-                        import_path
-                    )
-                }
-            }
-            _ => {
-                // Fallback to CommonJS
-                format!("const {} = require(\"{}\");", package.name, import_path)
+                    &imports[0]
+                };
+                format!("const {} = require(\"{}\")", import_name, import_path)
+            } else {
+                format!(
+                    "const {{ {} }} = require(\"{}\")",
+                    imports.join(", "),
+                    import_path
+                )
             }
         }
     }
@@ -434,6 +968,8 @@ mod tests {
             main: Some("index.js".to_string()),
             module_type: ModuleType::CommonJS,
             exports: vec!["default".to_string()],
+            types: None,
+            has_types_package: false,
         };
 
         assert_eq!(resolver.get_import_path(&package, None), "express");
@@ -457,10 +993,13 @@ mod tests {
             main: Some("index.js".to_string()),
             module_type: ModuleType::ESModule,
             exports: vec!["default".to_string()],
+            types: None,
+            has_types_package: false,
         };
 
-        let stmt = resolver.generate_import_statement(&esm_package, &["default".to_string()], None);
-        assert_eq!(stmt, "import express from \"express\";");
+        let stmt =
+            resolver.generate_import_statement(&esm_package, &["default".to_string()], None, true);
+        assert_eq!(stmt, "import express from \"express\"");
 
         // CommonJS package
         let cjs_package = ResolvedPackage {
@@ -470,18 +1009,22 @@ mod tests {
             main: Some("index.js".to_string()),
             module_type: ModuleType::CommonJS,
             exports: vec!["default".to_string()],
+            types: None,
+            has_types_package: false,
         };
 
-        let stmt = resolver.generate_import_statement(&cjs_package, &["default".to_string()], None);
-        assert_eq!(stmt, "const lodash = require(\"lodash\");");
+        let stmt =
+            resolver.generate_import_statement(&cjs_package, &["default".to_string()], None, false);
+        assert_eq!(stmt, "const lodash = require(\"lodash\")");
 
         // Named imports
         let stmt = resolver.generate_import_statement(
             &esm_package,
             &["Router".to_string(), "json".to_string()],
             None,
+            true,
         );
-        assert_eq!(stmt, "import { Router, json } from \"express\";");
+        assert_eq!(stmt, "import { Router, json } from \"express\"");
     }
 
     #[test]
@@ -513,5 +1056,255 @@ mod tests {
         assert_eq!(package_json.main, Some("lib/index.js".to_string()));
         assert_eq!(package_json.module, Some("es/index.js".to_string()));
         assert_eq!(package_json.module_type, Some("module".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_exports_entry() {
+        let config = HuskConfig::default();
+        let resolver = PackageResolver::new(PathBuf::from("/tmp"), config);
+
+        // Test data
+        let exports = serde_json::json!({
+            ".": "./index.js",
+            "./utils": "./lib/utils.js",
+            "./helpers/*": "./lib/helpers/*.js",
+            "./features": {
+                "import": "./esm/features.js",
+                "require": "./cjs/features.js"
+            }
+        });
+
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            exports: Some(exports.clone()),
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+            types: None,
+            typings: None,
+        };
+
+        // Test exact match
+        let result = resolver
+            .resolve_exports_entry(&exports, "./utils", &package_json)
+            .unwrap();
+        assert_eq!(result, "./lib/utils.js");
+
+        // Test wildcard match
+        let result = resolver
+            .resolve_exports_entry(&exports, "./helpers/date", &package_json)
+            .unwrap();
+        assert_eq!(result, "./lib/helpers/date.js");
+
+        // Test conditional exports
+        let result = resolver
+            .resolve_exports_entry(&exports, "./features", &package_json)
+            .unwrap();
+        assert_eq!(result, "./esm/features.js"); // Should prefer import over require
+
+        // Test main export
+        let result = resolver
+            .resolve_exports_entry(&exports, ".", &package_json)
+            .unwrap();
+        assert_eq!(result, "./index.js");
+
+        // Test non-existent export
+        let result = resolver.resolve_exports_entry(&exports, "./nonexistent", &package_json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detect_module_type() {
+        let config = HuskConfig::default();
+        let resolver = PackageResolver::new(PathBuf::from("/tmp"), config);
+
+        // Test explicit type field
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: Some("module".to_string()),
+            types: None,
+            typings: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+        };
+        let module_type = resolver
+            .detect_module_type(&package_json, "index.js", Path::new("/tmp/test"))
+            .unwrap();
+        assert_eq!(module_type, ModuleType::ESModule);
+
+        // Test .mjs extension
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.mjs".to_string()),
+            module: None,
+            module_type: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+            types: None,
+            typings: None,
+        };
+        let module_type = resolver
+            .detect_module_type(&package_json, "index.mjs", Path::new("/tmp/test"))
+            .unwrap();
+        assert_eq!(module_type, ModuleType::ESModule);
+
+        // Test .cjs extension
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.cjs".to_string()),
+            module: None,
+            module_type: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+            types: None,
+            typings: None,
+        };
+        let module_type = resolver
+            .detect_module_type(&package_json, "index.cjs", Path::new("/tmp/test"))
+            .unwrap();
+        assert_eq!(module_type, ModuleType::CommonJS);
+
+        // Test exports field with import/require conditions
+        let exports = serde_json::json!({
+            ".": {
+                "import": "./esm/index.js",
+                "require": "./cjs/index.js"
+            }
+        });
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            exports: Some(exports),
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+            types: None,
+            typings: None,
+        };
+        // This should detect as ESModule because it has both import and require
+        let module_type = resolver
+            .detect_module_type(&package_json, "index.js", Path::new("/tmp/test"))
+            .unwrap();
+        assert_eq!(module_type, ModuleType::ESModule);
+
+        // Test package with only module field
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: None,
+            module: Some("esm/index.js".to_string()),
+            module_type: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+            types: None,
+            typings: None,
+        };
+        let module_type = resolver
+            .detect_module_type(&package_json, "esm/index.js", Path::new("/tmp/test"))
+            .unwrap();
+        assert_eq!(module_type, ModuleType::ESModule);
+    }
+
+    #[test]
+    fn test_typescript_definitions() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = HuskConfig::default();
+        let resolver = PackageResolver::new(temp_dir.path().to_path_buf(), config);
+
+        // Test package with types field
+        let package_json = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            types: Some("index.d.ts".to_string()),
+            typings: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+        };
+
+        let types_path = resolver.resolve_types_path(&package_json, temp_dir.path());
+        assert_eq!(types_path, Some("index.d.ts".to_string()));
+
+        // Test package with typings field
+        let package_json_typings = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            types: None,
+            typings: Some("lib/index.d.ts".to_string()),
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+        };
+
+        let types_path = resolver.resolve_types_path(&package_json_typings, temp_dir.path());
+        assert_eq!(types_path, Some("lib/index.d.ts".to_string()));
+
+        // Test auto-detection of index.d.ts
+        let package_json_auto = PackageJson {
+            name: Some("test-package".to_string()),
+            version: Some("1.0.0".to_string()),
+            main: Some("index.js".to_string()),
+            module: None,
+            module_type: None,
+            types: None,
+            typings: None,
+            exports: None,
+            dependencies: None,
+            peer_dependencies: None,
+            dev_dependencies: None,
+            browser: None,
+        };
+
+        // Create index.d.ts file
+        fs::write(temp_dir.path().join("index.d.ts"), "export {}").unwrap();
+
+        let types_path = resolver.resolve_types_path(&package_json_auto, temp_dir.path());
+        assert_eq!(types_path, Some("index.d.ts".to_string()));
+
+        // Test @types package name conversion
+        assert_eq!(resolver.get_types_package_name("express"), "@types/express");
+        assert_eq!(
+            resolver.get_types_package_name("@angular/core"),
+            "@types/angular__core"
+        );
     }
 }

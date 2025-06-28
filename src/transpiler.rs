@@ -1,16 +1,43 @@
 use crate::{
     ast::visitor::AstVisitor,
     builtin_methods::TranspilerMethodRegistry,
+    config::HuskConfig,
     error::{Error, Result},
     package_resolver::PackageResolver,
     parser::{Expr, ExternItem, Operator, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleFormat {
+    CommonJS,
+    ESModule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetPlatform {
+    NodeJs,
+    Browser,
+    Deno,
+    Bun,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetInfo {
+    pub platform: TargetPlatform,
+    pub module_format: ModuleFormat,
+    pub external_deps: Vec<String>,
+    pub import_map: std::collections::HashMap<String, String>,
+    pub tree_shaking: bool,
+    pub dev: bool,
+}
+
 pub struct JsTranspiler {
     indent_level: usize,
     package_resolver: Option<PackageResolver>,
     method_registry: TranspilerMethodRegistry,
+    module_format: ModuleFormat,
+    target_info: Option<TargetInfo>,
 }
 
 impl JsTranspiler {
@@ -19,16 +46,89 @@ impl JsTranspiler {
             indent_level: 0,
             package_resolver: None,
             method_registry: TranspilerMethodRegistry::new(),
+            module_format: ModuleFormat::ESModule, // Default to ESM
+            target_info: None,
         }
     }
 
     /// Create a new transpiler with package resolution enabled
     pub fn with_package_resolver() -> Result<Self> {
+        // Get the module format from the project config
+        let resolver = PackageResolver::from_current_dir()?;
+        let module_format = Self::determine_module_format(&resolver);
+
         Ok(Self {
             indent_level: 0,
-            package_resolver: Some(PackageResolver::from_current_dir()?),
+            package_resolver: Some(resolver),
             method_registry: TranspilerMethodRegistry::new(),
+            module_format,
+            target_info: None,
         })
+    }
+
+    /// Create a new transpiler with target configuration
+    pub fn with_target(target: &str) -> Result<Self> {
+        let (config, project_root) = HuskConfig::find_and_load()?;
+        let target_info = Self::parse_target_with_config(target, &config)?;
+        let module_format = target_info.module_format;
+
+        // Create package resolver with target platform
+        let resolver = PackageResolver::with_target(project_root, config, target_info.platform);
+
+        Ok(Self {
+            indent_level: 0,
+            package_resolver: Some(resolver),
+            method_registry: TranspilerMethodRegistry::new(),
+            module_format,
+            target_info: Some(target_info),
+        })
+    }
+
+    /// Parse target string into TargetInfo
+    fn parse_target_with_config(target: &str, config: &HuskConfig) -> Result<TargetInfo> {
+        let (platform, module_format) = match target {
+            "node-esm" => (TargetPlatform::NodeJs, ModuleFormat::ESModule),
+            "node-cjs" => (TargetPlatform::NodeJs, ModuleFormat::CommonJS),
+            "browser" => (TargetPlatform::Browser, ModuleFormat::ESModule),
+            "deno" => (TargetPlatform::Deno, ModuleFormat::ESModule),
+            "bun" => (TargetPlatform::Bun, ModuleFormat::ESModule),
+            _ => return Err(Error::new_config(format!("Unknown target: {}", target))),
+        };
+
+        // Get external dependencies, import map, tree shaking, and dev mode from config
+        let (external_deps, import_map, tree_shaking, dev) =
+            if let Some(target_config) = config.targets.get(target) {
+                (
+                    target_config.external.clone(),
+                    target_config.import_map.clone(),
+                    target_config.tree_shaking,
+                    target_config.dev,
+                )
+            } else {
+                (Vec::new(), std::collections::HashMap::new(), false, false)
+            };
+
+        Ok(TargetInfo {
+            platform,
+            module_format,
+            external_deps,
+            import_map,
+            tree_shaking,
+            dev,
+        })
+    }
+
+    /// Determine the module format based on project configuration
+    fn determine_module_format(resolver: &PackageResolver) -> ModuleFormat {
+        let config = resolver.get_project_dependencies();
+
+        // Check if the project's package.json specifies module type
+        // For now, we'll default to ESM if the build module is "esm"
+        match config.build.module.as_str() {
+            "esm" => ModuleFormat::ESModule,
+            "cjs" | "commonjs" => ModuleFormat::CommonJS,
+            _ => ModuleFormat::ESModule, // Default to ESM
+        }
     }
 
     pub fn generate(&mut self, stmts: &[Stmt]) -> Result<String> {
@@ -152,284 +252,329 @@ impl JsTranspiler {
         output.push_str("  return a === b;\n");
         output.push_str("}\n");
 
-        // Add IO functions
-        output.push_str("\n// File I/O functions\n");
-        output.push_str("const fs = require('fs');\n");
-        output.push_str("const path = require('path');\n\n");
+        // Add IO functions (skip for browser target)
+        let skip_node_builtins = self
+            .target_info
+            .as_ref()
+            .map(|t| t.platform == TargetPlatform::Browser)
+            .unwrap_or(false);
 
-        // read_file
-        output.push_str("function read_file(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    return { type: 'Ok', value: fs.readFileSync(filePath, 'utf8') };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+        if !skip_node_builtins {
+            output.push_str("\n// File I/O functions\n");
+            if self.module_format == ModuleFormat::ESModule {
+                output.push_str("import fs from 'fs';\n");
+                output.push_str("import path from 'path';\n\n");
+            } else {
+                output.push_str("const fs = require('fs');\n");
+                output.push_str("const path = require('path');\n\n");
+            }
+        }
 
-        // read_file_bytes
-        output.push_str("function read_file_bytes(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = fs.readFileSync(filePath);\n");
-        output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+        if !skip_node_builtins {
+            // read_file
+            output.push_str("function read_file(filePath) {\n");
+            output.push_str("  try {\n");
+            output
+                .push_str("    return { type: 'Ok', value: fs.readFileSync(filePath, 'utf8') };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_lines
-        output.push_str("function read_lines(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const content = fs.readFileSync(filePath, 'utf8');\n");
-        output.push_str("    const lines = content.split('\\n');\n");
-        output.push_str("    // Remove last empty line if file ends with newline\n");
-        output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
-        output.push_str("    return { type: 'Ok', value: lines };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_file_bytes
+            output.push_str("function read_file_bytes(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = fs.readFileSync(filePath);\n");
+            output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file
-        output.push_str("function write_file(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.writeFileSync(filePath, contents);\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    throw new Error(e.message);\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_lines
+            output.push_str("function read_lines(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const content = fs.readFileSync(filePath, 'utf8');\n");
+            output.push_str("    const lines = content.split('\\n');\n");
+            output.push_str("    // Remove last empty line if file ends with newline\n");
+            output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
+            output.push_str("    return { type: 'Ok', value: lines };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file_bytes
-        output.push_str("function write_file_bytes(filePath, data) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = Buffer.from(data);\n");
-        output.push_str("    fs.writeFileSync(filePath, buffer);\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    throw new Error(e.message);\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file
+            output.push_str("function write_file(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.writeFileSync(filePath, contents);\n");
+            output.push_str("    return undefined; // unit\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    throw new Error(e.message);\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // append_file
-        output.push_str("function append_file(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.appendFileSync(filePath, contents);\n");
-        output.push_str("    return undefined; // unit\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    throw new Error(e.message);\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file_bytes
+            output.push_str("function write_file_bytes(filePath, data) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = Buffer.from(data);\n");
+            output.push_str("    fs.writeFileSync(filePath, buffer);\n");
+            output.push_str("    return undefined; // unit\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    throw new Error(e.message);\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // Path functions
-        output.push_str("function exists(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.accessSync(filePath);\n");
-        output.push_str("    return true;\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return false;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // append_file
+            output.push_str("function append_file(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.appendFileSync(filePath, contents);\n");
+            output.push_str("    return undefined; // unit\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    throw new Error(e.message);\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function is_file(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    return fs.statSync(filePath).isFile();\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return false;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // Path functions
+            output.push_str("function exists(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.accessSync(filePath);\n");
+            output.push_str("    return true;\n");
+            output.push_str("  } catch {\n");
+            output.push_str("    return false;\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function is_dir(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    return fs.statSync(filePath).isDirectory();\n");
-        output.push_str("  } catch {\n");
-        output.push_str("    return false;\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function is_file(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    return fs.statSync(filePath).isFile();\n");
+            output.push_str("  } catch {\n");
+            output.push_str("    return false;\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function create_dir(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.mkdirSync(dirPath);\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'EEXIST') {\n");
-        output.push_str(
-            "      return { type: 'Err', error: `Directory already exists: ${dirPath}` };\n",
-        );
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'ENOENT') {\n");
-        output.push_str(
-            "      return { type: 'Err', error: `Parent directory not found: ${dirPath}` };\n",
-        );
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error creating directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function is_dir(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    return fs.statSync(filePath).isDirectory();\n");
+            output.push_str("  } catch {\n");
+            output.push_str("    return false;\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function create_dir_all(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.mkdirSync(dirPath, { recursive: true });\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error creating directories ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function create_dir(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.mkdirSync(dirPath);\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'EEXIST') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory already exists: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Parent directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error creating directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function remove_dir(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.rmdirSync(dirPath);\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'ENOENT') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'ENOTEMPTY') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not empty: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function create_dir_all(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.mkdirSync(dirPath, { recursive: true });\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error creating directories ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function remove_dir_all(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    fs.rmSync(dirPath, { recursive: true });\n");
-        output.push_str("    return { type: 'Ok', value: null };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'ENOENT') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function remove_dir(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.rmdirSync(dirPath);\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'ENOTEMPTY') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not empty: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function read_dir(dirPath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const entries = fs.readdirSync(dirPath, { withFileTypes: true });\n");
-        output.push_str("    const result = entries.map(entry => ({\n");
-        output.push_str("      name: entry.name,\n");
-        output.push_str("      is_file: entry.isFile(),\n");
-        output.push_str("      is_dir: entry.isDirectory()\n");
-        output.push_str("    }));\n");
-        output.push_str("    return { type: 'Ok', value: result };\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    if (error.code === 'ENOENT') {\n");
-        output
-            .push_str("      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'EACCES') {\n");
-        output.push_str("      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n");
-        output.push_str("    } else if (error.code === 'ENOTDIR') {\n");
-        output.push_str("      return { type: 'Err', error: `Not a directory: ${dirPath}` };\n");
-        output.push_str("    } else {\n");
-        output.push_str("      return { type: 'Err', error: `IO error reading directory ${dirPath}: ${error.message}` };\n");
-        output.push_str("    }\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            output.push_str("function remove_dir_all(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    fs.rmSync(dirPath, { recursive: true });\n");
+            output.push_str("    return { type: 'Ok', value: null };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error removing directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // Console IO functions
-        output.push_str("// Console I/O functions\n");
-        output.push_str("const readline = require('readline');\n\n");
+            output.push_str("function read_dir(dirPath) {\n");
+            output.push_str("  try {\n");
+            output.push_str(
+                "    const entries = fs.readdirSync(dirPath, { withFileTypes: true });\n",
+            );
+            output.push_str("    const result = entries.map(entry => ({\n");
+            output.push_str("      name: entry.name,\n");
+            output.push_str("      is_file: entry.isFile(),\n");
+            output.push_str("      is_dir: entry.isDirectory()\n");
+            output.push_str("    }));\n");
+            output.push_str("    return { type: 'Ok', value: result };\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    if (error.code === 'ENOENT') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Directory not found: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'EACCES') {\n");
+            output.push_str(
+                "      return { type: 'Err', error: `Permission denied: ${dirPath}` };\n",
+            );
+            output.push_str("    } else if (error.code === 'ENOTDIR') {\n");
+            output
+                .push_str("      return { type: 'Err', error: `Not a directory: ${dirPath}` };\n");
+            output.push_str("    } else {\n");
+            output.push_str("      return { type: 'Err', error: `IO error reading directory ${dirPath}: ${error.message}` };\n");
+            output.push_str("    }\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        output.push_str("function read_line() {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const rl = readline.createInterface({\n");
-        output.push_str("      input: process.stdin,\n");
-        output.push_str("      output: process.stdout\n");
-        output.push_str("    });\n");
-        output.push_str("    return new Promise((resolve) => {\n");
-        output.push_str("      rl.question('', (answer) => {\n");
-        output.push_str("        rl.close();\n");
-        output.push_str("        resolve({ type: 'Ok', value: answer });\n");
-        output.push_str("      });\n");
-        output.push_str("    });\n");
-        output.push_str("  } catch (error) {\n");
-        output.push_str("    return { type: 'Err', value: error.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // Console IO functions
+            output.push_str("// Console I/O functions\n");
+            if self.module_format == ModuleFormat::ESModule {
+                output.push_str("import readline from 'readline';\n\n");
+            } else {
+                output.push_str("const readline = require('readline');\n\n");
+            }
 
-        // Async file I/O functions
-        output.push_str("// Async File I/O functions\n");
-        output.push_str("const fsPromises = require('fs').promises;\n\n");
+            output.push_str("function read_line() {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const rl = readline.createInterface({\n");
+            output.push_str("      input: process.stdin,\n");
+            output.push_str("      output: process.stdout\n");
+            output.push_str("    });\n");
+            output.push_str("    return new Promise((resolve) => {\n");
+            output.push_str("      rl.question('', (answer) => {\n");
+            output.push_str("        rl.close();\n");
+            output.push_str("        resolve({ type: 'Ok', value: answer });\n");
+            output.push_str("      });\n");
+            output.push_str("    });\n");
+            output.push_str("  } catch (error) {\n");
+            output.push_str("    return { type: 'Err', value: error.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_file_async
-        output.push_str("async function read_file_async(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
-        output.push_str("    return { type: 'Ok', value: content };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // Async file I/O functions
+            output.push_str("// Async File I/O functions\n");
+            if self.module_format == ModuleFormat::ESModule {
+                output.push_str("import { promises as fsPromises } from 'fs';\n\n");
+            } else {
+                output.push_str("const fsPromises = require('fs').promises;\n\n");
+            }
 
-        // read_file_bytes_async
-        output.push_str("async function read_file_bytes_async(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = await fsPromises.readFile(filePath);\n");
-        output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_file_async
+            output.push_str("async function read_file_async(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
+            output.push_str("    return { type: 'Ok', value: content };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // read_lines_async
-        output.push_str("async function read_lines_async(filePath) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
-        output.push_str("    const lines = content.split('\\n');\n");
-        output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
-        output.push_str("    return { type: 'Ok', value: lines };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_file_bytes_async
+            output.push_str("async function read_file_bytes_async(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = await fsPromises.readFile(filePath);\n");
+            output.push_str("    return { type: 'Ok', value: Array.from(buffer) };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file_async
-        output.push_str("async function write_file_async(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    await fsPromises.writeFile(filePath, contents);\n");
-        output.push_str("    return { type: 'Ok', value: undefined };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // read_lines_async
+            output.push_str("async function read_lines_async(filePath) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const content = await fsPromises.readFile(filePath, 'utf8');\n");
+            output.push_str("    const lines = content.split('\\n');\n");
+            output.push_str("    if (lines[lines.length - 1] === '') lines.pop();\n");
+            output.push_str("    return { type: 'Ok', value: lines };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // write_file_bytes_async
-        output.push_str("async function write_file_bytes_async(filePath, data) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    const buffer = Buffer.from(data);\n");
-        output.push_str("    await fsPromises.writeFile(filePath, buffer);\n");
-        output.push_str("    return { type: 'Ok', value: undefined };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file_async
+            output.push_str("async function write_file_async(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    await fsPromises.writeFile(filePath, contents);\n");
+            output.push_str("    return { type: 'Ok', value: undefined };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
 
-        // append_file_async
-        output.push_str("async function append_file_async(filePath, contents) {\n");
-        output.push_str("  try {\n");
-        output.push_str("    await fsPromises.appendFile(filePath, contents);\n");
-        output.push_str("    return { type: 'Ok', value: undefined };\n");
-        output.push_str("  } catch (e) {\n");
-        output.push_str("    return { type: 'Err', value: e.message };\n");
-        output.push_str("  }\n");
-        output.push_str("}\n\n");
+            // write_file_bytes_async
+            output.push_str("async function write_file_bytes_async(filePath, data) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    const buffer = Buffer.from(data);\n");
+            output.push_str("    await fsPromises.writeFile(filePath, buffer);\n");
+            output.push_str("    return { type: 'Ok', value: undefined };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
+
+            // append_file_async
+            output.push_str("async function append_file_async(filePath, contents) {\n");
+            output.push_str("  try {\n");
+            output.push_str("    await fsPromises.appendFile(filePath, contents);\n");
+            output.push_str("    return { type: 'Ok', value: undefined };\n");
+            output.push_str("  } catch (e) {\n");
+            output.push_str("    return { type: 'Err', value: e.message };\n");
+            output.push_str("  }\n");
+            output.push_str("}\n\n");
+        } // End of skip_node_builtins check
 
         for stmt in stmts {
             let js_code = self.visit_stmt(stmt)?;
             output.push_str(&js_code);
-            output.push_str(";\n");
+            // Don't add semicolon if the statement already ends with one or contains multiple statements
+            if !js_code.ends_with(';') && !js_code.contains('\n') {
+                output.push_str(";");
+            }
+            output.push('\n');
         }
 
         Ok(output)
@@ -493,8 +638,7 @@ impl JsTranspiler {
                                     for (i, arg) in args.iter().enumerate() {
                                         if let Expr::Identifier(bind_name, _) = arg {
                                             bindings.push_str(&format!(
-                                                "const {} = _matched.values[{}];\n",
-                                                bind_name, i
+                                                "const {bind_name} = _matched.values[{i}];\n"
                                             ));
                                         }
                                     }
@@ -506,7 +650,7 @@ impl JsTranspiler {
                                     // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Some')".to_string(),
-                                        format!("const {} = _matched.value;\n", bind_name),
+                                        format!("const {bind_name} = _matched.value;\n"),
                                     );
                                 }
                                 return (
@@ -528,8 +672,7 @@ impl JsTranspiler {
                                     for (i, arg) in args.iter().enumerate() {
                                         if let Expr::Identifier(bind_name, _) = arg {
                                             bindings.push_str(&format!(
-                                                "const {} = _matched.values[{}];\n",
-                                                bind_name, i
+                                                "const {bind_name} = _matched.values[{i}];\n"
                                             ));
                                         }
                                     }
@@ -541,7 +684,7 @@ impl JsTranspiler {
                                     // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Ok')".to_string(),
-                                        format!("const {} = _matched.value;\n", bind_name),
+                                        format!("const {bind_name} = _matched.value;\n"),
                                     );
                                 }
                                 return (
@@ -556,8 +699,7 @@ impl JsTranspiler {
                                     for (i, arg) in args.iter().enumerate() {
                                         if let Expr::Identifier(bind_name, _) = arg {
                                             bindings.push_str(&format!(
-                                                "const {} = _matched.values[{}];\n",
-                                                bind_name, i
+                                                "const {bind_name} = _matched.values[{i}];\n"
                                             ));
                                         }
                                     }
@@ -569,7 +711,7 @@ impl JsTranspiler {
                                     // Single binding - maintain backward compatibility
                                     return (
                                         "(_matched && _matched.type === 'Err')".to_string(),
-                                        format!("const {} = _matched.value;\n", bind_name),
+                                        format!("const {bind_name} = _matched.value;\n"),
                                     );
                                 }
                                 return (
@@ -589,23 +731,22 @@ impl JsTranspiler {
                     // Handle single value for backward compatibility
                     if args.len() == 1 {
                         if let Expr::Identifier(bind_name, _) = &args[0] {
-                            bindings.push_str(&format!("const {} = _matched.value;\n", bind_name));
+                            bindings.push_str(&format!("const {bind_name} = _matched.value;\n"));
                         }
                     } else {
                         // Handle multiple values
                         for (i, arg) in args.iter().enumerate() {
                             if let Expr::Identifier(bind_name, _) = arg {
                                 bindings.push_str(&format!(
-                                    "const {} = _matched.values[{}];\n",
-                                    bind_name, i
+                                    "const {bind_name} = _matched.values[{i}];\n"
                                 ));
                             }
                         }
                     }
 
-                    (format!("_matched instanceof {}.{}", target, call), bindings)
+                    (format!("_matched instanceof {target}.{call}"), bindings)
                 } else {
-                    (format!("_matched === {}.{}", target, call), String::new())
+                    (format!("_matched === {target}.{call}"), String::new())
                 }
             }
             Expr::Identifier(var_name, _) => {
@@ -614,7 +755,7 @@ impl JsTranspiler {
                 } else {
                     (
                         "true".to_string(),
-                        format!("const {} = _matched;\n", var_name),
+                        format!("const {var_name} = _matched;\n"),
                     )
                 }
             }
@@ -632,19 +773,19 @@ impl JsTranspiler {
                         }
                         Expr::Identifier(name, _) => {
                             // Bind the element to a variable
-                            bindings.push_str(&format!("const {} = _matched[{}];\n", name, i));
+                            bindings.push_str(&format!("const {name} = _matched[{i}];\n"));
                         }
                         Expr::Int(value, _) => {
                             // Match against literal int
-                            conditions.push(format!("_matched[{}] === {}", i, value));
+                            conditions.push(format!("_matched[{i}] === {value}"));
                         }
                         Expr::String(value, _) => {
                             // Match against literal string
-                            conditions.push(format!("_matched[{}] === \"{}\"", i, value));
+                            conditions.push(format!("_matched[{i}] === \"{value}\""));
                         }
                         Expr::Bool(value, _) => {
                             // Match against literal bool
-                            conditions.push(format!("_matched[{}] === {}", i, value));
+                            conditions.push(format!("_matched[{i}] === {value}"));
                         }
                         _ => {
                             // For nested patterns, we'd need more complex handling
@@ -662,7 +803,7 @@ impl JsTranspiler {
 
                 // Check if it's the right variant
                 let condition = if variant.contains("::") {
-                    format!("_matched instanceof {}", js_variant)
+                    format!("_matched instanceof {js_variant}")
                 } else {
                     // For plain struct patterns without enum
                     "_matched && typeof _matched === 'object'".to_string()
@@ -677,7 +818,7 @@ impl JsTranspiler {
                     }
 
                     let var_name = opt_var_name.as_ref().unwrap_or(field_name);
-                    bindings.push_str(&format!("const {} = _matched.{};\n", var_name, field_name));
+                    bindings.push_str(&format!("const {var_name} = _matched.{field_name};\n"));
                 }
 
                 (condition, bindings)
@@ -690,7 +831,7 @@ impl JsTranspiler {
         let mut output = String::new();
 
         // Generate base enum class
-        output.push_str(&format!("class {} {{\n", name));
+        output.push_str(&format!("class {name} {{\n"));
         output.push_str("  constructor(variant, ...values) {\n");
         output.push_str("    this.variant = variant;\n");
         output.push_str("    this.values = values;\n");
@@ -726,7 +867,7 @@ impl JsTranspiler {
         output.push_str("  }\n");
         output.push_str("  \n");
         output.push_str("  toString() {\n");
-        output.push_str(&format!("    const name = '{}';\n", name));
+        output.push_str(&format!("    const name = '{name}';\n"));
         output.push_str("    if (this.values.length === 0) {\n");
         output.push_str("      return `${name}::${this.variant}`;\n");
         output.push_str("    } else if (this.values.length === 1) {\n");
@@ -745,21 +886,16 @@ impl JsTranspiler {
                 crate::parser::EnumVariant::Struct(name, _) => (name, false),
             };
 
+            output.push_str(&format!("{name}.{variant_name} = class extends {name} {{"));
             output.push_str(&format!(
-                "{}.{} = class extends {} {{",
-                name, variant_name, name
-            ));
-            output.push_str(&format!(
-                "constructor(...values) {{ super('{}', ...values); }}",
-                variant_name
+                "constructor(...values) {{ super('{variant_name}', ...values); }}"
             ));
             output.push_str("};\n");
 
             // Generate static instance only for unit variants (variants without data)
             if is_unit {
                 output.push_str(&format!(
-                    "{}.{} = new {}.{}();\n",
-                    name, variant_name, name, variant_name
+                    "{name}.{variant_name} = new {name}.{variant_name}();\n"
                 ));
             }
         }
@@ -788,7 +924,7 @@ impl AstVisitor<String> for JsTranspiler {
                 let function_code =
                     self.visit_function(name, generic_params, params, return_type, body, span)?;
                 if *is_pub {
-                    Ok(format!("export {}", function_code))
+                    Ok(format!("export {function_code}"))
                 } else {
                     Ok(function_code)
                 }
@@ -813,7 +949,7 @@ impl AstVisitor<String> for JsTranspiler {
                     span,
                 )?;
                 if *is_pub {
-                    Ok(format!("export {}", function_code))
+                    Ok(format!("export {function_code}"))
                 } else {
                     Ok(function_code)
                 }
@@ -879,7 +1015,7 @@ impl AstVisitor<String> for JsTranspiler {
             .replace('\t', "\\t") // Escape tabs
             .replace('\0', "\\0"); // Escape null bytes
 
-        Ok(format!("\"{}\"", escaped))
+        Ok(format!("\"{escaped}\""))
     }
 
     fn visit_bool(&mut self, value: bool, _span: &Span) -> Result<String> {
@@ -920,9 +1056,9 @@ impl AstVisitor<String> for JsTranspiler {
 
                 if !is_trivial {
                     // Use custom equality that handles enums
-                    let equals_expr = format!("__husk_enum_equals({}, {})", left_str, right_str);
+                    let equals_expr = format!("__husk_enum_equals({left_str}, {right_str})");
                     if matches!(op, Operator::NotEquals) {
-                        return Ok(format!("(!{})", equals_expr));
+                        return Ok(format!("(!{equals_expr})"));
                     } else {
                         return Ok(equals_expr);
                     }
@@ -934,7 +1070,7 @@ impl AstVisitor<String> for JsTranspiler {
                     Operator::NotEquals => "!==",
                     _ => unreachable!(),
                 };
-                Ok(format!("({} {} {})", left_str, op_str, right_str))
+                Ok(format!("({left_str} {op_str} {right_str})"))
             }
             _ => {
                 let op_str = match op {
@@ -951,7 +1087,7 @@ impl AstVisitor<String> for JsTranspiler {
                     Operator::Or => "||",
                     _ => unreachable!(),
                 };
-                Ok(format!("({} {} {})", left_str, op_str, right_str))
+                Ok(format!("({left_str} {op_str} {right_str})"))
             }
         }
     }
@@ -959,15 +1095,15 @@ impl AstVisitor<String> for JsTranspiler {
     fn visit_unary_op(&mut self, op: &UnaryOp, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         match op {
-            UnaryOp::Neg => Ok(format!("(-{})", expr_str)),
-            UnaryOp::Not => Ok(format!("(!{})", expr_str)),
+            UnaryOp::Neg => Ok(format!("(-{expr_str})")),
+            UnaryOp::Not => Ok(format!("(!{expr_str})")),
         }
     }
 
     fn visit_assign(&mut self, left: &Expr, right: &Expr, _span: &Span) -> Result<String> {
         let left_str = self.visit_expr(left)?;
         let right_str = self.visit_expr(right)?;
-        Ok(format!("{} = {}", left_str, right_str))
+        Ok(format!("{left_str} = {right_str}"))
     }
 
     fn visit_compound_assign(
@@ -987,12 +1123,12 @@ impl AstVisitor<String> for JsTranspiler {
             Operator::Modulo => "%",
             _ => {
                 return Err(Error::new_transpile(
-                    format!("Invalid compound assignment operator: {:?}", op),
+                    format!("Invalid compound assignment operator: {op:?}"),
                     *_span,
                 ))
             }
         };
-        Ok(format!("{} {}= {}", left_str, op_str, right_str))
+        Ok(format!("{left_str} {op_str}= {right_str}"))
     }
 
     fn visit_function_call(&mut self, name: &str, args: &[Expr], span: &Span) -> Result<String> {
@@ -1026,7 +1162,7 @@ impl AstVisitor<String> for JsTranspiler {
 
                             if arg_index < args.len() {
                                 let arg_str = self.visit_expr(&args[arg_index])?;
-                                template_parts.push(format!("${{{}}}", arg_str));
+                                template_parts.push(format!("${{{arg_str}}}"));
                                 arg_index += 1;
                             }
                         } else {
@@ -1058,7 +1194,7 @@ impl AstVisitor<String> for JsTranspiler {
                     .map(|arg| self.visit_expr(arg))
                     .collect::<Result<Vec<_>>>()?
                     .join(", ");
-                Ok(format!("__format__({})", args_str))
+                Ok(format!("__format__({args_str})"))
             }
         } else {
             // Regular function call
@@ -1068,12 +1204,19 @@ impl AstVisitor<String> for JsTranspiler {
                 .collect::<Result<Vec<_>>>()?
                 .join(", ");
 
+            // Add tree shaking hints for pure functions
+            let pure_hint = if self.should_add_pure_annotation(name) {
+                "/*#__PURE__*/"
+            } else {
+                ""
+            };
+
             // Handle method calls with dot notation
             if name.contains('.') {
                 let (obj, method) = name.split_once('.').unwrap();
-                Ok(format!("{}.{}({})", obj, method, args_str))
+                Ok(format!("{pure_hint}{obj}.{method}({args_str})"))
             } else {
-                Ok(format!("{}({})", name, args_str))
+                Ok(format!("{pure_hint}{name}({args_str})"))
             }
         }
     }
@@ -1090,13 +1233,12 @@ impl AstVisitor<String> for JsTranspiler {
         let mut result = String::new();
         result.push_str("(function() {");
         result.push_str(&format!(
-            "const __INSTANCE__ = Object.create({}.prototype);",
-            js_name
+            "const __INSTANCE__ = Object.create({js_name}.prototype);"
         ));
 
         for (field_name, field_expr) in fields {
             let field_value = self.visit_expr(field_expr)?;
-            result.push_str(&format!("__INSTANCE__.{} = {};", field_name, field_value));
+            result.push_str(&format!("__INSTANCE__.{field_name} = {field_value};"));
         }
 
         result.push_str("return __INSTANCE__;");
@@ -1110,7 +1252,7 @@ impl AstVisitor<String> for JsTranspiler {
             // Check if it's a unit variant constructor (no arguments)
             // For unit variants, generate the static instance
             if self.is_enum_unit_variant(enum_name, field) {
-                return Ok(format!("{}.{}", enum_name, field));
+                return Ok(format!("{enum_name}.{field}"));
             }
         }
 
@@ -1119,10 +1261,10 @@ impl AstVisitor<String> for JsTranspiler {
         // Check if field is a numeric index (for tuple access)
         if field.parse::<usize>().is_ok() {
             // Use bracket notation for numeric indices
-            Ok(format!("{}[{}]", obj_str, field))
+            Ok(format!("{obj_str}[{field}]"))
         } else {
             // Use dot notation for regular field access
-            Ok(format!("{}.{}", obj_str, field))
+            Ok(format!("{obj_str}.{field}"))
         }
     }
 
@@ -1153,7 +1295,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else if args.len() == 1 {
                         // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ type: 'Some', value: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Some', value: {arg_str} }}"));
                     } else {
                         return Ok("{ type: 'Some', value: undefined }".to_string());
                     }
@@ -1179,7 +1321,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else if args.len() == 1 {
                         // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ type: 'Ok', value: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Ok', value: {arg_str} }}"));
                     } else {
                         return Ok("{ type: 'Ok', value: undefined }".to_string());
                     }
@@ -1198,7 +1340,7 @@ impl AstVisitor<String> for JsTranspiler {
                     } else if args.len() == 1 {
                         // Single value - maintain backward compatibility
                         let arg_str = self.visit_expr(&args[0])?;
-                        return Ok(format!("{{ type: 'Err', value: {} }}", arg_str));
+                        return Ok(format!("{{ type: 'Err', value: {arg_str} }}"));
                     } else {
                         return Ok("{ type: 'Err', value: undefined }".to_string());
                     }
@@ -1245,18 +1387,18 @@ impl AstVisitor<String> for JsTranspiler {
         // Default handling for other enums and unknown methods
         if args.is_empty() {
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
-                Ok(format!("{}.{}()", target_str, call))
+                Ok(format!("{target_str}.{call}()"))
             } else {
-                Ok(format!("{}.{}", target_str, call))
+                Ok(format!("{target_str}.{call}"))
             }
         } else {
             let args_str = arg_strs.join(", ");
             // Check if it's a static method call (like Point::new) or enum variant
             // For now, we'll assume static methods don't need 'new' prefix
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
-                Ok(format!("{}.{}({})", target_str, call, args_str))
+                Ok(format!("{target_str}.{call}({args_str})"))
             } else {
-                Ok(format!("new {}.{}({})", target_str, call, args_str))
+                Ok(format!("new {target_str}.{call}({args_str})"))
             }
         }
     }
@@ -1267,7 +1409,7 @@ impl AstVisitor<String> for JsTranspiler {
             .map(|elem| self.visit_expr(elem))
             .collect::<Result<Vec<_>>>()?
             .join(", ");
-        Ok(format!("[{}]", elements_str))
+        Ok(format!("[{elements_str}]"))
     }
 
     fn visit_tuple(&mut self, elements: &[Expr], _span: &Span) -> Result<String> {
@@ -1277,7 +1419,7 @@ impl AstVisitor<String> for JsTranspiler {
             .map(|elem| self.visit_expr(elem))
             .collect::<Result<Vec<_>>>()?
             .join(", ");
-        Ok(format!("[{}]", elements_str))
+        Ok(format!("[{elements_str}]"))
     }
 
     fn visit_array_index(&mut self, array: &Expr, index: &Expr, _span: &Span) -> Result<String> {
@@ -1289,26 +1431,26 @@ impl AstVisitor<String> for JsTranspiler {
                 if let Some(end_expr) = end {
                     end_str = self.visit_expr(end_expr)?;
                     if *inclusive {
-                        end_str = format!("{} + 1", end_str);
+                        end_str = format!("{end_str} + 1");
                     }
                 }
 
                 match (start, end) {
                     (Some(start_expr), Some(_)) => {
                         let start_str = self.visit_expr(start_expr)?;
-                        Ok(format!("{}.slice({}, {})", array_str, start_str, end_str))
+                        Ok(format!("{array_str}.slice({start_str}, {end_str})"))
                     }
                     (Some(start_expr), None) => {
                         let start_str = self.visit_expr(start_expr)?;
-                        Ok(format!("{}.slice({})", array_str, start_str))
+                        Ok(format!("{array_str}.slice({start_str})"))
                     }
-                    (None, Some(_)) => Ok(format!("{}.slice(0, {})", array_str, end_str)),
+                    (None, Some(_)) => Ok(format!("{array_str}.slice(0, {end_str})")),
                     (None, None) => Ok(array_str),
                 }
             }
             _ => {
                 let index_str = self.visit_expr(index)?;
-                Ok(format!("{}[{}]", array_str, index_str))
+                Ok(format!("{array_str}[{index_str}]"))
             }
         }
     }
@@ -1340,12 +1482,12 @@ impl AstVisitor<String> for JsTranspiler {
                 // we need to return its value
                 Stmt::Expression(expr, false) if is_last => {
                     let expr_str = self.visit_expr(expr)?;
-                    result.push_str(&format!("{}return {};\n", indent, expr_str));
+                    result.push_str(&format!("{indent}return {expr_str};\n"));
                 }
                 // Otherwise, generate the statement normally
                 _ => {
                     let stmt_str = self.visit_stmt(stmt)?;
-                    result.push_str(&format!("{}{}\n", indent, stmt_str));
+                    result.push_str(&format!("{indent}{stmt_str}\n"));
                 }
             }
         }
@@ -1360,7 +1502,41 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_let(&mut self, name: &str, expr: &Expr, _span: &Span) -> Result<String> {
         let value = self.visit_expr(expr)?;
-        Ok(format!("let {} = {}", name, value))
+
+        // Add debug comment and runtime assertion in development mode
+        let debug_comment = self.add_debug_comment(&format!("Variable: {}", name));
+        let debug_prefix = if debug_comment.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", debug_comment)
+        };
+
+        // Add runtime type checking for basic types in development mode
+        let type_assertion = if self.is_dev_mode() {
+            // Try to infer type from value for basic assertions
+            if value.starts_with('"') && value.ends_with('"') {
+                self.add_runtime_assertion(name, "string")
+            } else if value.parse::<f64>().is_ok() {
+                self.add_runtime_assertion(name, "number")
+            } else if value == "true" || value == "false" {
+                self.add_runtime_assertion(name, "boolean")
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let assertion_suffix = if type_assertion.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", type_assertion)
+        };
+
+        Ok(format!(
+            "{}let {name} = {value}{}",
+            debug_prefix, assertion_suffix
+        ))
     }
 
     fn visit_function(
@@ -1382,9 +1558,17 @@ impl AstVisitor<String> for JsTranspiler {
         let body_str = self.generate_body(body)?;
         self.indent_level -= 1;
 
+        // Add debug comment in development mode
+        let debug_comment = self.add_debug_comment(&format!("Function: {}", name));
+        let debug_prefix = if debug_comment.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", debug_comment)
+        };
+
         Ok(format!(
-            "function {}({}) {{\n{}\n}}",
-            name, params_str, body_str
+            "{}function {name}({params_str}) {{\n{body_str}\n}}",
+            debug_prefix
         ))
     }
 
@@ -1399,7 +1583,7 @@ impl AstVisitor<String> for JsTranspiler {
             .join("\n");
         self.indent_level -= 1;
 
-        Ok(format!("while ({}) {{\n{}\n}}", condition_str, body_str))
+        Ok(format!("while ({condition_str}) {{\n{body_str}\n}}"))
     }
 
     fn visit_loop(&mut self, body: &[Stmt], _span: &Span) -> Result<String> {
@@ -1411,7 +1595,7 @@ impl AstVisitor<String> for JsTranspiler {
             .join("\n");
         self.indent_level -= 1;
 
-        Ok(format!("while (true) {{\n{}\n}}", body_str))
+        Ok(format!("while (true) {{\n{body_str}\n}}"))
     }
 
     fn visit_for_loop(
@@ -1475,8 +1659,7 @@ impl AstVisitor<String> for JsTranspiler {
                         self.indent_level -= 1;
 
                         Ok(format!(
-                            "for (let {} = {}; {} {} {}; {}++) {{\n{}\n}}",
-                            var, start_str, var, op, end_str, var, body_str
+                            "for (let {var} = {start_str}; {var} {op} {end_str}; {var}++) {{\n{body_str}\n}}"
                         ))
                     }
                     _ => Ok("/* Invalid range */".to_string()),
@@ -1494,8 +1677,7 @@ impl AstVisitor<String> for JsTranspiler {
                 self.indent_level -= 1;
 
                 Ok(format!(
-                    "for (const {} of {}) {{\n{}\n}}",
-                    pattern_str, iter_str, body_str
+                    "for (const {pattern_str} of {iter_str}) {{\n{body_str}\n}}"
                 ))
             }
         }
@@ -1513,7 +1695,7 @@ impl AstVisitor<String> for JsTranspiler {
         match expr {
             Some(return_expr) => {
                 let expr_js = self.visit_expr(return_expr)?;
-                Ok(format!("return {}", expr_js))
+                Ok(format!("return {expr_js}"))
             }
             None => Ok("return".to_string()),
         }
@@ -1526,7 +1708,7 @@ impl AstVisitor<String> for JsTranspiler {
         // If no semicolon, it can return its value (for block expressions)
         if has_semicolon {
             // Use void operator to ensure no return value in expression context
-            Ok(format!("void ({})", expr_js))
+            Ok(format!("void ({expr_js})"))
         } else {
             Ok(expr_js)
         }
@@ -1655,19 +1837,19 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_await(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
-        Ok(format!("await {}", expr_str))
+        Ok(format!("await {expr_str}"))
     }
 
     fn visit_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         // Generate JS code that checks if the result is an error and returns early if so
-        Ok(format!("(() => {{ const __result = {}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()", expr_str))
+        Ok(format!("(() => {{ const __result = {expr_str}; if (__result.type === 'Err') {{ return __result; }} return __result.value; }})()"))
     }
 
     fn visit_await_try(&mut self, expr: &Expr, _span: &Span) -> Result<String> {
         let expr_str = self.visit_expr(expr)?;
         // Generate the intelligent await bridge that handles both Promises and Promise<Result>
-        Ok(format!("await __husk_await_bridge({})", expr_str))
+        Ok(format!("await __husk_await_bridge({expr_str})"))
     }
 
     fn visit_closure(
@@ -1690,10 +1872,10 @@ impl AstVisitor<String> for JsTranspiler {
         // Generate arrow function
         if body_str.starts_with('{') {
             // Block body - no need for return, it's already in the block
-            Ok(format!("({}) => {}", param_list, body_str))
+            Ok(format!("({param_list}) => {body_str}"))
         } else {
             // Single expression - implicit return
-            Ok(format!("({}) => {}", param_list, body_str))
+            Ok(format!("({param_list}) => {body_str}"))
         }
     }
 
@@ -1703,35 +1885,113 @@ impl AstVisitor<String> for JsTranspiler {
                 // Check if it's a Node.js built-in module
                 let package_name = &path.segments[0];
                 if is_nodejs_builtin(package_name) {
-                    // Node.js built-in modules don't need package resolution
+                    // Check if we should handle Node.js built-ins differently for the current target
+                    if let Some(ref target_info) = self.target_info {
+                        match target_info.platform {
+                            TargetPlatform::Browser => {
+                                // Generate browser polyfill imports for certain Node.js modules
+                                return self.generate_browser_polyfill_import(package_name, items);
+                            }
+                            TargetPlatform::Deno => {
+                                // Deno uses different import paths for Node.js built-ins
+                                return self.generate_deno_builtin_import(package_name, items);
+                            }
+                            _ => {
+                                // Node.js and Bun use standard Node.js built-ins
+                                return self.generate_basic_import(path, items);
+                            }
+                        }
+                    }
+                    // Default: Node.js built-in modules don't need package resolution
                     return self.generate_basic_import(path, items);
+                }
+
+                // Check if this package is marked as external
+                if let Some(ref target_info) = self.target_info {
+                    if target_info.external_deps.contains(package_name) {
+                        // External packages should not be resolved, just imported directly
+                        return self.generate_basic_import(path, items);
+                    }
+                }
+
+                // Check if this package is mapped in the import map
+                if let Some(ref target_info) = self.target_info {
+                    if let Some(mapped_specifier) = target_info.import_map.get(package_name) {
+                        // Package is mapped in the import map - use the mapped specifier
+                        return self.generate_import_map_import(mapped_specifier, items);
+                    }
                 }
 
                 // External package - use package resolver if available
                 if let Some(ref mut resolver) = self.package_resolver {
-                    let subpath_string = if path.segments.len() > 1 {
-                        Some(path.segments[1..].join("/"))
-                    } else {
-                        None
+                    // For single imports like `use express::express;`, we need to determine
+                    // if the second segment is an import name or a subpath
+                    let (subpath, import_names) = match (items, path.segments.len()) {
+                        (UseItems::Single, 2) => {
+                            // Single import with two segments: package::item
+                            // The second segment is the import name, not a subpath
+                            let import_name = path.segments[1].clone();
+                            (None, vec![import_name])
+                        }
+                        (UseItems::Single, len) if len > 2 => {
+                            // Single import with more than two segments: package::subpath::item
+                            // The middle segments are the subpath, the last is the import name
+                            let subpath = path.segments[1..len - 1].join("/");
+                            let import_name = path.segments[len - 1].clone();
+                            (Some(subpath), vec![import_name])
+                        }
+                        (UseItems::Single, _) => {
+                            // Single segment: just the package name
+                            (None, vec![package_name.clone()])
+                        }
+                        (UseItems::Named(imports), _) => {
+                            // Named imports: package::{a, b}
+                            let subpath = if path.segments.len() > 1 {
+                                Some(path.segments[1..].join("/"))
+                            } else {
+                                None
+                            };
+                            let names = imports
+                                .iter()
+                                .map(|(name, alias)| alias.as_ref().unwrap_or(name).clone())
+                                .collect();
+                            (subpath, names)
+                        }
+                        (UseItems::All, _) => {
+                            // Wildcard import: package::*
+                            let subpath = if path.segments.len() > 1 {
+                                Some(path.segments[1..].join("/"))
+                            } else {
+                                None
+                            };
+                            (subpath, vec!["*".to_string()])
+                        }
                     };
-                    let subpath = subpath_string.as_deref();
 
                     match resolver.resolve_package(package_name) {
                         Ok(resolved_package) => {
-                            // Extract import names
-                            let import_names = match items {
-                                UseItems::Named(imports) => imports
-                                    .iter()
-                                    .map(|(name, alias)| alias.as_ref().unwrap_or(name).clone())
-                                    .collect(),
-                                UseItems::Single => vec![package_name.clone()],
-                                UseItems::All => vec!["*".to_string()],
+                            // If we have a subpath, resolve it through exports field
+                            let resolved_subpath = if let Some(ref subpath) = subpath {
+                                match resolver.resolve_package_subpath(package_name, subpath) {
+                                    Ok(resolved) => {
+                                        // Extract just the subpath part from the resolved path
+                                        resolved
+                                            .strip_prefix(&format!("{}/", package_name))
+                                            .map(|s| s.to_string())
+                                            .or(Some(subpath.clone()))
+                                    }
+                                    Err(_) => Some(subpath.clone()),
+                                }
+                            } else {
+                                None
                             };
 
+                            let use_esm = self.module_format == ModuleFormat::ESModule;
                             let import_statement = resolver.generate_import_statement(
                                 &resolved_package,
                                 &import_names,
-                                subpath,
+                                resolved_subpath.as_deref(),
+                                use_esm,
                             );
                             Ok(import_statement)
                         }
@@ -1766,10 +2026,10 @@ impl AstVisitor<String> for JsTranspiler {
             .join(", ");
 
         let mut result = String::new();
-        result.push_str(&format!("function {}({}) {{", name, params));
+        result.push_str(&format!("function {name}({params}) {{"));
 
         for (field_name, _) in fields {
-            result.push_str(&format!("this.{} = {};", field_name, field_name));
+            result.push_str(&format!("this.{field_name} = {field_name};"));
         }
 
         result.push('}');
@@ -1809,10 +2069,9 @@ impl AstVisitor<String> for JsTranspiler {
                 let fn_body = self.generate_body(body)?;
                 self.indent_level -= 1;
 
-                let fn_body = format!("const self = this;\n{}", fn_body);
+                let fn_body = format!("const self = this;\n{fn_body}");
                 format!(
-                    "{}.prototype.{} = function({}) {{\n{}\n}};\n",
-                    struct_name, name, fn_params, fn_body
+                    "{struct_name}.prototype.{name} = function({fn_params}) {{\n{fn_body}\n}};\n"
                 )
             } else {
                 // Static method
@@ -1826,10 +2085,7 @@ impl AstVisitor<String> for JsTranspiler {
                 let fn_body = self.generate_body(body)?;
                 self.indent_level -= 1;
 
-                format!(
-                    "{}.{} = function({}) {{\n{}\n}};\n",
-                    struct_name, name, fn_params, fn_body
-                )
+                format!("{struct_name}.{name} = function({fn_params}) {{\n{fn_body}\n}};\n")
             };
 
             output.push_str(&result);
@@ -1856,17 +2112,13 @@ impl AstVisitor<String> for JsTranspiler {
                 let body_str = self.generate_body(stmts)?;
                 self.indent_level -= 1;
 
-                Ok(format!(
-                    "if ({}) {{\n{}{}\n}}",
-                    condition, binding, body_str
-                ))
+                Ok(format!("if ({condition}) {{\n{binding}{body_str}\n}}"))
             })
             .collect::<Result<Vec<_>>>()?
             .join(" else ");
 
         Ok(format!(
-            "(() => {{\nconst _matched = {};\n{}\n}})()",
-            expr_str, cases_str
+            "(() => {{\nconst _matched = {expr_str};\n{cases_str}\n}})()"
         ))
     }
 
@@ -1894,7 +2146,7 @@ impl AstVisitor<String> for JsTranspiler {
 
         if has_control_flow {
             // Generate as a regular if statement (no IIFE wrapper)
-            let mut result = format!("if ({}) {{\n", condition_str);
+            let mut result = format!("if ({condition_str}) {{\n");
 
             self.indent_level += 1;
             for stmt in then_block {
@@ -1922,13 +2174,13 @@ impl AstVisitor<String> for JsTranspiler {
         } else {
             // Generate as an IIFE for the if expression
             let mut result = "(() => {\n".to_string();
-            result.push_str(&format!("  if ({}) {{\n", condition_str));
+            result.push_str(&format!("  if ({condition_str}) {{\n"));
 
             self.indent_level += 2;
             let then_str = self.generate_body(then_block)?;
             self.indent_level -= 2;
 
-            result.push_str(&format!("    {}\n", then_str));
+            result.push_str(&format!("    {then_str}\n"));
             result.push_str("  }");
 
             if !else_block.is_empty() {
@@ -1938,7 +2190,7 @@ impl AstVisitor<String> for JsTranspiler {
                 let else_str = self.generate_body(else_block)?;
                 self.indent_level -= 2;
 
-                result.push_str(&format!("    {}\n", else_str));
+                result.push_str(&format!("    {else_str}\n"));
                 result.push_str("  }");
             }
 
@@ -1958,7 +2210,7 @@ impl AstVisitor<String> for JsTranspiler {
         if let Expr::Identifier(_enum_name, _) = object {
             // For transpiler, we can't check if it's an enum easily,
             // but we can check if the method name starts with uppercase
-            if method.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if method.chars().next().is_some_and(|c| c.is_uppercase()) {
                 // This is likely an enum variant constructor
                 return self.visit_enum_variant_or_method_call(object, method, args, _span);
             }
@@ -2008,10 +2260,23 @@ impl AstVisitor<String> for JsTranspiler {
         }
 
         // Default: assume direct method mapping for unknown methods
-        if arg_strs.is_empty() {
-            Ok(format!("{}.{}()", obj_str, method))
+        // Add tree shaking hints for pure method calls
+        let method_call_name = format!("{}.{}", obj_str, method);
+        let pure_hint = if self.should_add_pure_annotation(&method_call_name) {
+            "/*#__PURE__*/"
         } else {
-            Ok(format!("{}.{}({})", obj_str, method, arg_strs.join(", ")))
+            ""
+        };
+
+        if arg_strs.is_empty() {
+            Ok(format!("{pure_hint}{obj_str}.{method}()"))
+        } else {
+            Ok(format!(
+                "{pure_hint}{}.{}({})",
+                obj_str,
+                method,
+                arg_strs.join(", ")
+            ))
         }
     }
 
@@ -2020,10 +2285,10 @@ impl AstVisitor<String> for JsTranspiler {
 
         // Generate JavaScript type casting/conversion
         match target_type {
-            "int" => Ok(format!("Math.floor(Number({}))", expr_str)),
-            "float" => Ok(format!("Number({})", expr_str)),
-            "string" => Ok(format!("String({})", expr_str)),
-            "bool" => Ok(format!("Boolean({})", expr_str)),
+            "int" => Ok(format!("Math.floor(Number({expr_str}))")),
+            "float" => Ok(format!("Number({expr_str})")),
+            "string" => Ok(format!("String({expr_str})")),
+            "bool" => Ok(format!("Boolean({expr_str})")),
             _ => {
                 // For custom types, we trust the type system and just return the expression
                 // This allows for TypeScript-style type assertions
@@ -2048,7 +2313,7 @@ impl AstVisitor<String> for JsTranspiler {
                 .iter()
                 .map(|(field, rename)| {
                     match rename {
-                        Some(var_name) => format!("{}: {}", field, var_name),
+                        Some(var_name) => format!("{field}: {var_name}"),
                         None => field.clone(),
                     }
                 })
@@ -2079,7 +2344,7 @@ impl AstVisitor<String> for JsTranspiler {
                 format!("\"{}\"", key.replace('\"', "\\\""))
             };
 
-            field_strings.push(format!("{}: {}", key_str, value_str));
+            field_strings.push(format!("{key_str}: {value_str}"));
         }
 
         Ok(format!("{{ {} }}", field_strings.join(", ")))
@@ -2105,7 +2370,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("process.stdout.write({})", template))
+                        Ok(format!("process.stdout.write({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("process.stdout.write({})", arg_strings[0]))
@@ -2133,7 +2398,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("console.log({})", template))
+                        Ok(format!("console.log({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("console.log({})", arg_strings[0]))
@@ -2193,7 +2458,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("process.stderr.write({})", template))
+                        Ok(format!("process.stderr.write({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("process.stderr.write({})", arg_strings[0]))
@@ -2221,7 +2486,7 @@ impl AstVisitor<String> for JsTranspiler {
                         // Has placeholders
                         let template =
                             self.format_to_template_literal(format_str, &arg_strings[1..])?;
-                        Ok(format!("console.error({})", template))
+                        Ok(format!("console.error({template})"))
                     } else {
                         // No placeholders, just print the string
                         Ok(format!("console.error({})", arg_strings[0]))
@@ -2232,7 +2497,7 @@ impl AstVisitor<String> for JsTranspiler {
                 }
             }
             _ => Err(Error::new_transpile(
-                format!("Unknown macro: {}!", name),
+                format!("Unknown macro: {name}!"),
                 *_span,
             )),
         }
@@ -2244,11 +2509,11 @@ impl JsTranspiler {
     fn is_enum_unit_variant(&self, enum_name: &str, variant_name: &str) -> bool {
         // For now, we'll assume any capitalized field on a capitalized type is a unit variant
         // In a real implementation, we'd track enum definitions
-        enum_name.chars().next().map_or(false, |c| c.is_uppercase())
+        enum_name.chars().next().is_some_and(|c| c.is_uppercase())
             && variant_name
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_uppercase())
+                .is_some_and(|c| c.is_uppercase())
     }
 
     /// Convert a format string with {} placeholders to a JavaScript template literal
@@ -2396,18 +2661,18 @@ impl JsTranspiler {
                     // From project root - add .js extension for ES modules
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                        format!("./{}", base_path)
+                        format!("./{base_path}")
                     } else {
-                        format!("./{}.js", base_path)
+                        format!("./{base_path}.js")
                     }
                 }
                 UsePrefix::Self_ => {
                     // Current directory - add .js extension for ES modules
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                        format!("./{}", base_path)
+                        format!("./{base_path}")
                     } else {
-                        format!("./{}.js", base_path)
+                        format!("./{base_path}.js")
                     }
                 }
                 UsePrefix::Super(count) => {
@@ -2418,9 +2683,9 @@ impl JsTranspiler {
                     }
                     let base_path = module_segments.join("/");
                     if base_path.ends_with(".js") || base_path.ends_with(".mjs") {
-                        format!("{}{}", prefix, base_path)
+                        format!("{prefix}{base_path}")
                     } else {
-                        format!("{}{}.js", prefix, base_path)
+                        format!("{prefix}{base_path}.js")
                     }
                 }
             };
@@ -2438,21 +2703,98 @@ impl JsTranspiler {
         // Generate the import statement
         let import_stmt = match &final_items {
             UseItems::All => {
-                format!("import * from '{}'", final_module_path)
+                format!("import * from '{final_module_path}'")
             }
             UseItems::Single => {
                 if path.segments.len() == 1 && path.prefix == UsePrefix::None {
                     // Single external package import
-                    format!("import '{}'", final_module_path)
+                    format!("import '{final_module_path}'")
                 } else {
                     // This shouldn't happen after our transformations above
                     // But handle it gracefully
                     let module_name = path.segments.last().unwrap_or(&String::new()).clone();
-                    format!("import {{ {} }} from '{}'", module_name, final_module_path)
+                    format!("import {{ {module_name} }} from '{final_module_path}'")
                 }
             }
             UseItems::Named(items) => {
                 let imports = items
+                    .iter()
+                    .map(|(name, alias)| {
+                        if let Some(alias) = alias {
+                            format!("{name} as {alias}")
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("import {{ {imports} }} from '{final_module_path}'")
+            }
+        };
+
+        Ok(import_stmt)
+    }
+
+    /// Generate browser polyfill imports for Node.js built-in modules
+    fn generate_browser_polyfill_import(
+        &self,
+        module_name: &str,
+        items: &UseItems,
+    ) -> Result<String> {
+        // Map Node.js modules to browser polyfills
+        let polyfill_package = match module_name {
+            "buffer" => Some("buffer"),
+            "crypto" => Some("crypto-browserify"),
+            "stream" => Some("stream-browserify"),
+            "util" => Some("util"),
+            "assert" => Some("assert"),
+            "events" => Some("events"),
+            "path" => Some("path-browserify"),
+            "url" => Some("url"),
+            "querystring" => Some("querystring-es3"),
+            "punycode" => Some("punycode"),
+            _ => None,
+        };
+
+        if let Some(package) = polyfill_package {
+            // Generate import for the polyfill package
+            match items {
+                UseItems::All => Ok(format!("import * from '{}'", package)),
+                UseItems::Single => Ok(format!("import '{}'", package)),
+                UseItems::Named(imports) => {
+                    let import_list = imports
+                        .iter()
+                        .map(|(name, alias)| {
+                            if let Some(alias) = alias {
+                                format!("{} as {}", name, alias)
+                            } else {
+                                name.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    Ok(format!("import {{ {} }} from '{}'", import_list, package))
+                }
+            }
+        } else {
+            // No polyfill available, skip the import
+            Ok(format!(
+                "// No browser polyfill available for Node.js module: {}",
+                module_name
+            ))
+        }
+    }
+
+    /// Generate Deno-compatible imports for Node.js built-in modules
+    fn generate_deno_builtin_import(&self, module_name: &str, items: &UseItems) -> Result<String> {
+        // Deno uses node: prefix for Node.js built-ins
+        let deno_module = format!("node:{}", module_name);
+
+        match items {
+            UseItems::All => Ok(format!("import * from '{}'", deno_module)),
+            UseItems::Single => Ok(format!("import '{}'", deno_module)),
+            UseItems::Named(imports) => {
+                let import_list = imports
                     .iter()
                     .map(|(name, alias)| {
                         if let Some(alias) = alias {
@@ -2463,11 +2805,119 @@ impl JsTranspiler {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("import {{ {} }} from '{}'", imports, final_module_path)
+                Ok(format!(
+                    "import {{ {} }} from '{}'",
+                    import_list, deno_module
+                ))
             }
-        };
+        }
+    }
 
-        Ok(import_stmt)
+    /// Generate import statement using import map
+    fn generate_import_map_import(
+        &self,
+        mapped_specifier: &str,
+        items: &UseItems,
+    ) -> Result<String> {
+        match items {
+            UseItems::All => Ok(format!("import * from '{}'", mapped_specifier)),
+            UseItems::Single => Ok(format!("import '{}'", mapped_specifier)),
+            UseItems::Named(imports) => {
+                let import_list = imports
+                    .iter()
+                    .map(|(name, alias)| {
+                        if let Some(alias) = alias {
+                            format!("{} as {}", name, alias)
+                        } else {
+                            name.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Ok(format!(
+                    "import {{ {} }} from '{}'",
+                    import_list, mapped_specifier
+                ))
+            }
+        }
+    }
+
+    /// Check if a function call should have a pure annotation for tree shaking
+    fn should_add_pure_annotation(&self, function_name: &str) -> bool {
+        // Only add pure annotations if tree shaking is enabled and not in dev mode
+        if let Some(ref target_info) = self.target_info {
+            if !target_info.tree_shaking || target_info.dev {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // List of known pure functions that can be safely tree-shaken
+        // These are functions that have no side effects
+        match function_name {
+            // Math functions
+            "Math.abs" | "Math.max" | "Math.min" | "Math.floor" | "Math.ceil" | "Math.round"
+            | "Math.sqrt" | "Math.pow" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.log"
+            | "Math.random" => true,
+
+            // Object/Array creation functions (pure constructors)
+            "Object.create" | "Object.assign" | "Object.keys" | "Object.values"
+            | "Object.entries" | "Array.from" | "Array.of" => true,
+
+            // String methods (when used functionally)
+            "String.fromCharCode" | "String.fromCodePoint" => true,
+
+            // Type conversion functions
+            "Number" | "String" | "Boolean" | "parseInt" | "parseFloat" => true,
+
+            // JSON functions (when used for pure data transformation)
+            "JSON.parse" | "JSON.stringify" => true,
+
+            // Husk-specific utility functions that are pure
+            "__format__" | "__husk_safe_call" | "huskSafeCall" => true,
+
+            // Constructor calls (often pure)
+            name if name.chars().next().map_or(false, |c| c.is_uppercase()) => true,
+
+            _ => false,
+        }
+    }
+
+    /// Add debugging comment if in development mode
+    fn add_debug_comment(&self, comment: &str) -> String {
+        if let Some(ref target_info) = self.target_info {
+            if target_info.dev {
+                return format!("/* {} */", comment);
+            }
+        }
+        String::new()
+    }
+
+    /// Check if we're in development mode
+    fn is_dev_mode(&self) -> bool {
+        if let Some(ref target_info) = self.target_info {
+            target_info.dev
+        } else {
+            false
+        }
+    }
+
+    /// Add runtime type checking assertion if in development mode
+    fn add_runtime_assertion(&self, var_name: &str, expected_type: &str) -> String {
+        if self.is_dev_mode() {
+            format!(
+                "{}if (typeof {} !== '{}') {{ console.warn('Type mismatch: {} expected {}, got ' + typeof {}); }}",
+                self.indent(),
+                var_name,
+                expected_type,
+                var_name,
+                expected_type,
+                var_name
+            )
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -2513,6 +2963,19 @@ fn is_nodejs_builtin(module: &str) -> bool {
             | "zlib"
     )
 }
+
+#[cfg(test)]
+#[path = "transpiler_dev_prod_test.rs"]
+mod transpiler_dev_prod_test;
+#[cfg(test)]
+#[path = "transpiler_external_deps_test.rs"]
+mod transpiler_external_deps_test;
+#[cfg(test)]
+#[path = "transpiler_import_maps_test.rs"]
+mod transpiler_import_maps_test;
+#[cfg(test)]
+#[path = "transpiler_tree_shaking_test.rs"]
+mod transpiler_tree_shaking_test;
 
 #[cfg(test)]
 mod tests {

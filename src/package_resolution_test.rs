@@ -73,8 +73,7 @@ mod tests {
         // (imports are registered as Unknown type)
         assert!(
             result.is_ok(),
-            "Semantic analysis should not fail for external imports: {:?}",
-            result
+            "Semantic analysis should not fail for external imports: {result:?}"
         );
     }
 
@@ -98,11 +97,7 @@ mod tests {
         let mut transpiler = JsTranspiler::new();
         let result = transpiler.generate(&ast);
 
-        assert!(
-            result.is_ok(),
-            "Transpilation should not fail: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Transpilation should not fail: {result:?}");
 
         let js_output = result.unwrap();
 
@@ -120,6 +115,6 @@ mod tests {
             "Should contain lodash imports"
         );
 
-        println!("Generated JavaScript:\n{}", js_output);
+        println!("Generated JavaScript:\n{js_output}");
     }
 }
