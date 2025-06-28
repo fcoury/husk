@@ -1,0 +1,14 @@
+{
+  "author": "",
+  "description": "A new Husk project",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "name": "test_import_maps",
+  "scripts": {
+    "build": "husk build",
+    "dev": "husk dev",
+    "start": "husk run"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}

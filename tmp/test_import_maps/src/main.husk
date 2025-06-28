@@ -1,0 +1,6 @@
+use react;
+use lodash;
+
+fn main() {
+    println!("Import maps test");
+}
