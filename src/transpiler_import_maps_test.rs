@@ -26,6 +26,7 @@ fn create_test_config_with_import_map() -> HuskConfig {
         output: None,
         import_map,
         tree_shaking: false,
+        dev: false,
     };
     config.targets.insert("browser".to_string(), browser_target);
 
@@ -49,6 +50,7 @@ fn create_test_config_with_import_map() -> HuskConfig {
         output: None,
         import_map: deno_import_map,
         tree_shaking: false,
+        dev: false,
     };
     config.targets.insert("deno".to_string(), deno_target);
 
@@ -69,6 +71,7 @@ fn test_import_map_basic_import() {
         external_deps: vec![],
         import_map,
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -102,6 +105,7 @@ fn test_import_map_named_imports() {
         external_deps: vec![],
         import_map,
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -136,6 +140,7 @@ fn test_import_map_with_alias() {
         external_deps: vec![],
         import_map,
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -173,6 +178,7 @@ fn test_import_map_wildcard_import() {
         external_deps: vec![],
         import_map,
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -204,6 +210,7 @@ fn test_import_map_unmapped_package_fallback() {
         external_deps: vec![],
         import_map,
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -239,6 +246,7 @@ fn test_import_map_different_platforms() {
         external_deps: vec![],
         import_map: deno_import_map,
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -265,6 +273,7 @@ fn test_import_map_empty() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();

@@ -242,8 +242,26 @@ This document tracks the implementation progress of npm support improvements in 
 - Multiple test files updated to include tree_shaking field
 
 ### Task 4.3: Development vs Production Mode
-**Status**: ⏳ Not Started  
+**Status**: ✅ Completed  
 **Priority**: LOW  
+**Description**: Add development vs production mode features for optimized builds
+
+**Changes**:
+- [x] Added `dev: bool` field to `TargetConfig` and `TargetInfo`
+- [x] Implemented `add_debug_comment` method for development debugging comments
+- [x] Added `is_dev_mode` helper method to check development mode
+- [x] Implemented `add_runtime_assertion` method for runtime type checking in dev mode
+- [x] Modified tree shaking to be disabled in development mode for faster builds
+- [x] Enhanced function definitions with debug comments in development mode
+- [x] Enhanced variable declarations with debug comments and runtime assertions in dev mode
+- [x] Created comprehensive test suite for development vs production mode features
+- [x] Updated all test files with new `dev` field
+
+**Files modified**:
+- `src/config.rs` - Added dev field to TargetConfig
+- `src/transpiler.rs` - Added development mode logic and helper methods
+- `src/transpiler_dev_prod_test.rs` - New comprehensive test suite with 8 tests
+- Multiple test files updated to include dev field
 
 ---
 
@@ -282,7 +300,7 @@ This document tracks the implementation progress of npm support improvements in 
 
 ---
 
-Last Updated: 2024-12-27 (Task 4.2 completed)
+Last Updated: 2024-12-27 (Task 4.3 completed)
 
 ## Implementation Details
 
@@ -440,3 +458,24 @@ Last Updated: 2024-12-27 (Task 4.2 completed)
   - Non-pure functions that shouldn't get annotations
   - Behavior when no target info is available
 - Tree shaking integration at target level allows different optimization settings per build target
+
+### Task 4.3 Implementation Notes
+- Development vs production mode controlled by `dev: bool` field in target configuration
+- **Development Mode Features (`dev: true`)**:
+  - Debugging comments added to functions and variables (e.g., `/* Function: calculateTotal */`)
+  - Runtime type checking assertions for basic types (string, number, boolean)
+  - Tree shaking disabled for faster builds (even if `tree_shaking: true` is set)
+  - More verbose output with type mismatch warnings via `console.warn`
+  - Variables get runtime assertions like `if (typeof userName !== 'string') { console.warn(...) }`
+- **Production Mode Features (`dev: false`)**:
+  - No debugging comments for cleaner, smaller output
+  - No runtime type checking for better performance
+  - Tree shaking enabled if configured for optimized bundles
+  - Compact output without development overhead
+  - Focus on performance and bundle size optimization
+- Default behavior without target info is production mode (no dev features)
+- Development mode prioritizes build speed and debugging over optimization
+- Production mode prioritizes performance and bundle size over debugging
+- Can be configured per target allowing different modes for different builds (e.g., dev mode for local development, production mode for deployment)
+- Runtime assertions only trigger for basic type mismatches, don't prevent execution
+- Comprehensive test coverage including interaction with tree shaking feature

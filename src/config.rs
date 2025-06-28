@@ -114,6 +114,8 @@ pub struct TargetConfig {
     pub import_map: HashMap<String, String>,
     #[serde(default)]
     pub tree_shaking: bool,
+    #[serde(default)]
+    pub dev: bool,
 }
 
 fn default_src_dir() -> String {

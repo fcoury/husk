@@ -18,6 +18,7 @@ fn create_test_config_with_tree_shaking() -> HuskConfig {
         output: None,
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
     config.targets.insert("browser".to_string(), browser_target);
 
@@ -31,6 +32,7 @@ fn create_test_config_with_tree_shaking() -> HuskConfig {
         output: None,
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
     config.targets.insert("node".to_string(), node_target);
 
@@ -47,6 +49,7 @@ fn test_tree_shaking_pure_annotations_enabled() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -85,6 +88,7 @@ fn test_tree_shaking_pure_annotations_disabled() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -120,6 +124,7 @@ fn test_constructor_calls_get_pure_annotation() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -156,6 +161,7 @@ fn test_object_methods_get_pure_annotation() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -192,6 +198,7 @@ fn test_json_methods_get_pure_annotation() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -226,6 +233,7 @@ fn test_husk_utilities_get_pure_annotation() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -258,6 +266,7 @@ fn test_non_pure_functions_no_annotation() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: true,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();

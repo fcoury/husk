@@ -18,6 +18,7 @@ fn create_test_config_with_external() -> HuskConfig {
         output: None,
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
     config.targets.insert("browser".to_string(), browser_target);
 
@@ -31,6 +32,7 @@ fn create_test_config_with_external() -> HuskConfig {
         output: None,
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
     config.targets.insert("node-esm".to_string(), node_target);
 
@@ -46,6 +48,7 @@ fn test_external_dependency_browser() {
         external_deps: vec!["axios".to_string(), "react".to_string()],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -72,6 +75,7 @@ fn test_external_dependency_with_named_imports() {
         external_deps: vec!["axios".to_string()],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -98,6 +102,7 @@ fn test_non_external_dependency() {
         external_deps: vec!["axios".to_string()],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -125,6 +130,7 @@ fn test_external_dependency_different_targets() {
         external_deps: vec!["aws-sdk".to_string()],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -152,6 +158,7 @@ fn test_no_external_dependencies() {
         external_deps: vec![],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
@@ -177,6 +184,7 @@ fn test_external_dependency_subpath() {
         external_deps: vec!["react".to_string()],
         import_map: HashMap::new(),
         tree_shaking: false,
+        dev: false,
     };
 
     let mut transpiler = JsTranspiler::new();
