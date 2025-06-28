@@ -38,6 +38,9 @@ mod tests {
             output: Some("output.js".to_string()),
             external: Vec::new(),
             globals: std::collections::HashMap::new(),
+            import_map: std::collections::HashMap::new(),
+            tree_shaking: false,
+            dev: false,
         };
         config.targets.insert("test".to_string(), target_config);
 
