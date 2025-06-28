@@ -34,9 +34,9 @@ struct Build {
     #[clap(long)]
     watch: bool,
 
-    /// Generate package.json from husk.toml
+    /// Skip package.json generation
     #[clap(long)]
-    generate_package_json: bool,
+    skip_package_json: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -169,7 +169,7 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
     let (config, project_root) = match HuskConfig::find_and_load() {
         Ok((config, root)) => (config, root),
         Err(e) => {
-            eprintln!("Error: Could not find husk.toml: {}", e);
+            eprintln!("Error: Could not find husk.toml: {e}");
             eprintln!("Run 'husk init' to create a new project or ensure you're in a Husk project directory.");
             std::process::exit(1);
         }
@@ -177,12 +177,44 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
     println!("Building project: {}", config.package.name);
 
-    // Generate package.json if requested
-    if cli.generate_package_json {
-        let package_json = config.generate_package_json()?;
+    // Generate package.json by default (unless skipped)
+    if !cli.skip_package_json {
         let package_json_path = project_root.join("package.json");
-        fs::write(&package_json_path, package_json)?;
-        println!("Generated package.json");
+        let new_package_json = config.generate_package_json()?;
+
+        // Check if package.json exists and if it needs updating
+        let should_generate = if package_json_path.exists() {
+            match fs::read_to_string(&package_json_path) {
+                Ok(existing) => {
+                    // Compare dependencies to see if regeneration is needed
+                    match (
+                        serde_json::from_str::<serde_json::Value>(&existing),
+                        serde_json::from_str::<serde_json::Value>(&new_package_json),
+                    ) {
+                        (Ok(existing_json), Ok(new_json)) => {
+                            // Only regenerate if dependencies changed
+                            existing_json.get("dependencies") != new_json.get("dependencies")
+                                || existing_json.get("devDependencies")
+                                    != new_json.get("devDependencies")
+                        }
+                        _ => true, // Regenerate if we can't parse either
+                    }
+                }
+                Err(_) => true, // Regenerate if we can't read the file
+            }
+        } else {
+            true // No existing package.json
+        };
+
+        if should_generate {
+            fs::write(&package_json_path, &new_package_json)?;
+            println!("✓ Generated package.json");
+
+            // Remind user to run npm install if needed
+            if !project_root.join("node_modules").exists() {
+                println!("  → Run 'npm install' to install dependencies");
+            }
+        }
     }
 
     // Determine target
@@ -196,7 +228,7 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
         })
         .unwrap_or("node-esm");
 
-    println!("Target: {}", target);
+    println!("Target: {target}");
 
     // Create output directory
     let src_dir = project_root.join(&config.build.src);
@@ -231,7 +263,7 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
         let code = fs::read_to_string(&husk_file)?;
 
-        match husk_lang::transpile_to_js_with_packages(&code) {
+        match husk_lang::transpile_to_js_with_target(&code, target) {
             Ok(js) => {
                 fs::write(&js_file, js)?;
                 println!(
@@ -281,7 +313,7 @@ fn find_husk_files(dir: &std::path::Path) -> anyhow::Result<Vec<std::path::PathB
 fn compile_command(cli: Compile, no_color: bool) -> anyhow::Result<()> {
     let code = std::fs::read_to_string(cli.file)?;
     match husk_lang::transpile_to_js_with_packages(&code) {
-        Ok(js) => println!("{}", js),
+        Ok(js) => println!("{js}"),
         Err(e) => {
             let mut stderr = Vec::new();
             e.write_colored(&mut stderr, &code, no_color).unwrap();
@@ -314,7 +346,7 @@ fn new_command(cli: New) -> anyhow::Result<()> {
     // Create husk.toml
     let husk_toml_content = format!(
         r#"[package]
-name = "{}"
+name = "{project_name}"
 version = "0.1.0"
 description = "A new Husk project"
 author = ""
@@ -329,8 +361,7 @@ src = "src"
 out = "dist"
 target = ""
 module = "esm"
-"#,
-        project_name
+"#
     );
 
     fs::write(project_path.join("husk.toml"), husk_toml_content)?;
@@ -352,10 +383,10 @@ module = "esm"
 
     fs::write(project_path.join(".gitignore"), gitignore_content)?;
 
-    println!("Created new Husk project '{}'", project_name);
+    println!("Created new Husk project '{project_name}'");
     println!();
     println!("To get started:");
-    println!("  cd {}", project_name);
+    println!("  cd {project_name}");
     println!("  husk build");
     println!("  husk run src/main.husk");
 
@@ -375,7 +406,7 @@ fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
     collect_husk_files(&test_path, &mut test_files)?;
 
     if test_files.is_empty() {
-        println!("No test files found in {:?}", test_path);
+        println!("No test files found in {test_path:?}");
         return Ok(());
     }
 
@@ -391,7 +422,7 @@ fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
     let num_files = test_files.len();
     for file_path in &test_files {
         // Read and parse the file
-        let code = fs::read_to_string(&file_path)?;
+        let code = fs::read_to_string(file_path)?;
 
         let mut lexer = Lexer::new(code.clone());
         let tokens = lexer.lex_all();
@@ -400,7 +431,7 @@ fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
         let ast = match parser.parse() {
             Ok(ast) => ast,
             Err(e) => {
-                eprint!("Parse error in {:?}: ", file_path);
+                eprint!("Parse error in {file_path:?}: ");
                 let mut stderr = Vec::new();
                 e.write_colored(&mut stderr, &code, no_color).unwrap();
                 continue;
@@ -410,7 +441,7 @@ fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
         // Run semantic analysis with test discovery
         let mut analyzer = SemanticVisitor::new();
         if let Err(e) = analyzer.analyze(&ast) {
-            eprint!("Semantic error in {:?}: ", file_path);
+            eprint!("Semantic error in {file_path:?}: ");
             let mut stderr = Vec::new();
             e.write_colored(&mut stderr, &code, no_color).unwrap();
             continue;
@@ -464,12 +495,9 @@ fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
         let ignored = all_test_results.iter().filter(|r| r.ignored).count();
 
         println!("\n=== Overall Test Summary ===");
-        println!("Files processed: {}", num_files);
-        println!("Total tests: {}", total_tests);
-        println!(
-            "Passed: {}, Failed: {}, Ignored: {}",
-            passed, failed, ignored
-        );
+        println!("Files processed: {num_files}");
+        println!("Total tests: {total_tests}");
+        println!("Passed: {passed}, Failed: {failed}, Ignored: {ignored}");
 
         if failed > 0 {
             std::process::exit(1);

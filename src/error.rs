@@ -43,7 +43,7 @@ impl Error {
             Error::Parse(message, span) => pretty_print(code, message, span),
             Error::Runtime(message, span) => pretty_print(code, message, span),
             Error::Transpiler(message, span) => pretty_print(code, message, span),
-            Error::Config(message) => format!("Configuration Error: {}", message),
+            Error::Config(message) => format!("Configuration Error: {message}"),
         }
     }
 
@@ -153,14 +153,14 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Semantic(message, span) => {
-                write!(f, "Semantic error: {} at {:?}", message, span)
+                write!(f, "Semantic error: {message} at {span:?}")
             }
-            Error::Parse(message, span) => write!(f, "Parse error: {} at {:?}", message, span),
-            Error::Runtime(message, span) => write!(f, "Runtime error: {} at {:?}", message, span),
+            Error::Parse(message, span) => write!(f, "Parse error: {message} at {span:?}"),
+            Error::Runtime(message, span) => write!(f, "Runtime error: {message} at {span:?}"),
             Error::Transpiler(message, span) => {
-                write!(f, "Transpiler error: {} at {:?}", message, span)
+                write!(f, "Transpiler error: {message} at {span:?}")
             }
-            Error::Config(message) => write!(f, "Configuration error: {}", message),
+            Error::Config(message) => write!(f, "Configuration error: {message}"),
         }
     }
 }

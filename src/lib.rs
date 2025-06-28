@@ -167,3 +167,26 @@ pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> 
     };
     js_generator.generate(&ast)
 }
+
+pub fn transpile_to_js_with_target(code: impl Into<String>, target: &str) -> Result<String> {
+    let code = code.into();
+    let mut lexer = Lexer::new(code.to_string());
+    let tokens = lexer.lex_all();
+
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse()?;
+
+    // Use visitor pattern for semantic analysis with package resolution
+    let mut analyzer = SemanticVisitor::with_package_resolver().unwrap_or_default();
+    analyzer.analyze(&ast)?;
+
+    // Use transpiler with target configuration
+    let mut js_generator = match JsTranspiler::with_target(target) {
+        Ok(transpiler) => transpiler,
+        Err(_) => {
+            // Fall back to basic transpiler if target parsing fails
+            JsTranspiler::new()
+        }
+    };
+    js_generator.generate(&ast)
+}

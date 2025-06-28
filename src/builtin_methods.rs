@@ -947,7 +947,7 @@ fn array_sort(value: &Value, _args: &[Value], _span: &Span) -> Result<Value> {
                 (Value::String(a), Value::String(b)) => a.cmp(b),
                 (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
                 // For mixed types, convert to string and compare
-                _ => format!("{:?}", a).cmp(&format!("{:?}", b)),
+                _ => format!("{a:?}").cmp(&format!("{b:?}")),
             }
         });
 
@@ -1374,33 +1374,33 @@ impl TranspilerMethodRegistry {
 // Transpiler implementations for string methods
 
 fn transpile_string_len(obj: &str, _args: &[String]) -> String {
-    format!("{}.length", obj)
+    format!("{obj}.length")
 }
 
 fn transpile_string_is_empty(obj: &str, _args: &[String]) -> String {
-    format!("({}.length === 0)", obj)
+    format!("({obj}.length === 0)")
 }
 
 fn transpile_string_trim(obj: &str, _args: &[String]) -> String {
-    format!("{}.trim()", obj)
+    format!("{obj}.trim()")
 }
 
 fn transpile_string_chars(obj: &str, _args: &[String]) -> String {
     // Array.from() properly handles Unicode surrogate pairs
-    format!("Array.from({})", obj)
+    format!("Array.from({obj})")
 }
 
 fn transpile_string_bytes(obj: &str, _args: &[String]) -> String {
     // Use TextEncoder to get UTF-8 bytes, then convert to regular array
-    format!("Array.from(new TextEncoder().encode({}))", obj)
+    format!("Array.from(new TextEncoder().encode({obj}))")
 }
 
 fn transpile_string_trim_start(obj: &str, _args: &[String]) -> String {
-    format!("{}.trimStart()", obj)
+    format!("{obj}.trimStart()")
 }
 
 fn transpile_string_trim_end(obj: &str, _args: &[String]) -> String {
-    format!("{}.trimEnd()", obj)
+    format!("{obj}.trimEnd()")
 }
 
 fn transpile_string_splitn(obj: &str, args: &[String]) -> String {
@@ -1413,7 +1413,7 @@ fn transpile_string_splitn(obj: &str, args: &[String]) -> String {
         )
     } else {
         // Fallback to regular split if args are incorrect
-        format!("{}.split('')", obj)
+        format!("{obj}.split('')")
     }
 }
 
@@ -1433,10 +1433,7 @@ fn transpile_string_split_once(obj: &str, args: &[String]) -> String {
 fn transpile_string_lines(obj: &str, _args: &[String]) -> String {
     // Split by newline - handles \n, \r\n properly
     // Note: Rust's lines() removes the line terminators and doesn't include final empty line
-    format!(
-        "{}.split(/\\r?\\n/).filter((line, i, arr) => i < arr.length - 1 || line !== '')",
-        obj
-    )
+    format!("{obj}.split(/\\r?\\n/).filter((line, i, arr) => i < arr.length - 1 || line !== '')")
 }
 
 fn transpile_string_slice(obj: &str, args: &[String]) -> String {
@@ -1448,7 +1445,7 @@ fn transpile_string_slice(obj: &str, args: &[String]) -> String {
             obj, &args[0], &args[1]
         )
     } else {
-        format!("{}.slice()", obj)
+        format!("{obj}.slice()")
     }
 }
 
@@ -1470,7 +1467,7 @@ fn transpile_string_repeat(obj: &str, args: &[String]) -> String {
     if !args.is_empty() {
         format!("{}.repeat({})", obj, &args[0])
     } else {
-        format!("{}.repeat(0)", obj)
+        format!("{obj}.repeat(0)")
     }
 }
 
@@ -1483,11 +1480,11 @@ fn transpile_string_split(obj: &str, args: &[String]) -> String {
 }
 
 fn transpile_string_to_lowercase(obj: &str, _args: &[String]) -> String {
-    format!("{}.toLowerCase()", obj)
+    format!("{obj}.toLowerCase()")
 }
 
 fn transpile_string_to_uppercase(obj: &str, _args: &[String]) -> String {
-    format!("{}.toUpperCase()", obj)
+    format!("{obj}.toUpperCase()")
 }
 
 fn transpile_string_contains(obj: &str, args: &[String]) -> String {
@@ -1525,21 +1522,21 @@ fn transpile_string_rfind(obj: &str, args: &[String]) -> String {
 // Transpiler implementations for array methods
 
 fn transpile_array_len(obj: &str, _args: &[String]) -> String {
-    format!("{}.length", obj)
+    format!("{obj}.length")
 }
 
 fn transpile_array_is_empty(obj: &str, _args: &[String]) -> String {
-    format!("{}.length === 0", obj)
+    format!("{obj}.length === 0")
 }
 
 fn transpile_array_first(obj: &str, _args: &[String]) -> String {
     // Should return Option<T> but for now just returns the element
-    format!("{}[0]", obj)
+    format!("{obj}[0]")
 }
 
 fn transpile_array_last(obj: &str, _args: &[String]) -> String {
     // Should return Option<T> but for now just returns the element
-    format!("{}[{}.length - 1]", obj, obj)
+    format!("{obj}[{obj}.length - 1]")
 }
 
 fn transpile_array_get(obj: &str, args: &[String]) -> String {
@@ -1565,7 +1562,7 @@ fn transpile_array_contains(obj: &str, args: &[String]) -> String {
 
 fn transpile_array_reverse(obj: &str, _args: &[String]) -> String {
     // Returns a new reversed array (doesn't mutate original)
-    format!("[...{}].reverse()", obj)
+    format!("[...{obj}].reverse()")
 }
 
 fn transpile_array_push(obj: &str, args: &[String]) -> String {
@@ -1576,13 +1573,13 @@ fn transpile_array_push(obj: &str, args: &[String]) -> String {
 fn transpile_array_pop(obj: &str, _args: &[String]) -> String {
     // In Husk, arrays are immutable, so we need to clone before popping
     // Should return tuple of (new_array, Option<popped>) but for now just returns the element
-    format!("[...{}].pop()", obj)
+    format!("[...{obj}].pop()")
 }
 
 fn transpile_array_sort(obj: &str, _args: &[String]) -> String {
     // JavaScript Array.sort() with custom comparison for mixed types
     format!(
-        "[...{}].sort((a, b) => {{
+        "[...{obj}].sort((a, b) => {{
             if (typeof a === typeof b) {{
                 if (typeof a === 'number') return a - b;
                 if (typeof a === 'string') return a.localeCompare(b);
@@ -1590,8 +1587,7 @@ fn transpile_array_sort(obj: &str, _args: &[String]) -> String {
                 return String(a).localeCompare(String(b));
             }}
             return String(a).localeCompare(String(b));
-        }})",
-        obj
+        }})"
     )
 }
 
@@ -1600,7 +1596,7 @@ fn transpile_array_map(obj: &str, args: &[String]) -> String {
     if !args.is_empty() {
         format!("{}.map({})", obj, &args[0])
     } else {
-        format!("{}.map(x => x)", obj) // Identity map as fallback
+        format!("{obj}.map(x => x)") // Identity map as fallback
     }
 }
 
@@ -1609,7 +1605,7 @@ fn transpile_array_filter(obj: &str, args: &[String]) -> String {
     if !args.is_empty() {
         format!("{}.filter({})", obj, &args[0])
     } else {
-        format!("{}.filter(x => true)", obj) // No-op filter as fallback
+        format!("{obj}.filter(x => true)") // No-op filter as fallback
     }
 }
 
