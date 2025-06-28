@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Husk Examples - Learn by Example</title>
+    <meta name="description" content="Explore Husk programming language through practical examples. From basics to advanced features.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="assets/css/main.css">
+    
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    
+    <style>
+        .examples-hero {
+            background-color: var(--bg-white);
+            padding: var(--spacing-2xl) 0;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .examples-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: var(--spacing-2xl) var(--spacing-lg);
+        }
+        
+        .example-section {
+            margin-bottom: var(--spacing-3xl);
+        }
+        
+        .example-section h2 {
+            margin-bottom: var(--spacing-xl);
+            color: var(--primary-orange);
+        }
+        
+        .example-card {
+            background-color: var(--bg-white);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: var(--spacing-xl);
+            overflow: hidden;
+        }
+        
+        .example-header {
+            padding: var(--spacing-md) var(--spacing-lg);
+            background-color: var(--bg-code);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .example-header h3 {
+            margin: 0;
+            font-size: var(--font-lg);
+        }
+        
+        .example-description {
+            padding: var(--spacing-md) var(--spacing-lg);
+            color: var(--text-secondary);
+        }
+        
+        .example-code {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="nav-brand">
+                <img src="assets/img/icon.svg" alt="Husk Logo" class="nav-logo">
+                <span class="nav-title">Husk</span>
+            </a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="playground.html">Playground</a></li>
+                <li><a href="docs.html">Documentation</a></li>
+                <li><a href="examples.html" class="active">Examples</a></li>
+                <li><a href="community.html">Community</a></li>
+                <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Examples Hero -->
+    <section class="examples-hero">
+        <div class="container">
+            <h1>Husk Examples</h1>
+            <p>Learn Husk through practical, real-world examples</p>
+        </div>
+    </section>
+
+    <!-- Examples Content -->
+    <div class="examples-container">
+        <section class="example-section">
+            <h2>Basic Examples</h2>
+            
+            <div class="example-card">
+                <div class="example-header">
+                    <h3>Hello World</h3>
+                </div>
+                <div class="example-description">
+                    <p>The classic first program in Husk</p>
+                </div>
+                <pre class="example-code"><code class="language-rust">fn main() {
+    println("Hello, World!");
+}</code></pre>
+            </div>
+            
+            <div class="example-card">
+                <div class="example-header">
+                    <h3>Variables and Types</h3>
+                </div>
+                <div class="example-description">
+                    <p>Working with basic data types and variables</p>
+                </div>
+                <pre class="example-code"><code class="language-rust">fn main() {
+    let name = "Alice";
+    let age = 30;
+    let height = 5.6;
+    let is_student = false;
+    
+    println(format!("{} is {} years old", name, age));
+    println(format!("Height: {} feet", height));
+    println(format!("Student: {}", is_student));
+}</code></pre>
+            </div>
+            
+            <div class="example-card">
+                <div class="example-header">
+                    <h3>Functions</h3>
+                </div>
+                <div class="example-description">
+                    <p>Defining and calling functions with parameters</p>
+                </div>
+                <pre class="example-code"><code class="language-rust">fn add(x: int, y: int) -> int {
+    x + y
+}
+
+fn greet(name: string) -> string {
+    format!("Hello, {}!", name)
+}
+
+fn main() {
+    let sum = add(5, 3);
+    println(format!("5 + 3 = {}", sum));
+    
+    let message = greet("Husk");
+    println(message);
+}</code></pre>
+            </div>
+        </section>
+        
+        <section class="example-section">
+            <h2>Intermediate Examples</h2>
+            
+            <div class="example-card">
+                <div class="example-header">
+                    <h3>Structs and Methods</h3>
+                </div>
+                <div class="example-description">
+                    <p>Creating custom types with structs and implementing methods</p>
+                </div>
+                <pre class="example-code"><code class="language-rust">struct Rectangle {
+    width: float,
+    height: float,
+}
+
+impl Rectangle {
+    fn area(self) -> float {
+        self.width * self.height
+    }
+    
+    fn perimeter(self) -> float {
+        2.0 * (self.width + self.height)
+    }
+}
+
+fn main() {
+    let rect = Rectangle {
+        width: 10.0,
+        height: 5.0,
+    };
+    
+    println(format!("Area: {}", rect.area()));
+    println(format!("Perimeter: {}", rect.perimeter()));
+}</code></pre>
+            </div>
+            
+            <div class="example-card">
+                <div class="example-header">
+                    <h3>Error Handling with Result</h3>
+                </div>
+                <div class="example-description">
+                    <p>Safe error handling using the Result type</p>
+                </div>
+                <pre class="example-code"><code class="language-rust">fn parse_number(s: string) -> Result&lt;int, string&gt; {
+    // In real Husk, this would use proper parsing
+    if s == "42" {
+        Result::Ok(42)
+    } else {
+        Result::Err("Invalid number")
+    }
+}
+
+fn main() {
+    let input = "42";
+    
+    match parse_number(input) {
+        Result::Ok(num) => {
+            println(format!("Parsed: {}", num));
+        },
+        Result::Err(msg) => {
+            println(format!("Error: {}", msg));
+        }
+    }
+}</code></pre>
+            </div>
+        </section>
+        
+        <div class="cta-section">
+            <p>Find more examples in the GitHub repository</p>
+            <a href="https://github.com/fcoury/husk/tree/main/examples" class="btn btn-primary" target="_blank" rel="noopener">View All Examples</a>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+    <script src="assets/js/main.js"></script>
+</body>
+</html>

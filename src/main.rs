@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use husk::repl;
+use husk_lang::repl;
 use serde_json;
 
 #[derive(Parser, Debug)]
@@ -150,7 +150,7 @@ fn run_command(file: PathBuf, no_color: bool) -> anyhow::Result<()> {
         })
         .map(|p| p.to_path_buf());
 
-    match husk::execute_script_with_context(&code, Some(file), project_root) {
+    match husk_lang::execute_script_with_context(&code, Some(file), project_root) {
         Ok(_) => {}
         Err(e) => {
             let mut stderr = Vec::new();
@@ -163,7 +163,7 @@ fn run_command(file: PathBuf, no_color: bool) -> anyhow::Result<()> {
 }
 
 fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
-    use husk::HuskConfig;
+    use husk_lang::HuskConfig;
     use std::fs;
 
     // Load husk.toml configuration
@@ -264,7 +264,7 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
         let code = fs::read_to_string(&husk_file)?;
 
-        match husk::transpile_to_js_with_target(&code, target) {
+        match husk_lang::transpile_to_js_with_target(&code, target) {
             Ok(js) => {
                 fs::write(&js_file, js)?;
                 println!(
@@ -313,7 +313,7 @@ fn find_husk_files(dir: &std::path::Path) -> anyhow::Result<Vec<std::path::PathB
 
 fn compile_command(cli: Compile, no_color: bool) -> anyhow::Result<()> {
     let code = std::fs::read_to_string(cli.file)?;
-    match husk::transpile_to_js_with_packages(&code) {
+    match husk_lang::transpile_to_js_with_packages(&code) {
         Ok(js) => println!("{js}"),
         Err(e) => {
             let mut stderr = Vec::new();
@@ -395,8 +395,8 @@ module = "esm"
 }
 
 fn test_command(cli: Test, no_color: bool) -> anyhow::Result<()> {
-    use husk::test_runner::{TestConfig, TestRunner};
-    use husk::{Lexer, Parser, SemanticVisitor};
+    use husk_lang::test_runner::{TestConfig, TestRunner};
+    use husk_lang::{Lexer, Parser, SemanticVisitor};
     use std::fs;
 
     // Determine the path to search for tests
@@ -526,11 +526,13 @@ fn collect_husk_files(path: &Path, files: &mut Vec<PathBuf>) -> anyhow::Result<(
 }
 
 fn run_transpiler_tests(
-    ast: &[husk::Stmt],
-    registry: &husk::TestRegistry,
+    ast: &[husk_lang::Stmt],
+    registry: &husk_lang::TestRegistry,
     cli: &Test,
-) -> anyhow::Result<Vec<husk::TestResult>> {
-    use husk::test_transpiler::{TestRunner as JsTestRunner, TestTranspileConfig, TestTranspiler};
+) -> anyhow::Result<Vec<husk_lang::TestResult>> {
+    use husk_lang::test_transpiler::{
+        TestRunner as JsTestRunner, TestTranspileConfig, TestTranspiler,
+    };
     use std::fs;
     use std::process::{Command, Stdio};
 

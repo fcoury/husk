@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Husk Documentation - Language Reference</title>
+    <meta name="description" content="Complete documentation for the Husk programming language. Learn syntax, features, and best practices.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="assets/css/main.css">
+    
+    <style>
+        .docs-hero {
+            background-color: var(--bg-white);
+            padding: var(--spacing-2xl) 0;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .docs-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: var(--spacing-2xl) var(--spacing-lg);
+        }
+        
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--spacing-xl);
+            margin-top: var(--spacing-2xl);
+        }
+        
+        .doc-card {
+            background-color: var(--bg-white);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: var(--spacing-xl);
+            transition: all 0.2s ease;
+        }
+        
+        .doc-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--shadow-color);
+            border-color: var(--primary-orange);
+        }
+        
+        .doc-card h3 {
+            color: var(--primary-orange);
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .doc-card p {
+            color: var(--text-secondary);
+            margin-bottom: 0;
+        }
+        
+        .coming-soon {
+            text-align: center;
+            padding: var(--spacing-3xl);
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="nav-brand">
+                <img src="assets/img/icon.svg" alt="Husk Logo" class="nav-logo">
+                <span class="nav-title">Husk</span>
+            </a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="playground.html">Playground</a></li>
+                <li><a href="docs.html" class="active">Documentation</a></li>
+                <li><a href="examples.html">Examples</a></li>
+                <li><a href="community.html">Community</a></li>
+                <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Documentation Hero -->
+    <section class="docs-hero">
+        <div class="container">
+            <h1>Husk Documentation</h1>
+            <p>Everything you need to know about the Husk programming language</p>
+        </div>
+    </section>
+
+    <!-- Documentation Content -->
+    <div class="docs-container">
+        <div class="coming-soon">
+            <h2>Documentation is being prepared</h2>
+            <p>We're working on comprehensive documentation for Husk.</p>
+            <p>For now, please refer to the README on GitHub for language features and syntax.</p>
+            <a href="https://github.com/fcoury/husk#readme" class="btn btn-primary" target="_blank" rel="noopener">View README</a>
+        </div>
+        
+        <!-- Future documentation sections -->
+        <div class="docs-grid" style="display: none;">
+            <div class="doc-card">
+                <h3>Getting Started</h3>
+                <p>Installation, setup, and your first Husk program</p>
+            </div>
+            <div class="doc-card">
+                <h3>Language Basics</h3>
+                <p>Variables, functions, types, and control flow</p>
+            </div>
+            <div class="doc-card">
+                <h3>Advanced Features</h3>
+                <p>Pattern matching, async/await, generics, and more</p>
+            </div>
+            <div class="doc-card">
+                <h3>Module System</h3>
+                <p>Organizing code with modules and imports</p>
+            </div>
+            <div class="doc-card">
+                <h3>Transpilation</h3>
+                <p>Compiling Husk to JavaScript for production use</p>
+            </div>
+            <div class="doc-card">
+                <h3>Standard Library</h3>
+                <p>Built-in functions and types reference</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="assets/js/main.js"></script>
+</body>
+</html>

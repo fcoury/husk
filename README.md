@@ -1,55 +1,123 @@
-# Husk - Script Language Inspired by Rust
+# Husk - Rust's syntax meets JavaScript's flexibility
 
 <p align="center">
-  <img src="assets/logo-small.png" alt="AIPIM Icon" />
+  <img src="assets/logo-small.png" alt="Husk Logo" />
 </p>
 
-[![Build Status](https://github.com/fcoury/husk/actions/workflows/rust.yml/badge.svg)](https://github.com/fcoury/husk/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <strong>Choose your own adventure: Run interpreted for rapid development or transpile to JavaScript for the entire npm ecosystem</strong>
+</p>
 
-<!--
-[![Crates.io](https://img.shields.io/crates/v/husk.svg)](https://crates.io/crates/husk)
--->
+<p align="center">
+  <a href="https://github.com/fcoury/husk/actions">
+    <img src="https://github.com/fcoury/husk/actions/workflows/rust.yml/badge.svg" alt="Build Status" />
+  </a>
+  <a href="https://crates.io/crates/husk-lang">
+    <img src="https://img.shields.io/crates/v/husk-lang.svg" alt="Crates.io" />
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
+  </a>
+  <a href="https://husk-lang.org">
+    <img src="https://img.shields.io/badge/Website-husk--lang.org-orange.svg" alt="Website" />
+  </a>
+</p>
 
-Husk is a lightweight scripting language inspired by Rust, designed for simplicity and ease of use while maintaining some of Rust's powerful features.
+Husk is a lightweight interpreted language that brings Rust's elegant syntax to the world of scripting and JavaScript development. Write type-safe, expressive code with the flexibility to run it instantly or compile it for production use with full access to npm's 1M+ packages.
+
+## Why Husk?
+
+### 🚀 Best of Both Worlds
+Write scripts with Rust's clean, expressive syntax while leveraging JavaScript's massive ecosystem. No more choosing between elegant code and practical libraries.
+
+### 🎯 Choose Your Path
+
+#### **Interpreter Mode** - Quick & Iterative
+Perfect for:
+- Rapid prototyping
+- Build scripts
+- CLI tools  
+- Learning and experimentation
+
+```bash
+# Zero configuration, instant feedback
+husk run script.husk
+
+# Interactive REPL for exploration
+husk repl
+```
+
+#### **Transpiler Mode** - Production Ready
+Perfect for:
+- Web applications
+- npm packages
+- Node.js services
+- Existing JavaScript projects
+
+```bash
+# Build once, run anywhere JavaScript runs
+husk build
+
+# Use with your favorite npm packages
+npm install express
+node dist/app.js
+```
 
 ## Features
 
-- Rust-inspired syntax
-- Static typing
-- Support for basic data types: integers, floats, booleans, and strings
-- Struct definitions and instantiation
-- Function definitions and calls
-- Control flow with if-else expressions and match expressions
-- Return statements for early function returns
-- Enums with associated values
-- Arrays and ranges
-- Loop constructs: for, while, and loop with break/continue
-- Arithmetic operations: `+`, `-`, `*`, `/`, `%`
-- Comparison operations: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- Logical operations: `&&`, `||`, `!`
-- Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`
-- Interactive REPL (Read-Eval-Print Loop)
-- Script execution from files
-- Transpilation to JavaScript
-- Module system with local imports and exports
-- Project build system with husk.toml configuration
-- Package.json generation from dependencies
-- Async/await syntax (transpiler only)
-- Option and Result built-in types
-- Closure/lambda expressions
-- Format macro for string formatting
-- Generic type support
+### Language Features
+- **Rust-inspired syntax** - Familiar and expressive
+- **Static typing with inference** - Catch errors early, write less boilerplate
+- **Pattern matching** - Powerful control flow with match expressions
+- **Option & Result types** - Built-in error handling the Rust way
+- **Structs & Enums** - Model your data precisely
+- **Module system** - Organize code across files
+- **Async/await** - Modern asynchronous programming
+- **Type casting** - Seamless conversions with `as`
+- **Format macro** - String interpolation done right
 
-## Installation
+### Developer Experience
+- **Interactive REPL** - Test ideas instantly
+- **Zero configuration** - Just write and run
+- **Project build system** - Scale from scripts to applications
+- **JavaScript interop** - Use any npm package
+- **Fast iteration** - No compile times in interpreter mode
+- **Cross-platform** - Runs wherever Node.js runs
 
-To install Husk, you need to have Rust and Cargo installed on your system. Then, you can install Husk using:
+## Quick Start
+
+### Installation
 
 ```bash
-cargo install husk
+# Install Husk (requires Rust/Cargo)
+cargo install husk-lang
 ```
 
-## Usage
+### Your First Husk Program
+
+```rust
+// hello.husk
+fn greet(name: string) -> string {
+    format!("Hello, {}!", name)
+}
+
+fn main() {
+    let message = greet("World");
+    println(message);
+}
+```
+
+Run it instantly:
+```bash
+husk run hello.husk
+```
+
+Or compile to JavaScript:
+```bash
+husk compile hello.husk | node
+```
+
+## Usage Modes
 
 ### REPL Mode
 
@@ -121,6 +189,87 @@ out = "dist"
 ```
 
 Place your Husk source files in the `src` directory. The build command will compile all `.husk` files and generate corresponding JavaScript files in the output directory.
+
+## Real-World Example
+
+Here's how Husk enables you to move seamlessly from rapid prototyping to production:
+
+### 1. Start with the Interpreter (Rapid Development)
+
+```rust
+// calculator.husk - Quick prototype
+fn calculate(operation: string, a: int, b: int) -> Result<int, string> {
+    match operation {
+        "add" => Ok(a + b),
+        "subtract" => Ok(a - b),
+        "multiply" => Ok(a * b),
+        "divide" => {
+            if b == 0 {
+                Err("Division by zero")
+            } else {
+                Ok(a / b)
+            }
+        },
+        _ => Err("Unknown operation")
+    }
+}
+
+fn main() {
+    let result = calculate("add", 10, 5);
+    match result {
+        Ok(value) => println(format!("Result: {}", value)),
+        Err(msg) => println(format!("Error: {}", msg))
+    }
+}
+```
+
+```bash
+# Test instantly during development
+husk run calculator.husk
+# Output: Result: 15
+```
+
+### 2. Transpile for Production (Access npm ecosystem)
+
+```rust
+// web-calculator.husk - Production version with Express
+use external::express;
+
+async fn create_server() -> Result<unit, string> {
+    let app = express();
+    
+    app.get("/calculate/:op/:a/:b", |req, res| {
+        let operation = req.params.op;
+        let a = req.params.a as int;
+        let b = req.params.b as int;
+        
+        match calculate(operation, a, b) {
+            Ok(result) => res.json({"result": result}),
+            Err(error) => res.status(400).json({"error": error})
+        }
+    });
+    
+    app.listen(3000);
+    println("Server running on http://localhost:3000");
+    Ok(())
+}
+
+async fn main() {
+    match create_server().await {
+        Ok(_) => {},
+        Err(e) => println(format!("Server error: {}", e))
+    }
+}
+```
+
+```bash
+# Build for production
+husk build
+npm install express
+node dist/web-calculator.js
+```
+
+The same core logic, two different execution modes!
 
 ## Language Syntax
 
@@ -346,10 +495,57 @@ To set up the development environment:
    cargo test
    ```
 
+## Resources
+
+- **🌐 Website**: [husk-lang.org](https://husk-lang.org)
+- **📚 Documentation**: [husk-lang.org/docs](https://husk-lang.org/docs)  
+- **🎮 Playground**: [husk-lang.org/playground](https://husk-lang.org/playground)
+- **📖 Examples**: [husk-lang.org/examples](https://husk-lang.org/examples)
+
+## Community
+
+- **💬 Discussions**: [GitHub Discussions](https://github.com/fcoury/husk/discussions)
+- **🐛 Issues**: [GitHub Issues](https://github.com/fcoury/husk/issues)
+- **💡 Feature Requests**: [GitHub Issues](https://github.com/fcoury/husk/issues/new)
+
 ## Contributing
 
-Contributions to Husk are welcome! Please feel free to submit a Pull Request.
+Husk is an open-source project that welcomes contributions from everyone! Whether you're:
+
+- 🐛 Reporting bugs
+- 💡 Suggesting features  
+- 📝 Improving documentation
+- 🔧 Writing code
+- ✨ Sharing examples
+
+We'd love your help making Husk better. Check out our [Contributing Guide](CONTRIBUTING.md) to get started.
+
+## Development
+
+To set up the development environment:
+
+```bash
+# Clone the repository
+git clone https://github.com/fcoury/husk.git
+cd husk
+
+# Build the project
+cargo build
+
+# Run tests
+cargo test
+
+# Install locally for testing
+cargo install --path .
+```
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  <strong>Ready to choose your own adventure?</strong><br>
+  <a href="https://husk-lang.org">Visit husk-lang.org</a> to get started!
+</p>

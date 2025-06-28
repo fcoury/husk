@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Husk Playground - Try Husk in Your Browser</title>
+    <meta name="description" content="Write and run Husk code directly in your browser. Experiment with Rust-inspired syntax and see JavaScript transpilation in real-time.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="assets/css/main.css">
+    
+    <style>
+        .playground-container {
+            display: flex;
+            gap: var(--spacing-lg);
+            height: calc(100vh - 8rem);
+            padding: var(--spacing-lg) 0;
+        }
+        
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .editor-header {
+            background-color: var(--bg-dark);
+            color: var(--text-inverse);
+            padding: var(--spacing-sm) var(--spacing-md);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .editor-content {
+            flex: 1;
+            border: 1px solid var(--border-color);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            overflow: hidden;
+        }
+        
+        #editor, #output {
+            width: 100%;
+            height: 100%;
+            font-family: 'Fira Code', 'Hack', monospace;
+            font-size: 14px;
+            padding: var(--spacing-md);
+            resize: none;
+            border: none;
+            outline: none;
+        }
+        
+        #output {
+            background-color: var(--bg-code);
+            color: var(--text-primary);
+        }
+        
+        .run-btn {
+            background-color: var(--primary-orange);
+            color: var(--text-inverse);
+            border: none;
+            padding: var(--spacing-xs) var(--spacing-lg);
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s ease;
+        }
+        
+        .run-btn:hover {
+            background-color: var(--primary-orange-dark);
+        }
+        
+        .placeholder-message {
+            text-align: center;
+            padding: var(--spacing-3xl);
+            color: var(--text-secondary);
+        }
+        
+        @media (max-width: 768px) {
+            .playground-container {
+                flex-direction: column;
+                height: auto;
+            }
+            
+            .editor-panel {
+                min-height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="nav-brand">
+                <img src="assets/img/icon.svg" alt="Husk Logo" class="nav-logo">
+                <span class="nav-title">Husk</span>
+            </a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="playground.html" class="active">Playground</a></li>
+                <li><a href="docs.html">Documentation</a></li>
+                <li><a href="examples.html">Examples</a></li>
+                <li><a href="community.html">Community</a></li>
+                <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Playground Content -->
+    <div class="container">
+        <div class="placeholder-message">
+            <h1>Husk Playground</h1>
+            <p>The interactive playground is coming soon!</p>
+            <p>In the meantime, you can install Husk locally and experiment with the language:</p>
+            <div class="install-command" style="margin: var(--spacing-xl) auto;">
+                <code>cargo install husk-lang</code>
+            </div>
+            <a href="index.html" class="btn btn-primary">Back to Home</a>
+        </div>
+        
+        <!-- Future playground implementation -->
+        <!--
+        <div class="playground-container">
+            <div class="editor-panel">
+                <div class="editor-header">
+                    <span>Husk Code</span>
+                    <button class="run-btn">Run</button>
+                </div>
+                <div class="editor-content">
+                    <textarea id="editor" placeholder="Write your Husk code here..."></textarea>
+                </div>
+            </div>
+            
+            <div class="editor-panel">
+                <div class="editor-header">
+                    <span>Output</span>
+                </div>
+                <div class="editor-content">
+                    <textarea id="output" readonly placeholder="Output will appear here..."></textarea>
+                </div>
+            </div>
+        </div>
+        -->
+    </div>
+
+    <!-- Scripts -->
+    <script src="assets/js/main.js"></script>
+</body>
+</html>

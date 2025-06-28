@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Husk Community - Join the Discussion</title>
+    <meta name="description" content="Connect with the Husk programming language community. Get help, share projects, and contribute.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="assets/css/main.css">
+    
+    <style>
+        .community-hero {
+            background-color: var(--bg-white);
+            padding: var(--spacing-3xl) 0;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .community-hero h1 {
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .community-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--spacing-xl);
+            margin-top: var(--spacing-3xl);
+        }
+        
+        .community-card {
+            background-color: var(--bg-white);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: var(--spacing-xl);
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+        
+        .community-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--shadow-color);
+        }
+        
+        .community-icon {
+            font-size: 3rem;
+            margin-bottom: var(--spacing-md);
+            color: var(--primary-orange);
+        }
+        
+        .community-card h3 {
+            margin-bottom: var(--spacing-sm);
+        }
+        
+        .community-card p {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        .contribute-section {
+            background-color: var(--bg-code);
+            padding: var(--spacing-3xl) 0;
+            margin-top: var(--spacing-3xl);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="nav-brand">
+                <img src="assets/img/icon.svg" alt="Husk Logo" class="nav-logo">
+                <span class="nav-title">Husk</span>
+            </a>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu">
+                <li><a href="playground.html">Playground</a></li>
+                <li><a href="docs.html">Documentation</a></li>
+                <li><a href="examples.html">Examples</a></li>
+                <li><a href="community.html" class="active">Community</a></li>
+                <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Community Hero -->
+    <section class="community-hero">
+        <div class="container">
+            <h1>Join the Husk Community</h1>
+            <p>Connect with developers, get help, and contribute to the language</p>
+        </div>
+    </section>
+
+    <!-- Community Content -->
+    <div class="container">
+        <div class="community-grid">
+            <div class="community-card">
+                <div class="community-icon">💬</div>
+                <h3>GitHub Discussions</h3>
+                <p>Ask questions, share ideas, and discuss the future of Husk</p>
+                <a href="https://github.com/fcoury/husk/discussions" class="btn btn-secondary" target="_blank" rel="noopener">Join Discussion</a>
+            </div>
+            
+            <div class="community-card">
+                <div class="community-icon">🐛</div>
+                <h3>Report Issues</h3>
+                <p>Found a bug? Have a feature request? Let us know on GitHub</p>
+                <a href="https://github.com/fcoury/husk/issues" class="btn btn-secondary" target="_blank" rel="noopener">Report Issue</a>
+            </div>
+            
+            <div class="community-card">
+                <div class="community-icon">📚</div>
+                <h3>Contributing Guide</h3>
+                <p>Learn how to contribute to Husk development</p>
+                <a href="https://github.com/fcoury/husk/blob/main/CONTRIBUTING.md" class="btn btn-secondary" target="_blank" rel="noopener">View Guide</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contribute Section -->
+    <section class="contribute-section">
+        <div class="container">
+            <h2>Help Shape the Future of Husk</h2>
+            <p>Husk is an open-source project that welcomes contributions from everyone</p>
+            <div style="margin-top: var(--spacing-xl);">
+                <a href="https://github.com/fcoury/husk" class="btn btn-primary" target="_blank" rel="noopener">View on GitHub</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <img src="assets/img/logo-small.png" alt="Husk Logo" class="footer-logo">
+                    <p>A Rust-inspired scripting language</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="docs.html">Documentation</a></li>
+                        <li><a href="examples.html">Examples</a></li>
+                        <li><a href="playground.html">Playground</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://github.com/fcoury/husk" target="_blank" rel="noopener">GitHub</a></li>
+                        <li><a href="https://github.com/fcoury/husk/issues" target="_blank" rel="noopener">Issues</a></li>
+                        <li><a href="community.html">Forums</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Husk Language. MIT License.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="assets/js/main.js"></script>
+</body>
+</html>
