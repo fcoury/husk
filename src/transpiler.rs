@@ -578,9 +578,14 @@ impl JsTranspiler {
         }
 
         // Check if there's a main function and call it
-        let has_main = stmts.iter().any(
-            |stmt| matches!(stmt, Stmt::Function(_, _, name, _, _, _, _, _) if name == "main"),
-        );
+        let has_main = stmts.iter().any(|stmt| {
+            matches!(
+                stmt,
+                Stmt::Function(_, _, name, _, _, _, _, _)
+                | Stmt::AsyncFunction(_, _, name, _, _, _, _, _)
+                if name == "main"
+            )
+        });
 
         if has_main {
             output.push_str("\n// Call main function\n");
@@ -3505,5 +3510,149 @@ mod tests {
             let result = transpiler.visit_stmt(&stmts[0]).unwrap();
             assert_eq!(result, "import { auth } from './modules.js'");
         }
+    }
+
+    #[test]
+    fn test_transpile_main_function_call() {
+        // Test that main() function is called when present
+        let input = r#"
+            fn main() {
+                println!("Hello, World!");
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+
+        let output = transpiler.transpile(&program).unwrap();
+
+        // Check that main function is defined
+        assert!(output.contains("function main()"));
+        // Check that main function is called
+        assert!(output.contains("// Call main function"));
+        assert!(output.contains("main();"));
+    }
+
+    #[test]
+    fn test_transpile_no_main_function_no_call() {
+        // Test that main() is NOT called when there's no main function
+        let input = r#"
+            fn add(a: int, b: int) -> int {
+                a + b
+            }
+            
+            fn greet(name: string) {
+                println!("Hello, {}!", name);
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+
+        let output = transpiler.transpile(&program).unwrap();
+
+        // Check that functions are defined
+        assert!(output.contains("function add(a, b)"));
+        assert!(output.contains("function greet(name)"));
+        // Check that main() is NOT called
+        assert!(!output.contains("// Call main function"));
+        assert!(!output.contains("main();"));
+    }
+
+    #[test]
+    fn test_transpile_async_main_function_call() {
+        // Test that async main() function is called when present
+        let input = r#"
+            async fn main() {
+                println!("Hello from async main!");
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+
+        let output = transpiler.transpile(&program).unwrap();
+
+        // Check that async main function is defined
+        assert!(output.contains("async function main()"));
+        // Check that main function is called
+        assert!(output.contains("// Call main function"));
+        assert!(output.contains("main();"));
+    }
+
+    #[test]
+    fn test_transpile_main_with_other_functions() {
+        // Test that main() is called even when there are other functions
+        let input = r#"
+            fn helper() -> int {
+                42
+            }
+            
+            fn main() {
+                let result = helper();
+                println!("Result: {}", result);
+            }
+            
+            fn another_helper() {
+                println!("Another helper");
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+
+        let output = transpiler.transpile(&program).unwrap();
+
+        // Check that all functions are defined
+        assert!(output.contains("function helper()"));
+        assert!(output.contains("function main()"));
+        assert!(output.contains("function another_helper()"));
+
+        // Check that only main() is called
+        assert!(output.contains("// Call main function"));
+        assert!(output.contains("main();"));
+
+        // Make sure main() call is at the end
+        let main_call_pos = output.find("main();").unwrap();
+        let last_function_pos = output.rfind("function").unwrap();
+        assert!(
+            main_call_pos > last_function_pos,
+            "main() should be called after all function definitions"
+        );
+    }
+
+    #[test]
+    fn test_transpile_multiple_mains_still_calls_once() {
+        // Even if there are multiple functions named "main" (which shouldn't happen in practice),
+        // we should still only call main() once
+        let input = r#"
+            fn main() {
+                println!("First main");
+            }
+        "#;
+
+        let mut lexer = Lexer::new(input.to_string());
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let mut transpiler = JsTranspiler::new();
+
+        let output = transpiler.transpile(&program).unwrap();
+
+        // Count occurrences of "main();"
+        let main_calls: Vec<_> = output.match_indices("main();").collect();
+        assert_eq!(main_calls.len(), 1, "main() should be called exactly once");
     }
 }

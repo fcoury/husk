@@ -34,7 +34,9 @@
       "Bash(bash tests/scripts/test.sh:*)",
       "Bash(cargo fmt:*)",
       "Bash(cargo clippy:*)",
-      "Bash(RUSTFLAGS=\"-A warnings\" cargo run -- run minimal_test.hk 2>&1)"
+      "Bash(RUSTFLAGS=\"-A warnings\" cargo run -- run minimal_test.hk 2>&1)",
+      "Bash(../../../target/debug/husk new test-esm)",
+      "Bash(../../../../target/debug/husk build)"
     ],
     "deny": []
   }

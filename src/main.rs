@@ -251,6 +251,9 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
     println!("Found {} Husk files to compile", husk_files.len());
 
+    // Determine the main entry point
+    let main_entry_path = project_root.join(config.get_main_entry());
+
     // Compile each file
     for husk_file in husk_files {
         let relative_path = husk_file.strip_prefix(&src_dir)?;
@@ -263,7 +266,11 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
 
         let code = fs::read_to_string(&husk_file)?;
 
-        match husk_lang::transpile_to_js_with_target(&code, target) {
+        // Check if this is the main entry point
+        let is_main_entry =
+            husk_file.canonicalize()? == main_entry_path.canonicalize().unwrap_or_default();
+
+        match husk_lang::transpile_to_js_with_entry_validation(&code, target, is_main_entry) {
             Ok(js) => {
                 fs::write(&js_file, js)?;
                 println!(
