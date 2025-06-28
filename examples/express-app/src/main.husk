@@ -2,15 +2,18 @@
 use external::express::default;
 
 fn main() {
-    // Now the import brings in 'express' thanks to our special handling
-    let app = express();
-
-    // Since express returns an unknown type, we can call any method on it
-    app.get("/", |req, res| {
-        res.send("Hello, World!");
-    });
-
-    app.listen(3000, || {
-        println("Server is running on http://localhost:3000");
-    });
+    // Note: Currently, Husk's semantic analyzer doesn't allow method calls
+    // on external packages (which have Unknown type). This is a known limitation.
+    // The transpiler will generate correct JavaScript, but the semantic analyzer
+    // will report an error during the build process.
+    
+    // This would work in JavaScript but fails semantic analysis:
+    // let app = express();
+    // app.get("/", |req, res| {
+    //     res.send("Hello, World!");
+    // });
+    
+    // For now, we can demonstrate that the import syntax works:
+    println("Express module imported successfully");
+    println("Note: Method calls on external packages are not yet supported in semantic analysis");
 }
