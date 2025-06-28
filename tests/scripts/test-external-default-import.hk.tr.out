@@ -1,5 +1,0 @@
-import test_package_a from 'test_package_a';
-import test_package_b from 'test_package_b';
-function main() {
-  void (println("Default import test"));
-}

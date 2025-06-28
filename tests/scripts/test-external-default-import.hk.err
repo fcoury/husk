@@ -1,0 +1,3 @@
+error: 4:1 - External package 'external::test_package_a::default' cannot be used in interpreter mode. Use the transpiler to convert to JavaScript for external package support.
+use external::test_package_a::default;
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
