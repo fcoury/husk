@@ -29,6 +29,7 @@ pub struct TargetInfo {
     pub external_deps: Vec<String>,
     pub import_map: std::collections::HashMap<String, String>,
     pub tree_shaking: bool,
+    pub dev: bool,
 }
 
 pub struct JsTranspiler {
@@ -94,16 +95,17 @@ impl JsTranspiler {
             _ => return Err(Error::new_config(format!("Unknown target: {}", target))),
         };
 
-        // Get external dependencies, import map, and tree shaking from config
-        let (external_deps, import_map, tree_shaking) =
+        // Get external dependencies, import map, tree shaking, and dev mode from config
+        let (external_deps, import_map, tree_shaking, dev) =
             if let Some(target_config) = config.targets.get(target) {
                 (
                     target_config.external.clone(),
                     target_config.import_map.clone(),
                     target_config.tree_shaking,
+                    target_config.dev,
                 )
             } else {
-                (Vec::new(), std::collections::HashMap::new(), false)
+                (Vec::new(), std::collections::HashMap::new(), false, false)
             };
 
         Ok(TargetInfo {
@@ -112,6 +114,7 @@ impl JsTranspiler {
             external_deps,
             import_map,
             tree_shaking,
+            dev,
         })
     }
 
@@ -1499,7 +1502,41 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_let(&mut self, name: &str, expr: &Expr, _span: &Span) -> Result<String> {
         let value = self.visit_expr(expr)?;
-        Ok(format!("let {name} = {value}"))
+
+        // Add debug comment and runtime assertion in development mode
+        let debug_comment = self.add_debug_comment(&format!("Variable: {}", name));
+        let debug_prefix = if debug_comment.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", debug_comment)
+        };
+
+        // Add runtime type checking for basic types in development mode
+        let type_assertion = if self.is_dev_mode() {
+            // Try to infer type from value for basic assertions
+            if value.starts_with('"') && value.ends_with('"') {
+                self.add_runtime_assertion(name, "string")
+            } else if value.parse::<f64>().is_ok() {
+                self.add_runtime_assertion(name, "number")
+            } else if value == "true" || value == "false" {
+                self.add_runtime_assertion(name, "boolean")
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let assertion_suffix = if type_assertion.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", type_assertion)
+        };
+
+        Ok(format!(
+            "{}let {name} = {value}{}",
+            debug_prefix, assertion_suffix
+        ))
     }
 
     fn visit_function(
@@ -1521,7 +1558,18 @@ impl AstVisitor<String> for JsTranspiler {
         let body_str = self.generate_body(body)?;
         self.indent_level -= 1;
 
-        Ok(format!("function {name}({params_str}) {{\n{body_str}\n}}"))
+        // Add debug comment in development mode
+        let debug_comment = self.add_debug_comment(&format!("Function: {}", name));
+        let debug_prefix = if debug_comment.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", debug_comment)
+        };
+
+        Ok(format!(
+            "{}function {name}({params_str}) {{\n{body_str}\n}}",
+            debug_prefix
+        ))
     }
 
     fn visit_while(&mut self, condition: &Expr, body: &[Stmt], _span: &Span) -> Result<String> {
@@ -2796,9 +2844,9 @@ impl JsTranspiler {
 
     /// Check if a function call should have a pure annotation for tree shaking
     fn should_add_pure_annotation(&self, function_name: &str) -> bool {
-        // Only add pure annotations if tree shaking is enabled
+        // Only add pure annotations if tree shaking is enabled and not in dev mode
         if let Some(ref target_info) = self.target_info {
-            if !target_info.tree_shaking {
+            if !target_info.tree_shaking || target_info.dev {
                 return false;
             }
         } else {
@@ -2833,6 +2881,42 @@ impl JsTranspiler {
             name if name.chars().next().map_or(false, |c| c.is_uppercase()) => true,
 
             _ => false,
+        }
+    }
+
+    /// Add debugging comment if in development mode
+    fn add_debug_comment(&self, comment: &str) -> String {
+        if let Some(ref target_info) = self.target_info {
+            if target_info.dev {
+                return format!("/* {} */", comment);
+            }
+        }
+        String::new()
+    }
+
+    /// Check if we're in development mode
+    fn is_dev_mode(&self) -> bool {
+        if let Some(ref target_info) = self.target_info {
+            target_info.dev
+        } else {
+            false
+        }
+    }
+
+    /// Add runtime type checking assertion if in development mode
+    fn add_runtime_assertion(&self, var_name: &str, expected_type: &str) -> String {
+        if self.is_dev_mode() {
+            format!(
+                "{}if (typeof {} !== '{}') {{ console.warn('Type mismatch: {} expected {}, got ' + typeof {}); }}",
+                self.indent(),
+                var_name,
+                expected_type,
+                var_name,
+                expected_type,
+                var_name
+            )
+        } else {
+            String::new()
         }
     }
 }
@@ -2880,6 +2964,9 @@ fn is_nodejs_builtin(module: &str) -> bool {
     )
 }
 
+#[cfg(test)]
+#[path = "transpiler_dev_prod_test.rs"]
+mod transpiler_dev_prod_test;
 #[cfg(test)]
 #[path = "transpiler_external_deps_test.rs"]
 mod transpiler_external_deps_test;
