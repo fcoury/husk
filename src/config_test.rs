@@ -252,7 +252,7 @@ globals = { "lodash" = "_" }
         assert_eq!(parsed["author"], "Test Author <test@example.com>");
         assert_eq!(parsed["license"], "MIT");
         assert_eq!(parsed["type"], "module"); // ESM module
-        assert_eq!(parsed["main"], "build/index.js");
+        assert_eq!(parsed["main"], "main.js");
 
         // Check repository object
         assert_eq!(parsed["repository"]["type"], "git");
