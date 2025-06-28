@@ -1,19 +1,44 @@
 // Import express using the new ::default syntax
 use external::express::default;
 
+// Declare what type express returns
+extern fn express() -> express::Application;
+
+// External type declarations for Express.js
+extern mod express {
+    type Application;
+    type Request;
+    type Response;
+
+    impl Application {
+        fn get(self, path: string, handler: fn(express::Request, express::Response) -> unit);
+        fn post(self, path: string, handler: fn(express::Request, express::Response) -> unit);
+        fn listen(self, port: int, callback: fn() -> unit);
+        fn use_middleware(self, middleware: fn(express::Request, express::Response, fn() -> unit) -> unit);
+    }
+
+    impl Response {
+        fn send(self, data: string);
+        fn json(self, data: any);
+        fn status(self, code: int) -> Response;
+        fn redirect(self, url: string);
+    }
+}
+
 fn main() {
-    // Note: Currently, Husk's semantic analyzer doesn't allow method calls
-    // on external packages (which have Unknown type). This is a known limitation.
-    // The transpiler will generate correct JavaScript, but the semantic analyzer
-    // will report an error during the build process.
-    
-    // This would work in JavaScript but fails semantic analysis:
-    // let app = express();
-    // app.get("/", |req, res| {
-    //     res.send("Hello, World!");
-    // });
-    
-    // For now, we can demonstrate that the import syntax works:
-    println("Express module imported successfully");
-    println("Note: Method calls on external packages are not yet supported in semantic analysis");
+    // Now express() returns express::Application type
+    let app = express();
+
+    // Now we can call methods on the typed Application
+    app.get("/", |req: express::Request, res: express::Response| {
+        res.send("Hello, World!");
+    });
+
+    app.post("/api/users", |req: express::Request, res: express::Response| {
+        res.json({ message: "User created" });
+    });
+
+    app.listen(3000, || {
+        println("Server is running on http://localhost:3000");
+    });
 }
