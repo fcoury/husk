@@ -1,6 +1,0 @@
-use fs::readFile;
-
-pub fn main() {
-    let content = readFile("test.txt");
-    println!(content);
-}

@@ -66,7 +66,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("node", "esm", "node-esm");
+        let _config = create_config_for_target("node", "esm", "node-esm");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -121,7 +121,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("browser", "esm", "browser");
+        let _config = create_config_for_target("browser", "esm", "browser");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -148,7 +148,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("browser", "umd", "es2020");
+        let _config = create_config_for_target("browser", "umd", "es2020");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -175,7 +175,7 @@ mod tests {
             init();
         "#;
 
-        let config = create_config_for_target("browser", "iife", "es2015");
+        let _config = create_config_for_target("browser", "iife", "es2015");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -204,7 +204,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("browser", "esm", "es2015");
+        let _config = create_config_for_target("browser", "esm", "es2015");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -228,7 +228,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("browser", "esm", "es2022");
+        let _config = create_config_for_target("browser", "esm", "es2022");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -256,7 +256,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("node", "esm", "node");
+        let _config = create_config_for_target("node", "esm", "node");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -278,7 +278,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("browser", "esm", "es2020");
+        let _config = create_config_for_target("browser", "esm", "es2020");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -302,7 +302,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("deno", "esm", "es2022");
+        let _config = create_config_for_target("deno", "esm", "es2022");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -354,7 +354,7 @@ mod tests {
             }
         "#;
 
-        let config = create_config_for_target("browser", "esm", "es2020");
+        let _config = create_config_for_target("browser", "esm", "es2020");
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 
@@ -404,7 +404,7 @@ mod tests {
             }
         "#;
 
-        let config = HuskConfig::default(); // No target specified
+        let _config = HuskConfig::default(); // No target specified
 
         let js = transpile_with_target(code, "node-esm").unwrap();
 

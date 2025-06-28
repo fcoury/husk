@@ -220,9 +220,13 @@ fn test_json_methods_get_pure_annotation() {
     let result =
         <JsTranspiler as AstVisitor<String>>::visit_stmt(&mut transpiler, &program[0]).unwrap();
 
-    // JSON methods should get pure annotations
-    assert!(result.contains("/*#__PURE__*/JSON.parse(jsonString)"));
-    assert!(result.contains("/*#__PURE__*/JSON.stringify(obj)"));
+    // JSON methods should NOT get pure annotations (they can throw exceptions)
+    assert!(!result.contains("/*#__PURE__*/JSON.parse"));
+    assert!(!result.contains("/*#__PURE__*/JSON.stringify"));
+
+    // But they should still be called normally
+    assert!(result.contains("JSON.parse(jsonString)"));
+    assert!(result.contains("JSON.stringify(obj)"));
 }
 
 #[test]

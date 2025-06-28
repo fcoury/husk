@@ -36,7 +36,11 @@
       "Bash(cargo clippy:*)",
       "Bash(RUSTFLAGS=\"-A warnings\" cargo run -- run minimal_test.hk 2>&1)",
       "Bash(../../../target/debug/husk new test-esm)",
-      "Bash(../../../../target/debug/husk build)"
+      "Bash(../../../../target/debug/husk build)",
+      "mcp__github__get_pull_request",
+      "mcp__github__get_pull_request_comments",
+      "mcp__github__get_pull_request_reviews",
+      "mcp__github__get_issue"
     ],
     "deny": []
   }
