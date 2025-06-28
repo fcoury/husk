@@ -577,6 +577,16 @@ impl JsTranspiler {
             output.push('\n');
         }
 
+        // Check if there's a main function and call it
+        let has_main = stmts.iter().any(
+            |stmt| matches!(stmt, Stmt::Function(_, _, name, _, _, _, _, _) if name == "main"),
+        );
+
+        if has_main {
+            output.push_str("\n// Call main function\n");
+            output.push_str("main();\n");
+        }
+
         Ok(output)
     }
 
