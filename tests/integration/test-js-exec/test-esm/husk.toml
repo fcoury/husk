@@ -1,0 +1,16 @@
+[package]
+name = "test-esm"
+version = "0.1.0"
+description = "A new Husk project"
+author = ""
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build]
+src = "src"
+out = "dist"
+target = ""
+module = "esm"

@@ -1,0 +1,8 @@
+// Utility functions - no main required
+fn multiply(a: int, b: int) -> int {
+    a * b
+}
+
+fn divide(a: int, b: int) -> float {
+    (a as float) / (b as float)
+}

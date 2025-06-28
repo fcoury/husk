@@ -1,0 +1,10 @@
+{
+  "main": "dist/index.js",
+  "name": "test-cjs",
+  "scripts": {
+    "build": "husk build",
+    "dev": "husk dev",
+    "start": "husk run"
+  },
+  "version": "0.1.0"
+}

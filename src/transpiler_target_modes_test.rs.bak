@@ -4,29 +4,9 @@ mod tests {
     use crate::error::Result;
 
     fn transpile_with_target(code: &str, target: &str) -> Result<String> {
-        use crate::transpiler::{JsTranspiler, ModuleFormat};
-        use crate::{Lexer, Parser, SemanticVisitor};
-
-        let mut lexer = Lexer::new(code.to_string());
-        let tokens = lexer.lex_all();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse()?;
-
-        // Run semantic analysis
-        let mut analyzer = SemanticVisitor::new();
-        analyzer.analyze(&ast)?;
-
-        // Create transpiler with the appropriate module format
-        let module_format = match target {
-            "node-cjs" => ModuleFormat::CommonJS,
-            _ => ModuleFormat::ESModule,
-        };
-
-        let mut transpiler = JsTranspiler::with_module_format(module_format);
-        transpiler.transpile(&ast)
+        crate::transpile_to_js_with_target(code, target)
     }
 
-    #[allow(dead_code)]
     fn create_config_for_target(platform: &str, format: &str, target: &str) -> HuskConfig {
         let mut config = HuskConfig::default();
 
@@ -68,7 +48,7 @@ mod tests {
 
         let config = create_config_for_target("node", "esm", "node-esm");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should generate ES module syntax for Node.js
         assert!(js.contains("import { readFile } from 'fs/readFile';"));
@@ -96,9 +76,9 @@ mod tests {
 
         let js = transpile_with_target(code, "node-cjs").unwrap();
 
-        // Should generate CommonJS syntax
-        assert!(js.contains("const fs = require('fs')")); // File I/O functions use require
-        assert!(js.contains("exports.main = main")); // Public functions are exported with CommonJS syntax
+        // Should generate CommonJS syntax for Node.js
+        assert!(js.contains("require('fs')"));  // File I/O functions use require
+        assert!(js.contains("exports.main = main"));  // Public functions are exported with CommonJS syntax
         assert!(js.contains("exports.helper = helper"));
 
         // Should include Node.js-specific features
@@ -123,7 +103,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "esm", "browser");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should generate ES module syntax for browsers
         assert!(js.contains("import { helper } from './utils.js';"));
@@ -150,7 +130,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "umd", "es2020");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should generate UMD wrapper
         assert!(
@@ -177,7 +157,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "iife", "es2015");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should wrap in IIFE
         assert!(js.contains("(function()") || js.contains("(() =>"));
@@ -206,7 +186,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "esm", "es2015");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should transpile async/await for ES2015 (if supported)
         // In ES2015, async/await would need to be transpiled to Promises
@@ -230,7 +210,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "esm", "es2022");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should use modern ES2022 features
         assert!(js.contains("async function"));
@@ -258,7 +238,7 @@ mod tests {
 
         let config = create_config_for_target("node", "esm", "node");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should generate Node.js-compatible imports
         assert!(js.contains("import { readFileSync } from 'fs/readFileSync';"));
@@ -280,7 +260,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "esm", "es2020");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should preserve browser globals
         assert!(js.contains("document.title"));
@@ -304,7 +284,7 @@ mod tests {
 
         let config = create_config_for_target("deno", "esm", "es2022");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should generate Deno-compatible imports
         assert!(js.contains("import") || js.contains("std"));
@@ -330,7 +310,9 @@ mod tests {
             }
         "#;
 
-        let js = transpile_with_target(code, "node-cjs").unwrap();
+        let config = create_config_for_target("node", "cjs", "node-cjs");
+
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should handle npm packages for Node.js
         assert!(js.contains("express") || js.contains("require"));
@@ -356,7 +338,7 @@ mod tests {
 
         let config = create_config_for_target("browser", "esm", "es2020");
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should handle browser-compatible imports
         assert!(js.contains("import") && (js.contains("react") || js.contains("lodash")));
@@ -381,7 +363,7 @@ mod tests {
         config.build.target = "invalid-target".to_string();
 
         // Should handle invalid targets gracefully
-        let result = transpile_with_target(code, "node-esm");
+        let result = transpile_with_config(code, &config);
 
         // Either should work with default fallback or return appropriate error
         match result {
@@ -406,7 +388,7 @@ mod tests {
 
         let config = HuskConfig::default(); // No target specified
 
-        let js = transpile_with_target(code, "node-esm").unwrap();
+        let js = transpile_with_config(code, &config).unwrap();
 
         // Should work with default target
         assert!(js.contains("function greet"));

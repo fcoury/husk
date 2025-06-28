@@ -51,6 +51,18 @@ impl JsTranspiler {
         }
     }
 
+    /// Create a new transpiler with a specific module format (for testing)
+    #[cfg(test)]
+    pub fn with_module_format(module_format: ModuleFormat) -> Self {
+        Self {
+            indent_level: 0,
+            package_resolver: None,
+            method_registry: TranspilerMethodRegistry::new(),
+            module_format,
+            target_info: None,
+        }
+    }
+
     /// Create a new transpiler with package resolution enabled
     pub fn with_package_resolver() -> Result<Self> {
         // Get the module format from the project config
@@ -939,7 +951,13 @@ impl AstVisitor<String> for JsTranspiler {
                 let function_code =
                     self.visit_function(name, generic_params, params, return_type, body, span)?;
                 if *is_pub {
-                    Ok(format!("export {function_code}"))
+                    match self.module_format {
+                        ModuleFormat::ESModule => Ok(format!("export {function_code}")),
+                        ModuleFormat::CommonJS => {
+                            // For CommonJS, we'll add the export after the function
+                            Ok(format!("{function_code}\nexports.{name} = {name};"))
+                        }
+                    }
                 } else {
                     Ok(function_code)
                 }
@@ -964,7 +982,13 @@ impl AstVisitor<String> for JsTranspiler {
                     span,
                 )?;
                 if *is_pub {
-                    Ok(format!("export {function_code}"))
+                    match self.module_format {
+                        ModuleFormat::ESModule => Ok(format!("export {function_code}")),
+                        ModuleFormat::CommonJS => {
+                            // For CommonJS, we'll add the export after the function
+                            Ok(format!("{function_code}\nexports.{name} = {name};"))
+                        }
+                    }
                 } else {
                     Ok(function_code)
                 }

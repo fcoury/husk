@@ -1,0 +1,8 @@
+// A file without a main function
+fn add(a: int, b: int) -> int {
+    a + b
+}
+
+fn greet(name: string) {
+    println!("Hello, {}!", name);
+}
