@@ -2295,14 +2295,21 @@ impl AstVisitor<String> for JsTranspiler {
             }
         }
 
-        // Try array methods first (for methods like slice that exist on both types)
-        if let Some(method_impl) = self.method_registry.get_array_method(method) {
-            return Ok(method_impl(&obj_str, &arg_strs));
-        }
+        // Special handling for methods that might conflict with builtin methods
+        // For example, "get" is both an array method (takes 1 arg) and could be a regular method
+        if method == "get" && args.len() > 1 {
+            // If get() has more than one argument, it's not the array get method
+            // Fall through to default method call
+        } else {
+            // Try array methods first (for methods like slice that exist on both types)
+            if let Some(method_impl) = self.method_registry.get_array_method(method) {
+                return Ok(method_impl(&obj_str, &arg_strs));
+            }
 
-        // Try string methods
-        if let Some(method_impl) = self.method_registry.get_string_method(method) {
-            return Ok(method_impl(&obj_str, &arg_strs));
+            // Try string methods
+            if let Some(method_impl) = self.method_registry.get_string_method(method) {
+                return Ok(method_impl(&obj_str, &arg_strs));
+            }
         }
 
         // Default: assume direct method mapping for unknown methods
