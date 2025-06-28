@@ -4,10 +4,17 @@ Welcome to the official documentation for the Husk programming language. This gu
 
 ## 📚 Documentation Index
 
+### Getting Started
+
+- **[Installation Guide](getting-started/installation.md)** - Install Husk on your system
+- **[Hello World Tutorial](getting-started/hello-world.md)** - Write your first Husk program
+- **[Quick Start Guide](getting-started/quickstart.md)** - Essential features in 15 minutes
+- **[Editor Setup](getting-started/editor-setup.md)** - Configure your development environment
+
 ### Core Documentation
 
 - **[Language Features](LANGUAGE_FEATURES.md)** - Complete guide to Husk language syntax and features
-  - Type system and inference
+  - [Type System](language/types.md) - Static typing and type inference
   - Control flow and pattern matching
   - Functions and closures
   - Data types and structures
@@ -22,12 +29,14 @@ Welcome to the official documentation for the Husk programming language. This gu
 
 ### Additional Resources
 
+- **[Closures and Higher-Order Functions](language_features/CLOSURES.md)** - Deep dive into functional programming
+- **[JavaScript Transpilation](advanced/javascript-transpilation.md)** - Compiling Husk to JavaScript
+
 More documentation sections will be added here as the language evolves, including:
-- Getting Started Guide
-- Tutorial and Examples
+- Pattern Matching Guide
+- Error Handling Guide
 - Build System Documentation
 - Module System Guide
-- JavaScript Interop Guide
 - Contributing Guidelines
 
 ## 🚀 Quick Start
@@ -42,7 +51,7 @@ Husk is a modern programming language that combines the safety and expressivenes
 
 ### Example Code
 
-```husk
+```rust
 // Define a function with pattern matching
 fn greet(name: string) -> string {
     match name {
@@ -71,11 +80,15 @@ match read_file("config.json") {
 
 ## 📖 How to Use This Documentation
 
-1. **New to Husk?** Start with the [Language Features](LANGUAGE_FEATURES.md) guide to understand the core concepts and syntax.
+1. **New to Husk?** Start with the [Installation Guide](getting-started/installation.md) and [Hello World Tutorial](getting-started/hello-world.md) to get up and running quickly.
 
-2. **Looking for specific functionality?** Check the [Standard Library](STANDARD_LIBRARY.md) reference for built-in functions and methods.
+2. **Want a quick overview?** The [Quick Start Guide](getting-started/quickstart.md) covers essential features in just 15 minutes.
 
-3. **Building a project?** Each documentation page includes practical examples and best practices.
+3. **Ready to dive deeper?** Explore the [Language Features](LANGUAGE_FEATURES.md) guide and [Type System](language/types.md) documentation for comprehensive coverage.
+
+4. **Looking for specific functionality?** Check the [Standard Library](STANDARD_LIBRARY.md) reference for built-in functions and methods.
+
+5. **Building a project?** Each documentation page includes practical examples and best practices.
 
 ## 🛠 Documentation Structure
 

@@ -17,7 +17,7 @@ The `use` statement in Husk needs to handle two distinct execution modes:
 - Cache parsed modules to avoid re-parsing
 
 Example:
-```husk
+```rust
 use local::utils::math;  // Loads src/utils/math.hk
 let result = math::add(2, 3);
 ```
@@ -45,7 +45,7 @@ Options:
 ### Transpiler Mode Behavior
 
 #### Local Imports
-```husk
+```rust
 // Input
 use local::utils::math;
 use self::helper;
@@ -63,7 +63,7 @@ const shared = require("../shared.js");
 ```
 
 #### External Package Imports
-```husk
+```rust
 // Input
 use express::express;
 use react::{React, useState};
@@ -112,7 +112,7 @@ const { React, useState } = require("react");
 
 For external packages, type information comes from `.d.hk` files:
 
-```husk
+```rust
 // types/express.d.hk
 extern mod express {
     type Application;
@@ -140,7 +140,7 @@ extern mod express {
 
 Husk modules need an export mechanism:
 
-```husk
+```rust
 // math.hk
 pub fn add(a: int, b: int) -> int {
     a + b
@@ -226,7 +226,7 @@ While transpilation would be for:
 
 ## Example: Complete Module System
 
-```husk
+```rust
 // src/models/user.hk
 pub struct User {
     id: int,
@@ -242,7 +242,7 @@ fn generate_id() -> int {  // Private function
 }
 ```
 
-```husk
+```rust
 // src/main.hk
 use local::models::user::{User, create_user};
 use express::express;  // Only works when transpiled

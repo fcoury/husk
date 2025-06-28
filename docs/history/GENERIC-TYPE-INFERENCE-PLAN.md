@@ -280,7 +280,7 @@ fn analyze_nested_pattern(&mut self, pattern: &Expr) -> Result<TypeBindings, Str
 - Substitution application tests
 
 ### Integration Tests
-```husk
+```rust
 // Test nested Option patterns
 let data: Option<Option<int>> = Some(Some(42));
 match data {

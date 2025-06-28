@@ -20,7 +20,7 @@ This document outlines the comprehensive plan for implementing JavaScript intero
 ### 1. Use/Import System
 
 #### Syntax
-```husk
+```rust
 // External npm packages
 use express::express;
 use lodash::{debounce, throttle};
@@ -84,7 +84,7 @@ use type express::{Request, Response};
 ### 2. Async/Await Support
 
 #### Syntax
-```husk
+```rust
 async fn fetchUser(id: int) -> Result<User, Error> {
     let response = await fetch(`/api/users/${id}`);
     let data = await response.json();
@@ -100,7 +100,7 @@ async fn fetchUser(id: int) -> Result<User, Error> {
 ### 3. Closure/Lambda Syntax
 
 #### Syntax
-```husk
+```rust
 // Single parameter
 let double = |x| x * 2;
 
@@ -129,7 +129,7 @@ let fetchData = async |url| await fetch(url);
 ### 4. Template Literals
 
 #### Syntax
-```husk
+```rust
 let name = "World";
 let greeting = `Hello, ${name}!`;
 let multiline = `
@@ -142,7 +142,7 @@ let multiline = `
 ### 5. Spread Operator
 
 #### Syntax
-```husk
+```rust
 // Array spread
 let arr1 = [1, 2, 3];
 let arr2 = [...arr1, 4, 5];
@@ -155,7 +155,7 @@ let updated = User { ...user, age: 31 };
 ### 6. JSX Support (Optional)
 
 #### Syntax
-```husk
+```rust
 fn Button(props: ButtonProps) -> JSX {
     <button 
         className={props.className}
@@ -174,7 +174,7 @@ fn Button(props: ButtonProps) -> JSX {
 Instead of separate .d.hk files, Husk uses an `extern` keyword to declare external JavaScript APIs directly in your code. This provides better locality and simpler maintenance.
 
 #### Simple Function Declarations
-```husk
+```rust
 // Declare external JavaScript functions
 extern fn parseInt(s: string) -> int;
 extern fn setTimeout(callback: fn(), delay: int) -> int;
@@ -185,7 +185,7 @@ extern fn map<T, U>(arr: array<T>, mapper: fn(T) -> U) -> array<U>;
 ```
 
 #### Module Declarations
-```husk
+```rust
 // Declare external modules with extern mod blocks
 extern mod fs {
     mod promises {
@@ -219,7 +219,7 @@ app.get("/", |req, res| {
 
 ### 2. Generic Type Parameters
 
-```husk
+```rust
 struct Container<T> {
     value: T,
 }
@@ -235,7 +235,7 @@ fn map<T, U>(items: Vec<T>, f: fn(T) -> U) -> Vec<U> {
 
 ### 3. Union Types (for JS interop)
 
-```husk
+```rust
 // For JavaScript APIs that return multiple types
 type StringOrNumber = string | int;
 type Nullable<T> = T | null;
@@ -275,7 +275,7 @@ async function getData() {
 ### 3. Type Stripping
 
 Remove type annotations during transpilation:
-```husk
+```rust
 // Input
 fn add(a: int, b: int) -> int { a + b }
 
@@ -563,7 +563,7 @@ export declare function add(a: number, b: number): number;
 
 #### 1. Node.js Express Server
 
-```husk
+```rust
 // src/server.hk
 use express::express;
 use dotenv::dotenv;
@@ -584,7 +584,7 @@ async fn main() {
 }
 ```
 
-```husk
+```rust
 // src/routes/api.hk
 use express::{Router, Request, Response};
 use local::controllers::UserController;
@@ -601,7 +601,7 @@ pub fn router() -> Router {
 }
 ```
 
-```husk
+```rust
 // src/controllers/UserController.hk
 use express::{Request, Response};
 use local::models::User;
@@ -631,7 +631,7 @@ impl UserController {
 
 #### 2. React Todo Application
 
-```husk
+```rust
 // src/App.hk
 use react::{React, useState, useEffect};
 use local::components::{TodoList, AddTodo};
@@ -681,7 +681,7 @@ fn App() -> JSX {
 }
 ```
 
-```husk
+```rust
 // src/components/TodoList.hk
 use react::React;
 use local::types::Todo;
@@ -707,7 +707,7 @@ fn TodoList(props: TodoListProps) -> JSX {
 
 #### 3. CLI Tool Example
 
-```husk
+```rust
 // src/cli.hk
 use commander::program;
 use fs::promises::{readFile, writeFile};
@@ -1033,7 +1033,7 @@ These fixes brought the CLI tool from ~60% to ~90% compatibility. The remaining 
 - ❌ Some transpiler issues remain (e.g., `Command::Process` instead of `Command.Process`)
 
 **Working Example**:
-```husk
+```rust
 let args = ["cli", "process", "input.txt", "output.txt"];
 println_args(args);
 
@@ -1073,7 +1073,7 @@ if command == "process" {
 
 Allows for more concise struct and enum variant initialization when variable names match field names:
 
-```husk
+```rust
 // Traditional syntax
 let x = 10;
 let y = 20;
@@ -1104,7 +1104,7 @@ let point = (function() {
 
 Enables partial destructuring of structs and enum variants with `..` to ignore remaining fields:
 
-```husk
+```rust
 struct Config {
     host: string,
     port: int,
@@ -1143,7 +1143,7 @@ if (_matched && typeof _matched === 'object') {
 
 Supports destructuring assignment in for loop iteration variables:
 
-```husk
+```rust
 fn main() {
     let pairs = [(1, "one"), (2, "two"), (3, "three")];
     

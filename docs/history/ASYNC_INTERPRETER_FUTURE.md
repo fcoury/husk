@@ -154,7 +154,7 @@ When implementing interpreter async:
 
 When interpreter async is added:
 
-```husk
+```rust
 // In interpreter mode:
 // WARNING: Async functions run synchronously in interpreter mode.
 // For true async behavior, use transpiler mode.

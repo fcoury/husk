@@ -45,7 +45,7 @@ Successfully implemented built-in methods for strings and arrays in Husk, provid
 
 All methods tested and working correctly:
 
-```husk
+```rust
 fn main() {
     let s = "  Hello World  ";
     println(s.len());           // 15

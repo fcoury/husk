@@ -18,7 +18,7 @@ Closures (also known as lambda functions or anonymous functions) are one of the 
 
 Husk closures use the pipe syntax `|params| body`:
 
-```husk
+```rust
 // Basic syntax
 |x| x + 1
 
@@ -42,7 +42,7 @@ Husk closures use the pipe syntax `|params| body`:
 
 ### Simple Closures
 
-```husk
+```rust
 // Define a closure and assign it to a variable
 let add_one = |x| x + 1;
 let result = add_one(5); // result = 6
@@ -58,7 +58,7 @@ let pi = get_pi(); // pi = 3.14159
 
 ### Inline Usage
 
-```husk
+```rust
 // Use closures directly without assignment
 let numbers = [1, 2, 3, 4, 5];
 
@@ -71,7 +71,7 @@ let numbers = [1, 2, 3, 4, 5];
 
 Husk supports optional type annotations for closure parameters and return types:
 
-```husk
+```rust
 // Parameter type annotations
 let multiply = |x: int, y: int| x * y;
 
@@ -91,7 +91,7 @@ let complex_operation = |a: int, b: int| -> string {
 
 When type annotations are omitted, Husk can often infer the types:
 
-```husk
+```rust
 // Types inferred from usage context
 fn apply_to_number(n: int, f: fn(int) -> int) -> int {
     f(n)
@@ -104,7 +104,7 @@ let result = apply_to_number(5, |x| x * 2); // x inferred as int
 
 Closures can capture variables from their surrounding scope:
 
-```husk
+```rust
 let base = 10;
 let add_base = |x| base + x; // Captures 'base'
 
@@ -116,7 +116,7 @@ let result = add_base(5); // result = 15
 
 ### Capture Examples
 
-```husk
+```rust
 // Capturing multiple variables
 let multiplier = 3;
 let offset = 10;
@@ -142,7 +142,7 @@ let second = counter(); // second = 2
 
 Closures enable powerful higher-order function patterns:
 
-```husk
+```rust
 // Function that takes a closure as parameter
 fn apply_twice(x: int, f: fn(int) -> int) -> int {
     f(f(x))
@@ -162,7 +162,7 @@ let result = triple(4); // result = 12
 
 ### Function Composition
 
-```husk
+```rust
 // Compose two functions
 fn compose<A, B, C>(f: fn(B) -> C, g: fn(A) -> B) -> fn(A) -> C {
     |x: A| f(g(x))
@@ -179,7 +179,7 @@ let result = add_one_then_double(3); // result = 8 ((3 + 1) * 2)
 
 Closures can be nested and can capture from multiple scopes:
 
-```husk
+```rust
 // Closure returning another closure
 let make_adder = |x| {
     |y| x + y  // Inner closure captures 'x' from outer closure
@@ -206,7 +206,7 @@ let final_result = step1(3); // result = 23 (10 + 10 + 3)
 
 Husk closures transpile directly to JavaScript arrow functions:
 
-```husk
+```rust
 // Husk code
 let add = |x, y| x + y;
 let numbers = [1, 2, 3];
@@ -222,7 +222,7 @@ let doubled = numbers.map(x => x * 2);
 
 ### Complex Transpilation Example
 
-```husk
+```rust
 // Husk code with environment capture
 let base = 10;
 let transformer = |multiplier| {
@@ -281,7 +281,7 @@ Type::Function {
 
 ### Array Processing (✅ Implemented)
 
-```husk
+```rust
 // Array processing with closures
 let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -301,7 +301,7 @@ let even_squares = filtered.map(|x| x * x);
 
 ### Functional Programming Patterns
 
-```husk
+```rust
 // Partial application
 let add = |x, y| x + y;
 let add_ten = |x| add(x, 10);
@@ -325,7 +325,7 @@ let result = pipe(
 
 ### Event Handling Pattern
 
-```husk
+```rust
 // Simulated event handler pattern
 struct EventHandler {
     callback: fn(string) -> unit

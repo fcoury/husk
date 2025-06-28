@@ -44,7 +44,10 @@ This document provides an overview of the key language features implemented in H
 ### Compilation Targets
 
 - **Interpreter Mode** - Direct execution in Rust-based interpreter
-- **JavaScript Transpilation** - Compilation to modern JavaScript for web platforms
+- **[JavaScript Transpilation](advanced/javascript-transpilation.md)** - Compilation to modern JavaScript for web and Node.js deployment
+  - Zero-overhead abstractions
+  - Full npm ecosystem access
+  - Source map support for debugging
 
 ## Implementation Status
 
@@ -75,7 +78,7 @@ For detailed information about any specific feature, follow the links above to t
 
 Quick examples of key language features:
 
-```husk
+```rust
 // Closures and higher-order functions
 let numbers = [1, 2, 3, 4, 5];
 let doubled = numbers.map(|x| x * 2);

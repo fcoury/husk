@@ -30,7 +30,7 @@ All statements will return values:
 - Expression statements return their value (with semicolon handling)
 
 #### 2. Semicolon Semantics
-```husk
+```rust
 // Without semicolon - returns value
 let x = 5
 
@@ -45,7 +45,7 @@ let result = {
 ```
 
 #### 3. Block Expressions
-```husk
+```rust
 let value = {
     do_something();
     let x = 5;
@@ -56,7 +56,7 @@ let value = {
 #### 4. Control Flow Expressions
 
 **If expressions:**
-```husk
+```rust
 let max = if a > b { a } else { b };
 
 // If without else must return unit
@@ -67,7 +67,7 @@ if condition {
 ```
 
 **Match expressions:**
-```husk
+```rust
 let result = match value {
     Some(x) => x * 2,
     None => 0,
@@ -75,7 +75,7 @@ let result = match value {
 ```
 
 **Loop expressions:**
-```husk
+```rust
 let result = loop {
     if condition {
         break 42;  // Break with value
