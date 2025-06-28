@@ -253,9 +253,11 @@ impl HuskConfig {
             pkg.insert("keywords".to_string(), serde_json::Value::Array(keywords));
         }
 
-        // Entry point
-        let main_file = format!("{}/index.js", self.build.out);
-        pkg.insert("main".to_string(), serde_json::Value::String(main_file));
+        // Entry point - main.js in the same directory as package.json
+        pkg.insert(
+            "main".to_string(),
+            serde_json::Value::String("main.js".to_string()),
+        );
 
         // Module type
         if self.build.module == "esm" {
