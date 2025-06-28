@@ -2897,8 +2897,7 @@ impl JsTranspiler {
         match function_name {
             // Math functions
             "Math.abs" | "Math.max" | "Math.min" | "Math.floor" | "Math.ceil" | "Math.round"
-            | "Math.sqrt" | "Math.pow" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.log"
-            | "Math.random" => true,
+            | "Math.sqrt" | "Math.pow" | "Math.sin" | "Math.cos" | "Math.tan" | "Math.log" => true,
 
             // Object/Array creation functions (pure constructors)
             "Object.create" | "Object.assign" | "Object.keys" | "Object.values"
@@ -2910,13 +2909,11 @@ impl JsTranspiler {
             // Type conversion functions
             "Number" | "String" | "Boolean" | "parseInt" | "parseFloat" => true,
 
-            // JSON functions (when used for pure data transformation)
-            "JSON.parse" | "JSON.stringify" => true,
-
             // Husk-specific utility functions that are pure
             "__format__" | "__husk_safe_call" | "huskSafeCall" => true,
 
-            // Constructor calls (often pure)
+            // Constructor calls (often pure) - but exclude JSON methods which can throw
+            name if name.starts_with("JSON.") => false,
             name if name.chars().next().map_or(false, |c| c.is_uppercase()) => true,
 
             _ => false,

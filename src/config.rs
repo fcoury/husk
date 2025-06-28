@@ -96,7 +96,7 @@ impl Default for BuildConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TargetConfig {
     #[serde(default)]
     pub platform: Option<String>, // "node", "browser", "deno", "bun"
@@ -375,6 +375,37 @@ impl HuskConfig {
                     self.build.module,
                     valid_modules.join(", ")
                 )));
+            }
+        }
+
+        // Validate import maps in targets
+        for (target_name, target_config) in &self.targets {
+            for (package, url) in &target_config.import_map {
+                // Validate URL format
+                if !url.starts_with("http://")
+                    && !url.starts_with("https://")
+                    && !url.starts_with('/')
+                    && !url.starts_with("./")
+                    && !url.starts_with("../")
+                {
+                    return Err(Error::new_config(format!(
+                        "Invalid import map URL for package '{}' in target '{}': '{}'. \
+                         URLs must start with http://, https://, /, ./, or ../",
+                        package, target_name, url
+                    )));
+                }
+
+                // Additional validation for absolute URLs
+                if url.starts_with("http://") || url.starts_with("https://") {
+                    // Basic URL format validation
+                    if url.len() < 8 || !url.contains('.') {
+                        return Err(Error::new_config(format!(
+                            "Invalid import map URL for package '{}' in target '{}': '{}'. \
+                             URL appears to be malformed",
+                            package, target_name, url
+                        )));
+                    }
+                }
             }
         }
 

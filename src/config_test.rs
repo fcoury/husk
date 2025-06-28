@@ -390,4 +390,89 @@ version = "1.0.0"
         let main = config.get_main_entry();
         assert_eq!(main, "source/main.husk");
     }
+
+    #[test]
+    fn test_import_map_url_validation_valid() {
+        let mut config = HuskConfig::default();
+
+        // Add a target with valid import map URLs
+        let mut target = TargetConfig::default();
+        target
+            .import_map
+            .insert("react".to_string(), "https://esm.sh/react@18".to_string());
+        target.import_map.insert(
+            "lodash".to_string(),
+            "https://cdn.skypack.dev/lodash".to_string(),
+        );
+        target
+            .import_map
+            .insert("local".to_string(), "./lib/local.js".to_string());
+        target
+            .import_map
+            .insert("utils".to_string(), "/utils/index.js".to_string());
+        target
+            .import_map
+            .insert("parent".to_string(), "../shared/lib.js".to_string());
+        config.targets.insert("browser".to_string(), target);
+
+        // Should validate successfully
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_import_map_url_validation_invalid_scheme() {
+        let mut config = HuskConfig::default();
+
+        // Add a target with invalid URL scheme
+        let mut target = TargetConfig::default();
+        target
+            .import_map
+            .insert("react".to_string(), "ftp://example.com/react".to_string());
+        config.targets.insert("browser".to_string(), target);
+
+        // Should fail validation
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Invalid import map URL"));
+        assert!(err
+            .to_string()
+            .contains("must start with http://, https://"));
+    }
+
+    #[test]
+    fn test_import_map_url_validation_malformed() {
+        let mut config = HuskConfig::default();
+
+        // Add a target with malformed URL
+        let mut target = TargetConfig::default();
+        target
+            .import_map
+            .insert("react".to_string(), "https://".to_string());
+        config.targets.insert("browser".to_string(), target);
+
+        // Should fail validation
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("URL appears to be malformed"));
+    }
+
+    #[test]
+    fn test_import_map_url_validation_relative_path() {
+        let mut config = HuskConfig::default();
+
+        // Add a target with invalid relative path (missing ./ or ../)
+        let mut target = TargetConfig::default();
+        target
+            .import_map
+            .insert("utils".to_string(), "lib/utils.js".to_string());
+        config.targets.insert("browser".to_string(), target);
+
+        // Should fail validation
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Invalid import map URL"));
+    }
 }
