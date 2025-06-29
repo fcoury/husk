@@ -81,6 +81,60 @@ impl SemanticVisitor {
         visitor
     }
 
+    /// Set the current file being analyzed
+    pub fn set_current_file(&mut self, file: PathBuf) {
+        self.current_file = Some(file);
+    }
+
+    /// Set the project root directory
+    pub fn set_project_root(&mut self, root: PathBuf) {
+        self.project_root = Some(root);
+    }
+
+    /// Look up type information from extern declarations for an external import
+    fn lookup_extern_function_type(&self, module_name: &str, function_name: &str) -> Option<Type> {
+        // Check if we have an extern declaration for this module function
+        let full_name = format!("{}::{}", module_name, function_name);
+        
+        if let Some((params, return_type, _)) = self.functions.get(&full_name) {
+            // Convert the function signature to a Type::Function
+            let param_types: Vec<Type> = params.iter().map(|(_, t)| t.clone()).collect();
+            Some(Type::Function {
+                params: param_types,
+                return_type: Box::new(return_type.clone()),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Check if we have any extern declarations for a module
+    fn has_extern_module(&self, module_name: &str) -> bool {
+        // Check if any function starts with "module_name::"
+        let prefix = format!("{}::", module_name);
+        self.functions.keys().any(|key| key.starts_with(&prefix))
+    }
+
+    /// Resolves a type string to a Type, checking the type environment first
+    /// This handles extern type aliases like PathLike = any
+    fn resolve_type_string(&self, type_str: &str, module_prefix: &str) -> Type {
+        // First check if this type is defined in our type environment
+        if let Some(defined_type) = self.type_env.lookup(type_str) {
+            return defined_type.clone();
+        }
+        
+        // Check with module prefix if provided
+        if !module_prefix.is_empty() {
+            let prefixed_name = format!("{module_prefix}::{type_str}");
+            if let Some(defined_type) = self.type_env.lookup(&prefixed_name) {
+                return defined_type.clone();
+            }
+        }
+        
+        // Fall back to Type::from_string for built-in types
+        Type::from_string(type_str).unwrap_or(Type::Unknown)
+    }
+
     /// Resolve the path for a local module
     fn resolve_module_path(&self, path: &UsePath, span: &Span) -> Result<PathBuf> {
         let base_path = path.segments.join("/");
@@ -364,8 +418,130 @@ impl SemanticVisitor {
                     }
                 }
             }
+            Stmt::ExternMod(mod_name, items, _span) => {
+                // Process extern module declarations in two passes:
+                // First pass: process all type declarations
+                for item in items {
+                    if let ExternItem::Type(_, _, _) = item {
+                        self.process_extern_item_for_module(item, mod_name)?;
+                    }
+                }
+                // Second pass: process everything else
+                for item in items {
+                    if !matches!(item, ExternItem::Type(_, _, _)) {
+                        self.process_extern_item_for_module(item, mod_name)?;
+                    }
+                }
+            }
+            Stmt::ExternFunction(name, _generics, params, return_type, _span) => {
+                // Process standalone extern function
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|(param_name, type_str)| {
+                        (
+                            param_name.clone(),
+                            self.resolve_type_string(type_str, ""),
+                        )
+                    })
+                    .collect();
+                let ret_type = self.resolve_type_string(return_type, "");
+                self.functions
+                    .insert(name.clone(), (param_types, ret_type, Span::default()));
+            }
+            Stmt::ExternType(name, _generics, type_alias, _span) => {
+                // If a type alias is provided (e.g., type Foo = any), use it
+                // Otherwise, default to Any for opaque types
+                let type_to_register = if let Some(alias) = type_alias {
+                    Type::from_string(alias).unwrap_or(Type::Any)
+                } else {
+                    Type::Any
+                };
+                self.type_env.define(name.clone(), type_to_register);
+            }
             // For other statements, just ignore them for now
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// Process an extern item for module analysis
+    fn process_extern_item_for_module(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
+        match item {
+            ExternItem::Function(name, _generics, params, return_type) => {
+                let full_name = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}::{name}")
+                };
+
+                // Convert parameter types using our type resolution
+                let param_types: Vec<(String, Type)> = params
+                    .iter()
+                    .map(|(param_name, type_str)| {
+                        (
+                            param_name.clone(),
+                            self.resolve_type_string(type_str, prefix),
+                        )
+                    })
+                    .collect();
+
+                let ret_type = self.resolve_type_string(return_type, prefix);
+
+                // Register extern function
+                self.functions.insert(
+                    full_name,
+                    (param_types, ret_type, Span::default()),
+                );
+            }
+            ExternItem::Type(name, _generics, type_alias) => {
+                let full_name = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}::{name}")
+                };
+                // If a type alias is provided (e.g., type Foo = any), use it
+                // Otherwise, default to Any for opaque types
+                let type_to_register = if let Some(alias) = type_alias {
+                    Type::from_string(alias).unwrap_or(Type::Any)
+                } else {
+                    Type::Any
+                };
+                self.type_env.define(full_name, type_to_register);
+            }
+            ExternItem::Mod(name, items) => {
+                let new_prefix = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}::{name}")
+                };
+                for item in items {
+                    self.process_extern_item_for_module(item, &new_prefix)?;
+                }
+            }
+            ExternItem::Impl(type_name, items) => {
+                for item in items {
+                    if let ExternItem::Function(method_name, _generics, params, return_type) = item {
+                        let full_name = format!("{type_name}::{method_name}");
+                        
+                        let param_types: Vec<(String, Type)> = params
+                            .iter()
+                            .map(|(param_name, type_str)| {
+                                (
+                                    param_name.clone(),
+                                    Type::from_string(type_str).unwrap_or(Type::Unknown),
+                                )
+                            })
+                            .collect();
+
+                        let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                        
+                        self.functions.insert(
+                            full_name,
+                            (param_types, ret_type, Span::default()),
+                        );
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -423,18 +599,18 @@ impl SemanticVisitor {
                     format!("{prefix}::{name}")
                 };
 
-                // Convert parameter types
+                // Convert parameter types using our type resolution
                 let param_types: Vec<(String, Type)> = params
                     .iter()
                     .map(|(param_name, type_str)| {
                         (
                             param_name.clone(),
-                            Type::from_string(type_str).unwrap_or(Type::Unknown),
+                            self.resolve_type_string(type_str, prefix),
                         )
                     })
                     .collect();
 
-                let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
+                let ret_type = self.resolve_type_string(return_type, prefix);
 
                 // Register extern function
                 self.functions.insert(
@@ -451,19 +627,25 @@ impl SemanticVisitor {
                     },
                 );
             }
-            ExternItem::Type(name, _) => {
+            ExternItem::Type(name, _, type_alias) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
                     format!("{prefix}::{name}")
                 };
 
-                // Register as an opaque external type
-                self.type_env.define(full_name.clone(), Type::Unknown);
+                // If a type alias is provided (e.g., type Foo = any), use it
+                // Otherwise, default to Any for opaque types
+                let type_to_register = if let Some(alias) = type_alias {
+                    Type::from_string(alias).unwrap_or(Type::Any)
+                } else {
+                    Type::Any
+                };
+                self.type_env.define(full_name.clone(), type_to_register.clone());
                 // IMPORTANT: When Type::from_string is called with "express::Application",
                 // it creates a Type::Struct { name: "express::Application", ... }
                 // So we register the full name to match
-                self.imported_names.insert(full_name, Type::Unknown);
+                self.imported_names.insert(full_name, type_to_register);
             }
             ExternItem::Mod(name, items) => {
                 let new_prefix = if prefix.is_empty() {
@@ -1182,8 +1364,8 @@ impl AstVisitor<Type> for SemanticVisitor {
                         self.visit_extern_function(name, generic_params, params, return_type, span)
                     }
                     Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
-                    Stmt::ExternType(name, generic_params, span) => {
-                        self.visit_extern_type(name, generic_params, span)
+                    Stmt::ExternType(name, generic_params, type_alias, span) => {
+                        self.visit_extern_type(name, generic_params, type_alias, span)
                     }
                     // These cases are already handled above
                     Stmt::Function(_, _, _, _, _, _, _, _)
@@ -1532,13 +1714,33 @@ impl AstVisitor<Type> for SemanticVisitor {
         let (param_types, return_type) =
             if let Some((params, ret_type, _)) = self.functions.get(&func_name) {
                 (params.clone(), ret_type.clone())
-            } else if self.imported_names.contains_key(&func_name) {
-                // It's an imported name - we don't know its type yet, so assume it's valid
-                // Visit arguments for side effects
-                for arg in &arg_exprs {
-                    self.visit_expr(arg)?;
+            } else if let Some(import_type) = self.imported_names.get(&func_name) {
+                // It's an imported name - check if we have type information
+                match import_type {
+                    Type::Function { params, return_type } => {
+                        // We have type information from extern declarations
+                        (
+                            params.iter()
+                                .enumerate()
+                                .map(|(i, t)| (format!("arg{}", i), t.clone()))
+                                .collect(),
+                            (**return_type).clone(),
+                        )
+                    }
+                    Type::Unknown => {
+                        // No type information available - just check arguments for side effects
+                        for arg in &arg_exprs {
+                            self.visit_expr(arg)?;
+                        }
+                        return Ok(Type::Unknown);
+                    }
+                    _ => {
+                        return Err(Error::new_semantic(
+                            format!("'{func_name}' is not a function"),
+                            *span,
+                        ));
+                    }
                 }
-                return Ok(Type::Unknown);
             } else if let Some(var_type) = self.type_env.lookup(&func_name) {
                 // Check if it's a variable containing a function/closure
                 match var_type {
@@ -2971,12 +3173,19 @@ impl AstVisitor<Type> for SemanticVisitor {
         &mut self,
         name: &str,
         _generic_params: &[String],
+        type_alias: &Option<String>,
         _span: &Span,
     ) -> Result<Type> {
         // Register the extern type in our type system
-        // For now, treat all extern types as Unknown/Any since they're from external systems
-        self.type_env.define(name.to_string(), Type::Unknown);
-        self.imported_names.insert(name.to_string(), Type::Unknown);
+        // If a type alias is provided (e.g., type Foo = any), use it
+        // Otherwise, default to Any for opaque types
+        let type_to_register = if let Some(alias) = type_alias {
+            Type::from_string(alias).unwrap_or(Type::Any)
+        } else {
+            Type::Any
+        };
+        self.type_env.define(name.to_string(), type_to_register.clone());
+        self.imported_names.insert(name.to_string(), type_to_register);
         Ok(Type::Unit)
     }
 
@@ -3189,13 +3398,19 @@ impl AstVisitor<Type> for SemanticVisitor {
 
                 // Check if it's a Node.js built-in module
                 if is_nodejs_builtin(package_name) {
-                    // Register imported names as Unknown for Node.js built-ins
+                    // Register imported names for Node.js built-ins
                     match items {
                         UseItems::Named(imports) => {
                             for (import_name, alias) in imports {
                                 let name_to_register = alias.as_ref().unwrap_or(import_name);
+                                
+                                // Try to get type from extern declarations
+                                let import_type = self
+                                    .lookup_extern_function_type(package_name, import_name)
+                                    .unwrap_or(Type::Unknown);
+                                
                                 self.imported_names
-                                    .insert(name_to_register.clone(), Type::Unknown);
+                                    .insert(name_to_register.clone(), import_type);
                             }
                         }
                         UseItems::Single => {
@@ -3228,8 +3443,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     for (import_name, alias) in imports {
                                         let name_to_register =
                                             alias.as_ref().unwrap_or(import_name);
+                                        
+                                        // Try to get type from extern declarations
+                                        let import_type = self
+                                            .lookup_extern_function_type(actual_package_name, import_name)
+                                            .unwrap_or(Type::Unknown);
+                                        
                                         self.imported_names
-                                            .insert(name_to_register.clone(), Type::Unknown);
+                                            .insert(name_to_register.clone(), import_type);
                                     }
                                 }
                                 UseItems::All => {
@@ -3263,8 +3484,14 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     for (import_name, alias) in imports {
                                         let name_to_register =
                                             alias.as_ref().unwrap_or(import_name);
+                                        
+                                        // Try to get type from extern declarations
+                                        let import_type = self
+                                            .lookup_extern_function_type(actual_package_name, import_name)
+                                            .unwrap_or(Type::Unknown);
+                                        
                                         self.imported_names
-                                            .insert(name_to_register.clone(), Type::Unknown);
+                                            .insert(name_to_register.clone(), import_type);
                                     }
                                 }
                                 UseItems::All => {

@@ -73,6 +73,7 @@ pub struct HuskExternFunction {
 pub struct HuskExternType {
     pub name: String,
     pub extends: Vec<String>, // List of extended interfaces
+    pub is_opaque_alias: bool, // True if this is a type alias that should be declared as = any
 }
 
 #[derive(Debug)]
@@ -304,10 +305,19 @@ fn process_decl(
         }
         Decl::TsTypeAlias(type_alias) => {
             eprintln!("[DEBUG] Found TsTypeAlias: name={}", type_alias.id.sym);
-            // Add as a type
+            // Check if this is an opaque type (union, intersection, etc.)
+            let is_opaque = matches!(
+                type_alias.type_ann.as_ref(),
+                TsType::TsUnionOrIntersectionType(_) | 
+                TsType::TsConditionalType(_) |
+                TsType::TsMappedType(_) |
+                TsType::TsIndexedAccessType(_)
+            );
+            
             husk_module.types.push(HuskExternType {
                 name: type_alias.id.sym.to_string(),
                 extends: Vec::new(),
+                is_opaque_alias: is_opaque,
             });
         }
         Decl::Fn(fn_decl) => {
@@ -427,13 +437,24 @@ fn process_namespace_decl(
             namespace.types.push(HuskExternType {
                 name: interface.id.sym.to_string(),
                 extends: Vec::new(),
+                is_opaque_alias: false, // Interfaces are not opaque
             });
         }
         Decl::TsTypeAlias(type_alias) => {
             eprintln!("[DEBUG] Found type alias in namespace: {}", type_alias.id.sym);
+            // Check if this is an opaque type (union, intersection, etc.)
+            let is_opaque = matches!(
+                type_alias.type_ann.as_ref(),
+                TsType::TsUnionOrIntersectionType(_) | 
+                TsType::TsConditionalType(_) |
+                TsType::TsMappedType(_) |
+                TsType::TsIndexedAccessType(_)
+            );
+            
             namespace.types.push(HuskExternType {
                 name: type_alias.id.sym.to_string(),
                 extends: Vec::new(),
+                is_opaque_alias: is_opaque,
             });
         }
         _ => {
@@ -468,6 +489,7 @@ fn process_interface(
     husk_module.types.push(HuskExternType {
         name: interface_name.clone(),
         extends,
+        is_opaque_alias: false, // Interfaces are not opaque
     });
 
     // Process interface members
@@ -666,7 +688,11 @@ impl HuskExternModule {
                 if !typ.extends.is_empty() {
                     output.push_str(&format!("    // {} extends {}\n", typ.name, typ.extends.join(", ")));
                 }
-                output.push_str(&format!("    type {};\n", typ.name));
+                if typ.is_opaque_alias {
+                    output.push_str(&format!("    type {} = any;\n", typ.name));
+                } else {
+                    output.push_str(&format!("    type {};\n", typ.name));
+                }
             }
             
             if !self.types.is_empty() && !self.implementations.is_empty() {
@@ -724,7 +750,11 @@ impl HuskExternModule {
                 if !typ.extends.is_empty() {
                     output.push_str(&format!("    // {} extends {}\n", typ.name, typ.extends.join(", ")));
                 }
-                output.push_str(&format!("    type {};\n", typ.name));
+                if typ.is_opaque_alias {
+                    output.push_str(&format!("    type {} = any;\n", typ.name));
+                } else {
+                    output.push_str(&format!("    type {};\n", typ.name));
+                }
             }
             
             // Add newline between types and functions if both exist

@@ -168,7 +168,7 @@ fn run_command(file: PathBuf, no_color: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
+fn build_command(cli: Build, no_color: bool) -> anyhow::Result<()> {
     use husk_lang::HuskConfig;
     use std::fs;
 
@@ -281,7 +281,13 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
         let is_main_entry =
             husk_file.canonicalize()? == main_entry_path.canonicalize().unwrap_or_default();
 
-        match husk_lang::transpile_to_js_with_entry_validation(&code, target, is_main_entry) {
+        match husk_lang::transpile_to_js_with_entry_validation(
+            &code,
+            target,
+            is_main_entry,
+            Some(&husk_file),
+            Some(&project_root),
+        ) {
             Ok(js) => {
                 fs::write(&js_file, js)?;
                 println!(
@@ -291,7 +297,9 @@ fn build_command(cli: Build, _no_color: bool) -> anyhow::Result<()> {
                 );
             }
             Err(e) => {
-                eprintln!("Error compiling {}: {}", husk_file.display(), e);
+                eprintln!();
+                e.write_colored(&mut std::io::stderr(), &code, no_color)
+                    .unwrap_or_else(|_| eprintln!("Error compiling {}: {}", husk_file.display(), e));
                 std::process::exit(1);
             }
         }

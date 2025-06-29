@@ -195,8 +195,8 @@ pub trait AstVisitor<T> {
                 self.visit_extern_function(name, generic_params, params, return_type, span)
             }
             Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
-            Stmt::ExternType(name, generic_params, span) => {
-                self.visit_extern_type(name, generic_params, span)
+            Stmt::ExternType(name, generic_params, type_alias, span) => {
+                self.visit_extern_type(name, generic_params, type_alias, span)
             }
             Stmt::AsyncFunction(
                 _attrs,
@@ -304,6 +304,7 @@ pub trait AstVisitor<T> {
         &mut self,
         name: &str,
         generic_params: &[String],
+        type_alias: &Option<String>,
         span: &Span,
     ) -> std::result::Result<T, Self::Error>;
     fn visit_async_function(

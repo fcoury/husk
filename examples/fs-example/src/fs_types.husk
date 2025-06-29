@@ -1,14 +1,14 @@
 
 extern mod fs {
-    type PathLike;
-    type PathOrFileDescriptor;
-    type TimeLike;
+    type PathLike = any;
+    type PathOrFileDescriptor = any;
+    type TimeLike = any;
     type NoParamCallback;
-    type BufferEncodingOption;
+    type BufferEncodingOption = any;
     type ObjectEncodingOptions;
-    type EncodingOption;
-    type OpenMode;
-    type Mode;
+    type EncodingOption = any;
+    type OpenMode = any;
+    type Mode = any;
     type StatsBase;
     type Stats;
     type StatsFsBase;
@@ -17,21 +17,21 @@ extern mod fs {
     type StatFsOptions;
     type StatWatcher;
     type FSWatcher;
-    type ReadStreamEvents;
-    type CustomEvents;
-    type WriteStreamEvents;
+    type ReadStreamEvents = any;
+    type CustomEvents = any;
+    type WriteStreamEvents = any;
     type StatSyncFn;
     type RmDirOptions;
     type RmOptions;
     type MakeDirectoryOptions;
     type WriteOptions;
-    type ReadPosition;
+    type ReadPosition = any;
     type ReadSyncOptions;
     type ReadAsyncOptions;
-    type WriteFileOptions;
+    type WriteFileOptions = any;
     type WatchFileOptions;
     type WatchOptions;
-    type WatchEventType;
+    type WatchEventType = any;
     type WatchListener;
     type StatsListener;
     type BigIntStatsListener;
@@ -90,6 +90,10 @@ extern mod fs {
     fn fstatSync(fd: i32, options: any) -> Stats;
     fn fstatSync(fd: i32, options: any) -> BigIntStats;
     fn fstatSync(fd: i32, options: StatOptions) -> any;
+    fn statSync(path: PathLike) -> Stats;
+    fn statSync(path: PathLike, options: any) -> Stats;
+    fn statSync(path: PathLike, options: any) -> BigIntStats;
+    fn statSync(path: PathLike, options: StatOptions) -> any;
     fn lstat(path: PathLike, callback: any);
     fn lstat(path: PathLike, options: any, callback: any);
     fn lstat(path: PathLike, options: any, callback: any);
@@ -192,6 +196,7 @@ extern mod fs {
     fn writeFile(file: PathOrFileDescriptor, data: any, options: WriteFileOptions, callback: NoParamCallback);
     fn writeFile(path: PathOrFileDescriptor, data: any, callback: NoParamCallback);
     fn writeFileSync(file: PathOrFileDescriptor, data: any, options: WriteFileOptions);
+    fn writeFileSync(file: PathOrFileDescriptor, data: any);
     fn appendFile(path: PathOrFileDescriptor, data: any, options: WriteFileOptions, callback: NoParamCallback);
     fn appendFile(file: PathOrFileDescriptor, data: any, callback: NoParamCallback);
     fn appendFileSync(path: PathOrFileDescriptor, data: any, options: WriteFileOptions);
@@ -237,6 +242,7 @@ extern mod fs {
     fn globSync(pattern: any, options: GlobOptionsWithFileTypes) -> Vec<Dirent>;
     fn globSync(pattern: any, options: GlobOptionsWithoutFileTypes) -> Vec<string>;
     fn globSync(pattern: any, options: GlobOptions) -> any;
-    fn statSync() -> StatSyncFn;
-    fn lstatSync() -> StatSyncFn;
+    // Variables as functions - not yet supported
+    // fn statSync() -> StatSyncFn;
+    // fn lstatSync() -> StatSyncFn;
 }

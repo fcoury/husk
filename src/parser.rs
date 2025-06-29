@@ -539,7 +539,7 @@ pub enum Stmt {
     Use(UsePath, UseItems, Span),
     ExternFunction(String, Vec<String>, Vec<(String, String)>, String, Span), // Added generic params
     ExternMod(String, Vec<ExternItem>, Span),
-    ExternType(String, Vec<String>, Span), // name, generic params, span
+    ExternType(String, Vec<String>, Option<String>, Span), // name, generic params, type alias (e.g., "any"), span
     AsyncFunction(
         Vec<Attribute>,
         bool,
@@ -563,7 +563,7 @@ pub enum EnumVariant {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ExternItem {
     Function(String, Vec<String>, Vec<(String, String)>, String), // Added generic params
-    Type(String, Vec<String>), // Added generic params for type aliases
+    Type(String, Vec<String>, Option<String>), // name, generic params, optional type alias (e.g., "any")
     Mod(String, Vec<ExternItem>),
     Impl(String, Vec<ExternItem>),
 }
@@ -1429,8 +1429,21 @@ impl Parser {
                 // Parse generic type parameters <T, U>
                 let generic_params = self.parse_generic_parameters()?;
 
+                // Check for optional type alias (e.g., = any)
+                let type_alias = if self.current_token().kind == TokenKind::Equals {
+                    self.advance(); // Consume '='
+                    Some(self.consume_type().ok_or_else(|| {
+                        Error::new_parse(
+                            "Expected type after '='".to_string(),
+                            self.current_token().span,
+                        )
+                    })?)
+                } else {
+                    None
+                };
+
                 self.expect_token(TokenKind::Semicolon)?;
-                Ok(Stmt::ExternType(name, generic_params, start_span))
+                Ok(Stmt::ExternType(name, generic_params, type_alias, start_span))
             }
             _ => Err(Error::new_parse(
                 "Expected 'fn', 'mod', or 'type' after 'extern'".to_string(),
@@ -1492,8 +1505,21 @@ impl Parser {
                 // Parse generic type parameters <T, U>
                 let generic_params = self.parse_generic_parameters()?;
 
+                // Check for optional type alias (e.g., = any)
+                let type_alias = if self.current_token().kind == TokenKind::Equals {
+                    self.advance(); // Consume '='
+                    Some(self.consume_type().ok_or_else(|| {
+                        Error::new_parse(
+                            "Expected type after '='".to_string(),
+                            self.current_token().span,
+                        )
+                    })?)
+                } else {
+                    None
+                };
+
                 self.expect_token(TokenKind::Semicolon)?;
-                Ok(ExternItem::Type(name, generic_params))
+                Ok(ExternItem::Type(name, generic_params, type_alias))
             }
             TokenKind::Mod => {
                 // mod name { ... }

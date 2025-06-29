@@ -1025,8 +1025,8 @@ impl AstVisitor<String> for JsTranspiler {
                         self.visit_extern_function(name, generic_params, params, return_type, span)
                     }
                     Stmt::ExternMod(name, items, span) => self.visit_extern_mod(name, items, span),
-                    Stmt::ExternType(name, generic_params, span) => {
-                        self.visit_extern_type(name, generic_params, span)
+                    Stmt::ExternType(name, generic_params, type_alias, span) => {
+                        self.visit_extern_type(name, generic_params, type_alias, span)
                     }
                     Stmt::Module(_attrs, name, body, span) => self.visit_module(name, body, span),
                     _ => unreachable!("All statement types should be handled above"),
@@ -1782,6 +1782,7 @@ impl AstVisitor<String> for JsTranspiler {
         &mut self,
         _name: &str,
         _generic_params: &[String],
+        _type_alias: &Option<String>,
         _span: &Span,
     ) -> Result<String> {
         // Extern type declarations don't generate any JavaScript code
@@ -2790,7 +2791,13 @@ impl JsTranspiler {
         // Generate the import statement
         let import_stmt = match &final_items {
             UseItems::All => {
-                format!("import * from '{final_module_path}'")
+                // For wildcard imports, we need to provide an alias
+                // Use the last segment of the module path as the alias
+                let alias = final_module_path.split('/').last()
+                    .unwrap_or("module")
+                    .replace(".js", "")
+                    .replace('-', "_");
+                format!("import * as {alias} from '{final_module_path}'")
             }
             UseItems::Single => {
                 if path.segments.len() == 1 && path.prefix == UsePrefix::None {
@@ -2866,7 +2873,7 @@ impl JsTranspiler {
         if let Some(package) = polyfill_package {
             // Generate import for the polyfill package
             match items {
-                UseItems::All => Ok(format!("import * from '{}'", package)),
+                UseItems::All => Ok(format!("import * as polyfill from '{}'", package)),
                 UseItems::Single => Ok(format!("import '{}'", package)),
                 UseItems::Named(imports) => {
                     let import_list = imports
@@ -2898,7 +2905,7 @@ impl JsTranspiler {
         let deno_module = format!("node:{}", module_name);
 
         match items {
-            UseItems::All => Ok(format!("import * from '{}'", deno_module)),
+            UseItems::All => Ok(format!("import * as {} from '{}'", module_name, deno_module)),
             UseItems::Single => Ok(format!("import '{}'", deno_module)),
             UseItems::Named(imports) => {
                 let import_list = imports
@@ -2927,7 +2934,13 @@ impl JsTranspiler {
         items: &UseItems,
     ) -> Result<String> {
         match items {
-            UseItems::All => Ok(format!("import * from '{}'", mapped_specifier)),
+            UseItems::All => {
+                let alias = mapped_specifier.split('/').last()
+                    .unwrap_or("module")
+                    .replace('@', "")
+                    .replace('-', "_");
+                Ok(format!("import * as {} from '{}'", alias, mapped_specifier))
+            }
             UseItems::Single => Ok(format!("import '{}'", mapped_specifier)),
             UseItems::Named(imports) => {
                 let import_list = imports

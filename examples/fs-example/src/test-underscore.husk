@@ -1,4 +1,0 @@
-extern mod test {
-    type _TestType;
-    type NormalType;
-}

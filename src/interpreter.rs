@@ -2599,6 +2599,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
         &mut self,
         _name: &str,
         _generic_params: &[String],
+        _type_alias: &Option<String>,
         _span: &Span,
     ) -> Result<Value> {
         // Extern type declarations are no-op in interpreter mode

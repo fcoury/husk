@@ -478,7 +478,7 @@ impl Lexer {
             "break" => TokenKind::Break,
             "continue" => TokenKind::Continue,
             "return" => TokenKind::Return,
-            "int" | "float" | "bool" | "string" => TokenKind::Type(identifier),
+            "int" | "float" | "bool" | "string" | "any" => TokenKind::Type(identifier),
             "_" => TokenKind::Underscore,
             _ => TokenKind::Identifier(identifier),
         };

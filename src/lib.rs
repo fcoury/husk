@@ -200,6 +200,8 @@ pub fn transpile_to_js_with_entry_validation(
     code: impl Into<String>,
     target: &str,
     is_main_entry: bool,
+    current_file: Option<&std::path::Path>,
+    project_root: Option<&std::path::Path>,
 ) -> Result<String> {
     let code = code.into();
     let mut lexer = Lexer::new(code.to_string());
@@ -227,8 +229,14 @@ pub fn transpile_to_js_with_entry_validation(
         }
     }
 
-    // Use visitor pattern for semantic analysis with package resolution
+    // Use visitor pattern for semantic analysis with package resolution and file context
     let mut analyzer = SemanticVisitor::with_package_resolver().unwrap_or_default();
+    if let Some(file) = current_file {
+        analyzer.set_current_file(file.to_path_buf());
+    }
+    if let Some(root) = project_root {
+        analyzer.set_project_root(root.to_path_buf());
+    }
     analyzer.analyze(&ast)?;
 
     // Use transpiler with target configuration
@@ -260,7 +268,7 @@ mod lib_tests {
         "#;
 
         // Should succeed when main is present and is_main_entry is true
-        let result = transpile_to_js_with_entry_validation(code, "node-esm", true);
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", true, None, None);
         assert!(result.is_ok());
         let js = result.unwrap();
         assert!(js.contains("function main()"));
@@ -280,7 +288,7 @@ mod lib_tests {
         "#;
 
         // Should fail when main is missing and is_main_entry is true
-        let result = transpile_to_js_with_entry_validation(code, "node-esm", true);
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", true, None, None);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err
@@ -301,7 +309,7 @@ mod lib_tests {
         "#;
 
         // Should succeed when main is missing but is_main_entry is false
-        let result = transpile_to_js_with_entry_validation(code, "node-esm", false);
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", false, None, None);
         assert!(result.is_ok());
         let js = result.unwrap();
         assert!(js.contains("function helper()"));
@@ -318,7 +326,7 @@ mod lib_tests {
         "#;
 
         // Should succeed with async main when is_main_entry is true
-        let result = transpile_to_js_with_entry_validation(code, "node-esm", true);
+        let result = transpile_to_js_with_entry_validation(code, "node-esm", true, None, None);
         assert!(result.is_ok());
         let js = result.unwrap();
 
@@ -336,7 +344,7 @@ mod lib_tests {
 
         // Test with different targets
         for target in &["node-esm", "node-cjs", "browser", "deno", "bun"] {
-            let result = transpile_to_js_with_entry_validation(code, target, true);
+            let result = transpile_to_js_with_entry_validation(code, target, true, None, None);
             assert!(result.is_ok(), "Failed for target: {}", target);
         }
     }

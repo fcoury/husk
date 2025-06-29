@@ -1,15 +1,11 @@
-// Declare the fs functions we'll use from Node.js fs module
-extern fn existsSync(path: string) -> bool;
-extern fn readFileSync(path: string, encoding: string) -> string;
-extern fn writeFileSync(path: string, data: string);
-extern fn statSync(path: string) -> any;
-extern fn mkdirSync(path: string);
-extern fn readdirSync(path: string) -> any;
-extern fn renameSync(oldPath: string, newPath: string);
-extern fn copyFileSync(src: string, dest: string);
-extern fn accessSync(path: string, mode: int);
-extern fn unlinkSync(path: string);
-extern fn rmdirSync(path: string);
+// Import the fs_types module which contains extern declarations
+use self::fs_types;
+
+// Import the functions we need from fs
+use fs::{
+    existsSync, readFileSync, writeFileSync, statSync, mkdirSync, readdirSync,
+    renameSync, copyFileSync, accessSync, unlinkSync, rmdirSync
+};
 
 fn main() {
     println("fs-example: Demonstrating Node.js fs module usage in Husk");

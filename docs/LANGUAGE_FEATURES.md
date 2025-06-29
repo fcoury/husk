@@ -10,6 +10,16 @@ This document provides an overview of the key language features implemented in H
 - **Higher-Order Functions** - Functions that take or return other functions
 - **Pattern Matching** - Match expressions for control flow and destructuring
 
+### Module System
+
+- **[Import System](language_features/MODULE_SYSTEM.md)** - Flexible module imports with multiple prefix options
+  - `use package::item` - External npm packages
+  - `use local::path::module` - Project-wide imports from root
+  - `use self::module` - Sibling modules in same directory
+  - `use super::module` - Parent directory imports
+- **Package Resolution** - npm package management via PackageResolver
+- **Module Caching** - Efficient module loading and caching
+
 ### JavaScript Interoperability
 
 - **[Extern Declarations](language_features/EXTERN_DECLARATIONS.md)** - Interface with JavaScript libraries and APIs
@@ -60,6 +70,9 @@ This document provides an overview of the key language features implemented in H
 - String and array standard library
 - JavaScript transpilation
 - Extern declarations for JavaScript interop
+- Module import system with local/self/super prefixes
+- External package imports (transpiler mode)
+- Package dependency management via husk.toml
 
 ### 🚧 In Progress
 - Generic type system
@@ -67,10 +80,9 @@ This document provides an overview of the key language features implemented in H
 - Extended standard library
 
 ### 📋 Planned
-- Module system
 - Async/await support
 - Foreign function interface (FFI)
-- Package management
+- Advanced package management features
 
 ## Getting Started
 
@@ -81,6 +93,12 @@ For detailed information about any specific feature, follow the links above to t
 Quick examples of key language features:
 
 ```husk
+// Module imports
+use local::utils::logger::{Logger, LogLevel};
+use self::config::Settings;
+use super::shared::constants;
+use express::express;  // External package (transpiler only)
+
 // Closures and higher-order functions
 let numbers = [1, 2, 3, 4, 5];
 let doubled = numbers.map(|x| x * 2);

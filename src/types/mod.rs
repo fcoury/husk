@@ -49,6 +49,9 @@ pub enum Type {
 
     // Unknown type (for inference)
     Unknown,
+    
+    // Any type (accepts and can be assigned to anything)
+    Any,
 }
 
 // Placeholder for future implementation
@@ -66,6 +69,9 @@ impl Type {
 
             // Unknown can be assigned to anything (for inference)
             (Type::Unknown, _) | (_, Type::Unknown) => true,
+            
+            // Any can be assigned to anything and anything can be assigned to Any
+            (Type::Any, _) | (_, Type::Any) => true,
 
             // Array covariance
             (Type::Array(a), Type::Array(b)) => a.is_assignable_to(b),
@@ -152,6 +158,7 @@ impl Type {
             "bool" => Some(Type::Bool),
             "string" => Some(Type::String),
             "range" => Some(Type::Range),
+            "any" => Some(Type::Any),
             s if s.starts_with("array<") && s.ends_with(">") => {
                 let inner = &s[6..s.len() - 1];
                 Type::from_string(inner).map(|t| Type::Array(Box::new(t)))
@@ -282,6 +289,7 @@ impl fmt::Display for Type {
             Type::Promise(inner) => write!(f, "Promise<{}>", inner),
             Type::Generic { name, .. } => write!(f, "{}", name),
             Type::Unknown => write!(f, "?"),
+            Type::Any => write!(f, "any"),
         }
     }
 }
