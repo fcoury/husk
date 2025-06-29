@@ -5,8 +5,9 @@
   "description": "Example of using Node.js fs module with Husk",
   "main": "dist/main.js",
   "scripts": {
-    "build": "husk build",
-    "start": "node dist/main.js"
+    "build": "husk build && node add-bindings.js",
+    "start": "node dist/main.js",
+    "dev": "husk build && node add-bindings.js && node dist/main.js"
   },
   "husk": {
     "imports": {

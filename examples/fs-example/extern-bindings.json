@@ -1,0 +1,18 @@
+{
+  "imports": [
+    "import fs from 'fs';"
+  ],
+  "bindings": {
+    "existsSync": "fs.existsSync",
+    "readFileSync": "fs.readFileSync",
+    "writeFileSync": "fs.writeFileSync",
+    "statSync": "fs.statSync",
+    "mkdirSync": "fs.mkdirSync",
+    "readdirSync": "fs.readdirSync",
+    "renameSync": "fs.renameSync",
+    "copyFileSync": "fs.copyFileSync",
+    "accessSync": "fs.accessSync",
+    "unlinkSync": "fs.unlinkSync",
+    "rmdirSync": "fs.rmdirSync"
+  }
+}

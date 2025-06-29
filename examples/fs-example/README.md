@@ -19,28 +19,55 @@ This generated a complete `fs-types.husk` file with all the extern declarations 
 
 ## What the example demonstrates
 
-The `main.husk` file shows how to:
-- Check if files exist using `fs.existsSync()`
-- Write files with `fs.writeFileSync()`
-- Read files with `fs.readFileSync()`
-- Get file statistics with `fs.statSync()`
-- List directory contents with `fs.readdirSync()`
-- Create directories with `fs.mkdirSync()`
-- Remove files and directories with `fs.unlinkSync()` and `fs.rmdirSync()`
-- Work with JSON data using `JSON.stringify()` and `JSON.parse()`
+The `main.husk` file shows a complete workflow of file system operations:
+
+1. **File existence check** - Uses `existsSync()` to check if a file exists
+2. **File creation and writing** - Creates files with content using `writeFileSync()`
+3. **File reading** - Reads file contents with `readFileSync()`
+4. **File statistics** - Gets file metadata using `statSync()`
+5. **Directory creation** - Creates directories with `mkdirSync()`
+6. **Directory listing** - Lists directory contents with `readdirSync()`
+7. **File renaming** - Renames files using `renameSync()`
+8. **File copying** - Copies files using `copyFileSync()`
+9. **Access control** - Checks file permissions with `accessSync()`
+10. **Cleanup** - Removes files and directories with `unlinkSync()` and `rmdirSync()`
+
+The example also demonstrates:
+- Working with JSON data
+- String formatting with Husk's `format!` macro
+- Error-free file system operations
 
 ## Running the example
 
-1. Build the project:
-   ```bash
-   husk build
-   ```
+### Method 1: Using npm scripts
+```bash
+# Build with extern bindings
+npm run build
 
-2. Run with Node.js:
-   ```bash
-   cd dist
-   node main.js
-   ```
+# Run the built example
+npm start
+
+# Or build and run in one command
+npm run dev
+```
+
+### Method 2: Manual build
+```bash
+# Build the project
+husk build
+
+# Add extern function bindings
+node add-bindings.js
+
+# Run with Node.js
+node dist/main.js
+```
+
+### Method 3: Using cargo directly
+```bash
+# Build and run all in one command
+cargo run -- build && node add-bindings.js && node dist/main.js
+```
 
 ## Key takeaways
 
@@ -48,3 +75,25 @@ The `main.husk` file shows how to:
 - The generated extern declarations provide type-safe access to JavaScript libraries
 - Complex Node.js APIs like the fs module work seamlessly with Husk
 - The full fs API is available, not just a simplified subset
+- Identifiers starting with underscores (like `_GlobOptions`) are properly handled
+- Reserved keywords in parameter names are automatically sanitized (e.g., `string` → `string_`)
+- Extern functions require bindings to map to their JavaScript implementations
+
+## Technical Notes
+
+### Extern Function Bindings
+
+Since Husk's build system doesn't automatically generate bindings for extern functions, this example includes:
+
+1. **extern-bindings.json** - Maps extern function names to their JavaScript implementations
+2. **add-bindings.js** - Post-build script that adds the bindings to the generated JavaScript
+
+This is a temporary solution until Husk's build system natively supports extern function bindings.
+
+### Files
+
+- `src/main.husk` - Main example demonstrating fs operations
+- `src/fs_types.husk` - Generated extern type declarations for Node.js fs module
+- `extern-bindings.json` - Configuration for extern function mappings
+- `add-bindings.js` - Script to add function bindings after build
+- `src/test-underscore.husk` - Test file for underscore-prefixed identifiers
