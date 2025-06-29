@@ -7,10 +7,25 @@ use crate::dts::types::{convert_ts_type, HuskType};
 #[derive(Debug)]
 pub struct HuskExternModule {
     pub name: String,
+    pub imports: Vec<ImportInfo>,
     pub functions: Vec<HuskExternFunction>,
     pub types: Vec<HuskExternType>,
     pub implementations: Vec<HuskExternImpl>,
     pub namespaces: Vec<HuskNamespace>,
+}
+
+#[derive(Debug)]
+pub struct ImportInfo {
+    pub source: String,
+    pub alias: String,
+    pub import_type: ImportType,
+}
+
+#[derive(Debug)]
+pub enum ImportType {
+    Namespace,     // import * as foo from "bar"
+    Default,       // import foo from "bar"
+    Named(String), // import { foo } from "bar"
 }
 
 #[derive(Debug)]
@@ -59,6 +74,7 @@ pub fn convert_dts_to_husk(module: &Module, module_name: String) -> Result<HuskE
     
     let mut husk_module = HuskExternModule {
         name: module_name,
+        imports: Vec::new(),
         functions: Vec::new(),
         types: Vec::new(),
         implementations: Vec::new(),
@@ -86,9 +102,11 @@ pub fn convert_dts_to_husk(module: &Module, module_name: String) -> Result<HuskE
     }
 
     eprintln!("[DEBUG] Conversion complete:");
+    eprintln!("[DEBUG]   - Imports: {}", husk_module.imports.len());
     eprintln!("[DEBUG]   - Functions: {}", husk_module.functions.len());
     eprintln!("[DEBUG]   - Types: {}", husk_module.types.len());
     eprintln!("[DEBUG]   - Implementations: {}", husk_module.implementations.len());
+    eprintln!("[DEBUG]   - Namespaces: {}", husk_module.namespaces.len());
     
     Ok(husk_module)
 }
@@ -113,22 +131,47 @@ fn process_module_decl(
             eprintln!("[DEBUG] Found Import: src={:?}, specifiers count={}", 
                 import.src.value, import.specifiers.len());
             eprintln!("[DEBUG]   Import details:");
+            
+            let source = import.src.value.to_string();
+            
             for spec in &import.specifiers {
                 match spec {
                     ImportSpecifier::Named(named) => {
-                        eprintln!("[DEBUG]     Named import: {:?} as {:?}", 
-                            named.imported.as_ref().map(|i| match i {
+                        let imported_name = named.imported.as_ref()
+                            .map(|i| match i {
                                 ModuleExportName::Ident(id) => id.sym.to_string(),
                                 ModuleExportName::Str(s) => s.value.to_string(),
-                            }),
-                            named.local.sym
-                        );
+                            })
+                            .unwrap_or_else(|| named.local.sym.to_string());
+                        let local_name = named.local.sym.to_string();
+                        
+                        eprintln!("[DEBUG]     Named import: {} as {}", imported_name, local_name);
+                        
+                        husk_module.imports.push(ImportInfo {
+                            source: source.clone(),
+                            alias: local_name,
+                            import_type: ImportType::Named(imported_name),
+                        });
                     }
                     ImportSpecifier::Default(default) => {
-                        eprintln!("[DEBUG]     Default import: {:?}", default.local.sym);
+                        let local_name = default.local.sym.to_string();
+                        eprintln!("[DEBUG]     Default import: {}", local_name);
+                        
+                        husk_module.imports.push(ImportInfo {
+                            source: source.clone(),
+                            alias: local_name,
+                            import_type: ImportType::Default,
+                        });
                     }
                     ImportSpecifier::Namespace(ns) => {
-                        eprintln!("[DEBUG]     Namespace import: * as {:?}", ns.local.sym);
+                        let local_name = ns.local.sym.to_string();
+                        eprintln!("[DEBUG]     Namespace import: * as {}", local_name);
+                        
+                        husk_module.imports.push(ImportInfo {
+                            source: source.clone(),
+                            alias: local_name,
+                            import_type: ImportType::Namespace,
+                        });
                     }
                 }
             }
@@ -521,6 +564,33 @@ fn process_function_decl(fn_decl: &FnDecl) -> Option<HuskExternFunction> {
 impl HuskExternModule {
     pub fn to_husk_code(&self) -> String {
         let mut output = String::new();
+
+        // Output import information as comments
+        if !self.imports.is_empty() {
+            output.push_str("// TypeScript imports (for reference):\n");
+            for import in &self.imports {
+                match &import.import_type {
+                    ImportType::Namespace => {
+                        output.push_str(&format!("// import * as {} from \"{}\";\n", 
+                            import.alias, import.source));
+                    }
+                    ImportType::Default => {
+                        output.push_str(&format!("// import {} from \"{}\";\n", 
+                            import.alias, import.source));
+                    }
+                    ImportType::Named(name) => {
+                        if name == &import.alias {
+                            output.push_str(&format!("// import {{ {} }} from \"{}\";\n", 
+                                name, import.source));
+                        } else {
+                            output.push_str(&format!("// import {{ {} as {} }} from \"{}\";\n", 
+                                name, import.alias, import.source));
+                        }
+                    }
+                }
+            }
+            output.push('\n');
+        }
 
         // Output top-level functions
         for func in &self.functions {
