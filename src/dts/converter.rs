@@ -4,6 +4,26 @@ use swc_ecma_ast::*;
 
 use crate::dts::types::{convert_ts_type, HuskType};
 
+// Reserved keywords in Husk that cannot be used as parameter names
+fn is_reserved_keyword(name: &str) -> bool {
+    matches!(name, 
+        "struct" | "impl" | "enum" | "fn" | "let" | "use" | "pub" | "mod" | 
+        "extern" | "async" | "as" | "if" | "else" | "match" | "loop" | 
+        "while" | "for" | "in" | "break" | "continue" | "return" |
+        "int" | "float" | "bool" | "string" | "true" | "false" | "self" |
+        "type" | "any" | "unit"
+    )
+}
+
+// Ensure parameter name is not a reserved keyword
+fn sanitize_param_name(name: String) -> String {
+    if is_reserved_keyword(&name) {
+        format!("{}_", name)
+    } else {
+        name
+    }
+}
+
 #[derive(Debug)]
 pub struct HuskExternModule {
     pub name: String,
@@ -508,7 +528,7 @@ fn process_method_signature(method: &TsMethodSignature) -> Option<HuskExternMeth
 
     for param in &method.params {
         if let TsFnParam::Ident(ident) = param {
-            let param_name = ident.id.sym.to_string();
+            let param_name = sanitize_param_name(ident.id.sym.to_string());
             let param_type = if let Some(type_ann) = &ident.type_ann {
                 convert_ts_type(&type_ann.type_ann)
             } else {
@@ -550,7 +570,7 @@ fn process_function_decl(fn_decl: &FnDecl) -> Option<HuskExternFunction> {
 
     for param in &fn_decl.function.params {
         if let Pat::Ident(ident) = &param.pat {
-            let param_name = ident.id.sym.to_string();
+            let param_name = sanitize_param_name(ident.id.sym.to_string());
             let param_type = if let Some(type_ann) = &ident.type_ann {
                 convert_ts_type(&type_ann.type_ann)
             } else {
@@ -697,11 +717,26 @@ impl HuskExternModule {
         // Output namespaces
         for namespace in &self.namespaces {
             output.push('\n');
-            output.push_str(&format!("// Namespace: {}\n", namespace.name));
+            output.push_str(&format!("extern mod {} {{\n", namespace.name));
+            
+            // Namespace types
+            for typ in &namespace.types {
+                if !typ.extends.is_empty() {
+                    output.push_str(&format!("    // {} extends {}\n", typ.name, typ.extends.join(", ")));
+                }
+                output.push_str(&format!("    type {};\n", typ.name));
+            }
+            
+            // Add newline between types and functions if both exist
+            if !namespace.types.is_empty() && (!namespace.functions.is_empty() || !namespace.variables.is_empty()) {
+                output.push('\n');
+            }
             
             // Namespace functions
             for func in &namespace.functions {
-                output.push_str(&format!("extern fn {}${}(", namespace.name, func.name));
+                output.push_str("    fn ");
+                output.push_str(&func.name);
+                output.push('(');
                 
                 let params: Vec<String> = func.params.iter()
                     .map(|(name, typ)| format!("{}: {}", name, typ.to_string()))
@@ -719,24 +754,12 @@ impl HuskExternModule {
                 output.push_str(";\n");
             }
             
-            // Namespace variables as extern constants
+            // Namespace variables as static functions (since Husk doesn't have extern constants in modules)
             for var in &namespace.variables {
-                output.push_str(&format!("extern const {}${}: {};\n", 
-                    namespace.name, var.name, var.var_type.to_string()));
+                output.push_str(&format!("    fn {}() -> {};\n", var.name, var.var_type.to_string()));
             }
             
-            // Namespace types
-            if !namespace.types.is_empty() {
-                output.push('\n');
-                output.push_str(&format!("extern mod {} {{\n", namespace.name));
-                for typ in &namespace.types {
-                    if !typ.extends.is_empty() {
-                        output.push_str(&format!("    // {} extends {}\n", typ.name, typ.extends.join(", ")));
-                    }
-                    output.push_str(&format!("    type {};\n", typ.name));
-                }
-                output.push_str("}\n");
-            }
+            output.push_str("}\n");
         }
 
         output

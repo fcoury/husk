@@ -1,0 +1,16 @@
+[package]
+name = "fs-example"
+version = "0.1.0"
+description = "Example of using Node.js fs module with Husk extern declarations"
+author = ""
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build]
+src = "src"
+out = "dist"
+target = ""
+module = "esm"

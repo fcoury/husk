@@ -376,13 +376,6 @@ impl Lexer {
                 }
             }
             Some('"') => self.read_string(),
-            Some('_') => {
-                if self.is_identifier_start(self.peek_char()) {
-                    self.read_identifier_or_type()
-                } else {
-                    self.create_token(TokenKind::Underscore)
-                }
-            }
             Some('!') => {
                 if self.peek_char() == Some('=') {
                     self.read_char();
@@ -410,7 +403,7 @@ impl Lexer {
             Some('?') => self.create_token(TokenKind::Question),
             Some('#') => self.create_token(TokenKind::Hash),
             Some(c) => {
-                if c.is_alphabetic() {
+                if c.is_alphabetic() || c == '_' {
                     let token = self.read_identifier_or_type();
                     return token;
                 } else if c.is_ascii_digit() {
@@ -425,9 +418,6 @@ impl Lexer {
         token
     }
 
-    fn is_identifier_start(&self, c: Option<char>) -> bool {
-        c.is_some_and(|c| c.is_alphabetic() || c == '_')
-    }
 
     fn is_identifier_char(&self, c: char) -> bool {
         c.is_alphanumeric() || c == '_'

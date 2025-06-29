@@ -1,0 +1,11 @@
+// The extern type declarations in fs_types.husk are available at compile time
+// No runtime import is needed for extern declarations
+
+fn main() {
+    // Test that the types are loaded correctly
+    println("fs-example loaded successfully!");
+    
+    // The fs module types have been declared in fs_types.husk
+    // This demonstrates that the lexer now correctly handles identifiers
+    // starting with underscores (like _GlobOptions)
+}

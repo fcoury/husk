@@ -3,11 +3,11 @@ use clap::Args;
 use std::fs;
 use std::path::Path;
 
-use husk_lang::dts::{convert_dts_to_husk, parse_dts_file};
+use husk_lang::dts::{convert_dts_to_husk, parse_dts_string};
 
 #[derive(Debug, Args)]
 pub struct Dts2ExternCommand {
-    /// Input .d.ts file path
+    /// Input .d.ts file path or URL
     input: String,
 
     /// Output file path (default: stdout)
@@ -29,30 +29,63 @@ pub struct Dts2ExternCommand {
 
 impl Dts2ExternCommand {
     pub fn execute(&self) -> Result<()> {
-        let input_path = Path::new(&self.input);
+        // Check if input is a URL
+        let (content, filename) = if self.input.starts_with("http://") || self.input.starts_with("https://") {
+            // Fetch content from URL
+            let response = reqwest::blocking::get(&self.input)
+                .context("Failed to fetch URL")?;
+            
+            if !response.status().is_success() {
+                anyhow::bail!("HTTP request failed with status: {}", response.status());
+            }
+            
+            let content = response.text()
+                .context("Failed to read response body")?;
+            
+            // Extract filename from URL
+            let url_path = self.input.split('/').last().unwrap_or("unnamed.d.ts");
+            let filename = url_path.to_string();
+            
+            (content, filename)
+        } else {
+            // Read from file
+            let input_path = Path::new(&self.input);
+            
+            if !input_path.exists() {
+                anyhow::bail!("Input file does not exist: {}", self.input);
+            }
+            
+            let content = fs::read_to_string(input_path)
+                .context("Failed to read input file")?;
+            
+            let filename = input_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unnamed.d.ts")
+                .to_string();
+                
+            (content, filename)
+        };
         
-        // Verify input file exists and has .d.ts extension
-        if !input_path.exists() {
-            anyhow::bail!("Input file does not exist: {}", self.input);
-        }
-        
-        if !self.input.ends_with(".d.ts") {
-            anyhow::bail!("Input file must be a TypeScript declaration file (.d.ts)");
+        // Verify .d.ts extension
+        if !filename.ends_with(".d.ts") {
+            anyhow::bail!("Input must be a TypeScript declaration file (.d.ts)");
         }
 
         // Infer module name if not provided
         let module_name = if let Some(ref name) = self.module {
             name.clone()
         } else {
-            input_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s.replace(".d", ""))
-                .unwrap_or_else(|| "unnamed".to_string())
+            filename
+                .strip_suffix(".d.ts")
+                .or_else(|| filename.strip_suffix(".ts"))
+                .unwrap_or(&filename)
+                .replace(".d", "")
+                .to_string()
         };
 
-        // Parse the .d.ts file
-        let parsed = parse_dts_file(input_path)
+        // Parse the .d.ts content
+        let parsed = parse_dts_string(&content, &filename)
             .context("Failed to parse TypeScript declaration file")?;
 
         // Convert to Husk extern declarations
