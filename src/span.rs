@@ -53,7 +53,7 @@ impl Span {
         let line: String = code_chars[line_start..line_end].iter().collect();
         let arrow_start = self.start - line_start;
         let arrow_end = self.end - line_start;
-        let arrow = " ".repeat(arrow_start) + &"^".repeat(arrow_end - arrow_start);
+        let arrow = format!("{}{}", " ".repeat(arrow_start), "^".repeat(arrow_end - arrow_start));
 
         format!("{}\n{}", line, arrow)
     }

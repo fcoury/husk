@@ -1,6 +1,7 @@
 mod ast;
 mod builtin_methods;
 mod config;
+pub mod dts;
 mod error;
 mod error_tests;
 mod integration_error_tests;

@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 use husk_lang::repl;
 
+mod commands;
+use commands::Dts2ExternCommand;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -106,6 +109,9 @@ enum Command {
 
     /// Run tests
     Test(Test),
+
+    /// Convert TypeScript .d.ts file to Husk extern declarations
+    Dts2Extern(Dts2ExternCommand),
 }
 
 #[derive(Parser, Debug)]
@@ -128,6 +134,7 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Build(build)) => build_command(build, no_color)?,
         Some(Command::New(new)) => new_command(new)?,
         Some(Command::Test(test)) => test_command(test, no_color)?,
+        Some(Command::Dts2Extern(dts2extern)) => dts2extern.execute()?,
         Some(Command::Repl) | None => repl()?,
     };
     Ok(())
