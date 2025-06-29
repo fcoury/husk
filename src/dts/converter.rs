@@ -52,6 +52,7 @@ pub struct HuskExternFunction {
 #[derive(Debug)]
 pub struct HuskExternType {
     pub name: String,
+    pub extends: Vec<String>, // List of extended interfaces
 }
 
 #[derive(Debug)]
@@ -286,6 +287,7 @@ fn process_decl(
             // Add as a type
             husk_module.types.push(HuskExternType {
                 name: type_alias.id.sym.to_string(),
+                extends: Vec::new(),
             });
         }
         Decl::Fn(fn_decl) => {
@@ -404,12 +406,14 @@ fn process_namespace_decl(
             eprintln!("[DEBUG] Found interface in namespace: {}", interface.id.sym);
             namespace.types.push(HuskExternType {
                 name: interface.id.sym.to_string(),
+                extends: Vec::new(),
             });
         }
         Decl::TsTypeAlias(type_alias) => {
             eprintln!("[DEBUG] Found type alias in namespace: {}", type_alias.id.sym);
             namespace.types.push(HuskExternType {
                 name: type_alias.id.sym.to_string(),
+                extends: Vec::new(),
             });
         }
         _ => {
@@ -428,17 +432,22 @@ fn process_interface(
     eprintln!("[DEBUG] Processing interface: {} with {} members", 
         interface_name, interface.body.body.len());
     
-    // Check if interface extends other interfaces
+    // Collect extended interfaces
+    let mut extends = Vec::new();
     if !interface.extends.is_empty() {
         eprintln!("[DEBUG]   Interface extends {} other interfaces:", interface.extends.len());
         for (i, extend) in interface.extends.iter().enumerate() {
-            eprintln!("[DEBUG]     Extends[{}]: {:?}", i, extend.expr);
+            // Extract the extended interface name
+            let extended_name = extract_expr_type_name(&extend.expr);
+            eprintln!("[DEBUG]     Extends[{}]: {}", i, extended_name);
+            extends.push(extended_name);
         }
     }
     
     // Add type declaration
     husk_module.types.push(HuskExternType {
         name: interface_name.clone(),
+        extends,
     });
 
     // Process interface members
@@ -561,6 +570,22 @@ fn process_function_decl(fn_decl: &FnDecl) -> Option<HuskExternFunction> {
     })
 }
 
+fn extract_expr_type_name(expr: &Expr) -> String {
+    match expr {
+        Expr::Ident(ident) => ident.sym.to_string(),
+        Expr::Member(member) => {
+            // Handle qualified names like core.Application
+            let obj = extract_expr_type_name(&member.obj);
+            if let MemberProp::Ident(prop) = &member.prop {
+                format!("{}::{}", obj, prop.sym)
+            } else {
+                obj
+            }
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
 impl HuskExternModule {
     pub fn to_husk_code(&self) -> String {
         let mut output = String::new();
@@ -618,6 +643,9 @@ impl HuskExternModule {
             
             // Type declarations
             for typ in &self.types {
+                if !typ.extends.is_empty() {
+                    output.push_str(&format!("    // {} extends {}\n", typ.name, typ.extends.join(", ")));
+                }
                 output.push_str(&format!("    type {};\n", typ.name));
             }
             
@@ -702,6 +730,9 @@ impl HuskExternModule {
                 output.push('\n');
                 output.push_str(&format!("extern mod {} {{\n", namespace.name));
                 for typ in &namespace.types {
+                    if !typ.extends.is_empty() {
+                        output.push_str(&format!("    // {} extends {}\n", typ.name, typ.extends.join(", ")));
+                    }
                     output.push_str(&format!("    type {};\n", typ.name));
                 }
                 output.push_str("}\n");
