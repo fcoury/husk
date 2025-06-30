@@ -29,6 +29,7 @@ pub struct SemanticVisitor {
     imported_names: HashMap<String, Type>,
     imported_function_modules: HashMap<String, String>, // Maps imported function name to module
     type_only_imports: HashMap<String, bool>, // Track which imports are type-only
+    extern_functions: HashMap<String, String>, // Maps function name to js_name
     in_async_function: bool,
     package_resolver: Option<PackageResolver>,
     current_file: Option<PathBuf>,
@@ -57,6 +58,7 @@ impl SemanticVisitor {
             imported_names: HashMap::new(),
             imported_function_modules: HashMap::new(),
             type_only_imports: HashMap::new(),
+            extern_functions: HashMap::new(),
             in_async_function: false,
             package_resolver: None,
             current_file: None,
@@ -98,6 +100,11 @@ impl SemanticVisitor {
     /// Get the list of type-only imports (for transpiler use)
     pub fn get_type_only_imports(&self) -> &HashMap<String, bool> {
         &self.type_only_imports
+    }
+
+    /// Get the mapping of extern functions to their js_name (for transpiler use)
+    pub fn get_extern_functions(&self) -> &HashMap<String, String> {
+        &self.extern_functions
     }
 
     /// Look up type information from extern declarations for an external import
@@ -553,12 +560,23 @@ impl SemanticVisitor {
     /// Process an extern item for module analysis
     fn process_extern_item_for_module(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
         match item {
-            ExternItem::Function(_attrs, name, _generics, params, return_type) => {
+            ExternItem::Function(attrs, name, _generics, params, return_type) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
                     format!("{prefix}::{name}")
                 };
+
+                // Extract js_name attribute if present
+                for attr in attrs {
+                    if attr.name == "js_name" {
+                        if let crate::parser::AttributeKind::NameValue { value } = &attr.kind {
+                            if let crate::parser::AttributeArgument::StringLiteral(js_name) = value {
+                                self.extern_functions.insert(full_name.clone(), js_name.clone());
+                            }
+                        }
+                    }
+                }
 
                 // Convert parameter types using our type resolution
                 let param_types: Vec<(String, Type)> = params
@@ -606,8 +624,19 @@ impl SemanticVisitor {
             }
             ExternItem::Impl(type_name, items) => {
                 for item in items {
-                    if let ExternItem::Function(_attrs, method_name, _generics, params, return_type) = item {
+                    if let ExternItem::Function(attrs, method_name, _generics, params, return_type) = item {
                         let full_name = format!("{type_name}::{method_name}");
+                        
+                        // Extract js_name attribute if present
+                        for attr in attrs {
+                            if attr.name == "js_name" {
+                                if let crate::parser::AttributeKind::NameValue { value } = &attr.kind {
+                                    if let crate::parser::AttributeArgument::StringLiteral(js_name) = value {
+                                        self.extern_functions.insert(full_name.clone(), js_name.clone());
+                                    }
+                                }
+                            }
+                        }
                         
                         let param_types: Vec<(String, Type)> = params
                             .iter()
@@ -682,12 +711,23 @@ impl SemanticVisitor {
 
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
         match item {
-            ExternItem::Function(_attrs, name, _, params, return_type) => {
+            ExternItem::Function(attrs, name, _, params, return_type) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
                     format!("{prefix}::{name}")
                 };
+
+                // Extract js_name attribute if present
+                for attr in attrs {
+                    if attr.name == "js_name" {
+                        if let crate::parser::AttributeKind::NameValue { value } = &attr.kind {
+                            if let crate::parser::AttributeArgument::StringLiteral(js_name) = value {
+                                self.extern_functions.insert(full_name.clone(), js_name.clone());
+                            }
+                        }
+                    }
+                }
 
                 // Convert parameter types using our type resolution
                 let param_types: Vec<(String, Type)> = params
@@ -752,7 +792,7 @@ impl SemanticVisitor {
             ExternItem::Impl(type_name, items) => {
                 // Process impl block methods
                 for item in items {
-                    if let ExternItem::Function(_attrs, method_name, _, params, return_type) = item {
+                    if let ExternItem::Function(attrs, method_name, _, params, return_type) = item {
                         // For impl blocks inside extern mod, we need to include the module prefix
                         let full_type_name = if prefix.is_empty() {
                             type_name.clone()
@@ -760,6 +800,17 @@ impl SemanticVisitor {
                             format!("{prefix}::{type_name}")
                         };
                         let full_method_name = format!("{full_type_name}::{method_name}");
+
+                        // Extract js_name attribute if present
+                        for attr in attrs {
+                            if attr.name == "js_name" {
+                                if let crate::parser::AttributeKind::NameValue { value } = &attr.kind {
+                                    if let crate::parser::AttributeArgument::StringLiteral(js_name) = value {
+                                        self.extern_functions.insert(full_method_name.clone(), js_name.clone());
+                                    }
+                                }
+                            }
+                        }
 
                         // Convert parameter types, filtering out 'self'
                         let param_types: Vec<(String, Type)> = params

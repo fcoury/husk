@@ -148,6 +148,8 @@ pub fn transpile_to_js(code: impl Into<String>) -> Result<String> {
     let mut js_generator = JsTranspiler::new();
     // Pass type-only imports information to transpiler
     js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
+    // Pass extern functions mapping to transpiler
+    js_generator.set_extern_functions(analyzer.get_extern_functions().clone());
     js_generator.generate(&ast)
 }
 
@@ -173,6 +175,8 @@ pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> 
     };
     // Pass type-only imports information to transpiler
     js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
+    // Pass extern functions mapping to transpiler
+    js_generator.set_extern_functions(analyzer.get_extern_functions().clone());
     js_generator.generate(&ast)
 }
 
@@ -198,6 +202,8 @@ pub fn transpile_to_js_with_target(code: impl Into<String>, target: &str) -> Res
     };
     // Pass type-only imports information to transpiler
     js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
+    // Pass extern functions mapping to transpiler
+    js_generator.set_extern_functions(analyzer.get_extern_functions().clone());
     js_generator.transpile(&ast)
 }
 
@@ -255,6 +261,8 @@ pub fn transpile_to_js_with_entry_validation(
     };
     // Pass type-only imports information to transpiler
     js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
+    // Pass extern functions mapping to transpiler
+    js_generator.set_extern_functions(analyzer.get_extern_functions().clone());
     js_generator.transpile(&ast)
 }
 

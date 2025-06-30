@@ -40,6 +40,7 @@ pub struct JsTranspiler {
     module_format: ModuleFormat,
     target_info: Option<TargetInfo>,
     type_only_imports: HashMap<String, bool>, // Track which imports are type-only
+    extern_functions: HashMap<String, String>, // Maps function name to js_name
 }
 
 impl JsTranspiler {
@@ -51,6 +52,7 @@ impl JsTranspiler {
             module_format: ModuleFormat::ESModule, // Default to ESM
             target_info: None,
             type_only_imports: HashMap::new(),
+            extern_functions: HashMap::new(),
         }
     }
 
@@ -64,6 +66,7 @@ impl JsTranspiler {
             module_format,
             target_info: None,
             type_only_imports: HashMap::new(),
+            extern_functions: HashMap::new(),
         }
     }
 
@@ -80,6 +83,7 @@ impl JsTranspiler {
             module_format,
             target_info: None,
             type_only_imports: HashMap::new(),
+            extern_functions: HashMap::new(),
         })
     }
 
@@ -99,12 +103,18 @@ impl JsTranspiler {
             module_format,
             target_info: Some(target_info),
             type_only_imports: HashMap::new(),
+            extern_functions: HashMap::new(),
         })
     }
 
     /// Set type-only imports information from semantic analyzer
     pub fn set_type_only_imports(&mut self, type_only_imports: HashMap<String, bool>) {
         self.type_only_imports = type_only_imports;
+    }
+
+    /// Set extern functions mapping from semantic analyzer
+    pub fn set_extern_functions(&mut self, extern_functions: HashMap<String, String>) {
+        self.extern_functions = extern_functions;
     }
 
     /// Parse target string into TargetInfo
@@ -1262,8 +1272,24 @@ impl AstVisitor<String> for JsTranspiler {
                 ""
             };
 
-            // Handle method calls with dot notation
-            if name.contains('.') {
+            // Handle module function calls (e.g., fs::write_file_sync)
+            if name.contains("::") {
+                // Check if this extern function has a js_name mapping
+                let js_name = if let Some(mapped_name) = self.extern_functions.get(name) {
+                    // Use the js_name from the attribute
+                    let parts: Vec<&str> = name.split("::").collect();
+                    if parts.len() == 2 {
+                        format!("{}.{}", parts[0], mapped_name)
+                    } else {
+                        name.replace("::", ".")
+                    }
+                } else {
+                    // No js_name mapping, use default conversion
+                    name.replace("::", ".")
+                };
+                Ok(format!("{pure_hint}{js_name}({args_str})"))
+            } else if name.contains('.') {
+                // Handle method calls with dot notation
                 let (obj, method) = name.split_once('.').unwrap();
                 Ok(format!("{pure_hint}{obj}.{method}({args_str})"))
             } else {
@@ -1438,7 +1464,13 @@ impl AstVisitor<String> for JsTranspiler {
         // Default handling for other enums and unknown methods
         if args.is_empty() {
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
-                Ok(format!("{target_str}.{call}()"))
+                // Check if this is an extern function with js_name mapping
+                let full_name = format!("{}::{}", target_str, call);
+                if let Some(js_name) = self.extern_functions.get(&full_name) {
+                    Ok(format!("{target_str}.{js_name}()"))
+                } else {
+                    Ok(format!("{target_str}.{call}()"))
+                }
             } else {
                 Ok(format!("{target_str}.{call}"))
             }
@@ -1447,7 +1479,13 @@ impl AstVisitor<String> for JsTranspiler {
             // Check if it's a static method call (like Point::new) or enum variant
             // For now, we'll assume static methods don't need 'new' prefix
             if call == "new" || call.chars().next().unwrap().is_lowercase() {
-                Ok(format!("{target_str}.{call}({args_str})"))
+                // Check if this is an extern function with js_name mapping
+                let full_name = format!("{}::{}", target_str, call);
+                if let Some(js_name) = self.extern_functions.get(&full_name) {
+                    Ok(format!("{target_str}.{js_name}({args_str})"))
+                } else {
+                    Ok(format!("{target_str}.{call}({args_str})"))
+                }
             } else {
                 Ok(format!("new {target_str}.{call}({args_str})"))
             }
