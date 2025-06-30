@@ -2930,10 +2930,30 @@ impl JsTranspiler {
                     let imports = items
                         .iter()
                         .map(|(name, alias)| {
-                            if let Some(alias) = alias {
-                                format!("{name} as {alias}")
+                            // Check if this is an import from an extern module with js_name
+                            if path.prefix == UsePrefix::None && !path.segments.is_empty() {
+                                // This is an external module import - check for js_name mapping
+                                let module_name = &path.segments[0];
+                                let full_name = format!("{}::{}", module_name, name);
+                                // Check if this function has a js_name mapping
+                                if let Some(js_name) = self.extern_functions.get(&full_name) {
+                                    // Import the JavaScript name and alias it to the Husk name
+                                    format!("{js_name} as {name}")
+                                } else {
+                                    // No js_name mapping, import as-is
+                                    if let Some(alias) = alias {
+                                        format!("{name} as {alias}")
+                                    } else {
+                                        name.clone()
+                                    }
+                                }
                             } else {
-                                name.clone()
+                                // Local import, handle aliases normally
+                                if let Some(alias) = alias {
+                                    format!("{name} as {alias}")
+                                } else {
+                                    name.clone()
+                                }
                             }
                         })
                         .collect::<Vec<_>>()

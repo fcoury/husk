@@ -707,6 +707,11 @@ impl SemanticVisitor {
                 );
             }
         }
+
+        // Merge extern functions with js_name mappings
+        for (name, js_name) in &module_analyzer.extern_functions {
+            self.extern_functions.insert(name.clone(), js_name.clone());
+        }
     }
 
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
