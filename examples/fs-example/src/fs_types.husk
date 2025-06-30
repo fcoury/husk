@@ -1,19 +1,426 @@
-warning: method `has_extern_module` is never used
-   --> src/semantic.rs:126:8
-    |
-48  | impl SemanticVisitor {
-    | -------------------- method in this implementation
-...
-126 |     fn has_extern_module(&self, module_name: &str) -> bool {
-    |        ^^^^^^^^^^^^^^^^^
-    |
-    = note: `#[warn(dead_code)]` on by default
 
-warning: `husk-lang` (lib) generated 1 warning
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.36s
-     Running `target/debug/husk dts2extern 'node:fs'`
-error: unexpected argument 'node:fs' found
+extern mod fs {
+    type PathLike = any;
+    type PathOrFileDescriptor = any;
+    type TimeLike = any;
+    type NoParamCallback;
+    type BufferEncodingOption = any;
+    type ObjectEncodingOptions;
+    type EncodingOption = any;
+    type OpenMode = any;
+    type Mode = any;
+    type StatsBase;
+    type Stats;
+    type StatsFsBase;
+    type StatsFs;
+    type BigIntStatsFs;
+    type StatFsOptions;
+    type StatWatcher;
+    type FSWatcher;
+    type ReadStreamEvents = any;
+    type CustomEvents = any;
+    type WriteStreamEvents = any;
+    type StatSyncFn;
+    type RmDirOptions;
+    type RmOptions;
+    type MakeDirectoryOptions;
+    type WriteOptions;
+    type ReadPosition = any;
+    type ReadSyncOptions;
+    type ReadAsyncOptions;
+    type WriteFileOptions = any;
+    type WatchFileOptions;
+    type WatchOptions;
+    type WatchEventType = any;
+    type WatchListener;
+    type StatsListener;
+    type BigIntStatsListener;
+    type StreamOptions;
+    type FSImplementation;
+    type CreateReadStreamFSImplementation;
+    type CreateWriteStreamFSImplementation;
+    type ReadStreamOptions;
+    type WriteStreamOptions;
+    type WriteVResult;
+    type ReadVResult;
+    type OpenAsBlobOptions;
+    type OpenDirOptions;
+    type BigIntStats;
+    type BigIntOptions;
+    type StatOptions;
+    type StatSyncOptions;
+    type CopyOptionsBase;
+    type CopyOptions;
+    type CopySyncOptions;
+    type _GlobOptions;
+    type GlobOptions;
+    type GlobOptionsWithFileTypes;
+    type GlobOptionsWithoutFileTypes;
 
-Usage: husk [OPTIONS] [FILE] [COMMAND]
-
-For more information, try '--help'.
+    fn rename(oldPath: PathLike, newPath: PathLike, callback: NoParamCallback);
+    #[js_name = "renameSync"]
+    fn rename_sync(oldPath: PathLike, newPath: PathLike);
+    fn truncate(path: PathLike, len: any, callback: NoParamCallback);
+    fn truncate(path: PathLike, callback: NoParamCallback);
+    #[js_name = "truncateSync"]
+    fn truncate_sync(path: PathLike, len: i32);
+    #[js_name = "truncateSync"]
+    fn truncate_sync(path: PathLike);
+    fn ftruncate(fd: i32, len: any, callback: NoParamCallback);
+    fn ftruncate(fd: i32, callback: NoParamCallback);
+    #[js_name = "ftruncateSync"]
+    fn ftruncate_sync(fd: i32, len: i32);
+    #[js_name = "ftruncateSync"]
+    fn ftruncate_sync(fd: i32);
+    fn chown(path: PathLike, uid: i32, gid: i32, callback: NoParamCallback);
+    #[js_name = "chownSync"]
+    fn chown_sync(path: PathLike, uid: i32, gid: i32);
+    fn fchown(fd: i32, uid: i32, gid: i32, callback: NoParamCallback);
+    #[js_name = "fchownSync"]
+    fn fchown_sync(fd: i32, uid: i32, gid: i32);
+    fn lchown(path: PathLike, uid: i32, gid: i32, callback: NoParamCallback);
+    #[js_name = "lchownSync"]
+    fn lchown_sync(path: PathLike, uid: i32, gid: i32);
+    fn lutimes(path: PathLike, atime: TimeLike, mtime: TimeLike, callback: NoParamCallback);
+    #[js_name = "lutimesSync"]
+    fn lutimes_sync(path: PathLike, atime: TimeLike, mtime: TimeLike);
+    fn chmod(path: PathLike, mode: Mode, callback: NoParamCallback);
+    #[js_name = "chmodSync"]
+    fn chmod_sync(path: PathLike, mode: Mode);
+    fn fchmod(fd: i32, mode: Mode, callback: NoParamCallback);
+    #[js_name = "fchmodSync"]
+    fn fchmod_sync(fd: i32, mode: Mode);
+    fn lchmod(path: PathLike, mode: Mode, callback: NoParamCallback);
+    #[js_name = "lchmodSync"]
+    fn lchmod_sync(path: PathLike, mode: Mode);
+    fn stat(path: PathLike, callback: any);
+    fn stat(path: PathLike, options: any, callback: any);
+    fn stat(path: PathLike, options: any, callback: any);
+    fn stat(path: PathLike, options: any, callback: any);
+    #[js_name = "statSync"]
+    fn stat_sync(path: PathLike) -> Stats;
+    #[js_name = "statSync"]
+    fn stat_sync(path: PathLike, options: any) -> Stats;
+    #[js_name = "statSync"]
+    fn stat_sync(path: PathLike, options: any) -> BigIntStats;
+    #[js_name = "statSync"]
+    fn stat_sync(path: PathLike, options: StatOptions) -> any;
+    fn fstat(fd: i32, callback: any);
+    fn fstat(fd: i32, options: any, callback: any);
+    fn fstat(fd: i32, options: any, callback: any);
+    fn fstat(fd: i32, options: any, callback: any);
+    #[js_name = "fstatSync"]
+    fn fstat_sync(fd: i32, options: any) -> Stats;
+    #[js_name = "fstatSync"]
+    fn fstat_sync(fd: i32) -> Stats;
+    #[js_name = "fstatSync"]
+    fn fstat_sync(fd: i32, options: any) -> BigIntStats;
+    #[js_name = "fstatSync"]
+    fn fstat_sync(fd: i32, options: StatOptions) -> any;
+    #[js_name = "fstatSync"]
+    fn fstat_sync(fd: i32) -> any;
+    fn lstat(path: PathLike, callback: any);
+    fn lstat(path: PathLike, options: any, callback: any);
+    fn lstat(path: PathLike, options: any, callback: any);
+    fn lstat(path: PathLike, options: any, callback: any);
+    fn statfs(path: PathLike, callback: any);
+    fn statfs(path: PathLike, options: any, callback: any);
+    fn statfs(path: PathLike, options: any, callback: any);
+    fn statfs(path: PathLike, options: any, callback: any);
+    #[js_name = "statfsSync"]
+    fn statfs_sync(path: PathLike, options: any) -> StatsFs;
+    #[js_name = "statfsSync"]
+    fn statfs_sync(path: PathLike) -> StatsFs;
+    #[js_name = "statfsSync"]
+    fn statfs_sync(path: PathLike, options: any) -> BigIntStatsFs;
+    #[js_name = "statfsSync"]
+    fn statfs_sync(path: PathLike, options: StatFsOptions) -> any;
+    #[js_name = "statfsSync"]
+    fn statfs_sync(path: PathLike) -> any;
+    #[js_name = "lstatSync"]
+    fn lstat_sync(path: PathLike) -> Stats;
+    #[js_name = "lstatSync"]
+    fn lstat_sync(path: PathLike, options: any) -> Stats;
+    #[js_name = "lstatSync"]
+    fn lstat_sync(path: PathLike, options: any) -> BigIntStats;
+    #[js_name = "lstatSync"]
+    fn lstat_sync(path: PathLike, options: StatOptions) -> any;
+    fn link(existingPath: PathLike, newPath: PathLike, callback: NoParamCallback);
+    #[js_name = "linkSync"]
+    fn link_sync(existingPath: PathLike, newPath: PathLike);
+    fn symlink(target: PathLike, path: PathLike, type_: any, callback: NoParamCallback);
+    fn symlink(target: PathLike, path: PathLike, callback: NoParamCallback);
+    #[js_name = "symlinkSync"]
+    fn symlink_sync(target: PathLike, path: PathLike, type_: any);
+    #[js_name = "symlinkSync"]
+    fn symlink_sync(target: PathLike, path: PathLike);
+    fn readlink(path: PathLike, options: EncodingOption, callback: any);
+    fn readlink(path: PathLike, options: BufferEncodingOption, callback: any);
+    fn readlink(path: PathLike, options: EncodingOption, callback: any);
+    fn readlink(path: PathLike, callback: any);
+    #[js_name = "readlinkSync"]
+    fn readlink_sync(path: PathLike, options: EncodingOption) -> string;
+    #[js_name = "readlinkSync"]
+    fn readlink_sync(path: PathLike) -> string;
+    #[js_name = "readlinkSync"]
+    fn readlink_sync(path: PathLike, options: BufferEncodingOption) -> Buffer;
+    #[js_name = "readlinkSync"]
+    fn readlink_sync(path: PathLike, options: EncodingOption) -> any;
+    #[js_name = "readlinkSync"]
+    fn readlink_sync(path: PathLike) -> any;
+    fn realpath(path: PathLike, options: EncodingOption, callback: any);
+    fn realpath(path: PathLike, options: BufferEncodingOption, callback: any);
+    fn realpath(path: PathLike, options: EncodingOption, callback: any);
+    fn realpath(path: PathLike, callback: any);
+    #[js_name = "realpathSync"]
+    fn realpath_sync(path: PathLike, options: EncodingOption) -> string;
+    #[js_name = "realpathSync"]
+    fn realpath_sync(path: PathLike) -> string;
+    #[js_name = "realpathSync"]
+    fn realpath_sync(path: PathLike, options: BufferEncodingOption) -> Buffer;
+    #[js_name = "realpathSync"]
+    fn realpath_sync(path: PathLike, options: EncodingOption) -> any;
+    #[js_name = "realpathSync"]
+    fn realpath_sync(path: PathLike) -> any;
+    fn unlink(path: PathLike, callback: NoParamCallback);
+    #[js_name = "unlinkSync"]
+    fn unlink_sync(path: PathLike);
+    fn rmdir(path: PathLike, callback: NoParamCallback);
+    fn rmdir(path: PathLike, options: RmDirOptions, callback: NoParamCallback);
+    #[js_name = "rmdirSync"]
+    fn rmdir_sync(path: PathLike, options: RmDirOptions);
+    #[js_name = "rmdirSync"]
+    fn rmdir_sync(path: PathLike);
+    fn rm(path: PathLike, callback: NoParamCallback);
+    fn rm(path: PathLike, options: RmOptions, callback: NoParamCallback);
+    #[js_name = "rmSync"]
+    fn rm_sync(path: PathLike, options: RmOptions);
+    #[js_name = "rmSync"]
+    fn rm_sync(path: PathLike);
+    fn mkdir(path: PathLike, options: any, callback: any);
+    fn mkdir(path: PathLike, options: any, callback: NoParamCallback);
+    fn mkdir(path: PathLike, options: any, callback: any);
+    fn mkdir(path: PathLike, callback: NoParamCallback);
+    #[js_name = "mkdirSync"]
+    fn mkdir_sync(path: PathLike, options: any) -> any;
+    #[js_name = "mkdirSync"]
+    fn mkdir_sync(path: PathLike, options: any);
+    #[js_name = "mkdirSync"]
+    fn mkdir_sync(path: PathLike);
+    #[js_name = "mkdirSync"]
+    fn mkdir_sync(path: PathLike, options: any) -> any;
+    #[js_name = "mkdirSync"]
+    fn mkdir_sync(path: PathLike) -> any;
+    fn mkdtemp(prefix: string, options: EncodingOption, callback: any);
+    fn mkdtemp(prefix: string, options: any, callback: any);
+    fn mkdtemp(prefix: string, options: EncodingOption, callback: any);
+    fn mkdtemp(prefix: string, callback: any);
+    #[js_name = "mkdtempSync"]
+    fn mkdtemp_sync(prefix: string, options: EncodingOption) -> string;
+    #[js_name = "mkdtempSync"]
+    fn mkdtemp_sync(prefix: string) -> string;
+    #[js_name = "mkdtempSync"]
+    fn mkdtemp_sync(prefix: string, options: BufferEncodingOption) -> Buffer;
+    #[js_name = "mkdtempSync"]
+    fn mkdtemp_sync(prefix: string, options: EncodingOption) -> any;
+    #[js_name = "mkdtempSync"]
+    fn mkdtemp_sync(prefix: string) -> any;
+    fn readdir(path: PathLike, options: any, callback: any);
+    fn readdir(path: PathLike, options: any, callback: any);
+    fn readdir(path: PathLike, options: any, callback: any);
+    fn readdir(path: PathLike, callback: any);
+    fn readdir(path: PathLike, options: any, callback: any);
+    fn readdir(path: PathLike, options: any, callback: any);
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike, options: any) -> Vec<string>;
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike) -> Vec<string>;
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike, options: any) -> Vec<Buffer>;
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike, options: any) -> any;
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike) -> any;
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike, options: any) -> Vec<Dirent>;
+    #[js_name = "readdirSync"]
+    fn readdir_sync(path: PathLike, options: any) -> Vec<Dirent>;
+    fn close(fd: i32, callback: NoParamCallback);
+    fn close(fd: i32);
+    #[js_name = "closeSync"]
+    fn close_sync(fd: i32);
+    fn open(path: PathLike, flags: any, mode: any, callback: any);
+    fn open(path: PathLike, flags: any, callback: any);
+    fn open(path: PathLike, callback: any);
+    #[js_name = "openSync"]
+    fn open_sync(path: PathLike, flags: OpenMode, mode: any) -> i32;
+    #[js_name = "openSync"]
+    fn open_sync(path: PathLike, flags: OpenMode) -> i32;
+    fn utimes(path: PathLike, atime: TimeLike, mtime: TimeLike, callback: NoParamCallback);
+    #[js_name = "utimesSync"]
+    fn utimes_sync(path: PathLike, atime: TimeLike, mtime: TimeLike);
+    fn futimes(fd: i32, atime: TimeLike, mtime: TimeLike, callback: NoParamCallback);
+    #[js_name = "futimesSync"]
+    fn futimes_sync(fd: i32, atime: TimeLike, mtime: TimeLike);
+    fn fsync(fd: i32, callback: NoParamCallback);
+    #[js_name = "fsyncSync"]
+    fn fsync_sync(fd: i32);
+    fn write(fd: i32, buffer: TBuffer, offset: any, length: any, position: any, callback: any);
+    fn write(fd: i32, buffer: TBuffer, offset: any, length: any, callback: any);
+    fn write(fd: i32, buffer: TBuffer, offset: any, callback: any);
+    fn write(fd: i32, buffer: TBuffer, callback: any);
+    fn write(fd: i32, buffer: TBuffer, options: WriteOptions, callback: any);
+    fn write(fd: i32, string_: string, position: any, encoding: any, callback: any);
+    fn write(fd: i32, string_: string, position: any, callback: any);
+    fn write(fd: i32, string_: string, callback: any);
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, buffer: NodeJS::ArrayBufferView, offset: any, length: any, position: any) -> i32;
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, buffer: NodeJS::ArrayBufferView) -> i32;
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, buffer: NodeJS::ArrayBufferView, offset: any) -> i32;
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, buffer: NodeJS::ArrayBufferView, offset: any, length: any) -> i32;
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, string_: string, position: any, encoding: any) -> i32;
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, string_: string) -> i32;
+    #[js_name = "writeSync"]
+    fn write_sync(fd: i32, string_: string, position: any) -> i32;
+    fn read(fd: i32, buffer: TBuffer, offset: i32, length: i32, position: any, callback: any);
+    fn read(fd: i32, options: ReadAsyncOptions, callback: any);
+    fn read(fd: i32, buffer: TBuffer, options: ReadSyncOptions, callback: any);
+    fn read(fd: i32, buffer: TBuffer, callback: any);
+    fn read(fd: i32, callback: any);
+    #[js_name = "readSync"]
+    fn read_sync(fd: i32, buffer: NodeJS::ArrayBufferView, offset: i32, length: i32, position: any) -> i32;
+    #[js_name = "readSync"]
+    fn read_sync(fd: i32, buffer: NodeJS::ArrayBufferView, opts: ReadSyncOptions) -> i32;
+    #[js_name = "readSync"]
+    fn read_sync(fd: i32, buffer: NodeJS::ArrayBufferView) -> i32;
+    #[js_name = "readFile"]
+    fn read_file(path: PathOrFileDescriptor, options: any, callback: any);
+    #[js_name = "readFile"]
+    fn read_file(path: PathOrFileDescriptor, options: any, callback: any);
+    #[js_name = "readFile"]
+    fn read_file(path: PathOrFileDescriptor, options: any, callback: any);
+    #[js_name = "readFile"]
+    fn read_file(path: PathOrFileDescriptor, callback: any);
+    #[js_name = "readFileSync"]
+    fn read_file_sync(path: PathOrFileDescriptor, options: any) -> NonSharedBuffer;
+    #[js_name = "readFileSync"]
+    fn read_file_sync(path: PathOrFileDescriptor) -> NonSharedBuffer;
+    #[js_name = "readFileSync"]
+    fn read_file_sync(path: PathOrFileDescriptor, options: any) -> string;
+    #[js_name = "readFileSync"]
+    fn read_file_sync(path: PathOrFileDescriptor, options: any) -> any;
+    #[js_name = "readFileSync"]
+    fn read_file_sync(path: PathOrFileDescriptor) -> any;
+    #[js_name = "writeFile"]
+    fn write_file(file: PathOrFileDescriptor, data: any, options: WriteFileOptions, callback: NoParamCallback);
+    #[js_name = "writeFile"]
+    fn write_file(path: PathOrFileDescriptor, data: any, callback: NoParamCallback);
+    #[js_name = "writeFileSync"]
+    fn write_file_sync(file: PathOrFileDescriptor, data: any, options: WriteFileOptions);
+    #[js_name = "writeFileSync"]
+    fn write_file_sync(file: PathOrFileDescriptor, data: any);
+    #[js_name = "appendFile"]
+    fn append_file(path: PathOrFileDescriptor, data: any, options: WriteFileOptions, callback: NoParamCallback);
+    #[js_name = "appendFile"]
+    fn append_file(file: PathOrFileDescriptor, data: any, callback: NoParamCallback);
+    #[js_name = "appendFileSync"]
+    fn append_file_sync(path: PathOrFileDescriptor, data: any, options: WriteFileOptions);
+    #[js_name = "appendFileSync"]
+    fn append_file_sync(path: PathOrFileDescriptor, data: any);
+    #[js_name = "watchFile"]
+    fn watch_file(filename: PathLike, options: any, listener: StatsListener) -> StatWatcher;
+    #[js_name = "watchFile"]
+    fn watch_file(filename: PathLike, options: any, listener: BigIntStatsListener) -> StatWatcher;
+    #[js_name = "watchFile"]
+    fn watch_file(filename: PathLike, listener: StatsListener) -> StatWatcher;
+    #[js_name = "unwatchFile"]
+    fn unwatch_file(filename: PathLike, listener: StatsListener);
+    #[js_name = "unwatchFile"]
+    fn unwatch_file(filename: PathLike);
+    #[js_name = "unwatchFile"]
+    fn unwatch_file(filename: PathLike, listener: BigIntStatsListener);
+    #[js_name = "unwatchFile"]
+    fn unwatch_file(filename: PathLike);
+    fn watch(filename: PathLike, options: any, listener: WatchListener) -> FSWatcher;
+    fn watch(filename: PathLike, options: any) -> FSWatcher;
+    fn watch(filename: PathLike, options: any, listener: WatchListener) -> FSWatcher;
+    fn watch(filename: PathLike) -> FSWatcher;
+    fn watch(filename: PathLike, options: any) -> FSWatcher;
+    fn watch(filename: PathLike, options: any, listener: WatchListener) -> FSWatcher;
+    fn watch(filename: PathLike, options: any) -> FSWatcher;
+    fn watch(filename: PathLike, listener: WatchListener) -> FSWatcher;
+    fn watch(filename: PathLike) -> FSWatcher;
+    fn exists(path: PathLike, callback: any);
+    #[js_name = "existsSync"]
+    fn exists_sync(path: PathLike) -> bool;
+    fn access(path: PathLike, mode: any, callback: NoParamCallback);
+    fn access(path: PathLike, callback: NoParamCallback);
+    #[js_name = "accessSync"]
+    fn access_sync(path: PathLike, mode: i32);
+    #[js_name = "accessSync"]
+    fn access_sync(path: PathLike);
+    #[js_name = "createReadStream"]
+    fn create_read_stream(path: PathLike, options: any) -> ReadStream;
+    #[js_name = "createReadStream"]
+    fn create_read_stream(path: PathLike) -> ReadStream;
+    #[js_name = "createWriteStream"]
+    fn create_write_stream(path: PathLike, options: any) -> WriteStream;
+    #[js_name = "createWriteStream"]
+    fn create_write_stream(path: PathLike) -> WriteStream;
+    fn fdatasync(fd: i32, callback: NoParamCallback);
+    #[js_name = "fdatasyncSync"]
+    fn fdatasync_sync(fd: i32);
+    #[js_name = "copyFile"]
+    fn copy_file(src: PathLike, dest: PathLike, callback: NoParamCallback);
+    #[js_name = "copyFile"]
+    fn copy_file(src: PathLike, dest: PathLike, mode: i32, callback: NoParamCallback);
+    #[js_name = "copyFileSync"]
+    fn copy_file_sync(src: PathLike, dest: PathLike, mode: i32);
+    #[js_name = "copyFileSync"]
+    fn copy_file_sync(src: PathLike, dest: PathLike);
+    fn writev(fd: i32, buffers: any, cb: any);
+    fn writev(fd: i32, buffers: any, position: any, cb: any);
+    #[js_name = "writevSync"]
+    fn writev_sync(fd: i32, buffers: any, position: i32) -> i32;
+    #[js_name = "writevSync"]
+    fn writev_sync(fd: i32, buffers: any) -> i32;
+    fn readv(fd: i32, buffers: any, cb: any);
+    fn readv(fd: i32, buffers: any, position: any, cb: any);
+    #[js_name = "readvSync"]
+    fn readv_sync(fd: i32, buffers: any, position: i32) -> i32;
+    #[js_name = "readvSync"]
+    fn readv_sync(fd: i32, buffers: any) -> i32;
+    #[js_name = "openAsBlob"]
+    fn open_as_blob(path: PathLike, options: OpenAsBlobOptions) -> Promise;
+    #[js_name = "openAsBlob"]
+    fn open_as_blob(path: PathLike) -> Promise;
+    #[js_name = "opendirSync"]
+    fn opendir_sync(path: PathLike, options: OpenDirOptions) -> Dir;
+    #[js_name = "opendirSync"]
+    fn opendir_sync(path: PathLike) -> Dir;
+    fn opendir(path: PathLike, cb: any);
+    fn opendir(path: PathLike, options: OpenDirOptions, cb: any);
+    fn cp(source: any, destination: any, callback: any);
+    fn cp(source: any, destination: any, opts: CopyOptions, callback: any);
+    #[js_name = "cpSync"]
+    fn cp_sync(source: any, destination: any, opts: CopySyncOptions);
+    #[js_name = "cpSync"]
+    fn cp_sync(source: any, destination: any);
+    fn glob(pattern: any, callback: any);
+    fn glob(pattern: any, options: GlobOptionsWithFileTypes, callback: any);
+    fn glob(pattern: any, options: GlobOptionsWithoutFileTypes, callback: any);
+    fn glob(pattern: any, options: GlobOptions, callback: any);
+    #[js_name = "globSync"]
+    fn glob_sync(pattern: any) -> Vec<string>;
+    #[js_name = "globSync"]
+    fn glob_sync(pattern: any, options: GlobOptionsWithFileTypes) -> Vec<Dirent>;
+    #[js_name = "globSync"]
+    fn glob_sync(pattern: any, options: GlobOptionsWithoutFileTypes) -> Vec<string>;
+    #[js_name = "globSync"]
+    fn glob_sync(pattern: any, options: GlobOptions) -> any;
+}
