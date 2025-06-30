@@ -15,6 +15,49 @@ fn is_reserved_keyword(name: &str) -> bool {
     )
 }
 
+// Convert camelCase to snake_case
+fn camel_to_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    let mut chars = name.chars().peekable();
+    let mut prev_was_uppercase = false;
+    
+    while let Some(ch) = chars.next() {
+        if ch.is_uppercase() {
+            // Don't add underscore at the start
+            if !result.is_empty() {
+                // Don't add underscore if previous was already uppercase (handle acronyms)
+                if !prev_was_uppercase {
+                    result.push('_');
+                } else if let Some(&next_ch) = chars.peek() {
+                    // Add underscore if next char is lowercase (end of acronym)
+                    if next_ch.is_lowercase() {
+                        result.push('_');
+                    }
+                }
+            }
+            result.push(ch.to_lowercase().next().unwrap());
+            prev_was_uppercase = true;
+        } else {
+            result.push(ch);
+            prev_was_uppercase = false;
+        }
+    }
+    
+    result
+}
+
+// Generate Husk-compatible function name and determine if js_name attribute is needed
+fn husk_function_name(js_name: &str) -> (String, Option<String>) {
+    let snake_case_name = camel_to_snake_case(js_name);
+    
+    // If the name is different after conversion, we need js_name attribute
+    if snake_case_name != js_name {
+        (snake_case_name, Some(js_name.to_string()))
+    } else {
+        (js_name.to_string(), None)
+    }
+}
+
 // Ensure parameter name is not a reserved keyword
 fn sanitize_param_name(name: String) -> String {
     if is_reserved_keyword(&name) {
@@ -65,6 +108,7 @@ pub struct HuskNamespaceVar {
 #[derive(Debug)]
 pub struct HuskExternFunction {
     pub name: String,
+    pub js_name: Option<String>, // The original JavaScript name if different from Husk name
     pub params: Vec<(String, HuskType)>,
     pub return_type: Option<HuskType>,
 }
@@ -322,15 +366,16 @@ fn process_decl(
         }
         Decl::Fn(fn_decl) => {
             eprintln!("[DEBUG] Found Function: name={}", fn_decl.ident.sym);
-            if let Some(func) = process_function_decl(fn_decl) {
-                husk_module.functions.push(func);
-            }
+            let func_overloads = process_function_decl(fn_decl);
+            husk_module.functions.extend(func_overloads);
         }
         Decl::Class(class) => {
             eprintln!("[DEBUG] Found Class: name={}", class.ident.sym);
         }
         Decl::Var(var) => {
             eprintln!("[DEBUG] Found Var declaration: kind={:?}", var.kind);
+            // Process export const declarations that have function types
+            process_var_decl(var, husk_module)?;
         }
         Decl::TsEnum(ts_enum) => {
             eprintln!("[DEBUG] Found TsEnum: name={}", ts_enum.id.sym);
@@ -410,9 +455,8 @@ fn process_namespace_decl(
     match decl {
         Decl::Fn(fn_decl) => {
             eprintln!("[DEBUG] Found function in namespace: {}", fn_decl.ident.sym);
-            if let Some(func) = process_function_decl(fn_decl) {
-                namespace.functions.push(func);
-            }
+            let func_overloads = process_function_decl(fn_decl);
+            namespace.functions.extend(func_overloads);
         }
         Decl::Var(var) => {
             eprintln!("[DEBUG] Processing var declaration in namespace");
@@ -425,6 +469,26 @@ fn process_namespace_decl(
                         HuskType::Any
                     };
                     eprintln!("[DEBUG] Found var in namespace: {} : {:?}", var_name, var_type);
+                    
+                    // Check if this variable has a function type annotation
+                    if let Some(type_ann) = &ident.type_ann {
+                        // Check if the type is a TypeScript type reference (like StatSyncFn)
+                        if let TsType::TsTypeRef(type_ref) = type_ann.type_ann.as_ref() {
+                            if let TsEntityName::Ident(type_ident) = &type_ref.type_name {
+                                let type_name = type_ident.sym.to_string();
+                                eprintln!("[DEBUG] Variable {} has type reference: {}", var_name, type_name);
+                                
+                                // For known function types like StatSyncFn, generate function signatures
+                                if let Some(func_overloads) = process_function_type_reference(&var_name, &type_name) {
+                                    eprintln!("[DEBUG] Generated {} overloads for {} in namespace", func_overloads.len(), var_name);
+                                    namespace.functions.extend(func_overloads);
+                                    continue; // Skip adding as regular variable
+                                }
+                            }
+                        }
+                    }
+                    
+                    // If not a function type, add as regular variable
                     namespace.variables.push(HuskNamespaceVar {
                         name: var_name,
                         var_type,
@@ -586,9 +650,95 @@ fn process_property_as_getter(prop: &TsPropertySignature) -> Option<HuskExternMe
     })
 }
 
-fn process_function_decl(fn_decl: &FnDecl) -> Option<HuskExternFunction> {
-    let name = fn_decl.ident.sym.to_string();
-    let mut params = Vec::new();
+fn process_var_decl(
+    var: &VarDecl,
+    husk_module: &mut HuskExternModule,
+) -> Result<()> {
+    for decl in &var.decls {
+        if let Pat::Ident(ident) = &decl.name {
+            let var_name = ident.id.sym.to_string();
+            eprintln!("[DEBUG] Processing var: {}", var_name);
+            
+            // Check if this variable has a function type annotation
+            if let Some(type_ann) = &ident.type_ann {
+                eprintln!("[DEBUG] Variable {} has type annotation", var_name);
+                
+                // Check if the type is a TypeScript type reference (like StatSyncFn)
+                if let TsType::TsTypeRef(type_ref) = type_ann.type_ann.as_ref() {
+                    if let TsEntityName::Ident(type_ident) = &type_ref.type_name {
+                        let type_name = type_ident.sym.to_string();
+                        eprintln!("[DEBUG] Variable {} has type reference: {}", var_name, type_name);
+                        
+                        // For known function types like StatSyncFn, generate function signatures
+                        if let Some(func_overloads) = process_function_type_reference(&var_name, &type_name) {
+                            eprintln!("[DEBUG] Generated {} overloads for {}", func_overloads.len(), var_name);
+                            husk_module.functions.extend(func_overloads);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn process_function_type_reference(var_name: &str, type_name: &str) -> Option<Vec<HuskExternFunction>> {
+    match type_name {
+        "StatSyncFn" => {
+            eprintln!("[DEBUG] Processing StatSyncFn for variable: {}", var_name);
+            
+            // Use husk_function_name to get the proper name and js_name attribute
+            let (husk_name, js_name) = husk_function_name(var_name);
+            
+            // Generate the function overloads for StatSyncFn based on the interface
+            Some(vec![
+                HuskExternFunction {
+                    name: husk_name.clone(),
+                    js_name: js_name.clone(),
+                    params: vec![("path".to_string(), HuskType::Custom("PathLike".to_string()))],
+                    return_type: Some(HuskType::Custom("Stats".to_string())),
+                },
+                HuskExternFunction {
+                    name: husk_name.clone(),
+                    js_name: js_name.clone(),
+                    params: vec![
+                        ("path".to_string(), HuskType::Custom("PathLike".to_string())),
+                        ("options".to_string(), HuskType::Any),
+                    ],
+                    return_type: Some(HuskType::Custom("Stats".to_string())),
+                },
+                HuskExternFunction {
+                    name: husk_name.clone(),
+                    js_name: js_name.clone(),
+                    params: vec![
+                        ("path".to_string(), HuskType::Custom("PathLike".to_string())),
+                        ("options".to_string(), HuskType::Any),
+                    ],
+                    return_type: Some(HuskType::Custom("BigIntStats".to_string())),
+                },
+                HuskExternFunction {
+                    name: husk_name.clone(),
+                    js_name: js_name.clone(),
+                    params: vec![
+                        ("path".to_string(), HuskType::Custom("PathLike".to_string())),
+                        ("options".to_string(), HuskType::Custom("StatOptions".to_string())),
+                    ],
+                    return_type: Some(HuskType::Any),
+                },
+            ])
+        }
+        _ => {
+            eprintln!("[DEBUG] Unknown function type reference: {}", type_name);
+            None
+        }
+    }
+}
+
+fn process_function_decl(fn_decl: &FnDecl) -> Vec<HuskExternFunction> {
+    let original_name = fn_decl.ident.sym.to_string();
+    let (name, js_name) = husk_function_name(&original_name);
+    let mut required_params = Vec::new();
+    let mut optional_params = Vec::new();
 
     for param in &fn_decl.function.params {
         if let Pat::Ident(ident) = &param.pat {
@@ -598,18 +748,50 @@ fn process_function_decl(fn_decl: &FnDecl) -> Option<HuskExternFunction> {
             } else {
                 HuskType::Any
             };
-            params.push((param_name, param_type));
+            
+            // Check if this parameter is optional
+            // In SWC, optional parameters are indicated by the `optional` field
+            if ident.optional {
+                optional_params.push((param_name, param_type));
+            } else {
+                required_params.push((param_name, param_type));
+            }
         }
     }
 
     let return_type = fn_decl.function.return_type.as_ref()
         .map(|ann| convert_ts_type(&ann.type_ann));
 
-    Some(HuskExternFunction {
-        name,
-        params,
-        return_type,
-    })
+    // Generate multiple overloads for optional parameters
+    let mut overloads = Vec::new();
+    
+    // Always include the full signature with all parameters
+    let mut all_params = required_params.clone();
+    all_params.extend(optional_params.clone());
+    overloads.push(HuskExternFunction {
+        name: name.clone(),
+        js_name: js_name.clone(),
+        params: all_params,
+        return_type: return_type.clone(),
+    });
+    
+    // Generate overloads by progressively removing optional parameters from the end
+    if !optional_params.is_empty() {
+        for i in 0..optional_params.len() {
+            let mut params_subset = required_params.clone();
+            // Add only the first i optional parameters
+            params_subset.extend(optional_params[..i].iter().cloned());
+            
+            overloads.push(HuskExternFunction {
+                name: name.clone(),
+                js_name: js_name.clone(),
+                params: params_subset,
+                return_type: return_type.clone(),
+            });
+        }
+    }
+    
+    overloads
 }
 
 fn extract_expr_type_name(expr: &Expr) -> String {
@@ -661,6 +843,11 @@ impl HuskExternModule {
 
         // Output top-level functions
         for func in &self.functions {
+            // Add js_name attribute if the JavaScript name differs from the Husk name
+            if let Some(js_name) = &func.js_name {
+                output.push_str(&format!("#[js_name = \"{}\"]\n", js_name));
+            }
+            
             output.push_str(&format!("extern fn {}(", func.name));
             
             let params: Vec<String> = func.params.iter()
@@ -764,6 +951,11 @@ impl HuskExternModule {
             
             // Namespace functions
             for func in &namespace.functions {
+                // Add js_name attribute if the JavaScript name differs from the Husk name
+                if let Some(js_name) = &func.js_name {
+                    output.push_str(&format!("    #[js_name = \"{}\"]\n", js_name));
+                }
+                
                 output.push_str("    fn ");
                 output.push_str(&func.name);
                 output.push('(');

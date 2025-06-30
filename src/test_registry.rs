@@ -47,8 +47,10 @@ impl TestFunction {
                 "should_panic" => {
                     self.should_panic = true;
                     // Check if there's an expected panic message
-                    if let Some(expected) = attr.args.first() {
-                        self.panic_message = Some(expected.clone());
+                    if let crate::parser::AttributeKind::CallStyle { args } = &attr.kind {
+                        if let Some(crate::parser::AttributeArgument::Identifier(expected)) = args.first() {
+                            self.panic_message = Some(expected.clone());
+                        }
                     }
                 }
                 _ => {} // Other attributes like #[test] are already handled
@@ -81,8 +83,18 @@ impl TestRegistry {
 
         // Check if this is a test module
         for attr in attributes {
-            if attr.name == "cfg" && attr.args.contains(&"test".to_string()) {
-                self.in_test_module = true;
+            if attr.name == "cfg" {
+                if let crate::parser::AttributeKind::CallStyle { args } = &attr.kind {
+                    if args.iter().any(|arg| {
+                        if let crate::parser::AttributeArgument::Identifier(name) = arg {
+                            name == "test"
+                        } else {
+                            false
+                        }
+                    }) {
+                        self.in_test_module = true;
+                    }
+                }
             }
         }
     }

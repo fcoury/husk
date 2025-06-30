@@ -8,88 +8,88 @@ use fs::{
 };
 
 fn main() {
-    println("fs-example: Demonstrating Node.js fs module usage in Husk");
-    println("=========================================================\n");
+    println!("fs-example: Demonstrating Node.js fs module usage in Husk");
+    println!("=========================================================");
     
     // Example 1: Check if a file exists
     let test_file = "test.txt";
-    println("1. Checking if {} exists...", test_file);
+    println!("1. Checking if {} exists...", test_file);
     if existsSync(test_file) {
-        println("   ✓ File exists!");
+        println!("   ✓ File exists!");
         
         // Read the existing file
         let content = readFileSync(test_file, "utf8");
-        println("   Current content: {}", content);
+        println!("   Current content: {}", content);
     } else {
-        println("   ✗ File does not exist, creating it...");
+        println!("   ✗ File does not exist, creating it...");
         
         // Create the file with some content
         writeFileSync(test_file, "Hello from Husk!\nThis file was created using Node.js fs module.");
-        println("   ✓ File created!");
+        println!("   ✓ File created!");
     }
     
     // Example 2: Get file stats
-    println("\n2. Getting file stats for {}...", test_file);
+    println!("\n2. Getting file stats for {}...", test_file);
     let stats = statSync(test_file);
-    println("   ✓ Stats retrieved (object created)");
+    println!("   ✓ Stats retrieved (object created)");
     
     // Example 3: Create a directory
     let test_dir = "test-dir";
-    println("\n3. Creating directory: {}", test_dir);
+    println!("\n3. Creating directory: {}", test_dir);
     if !existsSync(test_dir) {
         mkdirSync(test_dir);
-        println("   ✓ Directory created!");
+        println!("   ✓ Directory created!");
     } else {
-        println("   → Directory already exists");
+        println!("   → Directory already exists");
     }
     
     // Example 4: Write a JSON file in the directory
     let json_file = format!("{}/data.json", test_dir);
-    println("\n4. Writing JSON file: {}", json_file);
+    println!("\n4. Writing JSON file: {}", json_file);
     let json_content = "{\n  \"message\": \"Hello from Husk\",\n  \"version\": \"1.0.0\"\n}";
     writeFileSync(json_file, json_content);
-    println("   ✓ JSON file written!");
+    println!("   ✓ JSON file written!");
     
     // Example 5: List directory contents
-    println("\n5. Listing contents of current directory...");
+    println!("\n5. Listing contents of current directory...");
     let files = readdirSync(".");
-    println("   ✓ Directory read successfully");
+    println!("   ✓ Directory read successfully");
     
     // Example 6: Read the JSON file back
-    println("\n6. Reading JSON file back...");
+    println!("\n6. Reading JSON file back...");
     let json_data = readFileSync(json_file, "utf8");
-    println("   Content:\n{}", json_data);
+    println!("   Content:\n{}", json_data);
     
     // Example 7: Rename a file
     let new_json_file = format!("{}/renamed-data.json", test_dir);
-    println("\n7. Renaming {} to {}...", json_file, new_json_file);
+    println!("\n7. Renaming {} to {}...", json_file, new_json_file);
     renameSync(json_file, new_json_file);
-    println("   ✓ File renamed!");
+    println!("   ✓ File renamed!");
     
     // Example 8: Copy a file
     let copied_file = format!("{}/copied-test.txt", test_dir);
-    println("\n8. Copying {} to {}...", test_file, copied_file);
+    println!("\n8. Copying {} to {}...", test_file, copied_file);
     copyFileSync(test_file, copied_file);
-    println("   ✓ File copied!");
+    println!("   ✓ File copied!");
     
     // Example 9: Check file access
-    println("\n9. Checking file access permissions...");
+    println!("\n9. Checking file access permissions...");
     // Note: fs.constants.F_OK is typically 0
     accessSync(test_file, 0); // Check if file exists and is visible
-    println("   ✓ File is accessible!");
+    println!("   ✓ File is accessible!");
     
     // Example 10: Clean up - remove test files
-    println("\n10. Cleaning up test files...");
+    println!("\n10. Cleaning up test files...");
     unlinkSync(new_json_file);
-    println("    ✓ Removed {}", new_json_file);
+    println!("    ✓ Removed {}", new_json_file);
     unlinkSync(copied_file);
-    println("    ✓ Removed {}", copied_file);
+    println!("    ✓ Removed {}", copied_file);
     rmdirSync(test_dir);
-    println("    ✓ Removed {}", test_dir);
+    println!("    ✓ Removed {}", test_dir);
     unlinkSync(test_file);
-    println("    ✓ Removed {}", test_file);
+    println!("    ✓ Removed {}", test_file);
     
-    println("\n✅ All examples completed successfully!");
-    println("This demonstrates that Husk can successfully use Node.js fs module");
-    println("with extern declarations generated from TypeScript definitions.");
+    println!("\n✅ All examples completed successfully!");
+    println!("This demonstrates that Husk can successfully use Node.js fs module");
+    println!("with extern declarations generated from TypeScript definitions.");
 }

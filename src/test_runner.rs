@@ -463,7 +463,20 @@ impl TestRunner {
                 Stmt::Module(attrs, name, body, _) => {
                     let is_test_module = attrs
                         .iter()
-                        .any(|a| a.name == "cfg" && a.args.contains(&"test".to_string()));
+                        .any(|a| {
+                            a.name == "cfg" && 
+                            if let crate::parser::AttributeKind::CallStyle { args } = &a.kind {
+                                args.iter().any(|arg| {
+                                    if let crate::parser::AttributeArgument::Identifier(name) = arg {
+                                        name == "test"
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                false
+                            }
+                        });
 
                     if is_test_module {
                         // Only process if we're running a test in this module

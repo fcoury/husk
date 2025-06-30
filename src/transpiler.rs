@@ -7,7 +7,7 @@ use crate::{
     parser::{Expr, ExternItem, Operator, Stmt, UnaryOp, UseItems, UsePath, UsePrefix},
     span::Span,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleFormat {
@@ -39,6 +39,7 @@ pub struct JsTranspiler {
     method_registry: TranspilerMethodRegistry,
     module_format: ModuleFormat,
     target_info: Option<TargetInfo>,
+    type_only_imports: HashMap<String, bool>, // Track which imports are type-only
 }
 
 impl JsTranspiler {
@@ -49,6 +50,7 @@ impl JsTranspiler {
             method_registry: TranspilerMethodRegistry::new(),
             module_format: ModuleFormat::ESModule, // Default to ESM
             target_info: None,
+            type_only_imports: HashMap::new(),
         }
     }
 
@@ -61,6 +63,7 @@ impl JsTranspiler {
             method_registry: TranspilerMethodRegistry::new(),
             module_format,
             target_info: None,
+            type_only_imports: HashMap::new(),
         }
     }
 
@@ -76,6 +79,7 @@ impl JsTranspiler {
             method_registry: TranspilerMethodRegistry::new(),
             module_format,
             target_info: None,
+            type_only_imports: HashMap::new(),
         })
     }
 
@@ -94,7 +98,13 @@ impl JsTranspiler {
             method_registry: TranspilerMethodRegistry::new(),
             module_format,
             target_info: Some(target_info),
+            type_only_imports: HashMap::new(),
         })
+    }
+
+    /// Set type-only imports information from semantic analyzer
+    pub fn set_type_only_imports(&mut self, type_only_imports: HashMap<String, bool>) {
+        self.type_only_imports = type_only_imports;
     }
 
     /// Parse target string into TargetInfo
@@ -940,7 +950,7 @@ impl AstVisitor<String> for JsTranspiler {
         match stmt {
             // Handle function statements with visibility
             Stmt::Function(
-                _attrs,
+                attrs,
                 is_pub,
                 name,
                 generic_params,
@@ -950,7 +960,7 @@ impl AstVisitor<String> for JsTranspiler {
                 span,
             ) => {
                 let function_code =
-                    self.visit_function(name, generic_params, params, return_type, body, span)?;
+                    self.visit_function(attrs, name, generic_params, params, return_type, body, span)?;
                 if *is_pub {
                     match self.module_format {
                         ModuleFormat::ESModule => Ok(format!("export {function_code}")),
@@ -965,7 +975,7 @@ impl AstVisitor<String> for JsTranspiler {
             }
             // Handle async function statements with visibility
             Stmt::AsyncFunction(
-                _attrs,
+                attrs,
                 is_pub,
                 name,
                 generic_params,
@@ -975,6 +985,7 @@ impl AstVisitor<String> for JsTranspiler {
                 span,
             ) => {
                 let function_code = self.visit_async_function(
+                    attrs,
                     name,
                     generic_params,
                     params,
@@ -1581,6 +1592,7 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_function(
         &mut self,
+        attrs: &[crate::parser::Attribute],
         name: &str,
         _generic_params: &[String],
         params: &[(String, String)],
@@ -1588,6 +1600,23 @@ impl AstVisitor<String> for JsTranspiler {
         body: &[Stmt],
         _span: &Span,
     ) -> Result<String> {
+        // Check for js_name attribute
+        let js_name = attrs
+            .iter()
+            .find(|attr| attr.name == "js_name")
+            .and_then(|attr| {
+                if let crate::parser::AttributeKind::NameValue { value } = &attr.kind {
+                    if let crate::parser::AttributeArgument::StringLiteral(s) = value {
+                        Some(s.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(name);
+
         let params_str = params
             .iter()
             .map(|(name, _)| name.clone())
@@ -1607,8 +1636,9 @@ impl AstVisitor<String> for JsTranspiler {
         };
 
         Ok(format!(
-            "{}function {name}({params_str}) {{\n{body_str}\n}}",
-            debug_prefix
+            "{}function {}({params_str}) {{\n{body_str}\n}}",
+            debug_prefix,
+            js_name
         ))
     }
 
@@ -1792,6 +1822,7 @@ impl AstVisitor<String> for JsTranspiler {
 
     fn visit_async_function(
         &mut self,
+        attrs: &[crate::parser::Attribute],
         name: &str,
         _generic_params: &[String],
         params: &[(String, String)],
@@ -1799,6 +1830,23 @@ impl AstVisitor<String> for JsTranspiler {
         body: &[Stmt],
         _span: &Span,
     ) -> Result<String> {
+        // Check for js_name attribute
+        let js_name = attrs
+            .iter()
+            .find(|attr| attr.name == "js_name")
+            .and_then(|attr| {
+                if let crate::parser::AttributeKind::NameValue { value } = &attr.kind {
+                    if let crate::parser::AttributeArgument::StringLiteral(s) = value {
+                        Some(s.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(name);
+
         let params_str = params
             .iter()
             .map(|(name, _)| name.clone())
@@ -1810,7 +1858,7 @@ impl AstVisitor<String> for JsTranspiler {
         Ok(format!(
             "{}async function {}({}) {{\n{}{}}}",
             self.indent(),
-            name,
+            js_name,
             params_str,
             body_str,
             self.indent()
@@ -1921,6 +1969,17 @@ impl AstVisitor<String> for JsTranspiler {
     }
 
     fn visit_use(&mut self, path: &UsePath, items: &UseItems, _span: &Span) -> Result<String> {
+        // Check if this is a type-only import for local modules
+        if matches!(path.prefix, UsePrefix::Self_ | UsePrefix::Local | UsePrefix::Super(_)) {
+            // For local imports, check if the target module is extern-only
+            if let Some(module_name) = path.segments.first() {
+                if *self.type_only_imports.get(module_name).unwrap_or(&false) {
+                    // This is a type-only import - skip transpilation
+                    return Ok(String::new());
+                }
+            }
+        }
+
         match &path.prefix {
             UsePrefix::None => {
                 // Check if it's a Node.js built-in module

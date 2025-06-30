@@ -2202,6 +2202,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_function(
         &mut self,
+        _attrs: &[crate::parser::Attribute],
         _name: &str,
         _generic_params: &[String],
         _params: &[(String, String)],
@@ -2609,6 +2610,7 @@ impl AstVisitor<Value> for InterpreterVisitor {
 
     fn visit_async_function(
         &mut self,
+        _attrs: &[crate::parser::Attribute],
         _name: &str,
         _generic_params: &[String],
         _params: &[(String, String)],

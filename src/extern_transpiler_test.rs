@@ -38,7 +38,7 @@ extern mod console {
 
                     // All methods should have self as first parameter
                     for method in methods {
-                        if let ExternItem::Function(_, _, params, _) = method {
+                        if let ExternItem::Function(_, _, _, params, _) = method {
                             assert!(!params.is_empty());
                             assert_eq!(params[0].0, "self");
                         }
@@ -83,20 +83,20 @@ extern mod fs {
                     assert_eq!(methods.len(), 3);
 
                     // Check each method's parameters
-                    if let ExternItem::Function(name, _, params, _) = &methods[0] {
+                    if let ExternItem::Function(_, name, _, params, _) = &methods[0] {
                         assert_eq!(name, "read");
                         assert_eq!(params.len(), 1);
                         assert_eq!(params[0].0, "self");
                     }
 
-                    if let ExternItem::Function(name, _, params, _) = &methods[1] {
+                    if let ExternItem::Function(_, name, _, params, _) = &methods[1] {
                         assert_eq!(name, "write");
                         assert_eq!(params.len(), 2);
                         assert_eq!(params[0].0, "self");
                         assert_eq!(params[1].0, "data");
                     }
 
-                    if let ExternItem::Function(name, _, params, _) = &methods[2] {
+                    if let ExternItem::Function(_, name, _, params, _) = &methods[2] {
                         assert_eq!(name, "metadata");
                         assert_eq!(params.len(), 1);
                         assert_eq!(params[0].0, "path");
@@ -144,7 +144,7 @@ extern mod express {
 
                         // All methods should have self as first parameter
                         for method in methods {
-                            if let ExternItem::Function(method_name, _, params, _) = method {
+                            if let ExternItem::Function(_, method_name, _, params, _) = method {
                                 assert!(
                                     !params.is_empty(),
                                     "Method {} has no parameters",
@@ -208,7 +208,7 @@ extern mod builder {
 
                         // All methods should have self and return appropriate type
                         for method in methods {
-                            if let ExternItem::Function(method_name, _, params, return_type) =
+                            if let ExternItem::Function(_, method_name, _, params, return_type) =
                                 method
                             {
                                 assert_eq!(params[0].0, "self");

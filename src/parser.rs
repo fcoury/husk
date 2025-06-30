@@ -8,23 +8,64 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AttributeArgument {
+    /// An identifier, e.g., `should_panic` in `#[test(should_panic)]`
+    Identifier(String),
+    /// A string literal, e.g., `"actualJsName"` in `#[js_name = "actualJsName"]`
+    StringLiteral(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AttributeKind {
+    /// A simple flag attribute with no arguments, e.g., `#[test]`
+    Flag,
+    /// A function-call style attribute, e.g., `#[test(should_panic)]`
+    CallStyle { args: Vec<AttributeArgument> },
+    /// A key-value pair attribute, e.g., `#[js_name = "actualJsName"]`
+    NameValue { value: AttributeArgument },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Attribute {
     pub name: String,
-    pub args: Vec<String>,
+    pub kind: AttributeKind,
     pub span: Span,
 }
 
 impl Attribute {
-    pub fn new(name: String, span: Span) -> Self {
+    pub fn flag(name: String, span: Span) -> Self {
         Attribute {
             name,
-            args: vec![],
+            kind: AttributeKind::Flag,
             span,
         }
     }
 
+    pub fn call_style(name: String, args: Vec<AttributeArgument>, span: Span) -> Self {
+        Attribute {
+            name,
+            kind: AttributeKind::CallStyle { args },
+            span,
+        }
+    }
+
+    pub fn name_value(name: String, value: AttributeArgument, span: Span) -> Self {
+        Attribute {
+            name,
+            kind: AttributeKind::NameValue { value },
+            span,
+        }
+    }
+    
+    // Compatibility method for old code
     pub fn with_args(name: String, args: Vec<String>, span: Span) -> Self {
-        Attribute { name, args, span }
+        Attribute {
+            name,
+            kind: AttributeKind::CallStyle {
+                args: args.into_iter().map(AttributeArgument::Identifier).collect(),
+            },
+            span,
+        }
     }
 }
 
@@ -562,7 +603,7 @@ pub enum EnumVariant {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ExternItem {
-    Function(String, Vec<String>, Vec<(String, String)>, String), // Added generic params
+    Function(Vec<Attribute>, String, Vec<String>, Vec<(String, String)>, String), // attrs, name, generic params, params, return type
     Type(String, Vec<String>, Option<String>), // name, generic params, optional type alias (e.g., "any")
     Mod(String, Vec<ExternItem>),
     Impl(String, Vec<ExternItem>),
@@ -678,52 +719,106 @@ impl Parser {
             };
             self.advance();
 
-            let mut args = Vec::new();
+            // Determine attribute kind based on next token
+            let attribute = if self.current_token().kind == TokenKind::Equals {
+                // Name-value attribute: #[name = "value"]
+                self.advance(); // consume =
 
-            // Check for attribute arguments
-            if self.current_token().kind == TokenKind::LParen {
+                // Parse the value
+                let value = match &self.current_token().kind {
+                    TokenKind::String(s) => {
+                        let val = AttributeArgument::StringLiteral(s.clone());
+                        self.advance();
+                        val
+                    }
+                    TokenKind::Identifier(id) => {
+                        let val = AttributeArgument::Identifier(id.clone());
+                        self.advance();
+                        val
+                    }
+                    _ => {
+                        return Err(Error::new_parse(
+                            "Expected string literal or identifier after '=' in attribute".to_string(),
+                            self.current_token().span,
+                        ))
+                    }
+                };
+
+                // Expect ]
+                if self.current_token().kind != TokenKind::RSquare {
+                    return Err(Error::new_parse(
+                        "Expected ']' to close attribute".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                let end_span = self.current_token().span;
+                self.advance(); // consume ]
+
+                let span = Span::new(start_span.start, end_span.end);
+                Attribute::name_value(name, value, span)
+            } else if self.current_token().kind == TokenKind::LParen {
+                // Call-style attribute: #[name(args)]
                 self.advance(); // consume (
 
+                let mut args = Vec::new();
                 // Parse arguments
                 while self.current_token().kind != TokenKind::RParen {
                     match &self.current_token().kind {
                         TokenKind::Identifier(arg) => {
-                            args.push(arg.clone());
+                            args.push(AttributeArgument::Identifier(arg.clone()));
                             self.advance();
-
-                            if self.current_token().kind == TokenKind::Comma {
-                                self.advance();
-                            } else if self.current_token().kind != TokenKind::RParen {
-                                return Err(Error::new_parse(
-                                    "Expected ',' or ')' in attribute arguments".to_string(),
-                                    self.current_token().span,
-                                ));
-                            }
+                        }
+                        TokenKind::String(s) => {
+                            args.push(AttributeArgument::StringLiteral(s.clone()));
+                            self.advance();
                         }
                         _ => {
                             return Err(Error::new_parse(
-                                "Expected identifier in attribute arguments".to_string(),
+                                "Expected identifier or string literal in attribute arguments".to_string(),
                                 self.current_token().span,
                             ))
                         }
                     }
+
+                    if self.current_token().kind == TokenKind::Comma {
+                        self.advance();
+                    } else if self.current_token().kind != TokenKind::RParen {
+                        return Err(Error::new_parse(
+                            "Expected ',' or ')' in attribute arguments".to_string(),
+                            self.current_token().span,
+                        ));
+                    }
                 }
 
                 self.advance(); // consume )
-            }
 
-            // Expect ]
-            if self.current_token().kind != TokenKind::RSquare {
+                // Expect ]
+                if self.current_token().kind != TokenKind::RSquare {
+                    return Err(Error::new_parse(
+                        "Expected ']' to close attribute".to_string(),
+                        self.current_token().span,
+                    ));
+                }
+                let end_span = self.current_token().span;
+                self.advance(); // consume ]
+
+                let span = Span::new(start_span.start, end_span.end);
+                Attribute::call_style(name, args, span)
+            } else if self.current_token().kind == TokenKind::RSquare {
+                // Flag attribute: #[name]
+                let end_span = self.current_token().span;
+                self.advance(); // consume ]
+
+                let span = Span::new(start_span.start, end_span.end);
+                Attribute::flag(name, span)
+            } else {
                 return Err(Error::new_parse(
-                    "Expected ']' to close attribute".to_string(),
+                    "Expected '=', '(', or ']' after attribute name".to_string(),
                     self.current_token().span,
                 ));
-            }
-            let end_span = self.current_token().span;
-            self.advance(); // consume ]
+            };
 
-            let span = Span::new(start_span.start, end_span.end);
-            attributes.push(Attribute::with_args(name, args, span));
+            attributes.push(attribute);
         }
 
         Ok(attributes)
@@ -1453,6 +1548,13 @@ impl Parser {
     }
 
     fn parse_extern_item(&mut self) -> Result<ExternItem> {
+        // Check for attributes first
+        let attrs = if self.current_token().kind == TokenKind::Hash {
+            self.parse_attributes()?
+        } else {
+            Vec::new()
+        };
+
         match &self.current_token().kind {
             TokenKind::Function => {
                 // fn name(params) -> return_type;
@@ -1486,6 +1588,7 @@ impl Parser {
                 self.expect_token(TokenKind::Semicolon)?;
 
                 Ok(ExternItem::Function(
+                    attrs,
                     name,
                     generic_params,
                     params,
@@ -5554,7 +5657,7 @@ mod tests {
 
                 // Check function declaration
                 match &declarations[1] {
-                    ExternItem::Function(fn_name, _, _, return_type) => {
+                    ExternItem::Function(_, fn_name, _, _, return_type) => {
                         assert_eq!(fn_name, "express");
                         assert_eq!(return_type, "Application");
                     }
@@ -5567,7 +5670,7 @@ mod tests {
                         assert_eq!(impl_type, "Application");
                         assert_eq!(methods.len(), 1);
                         match &methods[0] {
-                            ExternItem::Function(method_name, _, _, _) => {
+                            ExternItem::Function(_, method_name, _, _, _) => {
                                 assert_eq!(method_name, "listen");
                             }
                             _ => panic!("Expected method Function"),

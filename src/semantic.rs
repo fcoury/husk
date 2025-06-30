@@ -22,11 +22,13 @@ type EnumVariants = HashMap<String, Vec<Type>>;
 pub struct SemanticVisitor {
     type_env: TypeEnvironment,
     structs: HashMap<String, StructFields>,
-    functions: HashMap<String, FunctionSignature>,
+    functions: HashMap<String, Vec<FunctionSignature>>, // Changed to support overloading
     enums: HashMap<String, EnumVariants>,
     match_bound_vars: HashMap<String, Type>,
     loop_depth: u32,
     imported_names: HashMap<String, Type>,
+    imported_function_modules: HashMap<String, String>, // Maps imported function name to module
+    type_only_imports: HashMap<String, bool>, // Track which imports are type-only
     in_async_function: bool,
     package_resolver: Option<PackageResolver>,
     current_file: Option<PathBuf>,
@@ -53,6 +55,8 @@ impl SemanticVisitor {
             match_bound_vars: HashMap::new(),
             loop_depth: 0,
             imported_names: HashMap::new(),
+            imported_function_modules: HashMap::new(),
+            type_only_imports: HashMap::new(),
             in_async_function: false,
             package_resolver: None,
             current_file: None,
@@ -91,29 +95,33 @@ impl SemanticVisitor {
         self.project_root = Some(root);
     }
 
+    /// Get the list of type-only imports (for transpiler use)
+    pub fn get_type_only_imports(&self) -> &HashMap<String, bool> {
+        &self.type_only_imports
+    }
+
     /// Look up type information from extern declarations for an external import
     fn lookup_extern_function_type(&self, module_name: &str, function_name: &str) -> Option<Type> {
         // Check if we have an extern declaration for this module function
         let full_name = format!("{}::{}", module_name, function_name);
         
-        if let Some((params, return_type, _)) = self.functions.get(&full_name) {
-            // Convert the function signature to a Type::Function
-            let param_types: Vec<Type> = params.iter().map(|(_, t)| t.clone()).collect();
-            Some(Type::Function {
-                params: param_types,
-                return_type: Box::new(return_type.clone()),
-            })
+        if let Some(signatures) = self.functions.get(&full_name) {
+            // For now, return the first signature (we can improve this later)
+            if let Some((params, return_type, _)) = signatures.first() {
+                // Convert the function signature to a Type::Function
+                let param_types: Vec<Type> = params.iter().map(|(_, t)| t.clone()).collect();
+                Some(Type::Function {
+                    params: param_types,
+                    return_type: Box::new(return_type.clone()),
+                })
+            } else {
+                None
+            }
         } else {
             None
         }
     }
 
-    /// Check if we have any extern declarations for a module
-    fn has_extern_module(&self, module_name: &str) -> bool {
-        // Check if any function starts with "module_name::"
-        let prefix = format!("{}::", module_name);
-        self.functions.keys().any(|key| key.starts_with(&prefix))
-    }
 
     /// Resolves a type string to a Type, checking the type environment first
     /// This handles extern type aliases like PathLike = any
@@ -133,6 +141,28 @@ impl SemanticVisitor {
         
         // Fall back to Type::from_string for built-in types
         Type::from_string(type_str).unwrap_or(Type::Unknown)
+    }
+
+    /// Register a function, handling overloading by storing multiple signatures
+    fn register_function(&mut self, name: String, signature: FunctionSignature) {
+        self.functions
+            .entry(name)
+            .or_insert_with(Vec::new)
+            .push(signature);
+    }
+
+    /// Find a matching function signature from overloaded functions
+    fn find_matching_function(
+        &self,
+        name: &str,
+        arg_count: usize,
+    ) -> Option<&FunctionSignature> {
+        if let Some(signatures) = self.functions.get(name) {
+            // First try to find exact match by argument count
+            signatures.iter().find(|(params, _, _)| params.len() == arg_count)
+        } else {
+            None
+        }
     }
 
     /// Resolve the path for a local module
@@ -264,6 +294,9 @@ impl SemanticVisitor {
             )
         })?;
 
+        // Check if this module contains only extern declarations
+        let is_extern_only = self.is_extern_only_module(&stmts);
+
         // Create a new semantic analyzer for the module
         let mut module_analyzer = SemanticVisitor::with_context(
             Some(module_path.to_path_buf()),
@@ -278,7 +311,54 @@ impl SemanticVisitor {
         // Import the extracted types into our current analyzer
         self.merge_module_types(&module_analyzer);
 
+        // Store whether this module is extern-only (will be used later in visit_use)
+        if is_extern_only {
+            if let Some(file_name) = module_path.file_stem().and_then(|s| s.to_str()) {
+                self.type_only_imports.insert(file_name.to_string(), true);
+            }
+        }
+
         Ok(())
+    }
+
+    /// Check if a module contains only extern declarations (no runtime code)
+    fn is_extern_only_module(&self, stmts: &[Stmt]) -> bool {
+        for stmt in stmts {
+            match stmt {
+                // These are compile-time only constructs
+                Stmt::ExternMod(_, _, _) |
+                Stmt::ExternFunction(_, _, _, _, _) |
+                Stmt::ExternType(_, _, _, _) => {
+                    // Continue - these are type-only
+                }
+                // These generate runtime code
+                Stmt::Function(_, _, _, _, _, _, _, _) |
+                Stmt::AsyncFunction(_, _, _, _, _, _, _, _) |
+                Stmt::Let(_, _, _) |
+                Stmt::Expression(_, _) |
+                Stmt::ForLoop(_, _, _, _) |
+                Stmt::While(_, _, _) |
+                Stmt::Loop(_, _) |
+                Stmt::Break(_) |
+                Stmt::Continue(_) |
+                Stmt::Return(_, _) |
+                Stmt::Match(_, _, _) |
+                Stmt::Module(_, _, _, _) => {
+                    return false; // Contains runtime code
+                }
+                // Struct, Enum, and Impl can contain runtime code
+                Stmt::Struct(_, _, _, _) |
+                Stmt::Enum(_, _, _, _) |
+                Stmt::Impl(_, _, _) => {
+                    return false; // Contains runtime code
+                }
+                // Use statements are import/export only, don't affect extern-only status
+                Stmt::Use(_, _, _) => {
+                    // Continue - imports don't affect whether module is extern-only
+                }
+            }
+        }
+        true // All statements are extern-only
     }
 
     /// Analyze a single module item to extract type information
@@ -310,7 +390,7 @@ impl SemanticVisitor {
                     fields: params.clone(),
                 };
 
-                self.functions.insert(
+                self.register_function(
                     format!("{name}::new"),
                     (params, struct_type, Span::default()),
                 );
@@ -362,7 +442,9 @@ impl SemanticVisitor {
                     self.resolve_type_from_module(return_type)
                 };
                 self.functions
-                    .insert(name.clone(), (param_types, ret_type, Span::default()));
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push((param_types, ret_type, Span::default()));
             }
             Stmt::Impl(struct_name, methods, _span) => {
                 // Process methods in impl blocks
@@ -414,7 +496,9 @@ impl SemanticVisitor {
                         // Register as static method with struct name prefix
                         let full_method_name = format!("{struct_name}::{method_name}");
                         self.functions
-                            .insert(full_method_name, (param_types, ret_type, Span::default()));
+                            .entry(full_method_name)
+                            .or_insert_with(Vec::new)
+                            .push((param_types, ret_type, Span::default()));
                     }
                 }
             }
@@ -446,7 +530,9 @@ impl SemanticVisitor {
                     .collect();
                 let ret_type = self.resolve_type_string(return_type, "");
                 self.functions
-                    .insert(name.clone(), (param_types, ret_type, Span::default()));
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push((param_types, ret_type, Span::default()));
             }
             Stmt::ExternType(name, _generics, type_alias, _span) => {
                 // If a type alias is provided (e.g., type Foo = any), use it
@@ -467,7 +553,7 @@ impl SemanticVisitor {
     /// Process an extern item for module analysis
     fn process_extern_item_for_module(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
         match item {
-            ExternItem::Function(name, _generics, params, return_type) => {
+            ExternItem::Function(_attrs, name, _generics, params, return_type) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
@@ -488,7 +574,7 @@ impl SemanticVisitor {
                 let ret_type = self.resolve_type_string(return_type, prefix);
 
                 // Register extern function
-                self.functions.insert(
+                self.register_function(
                     full_name,
                     (param_types, ret_type, Span::default()),
                 );
@@ -520,7 +606,7 @@ impl SemanticVisitor {
             }
             ExternItem::Impl(type_name, items) => {
                 for item in items {
-                    if let ExternItem::Function(method_name, _generics, params, return_type) = item {
+                    if let ExternItem::Function(_attrs, method_name, _generics, params, return_type) = item {
                         let full_name = format!("{type_name}::{method_name}");
                         
                         let param_types: Vec<(String, Type)> = params
@@ -535,7 +621,7 @@ impl SemanticVisitor {
 
                         let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
                         
-                        self.functions.insert(
+                        self.register_function(
                             full_name,
                             (param_types, ret_type, Span::default()),
                         );
@@ -584,15 +670,19 @@ impl SemanticVisitor {
         }
 
         // Merge functions
-        for (name, (params, ret_type, span)) in &module_analyzer.functions {
-            self.functions
-                .insert(name.clone(), (params.clone(), ret_type.clone(), *span));
+        for (name, signatures) in &module_analyzer.functions {
+            for (params, ret_type, span) in signatures {
+                self.register_function(
+                    name.clone(),
+                    (params.clone(), ret_type.clone(), *span),
+                );
+            }
         }
     }
 
     fn process_extern_item(&mut self, item: &ExternItem, prefix: &str) -> Result<()> {
         match item {
-            ExternItem::Function(name, _, params, return_type) => {
+            ExternItem::Function(_attrs, name, _, params, return_type) => {
                 let full_name = if prefix.is_empty() {
                     name.clone()
                 } else {
@@ -613,7 +703,7 @@ impl SemanticVisitor {
                 let ret_type = self.resolve_type_string(return_type, prefix);
 
                 // Register extern function
-                self.functions.insert(
+                self.register_function(
                     full_name.clone(),
                     (param_types, ret_type.clone(), Span::default()),
                 );
@@ -662,7 +752,7 @@ impl SemanticVisitor {
             ExternItem::Impl(type_name, items) => {
                 // Process impl block methods
                 for item in items {
-                    if let ExternItem::Function(method_name, _, params, return_type) = item {
+                    if let ExternItem::Function(_attrs, method_name, _, params, return_type) = item {
                         // For impl blocks inside extern mod, we need to include the module prefix
                         let full_type_name = if prefix.is_empty() {
                             type_name.clone()
@@ -686,7 +776,7 @@ impl SemanticVisitor {
                         let ret_type = Type::from_string(return_type).unwrap_or(Type::Unknown);
 
                         // Register method
-                        self.functions.insert(
+                        self.register_function(
                             full_method_name.clone(),
                             (param_types, ret_type.clone(), Span::default()),
                         );
@@ -707,16 +797,16 @@ impl SemanticVisitor {
 
     fn init_standard_library(&mut self) {
         // print and println accept any number of arguments
-        self.functions.insert(
+        self.register_function(
             "print".to_string(),
             (vec![], Type::Unit, Span { start: 0, end: 0 }),
         );
-        self.functions.insert(
+        self.register_function(
             "println".to_string(),
             (vec![], Type::Unit, Span { start: 0, end: 0 }),
         );
         // format! is a special macro-like function that returns a string
-        self.functions.insert(
+        self.register_function(
             "format!".to_string(),
             (vec![], Type::String, Span { start: 0, end: 0 }),
         );
@@ -763,7 +853,7 @@ impl SemanticVisitor {
 
         // Register implicit variant constructors as functions
         // These return generic Result/Option types that will be inferred from context
-        self.functions.insert(
+        self.register_function(
             "Ok".to_string(),
             (
                 vec![("value".to_string(), Type::Unknown)],
@@ -775,7 +865,7 @@ impl SemanticVisitor {
             ),
         );
 
-        self.functions.insert(
+        self.register_function(
             "Err".to_string(),
             (
                 vec![("error".to_string(), Type::Unknown)],
@@ -787,7 +877,7 @@ impl SemanticVisitor {
             ),
         );
 
-        self.functions.insert(
+        self.register_function(
             "Some".to_string(),
             (
                 vec![("value".to_string(), Type::Unknown)],
@@ -799,7 +889,7 @@ impl SemanticVisitor {
             ),
         );
 
-        self.functions.insert(
+        self.register_function(
             "None".to_string(),
             (
                 vec![],
@@ -813,7 +903,7 @@ impl SemanticVisitor {
 
         // Register IO functions
         // File reading functions
-        self.functions.insert(
+        self.register_function(
             "read_file".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -824,7 +914,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "read_file_bytes".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -835,7 +925,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "read_lines".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -848,7 +938,7 @@ impl SemanticVisitor {
         );
 
         // File writing functions
-        self.functions.insert(
+        self.register_function(
             "write_file".to_string(),
             (
                 vec![
@@ -862,7 +952,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "write_file_bytes".to_string(),
             (
                 vec![
@@ -876,7 +966,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "append_file".to_string(),
             (
                 vec![
@@ -892,7 +982,7 @@ impl SemanticVisitor {
         );
 
         // Path checking functions
-        self.functions.insert(
+        self.register_function(
             "exists".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -900,7 +990,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "is_file".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -908,7 +998,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "is_dir".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -918,7 +1008,7 @@ impl SemanticVisitor {
         );
 
         // Directory operations
-        self.functions.insert(
+        self.register_function(
             "create_dir".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -929,7 +1019,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "create_dir_all".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -940,7 +1030,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "remove_dir".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -951,7 +1041,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "remove_dir_all".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -962,7 +1052,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "read_dir".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -975,7 +1065,7 @@ impl SemanticVisitor {
         );
 
         // Console IO functions
-        self.functions.insert(
+        self.register_function(
             "read_line".to_string(),
             (
                 vec![],
@@ -988,7 +1078,7 @@ impl SemanticVisitor {
         );
 
         // Async file operation functions
-        self.functions.insert(
+        self.register_function(
             "read_file_async".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -999,7 +1089,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "read_file_bytes_async".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -1010,7 +1100,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "read_lines_async".to_string(),
             (
                 vec![("path".to_string(), Type::String)],
@@ -1021,7 +1111,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "write_file_async".to_string(),
             (
                 vec![
@@ -1035,7 +1125,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "write_file_bytes_async".to_string(),
             (
                 vec![
@@ -1049,7 +1139,7 @@ impl SemanticVisitor {
                 Span::default(),
             ),
         );
-        self.functions.insert(
+        self.register_function(
             "append_file_async".to_string(),
             (
                 vec![
@@ -1172,7 +1262,9 @@ impl SemanticVisitor {
 
                     // Register function signature for forward declarations
                     self.functions
-                        .insert(name.to_string(), (param_types, ret_type, *span));
+                        .entry(name.to_string())
+                        .or_insert_with(Vec::new)
+                        .push((param_types, ret_type, *span));
                 }
                 Stmt::Impl(struct_name, methods, _span) => {
                     // Process methods in impl blocks
@@ -1225,7 +1317,9 @@ impl SemanticVisitor {
                             // Register as static method with struct name prefix
                             let full_method_name = format!("{struct_name}::{method_name}");
                             self.functions
-                                .insert(full_method_name, (param_types, ret_type, Span::default()));
+                                .entry(full_method_name)
+                            .or_insert_with(Vec::new)
+                            .push((param_types, ret_type, Span::default()));
                         }
                     }
                 }
@@ -1266,9 +1360,9 @@ impl SemanticVisitor {
     pub fn get_type_info(
         &self,
     ) -> (
-        HashMap<String, StructFields>,      // structs
-        HashMap<String, EnumVariants>,      // enums
-        HashMap<String, FunctionSignature>, // functions
+        HashMap<String, StructFields>,          // structs
+        HashMap<String, EnumVariants>,          // enums
+        HashMap<String, Vec<FunctionSignature>>, // functions (now supports overloading)
     ) {
         (
             self.structs.clone(),
@@ -1307,7 +1401,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // Register test function if it has the #[test] attribute
                 self.test_registry.register_test(name.clone(), *span, attrs);
                 // Continue with normal function processing
-                self.visit_function(name, generic_params, params, return_type, body, span)
+                self.visit_function(attrs, name, generic_params, params, return_type, body, span)
             }
             Stmt::AsyncFunction(
                 attrs,
@@ -1322,7 +1416,7 @@ impl AstVisitor<Type> for SemanticVisitor {
                 // Register async test function if it has the #[test] attribute
                 self.test_registry.register_test(name.clone(), *span, attrs);
                 // Continue with normal async function processing
-                self.visit_async_function(name, generic_params, params, return_type, body, span)
+                self.visit_async_function(attrs, name, generic_params, params, return_type, body, span)
             }
             Stmt::Module(attrs, name, body, span) => {
                 // Enter the module
@@ -1710,10 +1804,69 @@ impl AstVisitor<Type> for SemanticVisitor {
             (name.to_string(), args.to_vec(), false)
         };
 
+        // Special handling for print/println - they accept any arguments
+        if func_name == "print" || func_name == "println" {
+            for arg in &arg_exprs {
+                self.visit_expr(arg)?;
+            }
+            return Ok(Type::Unit);
+        }
+
+        // Special handling for format! - requires at least one string argument
+        if func_name == "format!" {
+            if arg_exprs.is_empty() {
+                return Err(Error::new_semantic(
+                    "format! requires at least one argument (the format string)".to_string(),
+                    *span,
+                ));
+            }
+
+            // First argument must be a string
+            let format_str_type = self.visit_expr(&arg_exprs[0])?;
+            if format_str_type != Type::String {
+                return Err(Error::new_semantic(
+                    format!("format! first argument must be a string, found {format_str_type}"),
+                    *span,
+                ));
+            }
+
+            // Count placeholders in format string (if it's a literal)
+            if let Expr::String(format_str, _) = &arg_exprs[0] {
+                let placeholder_count =
+                    format_str.matches("{}").count() - format_str.matches("{{}}").count();
+                let arg_count = arg_exprs.len() - 1;
+
+                if placeholder_count != arg_count {
+                    return Err(Error::new_semantic(
+                        format!("format! expects {placeholder_count} arguments after format string, but {arg_count} were provided"),
+                        *span,
+                    ));
+                }
+            }
+
+            // Type check remaining arguments
+            for arg in &arg_exprs[1..] {
+                self.visit_expr(arg)?;
+            }
+
+            return Ok(Type::String);
+        }
+
         // Check if it's a method call or regular function
-        let (param_types, return_type) =
-            if let Some((params, ret_type, _)) = self.functions.get(&func_name) {
+        let (param_types, return_type) = 
+            if let Some((params, ret_type, _)) = self.find_matching_function(&func_name, arg_exprs.len()) {
                 (params.clone(), ret_type.clone())
+            } else if let Some(module_name) = self.imported_function_modules.get(&func_name) {
+                // It's an imported function - look it up with module prefix
+                let full_name = format!("{}::{}", module_name, func_name);
+                if let Some((params, ret_type, _)) = self.find_matching_function(&full_name, arg_exprs.len()) {
+                    (params.clone(), ret_type.clone())
+                } else {
+                    return Err(Error::new_semantic(
+                        format!("Function '{func_name}' not found"),
+                        *span,
+                    ));
+                }
             } else if let Some(import_type) = self.imported_names.get(&func_name) {
                 // It's an imported name - check if we have type information
                 match import_type {
@@ -1767,54 +1920,6 @@ impl AstVisitor<Type> for SemanticVisitor {
                     *span,
                 ));
             };
-
-        // Special handling for print/println - they accept any arguments
-        if func_name == "print" || func_name == "println" {
-            for arg in &arg_exprs {
-                self.visit_expr(arg)?;
-            }
-            return Ok(Type::Unit);
-        }
-
-        // Special handling for format! - requires at least one string argument
-        if func_name == "format!" {
-            if arg_exprs.is_empty() {
-                return Err(Error::new_semantic(
-                    "format! requires at least one argument (the format string)".to_string(),
-                    *span,
-                ));
-            }
-
-            // First argument must be a string
-            let format_str_type = self.visit_expr(&arg_exprs[0])?;
-            if format_str_type != Type::String {
-                return Err(Error::new_semantic(
-                    format!("format! first argument must be a string, found {format_str_type}"),
-                    *span,
-                ));
-            }
-
-            // Count placeholders in format string (if it's a literal)
-            if let Expr::String(format_str, _) = &arg_exprs[0] {
-                let placeholder_count =
-                    format_str.matches("{}").count() - format_str.matches("{{}}").count();
-                let arg_count = arg_exprs.len() - 1;
-
-                if placeholder_count != arg_count {
-                    return Err(Error::new_semantic(
-                        format!("format! expects {placeholder_count} arguments after format string, but {arg_count} were provided"),
-                        *span,
-                    ));
-                }
-            }
-
-            // Type check remaining arguments
-            for arg in &arg_exprs[1..] {
-                self.visit_expr(arg)?;
-            }
-
-            return Ok(Type::String);
-        }
 
         // Check argument count
         if arg_exprs.len() != param_types.len() {
@@ -2113,7 +2218,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
             // Check if it's a method call
             let method_name = format!("{resolved_type_name}::{call}");
-            if let Some((param_types, return_type, _)) = self.functions.get(&method_name).cloned() {
+            if let Some((param_types, return_type, _)) = self.find_matching_function(&method_name, args.len()).cloned() {
                 // Check arguments
                 if args.len() != param_types.len() {
                     return Err(Error::new_semantic(
@@ -2179,6 +2284,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_function(
         &mut self,
+        _attrs: &[crate::parser::Attribute],
         name: &str,
         _generic_params: &[String],
         params: &[(String, String)],
@@ -2413,15 +2519,17 @@ impl AstVisitor<Type> for SemanticVisitor {
                 let method_name = format!("{struct_name}::{name}");
                 self.functions
                     .entry(method_name)
-                    .or_insert_with(|| (param_types.clone(), ret_type.clone(), *method_span));
+                    .or_insert_with(Vec::new)
+                    .push((param_types.clone(), ret_type.clone(), *method_span));
             }
         }
 
         // Second pass: analyze method bodies
         for method in methods {
-            if let Stmt::Function(_, _, name, _, params, return_type, body, method_span) = method {
+            if let Stmt::Function(attrs, _, name, _, params, return_type, body, method_span) = method {
                 // Now analyze the method body just like a regular function
                 self.visit_function(
+                    attrs,
                     &format!("{struct_name}::{name}"),
                     &[], // No generic params for now
                     params,
@@ -3147,7 +3255,9 @@ impl AstVisitor<Type> for SemanticVisitor {
 
         // Register extern function signature
         self.functions
-            .insert(name.to_string(), (param_types, ret_type.clone(), *_span));
+            .entry(name.to_string())
+            .or_insert_with(Vec::new)
+            .push((param_types, ret_type.clone(), *_span));
 
         // Also register as imported name
         self.imported_names.insert(
@@ -3191,6 +3301,7 @@ impl AstVisitor<Type> for SemanticVisitor {
 
     fn visit_async_function(
         &mut self,
+        _attrs: &[crate::parser::Attribute],
         name: &str,
         _generic_params: &[String],
         params: &[(String, String)],
@@ -3218,7 +3329,7 @@ impl AstVisitor<Type> for SemanticVisitor {
         let async_return_type = Type::Promise(Box::new(inner_return_type.clone()));
 
         // Store function signature with Promise return type
-        self.functions.insert(
+        self.register_function(
             name.to_string(),
             (param_types.clone(), async_return_type.clone(), *span),
         );
@@ -3411,6 +3522,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                                 
                                 self.imported_names
                                     .insert(name_to_register.clone(), import_type);
+                                
+                                // Track the module for this imported function
+                                self.imported_function_modules
+                                    .insert(name_to_register.clone(), package_name.clone());
                             }
                         }
                         UseItems::Single => {
@@ -3451,6 +3566,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                                         
                                         self.imported_names
                                             .insert(name_to_register.clone(), import_type);
+                                        
+                                        // Track the module for this imported function
+                                        self.imported_function_modules
+                                            .insert(name_to_register.clone(), actual_package_name.clone());
                                     }
                                 }
                                 UseItems::All => {
@@ -3492,6 +3611,10 @@ impl AstVisitor<Type> for SemanticVisitor {
                                         
                                         self.imported_names
                                             .insert(name_to_register.clone(), import_type);
+                                        
+                                        // Track the module for this imported function
+                                        self.imported_function_modules
+                                            .insert(name_to_register.clone(), actual_package_name.clone());
                                     }
                                 }
                                 UseItems::All => {
@@ -3573,9 +3696,13 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     name: import_name.clone(),
                                     variants: variants.clone(),
                                 }
-                            } else if self.functions.contains_key(import_name) {
-                                let (_, ret_type, _) = self.functions.get(import_name).unwrap();
-                                ret_type.clone()
+                            } else if let Some(signatures) = self.functions.get(import_name) {
+                                // Get the first signature's return type
+                                if let Some((_, ret_type, _)) = signatures.first() {
+                                    ret_type.clone()
+                                } else {
+                                    Type::Unknown
+                                }
                             } else {
                                 Type::Unknown
                             };
@@ -3601,9 +3728,13 @@ impl AstVisitor<Type> for SemanticVisitor {
                                     name: module_name.clone(),
                                     variants: variants.clone(),
                                 }
-                            } else if self.functions.contains_key(module_name) {
-                                let (_, ret_type, _) = self.functions.get(module_name).unwrap();
-                                ret_type.clone()
+                            } else if let Some(signatures) = self.functions.get(module_name) {
+                                // Get the first signature's return type
+                                if let Some((_, ret_type, _)) = signatures.first() {
+                                    ret_type.clone()
+                                } else {
+                                    Type::Unknown
+                                }
                             } else {
                                 Type::Unknown
                             };

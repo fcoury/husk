@@ -259,6 +259,7 @@ mod tests {
 
         fn visit_function(
             &mut self,
+            _attrs: &[crate::parser::Attribute],
             name: &str,
             _generic_params: &[String],
             _params: &[(String, String)],
@@ -426,6 +427,7 @@ mod tests {
 
         fn visit_async_function(
             &mut self,
+            _attrs: &[crate::parser::Attribute],
             name: &str,
             _generic_params: &[String],
             _params: &[(String, String)],

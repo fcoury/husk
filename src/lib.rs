@@ -146,6 +146,8 @@ pub fn transpile_to_js(code: impl Into<String>) -> Result<String> {
     analyzer.analyze(&ast)?;
 
     let mut js_generator = JsTranspiler::new();
+    // Pass type-only imports information to transpiler
+    js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
     js_generator.generate(&ast)
 }
 
@@ -169,6 +171,8 @@ pub fn transpile_to_js_with_packages(code: impl Into<String>) -> Result<String> 
             JsTranspiler::new()
         }
     };
+    // Pass type-only imports information to transpiler
+    js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
     js_generator.generate(&ast)
 }
 
@@ -192,6 +196,8 @@ pub fn transpile_to_js_with_target(code: impl Into<String>, target: &str) -> Res
             JsTranspiler::new()
         }
     };
+    // Pass type-only imports information to transpiler
+    js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
     js_generator.transpile(&ast)
 }
 
@@ -247,6 +253,8 @@ pub fn transpile_to_js_with_entry_validation(
             JsTranspiler::new()
         }
     };
+    // Pass type-only imports information to transpiler
+    js_generator.set_type_only_imports(analyzer.get_type_only_imports().clone());
     js_generator.transpile(&ast)
 }
 

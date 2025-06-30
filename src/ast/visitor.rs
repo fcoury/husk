@@ -162,7 +162,7 @@ pub trait AstVisitor<T> {
         match stmt {
             Stmt::Let(name, expr, span) => self.visit_let(name, expr, span),
             Stmt::Function(
-                _attrs,
+                attrs,
                 _is_pub,
                 name,
                 generic_params,
@@ -170,7 +170,7 @@ pub trait AstVisitor<T> {
                 return_type,
                 body,
                 span,
-            ) => self.visit_function(name, generic_params, params, return_type, body, span),
+            ) => self.visit_function(attrs, name, generic_params, params, return_type, body, span),
             Stmt::Struct(name, generic_params, fields, span) => {
                 self.visit_struct(name, generic_params, fields, span)
             }
@@ -199,7 +199,7 @@ pub trait AstVisitor<T> {
                 self.visit_extern_type(name, generic_params, type_alias, span)
             }
             Stmt::AsyncFunction(
-                _attrs,
+                attrs,
                 _is_pub,
                 name,
                 generic_params,
@@ -207,7 +207,7 @@ pub trait AstVisitor<T> {
                 return_type,
                 body,
                 span,
-            ) => self.visit_async_function(name, generic_params, params, return_type, body, span),
+            ) => self.visit_async_function(attrs, name, generic_params, params, return_type, body, span),
             Stmt::Module(_attrs, name, body, span) => self.visit_module(name, body, span),
         }
     }
@@ -221,6 +221,7 @@ pub trait AstVisitor<T> {
     ) -> std::result::Result<T, Self::Error>;
     fn visit_function(
         &mut self,
+        attrs: &[crate::parser::Attribute],
         name: &str,
         generic_params: &[String],
         params: &[(String, String)],
@@ -309,6 +310,7 @@ pub trait AstVisitor<T> {
     ) -> std::result::Result<T, Self::Error>;
     fn visit_async_function(
         &mut self,
+        attrs: &[crate::parser::Attribute],
         name: &str,
         generic_params: &[String],
         params: &[(String, String)],

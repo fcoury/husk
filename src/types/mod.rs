@@ -153,8 +153,8 @@ impl Type {
     pub fn from_string(s: &str) -> Option<Type> {
         match s {
             "unit" | "void" => Some(Type::Unit),
-            "int" => Some(Type::Int),
-            "float" => Some(Type::Float),
+            "int" | "i32" | "i64" | "isize" => Some(Type::Int),
+            "float" | "f32" | "f64" => Some(Type::Float),
             "bool" => Some(Type::Bool),
             "string" => Some(Type::String),
             "range" => Some(Type::Range),
