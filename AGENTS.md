@@ -28,6 +28,7 @@ These instructions apply to all files in this repository unless overridden by a 
   - Prefer adding or updating **unit tests** near the beginning of the work (to clarify intent) or at the end (to lock in behavior), depending on what is more natural for the change.
   - Consider **integration tests** when touching multiple crates or end-to-end flows (e.g., parsing + type checking + codegen), or when reproducing/guarding against regressions.
 - Keep tests small and focused, aligned with the items in `roadmap.md`.
+- When adding new language features or fixing bugs, consider adding or updating **examples** under `examples/` (both feature-focused and integration-style) so they are exercised by the integration tests in `tests/examples.rs`.
 
 ## Formatting
 
