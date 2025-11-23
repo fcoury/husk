@@ -3,10 +3,11 @@
 // This script expects:
 //   1. `express` to be installed as a dependency:
 //        npm install express
-//   2. The Husk example `examples/interop_express_minimal.hk` to be compiled to:
+//   2. The Husk example `examples/interop_express_minimal.hk` to be compiled in
+//      library mode to:
 //        target/interop_express_minimal.js
 //      e.g.:
-//        cargo run --bin huskc -- compile examples/interop_express_minimal.hk \
+//        cargo run --bin huskc -- compile --lib examples/interop_express_minimal.hk \
 //          > target/interop_express_minimal.js
 //
 // When run with Node:
@@ -30,9 +31,11 @@ globalThis.express = function () {
   return app;
 };
 
-// Require the compiled Husk module. Its `main()` will call `express()`,
-// obtain the shared app, and register at least one route (e.g., "/hello").
-require("../target/interop_express_minimal.js");
+// Require the compiled Husk module and call its `main()` explicitly.
+const huskApp = require("../target/interop_express_minimal.js");
+if (typeof huskApp.main === "function") {
+  huskApp.main();
+}
 
 if (!app) {
   app = express();
@@ -42,4 +45,3 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Husk + Express server listening on http://localhost:${port}`);
 });
-

@@ -122,7 +122,7 @@ To experiment with the Express-style example using a real `express` package:
 2. Compile the Husk example to JS:
 
    ```bash
-   cargo run --bin huskc -- compile examples/interop_express_minimal.hk \
+   cargo run --bin huskc -- compile --lib examples/interop_express_minimal.hk \
      > target/interop_express_minimal.js
    ```
 

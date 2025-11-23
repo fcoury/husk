@@ -36,6 +36,9 @@ enum Command {
         /// Also emit a `.d.ts` declaration file next to the source
         #[arg(long)]
         emit_dts: bool,
+        /// Compile in library mode (do not auto-call `main`)
+        #[arg(long)]
+        lib: bool,
     },
     /// Import a `.d.ts` file and generate Husk `extern \"js\"` declarations
     ImportDts {
@@ -59,7 +62,11 @@ fn main() {
 
     match cli.command {
         Some(Command::Check { file }) => run_check(&file),
-        Some(Command::Compile { file, emit_dts }) => run_compile(&file, emit_dts),
+        Some(Command::Compile {
+            file,
+            emit_dts,
+            lib,
+        }) => run_compile(&file, emit_dts, lib),
         Some(Command::ImportDts { file, out }) => run_import_dts(&file, out.as_deref()),
         None => {
             // Default: just parse the file if provided.
@@ -172,7 +179,7 @@ fn run_check(path: &str) {
     println!("Successfully type-checked {file_name}");
 }
 
-fn run_compile(path: &str, emit_dts: bool) {
+fn run_compile(path: &str, emit_dts: bool, lib: bool) {
     debug_log(&format!("[huskc] reading source: {path}"));
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -222,7 +229,7 @@ fn run_compile(path: &str, emit_dts: bool) {
     }
 
     debug_log("[huskc] lowering to JS");
-    let module = lower_file_to_js(&file);
+    let module = lower_file_to_js(&file, !lib);
     let js = module.to_source_with_preamble();
     println!("{js}");
 

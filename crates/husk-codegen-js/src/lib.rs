@@ -97,7 +97,12 @@ pub enum JsBinaryOp {
 /// - Top-level functions.
 /// - Simple statements (`let`, `return expr`, expression statements).
 /// - Basic expressions (literals, identifiers, calls, and arithmetic/boolean binary ops).
-pub fn lower_file_to_js(file: &File) -> JsModule {
+///
+/// `call_main` controls whether a zero-argument `main` function is
+/// automatically invoked at the end of the module. Library-style
+/// consumers should set this to `false` so `main` can be called
+/// explicitly by a host.
+pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
     let mut body = Vec::new();
     let mut has_main_entry = false;
     let mut fn_names: Vec<String> = Vec::new();
@@ -133,7 +138,7 @@ pub fn lower_file_to_js(file: &File) -> JsModule {
             _ => {}
         }
     }
-    if has_main_entry {
+    if has_main_entry && call_main {
         body.push(JsStmt::Expr(JsExpr::Call {
             callee: Box::new(JsExpr::Ident("main".to_string())),
             args: Vec::new(),
@@ -829,7 +834,7 @@ mod tests {
             items: vec![main_fn, helper_fn],
         };
 
-        let module = lower_file_to_js(&file);
+        let module = lower_file_to_js(&file, true);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -964,7 +969,7 @@ mod tests {
             items: vec![fn_item],
         };
 
-        let module = lower_file_to_js(&file);
+        let module = lower_file_to_js(&file, true);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -1153,7 +1158,7 @@ mod tests {
             }],
         };
 
-        let module = lower_file_to_js(&file);
+        let module = lower_file_to_js(&file, true);
         let src = module.to_source();
 
         assert!(src.contains("function parse"));
