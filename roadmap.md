@@ -26,15 +26,15 @@ Use `[ ]` for pending items and `[x]` for completed items.
 ## Phase 2 – Type System & Generics
 
 - [x] Define core type language and representation (`husk-types`).
-- [ ] Implement basic generics for structs, enums, and functions using type erasure (no monomorphization).
+- [x] Implement basic generics for structs, enums, and functions using type erasure (no monomorphization).
 - [x] Implement symbol tables and name resolution (`husk-semantic`).
-- [ ] Implement type checking for:
-  - [ ] Primitive types.
-  - [ ] Structs (including generic structs).
-  - [ ] Generic enums (e.g. `Option<T>`, `Result<T, E>`).
-  - [ ] Function calls and returns.
+- [x] Implement type checking for:
+  - [x] Primitive types.
+  - [x] Structs (including generic structs).
+  - [x] Generic enums (e.g. `Option<T>`, `Result<T, E>`). (*match expressions not yet parsed; exhaustiveness to be added when `match` lands in the parser.*)
+  - [x] Function calls and returns.
   - [ ] `match` exhaustiveness on enums.
-- [ ] Extend CLI with `check` mode that runs full semantic analysis.
+- [x] Extend CLI with `check` mode that runs full semantic analysis.
 
 ---
 
