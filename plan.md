@@ -218,7 +218,8 @@ The initial language version will support:
 - For the MVP, the JavaScript micro-runtime (`std_preamble.js`) is **inlined** at the top of every generated module:
   - `husk-codegen-js` exposes `JsModule::to_source_with_preamble()`, which prepends the preamble helpers to the emitted JS.
   - `huskc compile` uses this inlined form so compiled output is a single self-contained JS file.
-- A separate, shared runtime file (e.g., as an import) can be introduced later if/when bundling and code-reuse become more important than single-file simplicity.
+- The runtime has its own semantic version (`HUSK_RUNTIME_VERSION`, currently `0.1.0`), and the API surface of `std_preamble.js` plus this version string form the compatibility contract between compiled Husk code and the JS runtime.
+- A separate, shared runtime file or npm package (e.g., `@husk/runtime`) can be introduced later if/when bundling and code-reuse become more important than single-file simplicity.
 
 ---
 

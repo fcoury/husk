@@ -1,15 +1,23 @@
 //! JavaScript runtime ("preamble") for Husk-generated code.
 //!
-//! For now this is a small, embedded JS snippet that provides:
+//! This is a small, embedded JS snippet that provides:
 //! - `Ok` / `Err` constructors for `Result`-like values.
 //! - A simple `panic` function.
 //! - A minimal `matchEnum` helper for tagged unions (optional use).
 
+/// Semantic version of the Husk JS runtime.
+pub const HUSK_RUNTIME_VERSION: &str = "0.1.0";
+
 /// Return the standard JS preamble used by Husk-generated code.
 ///
-/// This is intentionally tiny and unversioned for the MVP.
+/// This is intentionally tiny for the MVP. The API surface of this
+/// preamble (and the corresponding `HUSK_RUNTIME_VERSION`) form the
+/// compatibility contract between compiled Husk code and the runtime.
 pub fn std_preamble_js() -> &'static str {
     r#"// Husk standard preamble (runtime helpers)
+// Husk runtime v0.1.0
+const HUSK_RUNTIME_VERSION = "0.1.0";
+
 function Ok(value) {
     return { tag: "Ok", value };
 }
@@ -44,5 +52,6 @@ mod tests {
         assert!(src.contains("function Err"));
         assert!(src.contains("function panic"));
         assert!(src.contains("function matchEnum"));
+        assert!(src.contains("HUSK_RUNTIME_VERSION = \"0.1.0\""));
     }
 }

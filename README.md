@@ -55,7 +55,7 @@ The CLI binary is called `huskc` and is built via Cargo.
   cargo run --bin huskc -- compile examples/hello.hk
   ```
 
-The compiled output includes the inlined JavaScript preamble (`std_preamble.js`) at the top of the file.
+The compiled output includes the inlined JavaScript preamble (`std_preamble.js`) at the top of the file. The runtime helpers (`Ok`, `Err`, `panic`, `matchEnum`, etc.) are versioned via a `HUSK_RUNTIME_VERSION` constant inside the preamble (currently `0.1.0`).
 
 ## Running a Husk Program under Node
 
