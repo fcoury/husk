@@ -84,6 +84,7 @@ pub struct Lexer<'src> {
     chars: std::str::CharIndices<'src>,
     peeked: Option<(usize, char)>,
     end: usize,
+    finished: bool,
 }
 
 impl<'src> Lexer<'src> {
@@ -94,6 +95,7 @@ impl<'src> Lexer<'src> {
             chars: src.char_indices(),
             peeked: None,
             end,
+            finished: false,
         }
     }
 
@@ -243,11 +245,15 @@ impl<'src> Iterator for Lexer<'src> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
         self.skip_whitespace_and_comments();
         let (start, ch) = match self.bump() {
             Some(pair) => pair,
             None => {
                 let span = Span::new(self.end, self.end);
+                self.finished = true;
                 return Some(Token {
                     kind: TokenKind::Eof,
                     span,

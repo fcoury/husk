@@ -10,6 +10,7 @@ version = "0.1.0"
 name = "husk-cli"
 version = "0.1.0"
 dependencies = [
+ "husk-codegen-js",
  "husk-parser",
  "husk-semantic",
 ]
@@ -17,6 +18,9 @@ dependencies = [
 [[package]]
 name = "husk-codegen-js"
 version = "0.1.0"
+dependencies = [
+ "husk-ast",
+]
 
 [[package]]
 name = "husk-lexer"

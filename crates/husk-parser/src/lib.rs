@@ -22,7 +22,9 @@ pub struct ParseResult {
 
 /// Parse a source string into an AST `File` and a list of parse errors.
 pub fn parse_str(source: &str) -> ParseResult {
+    eprintln!("[huskc-parser] lexing");
     let tokens: Vec<Token> = Lexer::new(source).collect();
+    eprintln!("[huskc-parser] lexed {} tokens", tokens.len());
     let mut parser = Parser::new(tokens);
     let file = parser.parse_file();
     ParseResult {
