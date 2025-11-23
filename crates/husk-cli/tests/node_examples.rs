@@ -65,9 +65,36 @@ fn examples_execute_with_node_when_available() {
             sem.type_errors
         );
 
-        // Lower to JS with preamble and write to a per-example JS file.
+        // Lower to JS with preamble.
         let module = lower_file_to_js(&file);
-        let js = module.to_source_with_preamble();
+        let mut js = module.to_source_with_preamble();
+
+        // For the minimal Express interop example, prepend a tiny stub `express`
+        // implementation so that the generated code can run without depending
+        // on the real `express` package.
+        let is_express_minimal = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s == "interop_express_minimal")
+            .unwrap_or(false);
+
+        if is_express_minimal {
+            let stub = r#"
+// Stub globalThis.express for integration tests: returns an object with a no-op `get`.
+globalThis.express = function () {
+    return {
+        get: function (_path, _handler) {
+            // no-op: we don't actually start a server in tests
+        },
+    };
+};
+"#;
+            let mut combined = String::new();
+            combined.push_str(stub.trim_start());
+            combined.push('\n');
+            combined.push_str(&js);
+            js = combined;
+        }
 
         let file_stem = path
             .file_stem()

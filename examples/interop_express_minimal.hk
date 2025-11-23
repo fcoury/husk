@@ -1,0 +1,27 @@
+// Minimal Express-style interop example for Husk.
+//
+// This does not rely on the real `express` package at runtime; the
+// Node integration test stubs a compatible `express()` function that
+// returns an object with a `get` method. The goal is to validate
+// that Husk can:
+// - declare extern functions,
+// - call a factory function,
+// - call methods with Husk functions as callbacks.
+
+extern "js" {
+    fn express() -> ExpressApp;
+}
+
+struct ExpressApp {}
+struct Request {}
+struct Response {}
+
+fn handler(_req: Request, res: Response) {
+    res.send("Hello from Husk + Express");
+}
+
+fn main() {
+    let app = express();
+    app.get("/hello", handler);
+}
+
