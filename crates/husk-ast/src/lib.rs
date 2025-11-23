@@ -64,6 +64,11 @@ pub enum BinaryOp {
 pub enum ExprKind {
     Literal(Literal),
     Ident(Ident),
+    /// Path-like expression, e.g. `Enum::Variant`.
+    /// For the MVP this is primarily used for enum constructors.
+    Path {
+        segments: Vec<Ident>,
+    },
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>,

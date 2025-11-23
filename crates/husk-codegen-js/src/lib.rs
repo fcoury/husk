@@ -38,6 +38,13 @@ pub enum JsExpr {
     Number(i64),
     Bool(bool),
     String(String),
+    /// Object literal: `{ key: value, ... }`.
+    Object(Vec<(String, JsExpr)>),
+    /// Property access: `object.property`.
+    Member {
+        object: Box<JsExpr>,
+        property: String,
+    },
     Call {
         callee: Box<JsExpr>,
         args: Vec<JsExpr>,
@@ -142,6 +149,30 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             LiteralKind::String(s) => JsExpr::String(s.clone()),
         },
         ExprKind::Ident(id) => JsExpr::Ident(id.name.clone()),
+        ExprKind::Path { segments } => {
+            // MVP: treat `Enum::Variant` as a tagged union value `{ tag: "Variant" }`.
+            // We ignore the enum name and any intermediate segments here.
+            let variant = segments
+                .last()
+                .map(|id| id.name.clone())
+                .unwrap_or_else(|| "Unknown".to_string());
+            JsExpr::Object(vec![("tag".to_string(), JsExpr::String(variant))])
+        }
+        ExprKind::Field { base, member } => JsExpr::Member {
+            object: Box::new(lower_expr(base)),
+            property: member.name.clone(),
+        },
+        ExprKind::MethodCall {
+            receiver,
+            method,
+            args,
+        } => JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(lower_expr(receiver)),
+                property: method.name.clone(),
+            }),
+            args: args.iter().map(lower_expr).collect(),
+        },
         ExprKind::Call { callee, args } => JsExpr::Call {
             callee: Box::new(lower_expr(callee)),
             args: args.iter().map(lower_expr).collect(),
@@ -173,11 +204,9 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             }
         }
         // Not yet supported in codegen.
-        ExprKind::Field { .. }
-        | ExprKind::MethodCall { .. }
-        | ExprKind::Unary { .. }
-        | ExprKind::Match { .. }
-        | ExprKind::Block(_) => JsExpr::Ident("undefined".to_string()),
+        ExprKind::Unary { .. } | ExprKind::Match { .. } | ExprKind::Block(_) => {
+            JsExpr::Ident("undefined".to_string())
+        }
     }
 }
 
@@ -261,6 +290,23 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
         JsExpr::Ident(name) => out.push_str(name),
         JsExpr::Number(n) => out.push_str(&n.to_string()),
         JsExpr::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        JsExpr::Object(props) => {
+            out.push('{');
+            for (i, (key, value)) in props.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(key);
+                out.push_str(": ");
+                write_expr(value, out);
+            }
+            out.push('}');
+        }
+        JsExpr::Member { object, property } => {
+            write_expr(object, out);
+            out.push('.');
+            out.push_str(property);
+        }
         JsExpr::String(s) => {
             out.push('"');
             out.push_str(&s.replace('"', "\\\""));
@@ -326,5 +372,25 @@ mod tests {
         assert!(src.contains("function main"));
         assert!(src.contains("let x = a + b;"));
         assert!(src.contains("return x;"));
+    }
+
+    #[test]
+    fn prints_object_and_member_access() {
+        let obj = JsExpr::Object(vec![
+            ("tag".to_string(), JsExpr::String("Red".to_string())),
+            ("value".to_string(), JsExpr::Number(1)),
+        ]);
+        let member = JsExpr::Member {
+            object: Box::new(JsExpr::Ident("color".into())),
+            property: "tag".to_string(),
+        };
+
+        let mut out = String::new();
+        write_expr(&obj, &mut out);
+        assert!(out.contains("{tag: \"Red\", value: 1}"));
+
+        out.clear();
+        write_expr(&member, &mut out);
+        assert_eq!(out, "color.tag");
     }
 }

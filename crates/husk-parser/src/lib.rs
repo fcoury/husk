@@ -527,6 +527,24 @@ impl Parser {
         }
     }
 
+    /// After consuming an initial identifier, parse any following `::segment` path components.
+    fn parse_path_segments(&mut self, first: Ident) -> Vec<Ident> {
+        let mut path = vec![first];
+        // Check for path segments `Foo::Bar`.
+        while self.matches_token(&TokenKind::Colon) {
+            if !self.matches_token(&TokenKind::Colon) {
+                self.error_here("expected `::` after `:` in path");
+                break;
+            }
+            let seg = match self.parse_ident("expected identifier after `::` in path") {
+                Some(id) => id,
+                None => break,
+            };
+            path.push(seg);
+        }
+        path
+    }
+
     // ---------------- Statements and blocks ----------------
 
     fn parse_block(&mut self) -> Option<Block> {
@@ -1104,16 +1122,7 @@ impl Parser {
                 };
                 self.advance();
 
-                // Check for path segments `Foo::Bar`.
-                let mut path = vec![first];
-                while self.matches_token(&TokenKind::Colon) {
-                    if !self.matches_token(&TokenKind::Colon) {
-                        self.error_here("expected `::` after `:` in path");
-                        break;
-                    }
-                    let seg = self.parse_ident("expected identifier after `::` in path")?;
-                    path.push(seg);
-                }
+                let mut path = self.parse_path_segments(first);
 
                 if path.len() == 1 {
                     // Single identifier: treat as binding pattern.
@@ -1190,15 +1199,32 @@ impl Parser {
                 })
             }
             TokenKind::Ident(ref name) => {
-                self.advance();
-                let ident = Ident {
+                // Could be a simple identifier or a path like `Enum::Variant`.
+                let first = Ident {
                     name: name.clone(),
                     span: self.ast_span_from(&tok.span),
                 };
-                Some(Expr {
-                    kind: ExprKind::Ident(ident.clone()),
-                    span: ident.span,
-                })
+                self.advance();
+                let path = self.parse_path_segments(first.clone());
+                if path.len() == 1 {
+                    Some(Expr {
+                        kind: ExprKind::Ident(first.clone()),
+                        span: first.span,
+                    })
+                } else {
+                    let start = path
+                        .first()
+                        .map(|id| id.span.range.start)
+                        .unwrap_or(tok.span.range.start);
+                    let end = path
+                        .last()
+                        .map(|id| id.span.range.end)
+                        .unwrap_or(tok.span.range.end);
+                    Some(Expr {
+                        kind: ExprKind::Path { segments: path },
+                        span: Span { range: start..end },
+                    })
+                }
             }
             TokenKind::LParen => {
                 self.advance();

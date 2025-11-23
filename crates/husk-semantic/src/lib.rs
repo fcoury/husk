@@ -366,6 +366,42 @@ struct FnContext<'a> {
 }
 
 impl<'a> FnContext<'a> {
+    fn check_path_expr(&mut self, expr: &Expr, segments: &[Ident]) -> Type {
+        // MVP: treat `Enum::Variant` as constructing a value of enum type `Enum`.
+        if segments.len() >= 2 {
+            let enum_name = &segments[0].name;
+            let variant_name = &segments[segments.len() - 1].name;
+
+            if let Some(def) = self.tcx.env.enums.get(enum_name).cloned() {
+                if !def.variant_names.iter().any(|v| v == variant_name) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "unknown variant `{}` on enum `{}`",
+                            variant_name, enum_name
+                        ),
+                        span: expr.span.clone(),
+                    });
+                }
+                // For now, generics are erased at runtime; we return the bare enum type.
+                return Type::Named {
+                    name: enum_name.clone(),
+                    args: Vec::new(),
+                };
+            }
+            // Fallback: unknown enum name.
+            self.tcx.errors.push(SemanticError {
+                message: format!("unknown enum `{}` in path expression", enum_name),
+                span: expr.span.clone(),
+            });
+        } else {
+            self.tcx.errors.push(SemanticError {
+                message: "path expression must have at least two segments".to_string(),
+                span: expr.span.clone(),
+            });
+        }
+        Type::Primitive(PrimitiveType::Unit)
+    }
+
     fn check_match_expr(&mut self, expr: &Expr, scrutinee: &Expr, arms: &[MatchArm]) -> Type {
         let scrut_ty = self.check_expr(scrutinee);
 
@@ -612,6 +648,7 @@ impl<'a> FnContext<'a> {
                 LiteralKind::Bool(_) => Type::Primitive(PrimitiveType::Bool),
                 LiteralKind::String(_) => Type::Primitive(PrimitiveType::String),
             },
+            ExprKind::Path { segments } => self.check_path_expr(expr, segments),
             ExprKind::Ident(id) => {
                 if let Some(ty) = self.locals.get(&id.name) {
                     return ty.clone();
@@ -1058,6 +1095,64 @@ mod tests {
                 .iter()
                 .any(|e| e.message.contains("mismatched types in `let`")),
             "expected mismatched let type error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn path_expr_for_enum_variant_has_enum_type() {
+        // enum Color { Red, Blue }
+        // fn make_red() -> Color { Color::Red }
+        let color_ident = ident("Color", 0);
+        let enum_item = Item {
+            kind: ItemKind::Enum {
+                name: color_ident.clone(),
+                type_params: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: ident("Red", 10),
+                        fields: EnumVariantFields::Unit,
+                    },
+                    EnumVariant {
+                        name: ident("Blue", 20),
+                        fields: EnumVariantFields::Unit,
+                    },
+                ],
+            },
+            span: Span { range: 0..30 },
+        };
+
+        let path_expr = Expr {
+            kind: ExprKind::Path {
+                segments: vec![color_ident.clone(), ident("Red", 40)],
+            },
+            span: Span { range: 30..45 },
+        };
+        let ret_stmt = Stmt {
+            kind: StmtKind::Return {
+                value: Some(path_expr),
+            },
+            span: Span { range: 30..50 },
+        };
+        let fn_item = Item {
+            kind: ItemKind::Fn {
+                name: ident("make_red", 30),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: Some(type_ident("Color", 35)),
+                body: vec![ret_stmt],
+            },
+            span: Span { range: 30..60 },
+        };
+
+        let file = File {
+            items: vec![enum_item, fn_item],
+        };
+
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors, got {:?}",
             result.type_errors
         );
     }
