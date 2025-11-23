@@ -31,9 +31,9 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Implement type checking for:
   - [x] Primitive types.
   - [x] Structs (including generic structs).
-  - [x] Generic enums (e.g. `Option<T>`, `Result<T, E>`). (_match expressions not yet parsed; exhaustiveness to be added when `match` lands in the parser._)
+  - [x] Generic enums (e.g. `Option<T>`, `Result<T, E>`).
   - [x] Function calls and returns.
-  - [ ] `match` exhaustiveness on enums.
+  - [x] `match` exhaustiveness on enums.
 - [x] Extend CLI with `check` mode that runs full semantic analysis.
 
 ---
