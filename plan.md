@@ -132,6 +132,16 @@ The initial language version will support:
   - `match` on enums with unit, tuple, and struct variants.
   - Exhaustive checking for closed enums.
 
+#### Entry Point
+
+- Conventionally, a Husk module can define:
+  ```rust
+  fn main() {
+      // ...
+  }
+  ```
+- For the MVP, when a zero-argument `main` function is present at the top level of a compiled file, the JavaScript backend will emit a call to `main();` at the end of the generated module so that running the JS file (e.g., under Node) immediately executes the program.
+
 ### 4.2 Mutability & Immutability
 
 ### 4.3 Mutability & Immutability
@@ -218,8 +228,9 @@ The initial language version will support:
 
 - For each compiled module, generate a `.d.ts` with:
   - Exported function declarations and signatures.
-  - Exported structs as TS interfaces or type aliases.
-  - Exported enums as discriminated unions.
+  - Exported structs as TS interfaces.
+  - Exported enums as discriminated unions that mirror the runtime tagged-union encoding
+    `{ tag: "Variant", ... }` (including payload fields).
 - Type mapping examples:
   - `i32` → `number`
   - `bool` → `boolean`
@@ -258,6 +269,13 @@ The initial language version will support:
   - Result-like enums (`Result<T, E>`), unless modeled via runtime only.
 - Interop wrappers:
   - Safe wrappers for selected JS/Node/Web APIs, returning `Result` where appropriate.
+
+### 7.3 Runtime Diagnostics (Future)
+
+- Improve runtime error reporting for `panic` and `matchEnum`:
+  - Preserve or surface richer stack traces from the host JS engine.
+  - Eventually integrate with optional source maps or other metadata so that runtime panics can be mapped back to Husk source locations.
+- This is intentionally deferred until after the core language, codegen, and basic tooling are stable.
 
 ---
 

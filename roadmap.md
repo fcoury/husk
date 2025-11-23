@@ -65,13 +65,13 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 ### 4.1 Outbound: `.d.ts` Emission
 
-- [ ] Define mapping from language types to TS types.
-- [ ] Implement `.d.ts` emitter for:
-  - [ ] Exported functions.
-  - [ ] Exported structs.
-  - [ ] Exported enums (discriminated unions).
-- [ ] Integrate `.d.ts` generation into CLI workflow.
-- [ ] Validate `.d.ts` by using compiled modules from a TS project.
+- [x] Define mapping from language types to TS types.
+- [x] Implement `.d.ts` emitter for:
+  - [x] Exported functions.
+  - [x] Exported structs.
+  - [x] Exported enums (discriminated unions).
+- [x] Integrate `.d.ts` generation into CLI workflow.
+- [x] Validate `.d.ts` by using compiled modules from a TS project.
 
 ### 4.2 Inbound: Consuming `.d.ts` (Later)
 
@@ -117,6 +117,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [ ] Output-level improvements for JS engines (e.g., predictable object shapes).
 - [ ] Diagnostics and UX:
   - [ ] More precise, actionable error messages.
+  - [ ] Improved runtime panic/match error reporting (better stack traces and, eventually, mapping back to Husk source).
   - [ ] Suggestions and quick fixes (e.g., in LSP).
 - [ ] Ecosystem:
   - [ ] Package publishing story (e.g., npm packages).

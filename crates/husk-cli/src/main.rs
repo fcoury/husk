@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use clap::{Parser, Subcommand};
-use husk_codegen_js::lower_file_to_js;
+use husk_codegen_js::{file_to_dts, lower_file_to_js};
 use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
@@ -32,6 +32,9 @@ enum Command {
     Compile {
         /// Source file to compile
         file: String,
+        /// Also emit a `.d.ts` declaration file next to the source
+        #[arg(long)]
+        emit_dts: bool,
     },
 }
 
@@ -45,9 +48,9 @@ fn main() {
         }
     }
 
-    match &cli.command {
-        Some(Command::Check { file }) => run_check(file),
-        Some(Command::Compile { file }) => run_compile(file),
+    match cli.command {
+        Some(Command::Check { file }) => run_check(&file),
+        Some(Command::Compile { file, emit_dts }) => run_compile(&file, emit_dts),
         None => {
             // Default: just parse the file if provided.
             let file = match &cli.file {
@@ -159,7 +162,7 @@ fn run_check(path: &str) {
     println!("Successfully type-checked {file_name}");
 }
 
-fn run_compile(path: &str) {
+fn run_compile(path: &str, emit_dts: bool) {
     debug_log(&format!("[huskc] reading source: {path}"));
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -212,6 +215,16 @@ fn run_compile(path: &str) {
     let module = lower_file_to_js(&file);
     let js = module.to_source_with_preamble();
     println!("{js}");
+
+    if emit_dts {
+        debug_log("[huskc] emitting .d.ts");
+        let dts = file_to_dts(&file);
+        let dts_path = Path::new(path).with_extension("d.ts");
+        if let Err(err) = fs::write(&dts_path, dts) {
+            eprintln!("Failed to write {}: {err}", dts_path.display());
+            std::process::exit(1);
+        }
+    }
 }
 
 fn debug_log(msg: &str) {
