@@ -90,10 +90,21 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [ ] Calls `express()` to obtain an app instance.
   - [ ] Registers at least one route via `app.get("/path", handler)`.
   - [ ] Defines a handler function that uses `Request`/`Response` types and calls methods like `res.send(...)`.
-- [ ] Extend Node integration tests to:
+  - [ ] Extend Node integration tests to:
   - [ ] Compile the minimal Express example to JS.
   - [ ] Prepend a small stub `express()` implementation (no real `express` dependency).
   - [ ] Execute the resulting JS under Node and assert successful exit.
+
+### 4.4 JS Module Imports for Node/Bun
+
+- [ ] Extend language syntax with `extern "js" mod name;` to declare dependencies on JS modules by package name.
+- [ ] Implement codegen for ESM targets:
+  - [ ] Map `extern "js" mod name;` to `import name from "name";` in the generated JS.
+- [ ] (Optional later) Add CommonJS support:
+  - [ ] Map `extern "js" mod name;` to `const name = require("name");` for CommonJS targets, if introduced.
+- [ ] Integrate with the `.d.ts` importer:
+  - [ ] Document how to combine module imports with extern function signatures generated from `.d.ts`.
+- [ ] Add examples showing direct imports of common Node/Bun modules (e.g., `express`, `fs`, small npm libraries).
 
 ---
 
@@ -101,7 +112,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 - [x] Implement standard library modules in the language:
   - [x] Core types (Option, Result, etc., if not built-in).
-- [ ] Ensure versioning and compatibility strategy for the runtime.
+- [x] Ensure versioning and compatibility strategy for the runtime.
 
 ---
 
@@ -117,6 +128,19 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [ ] Go-to-definition.
   - [ ] Hover type information.
 - [ ] Add editor configuration and example setups (VS Code, etc.).
+
+### 6.2 Node/Bun Host Integration
+
+- [ ] Define the JS host pattern for server-side applications:
+  - [ ] Compile Husk modules as ESM libraries exporting public functions (e.g., `main`, route setup functions).
+  - [ ] Use a JS host file that imports the compiled Husk module and npm packages (e.g., `express`) and wires them together.
+- [ ] Add a `huskc new node-app` template (or equivalent guidance) that:
+  - [ ] Creates a `package.json` configured for Node/Bun (ESM, scripts).
+  - [ ] Generates a starter `src/main.hk` Husk module.
+  - [ ] Generates a `src/server.js` host that imports Husk code and starts an HTTP server.
+- [ ] Document the Node/Bun hosting pattern in the README or dedicated docs:
+  - [ ] How to compile Husk code.
+  - [ ] How to run the host with Node or Bun.
 
 ---
 

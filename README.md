@@ -107,5 +107,29 @@ The `examples/` directory contains:
 - `examples/feature_match/simple_match.hk` – focused enum + `match` usage.
 - `examples/integration/basic_program.hk` – a larger integration example combining enums, generics, and `match`.
 - `examples/node_simple.hk` – a small program intended to be compiled and run under Node (good target for the `scripts/run_node_example.sh` script).
+- `examples/interop_express_minimal.hk` – a minimal Express-style interop example used together with `examples/express_host.js` to demonstrate the Node host pattern.
 
 All `.hk` examples are covered by the integration tests in `tests/examples.rs`, which ensure they parse, type-check, and lower to JS successfully.
+
+To experiment with the Express-style example using a real `express` package:
+
+1. Install Express in the workspace:
+
+   ```bash
+   npm install express
+   ```
+
+2. Compile the Husk example to JS:
+
+   ```bash
+   cargo run --bin huskc -- compile examples/interop_express_minimal.hk \
+     > target/interop_express_minimal.js
+   ```
+
+3. Run the Node host script:
+
+   ```bash
+   node examples/express_host.js
+   ```
+
+The host script creates an Express app, exposes a compatible `express()` factory on `globalThis`, requires the compiled Husk module (which runs `main()` and registers routes), and finally starts the HTTP server.
