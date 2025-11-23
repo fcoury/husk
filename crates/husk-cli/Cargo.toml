@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 husk-parser = { path = "../husk-parser" }
+husk-semantic = { path = "../husk-semantic" }
 
 [[bin]]
 name = "huskc"

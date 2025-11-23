@@ -11,6 +11,7 @@ name = "husk-cli"
 version = "0.1.0"
 dependencies = [
  "husk-parser",
+ "husk-semantic",
 ]
 
 [[package]]
@@ -36,6 +37,10 @@ version = "0.1.0"
 [[package]]
 name = "husk-semantic"
 version = "0.1.0"
+dependencies = [
+ "husk-ast",
+ "husk-types",
+]
 
 [[package]]
 name = "husk-types"
