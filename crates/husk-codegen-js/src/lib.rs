@@ -54,6 +54,11 @@ pub enum JsExpr {
         object: Box<JsExpr>,
         property: String,
     },
+    /// Assignment expression: `left = right`.
+    Assignment {
+        left: Box<JsExpr>,
+        right: Box<JsExpr>,
+    },
     /// Conditional (ternary) expression: `test ? then_branch : else_branch`.
     Conditional {
         test: Box<JsExpr>,
@@ -95,6 +100,7 @@ pub enum JsBinaryOp {
 pub fn lower_file_to_js(file: &File) -> JsModule {
     let mut body = Vec::new();
     let mut has_main_entry = false;
+    let mut fn_names: Vec<String> = Vec::new();
     for item in &file.items {
         match &item.kind {
             ItemKind::Fn {
@@ -104,6 +110,7 @@ pub fn lower_file_to_js(file: &File) -> JsModule {
                 ..
             } => {
                 body.push(lower_fn(&name.name, params, fn_body));
+                fn_names.push(name.name.clone());
                 if name.name == "main" && params.is_empty() {
                     has_main_entry = true;
                 }
@@ -131,6 +138,23 @@ pub fn lower_file_to_js(file: &File) -> JsModule {
             callee: Box::new(JsExpr::Ident("main".to_string())),
             args: Vec::new(),
         }));
+    }
+    if !fn_names.is_empty() {
+        // module.exports = { foo: foo, bar: bar, ... };
+        let exports_obj = JsExpr::Object(
+            fn_names
+                .into_iter()
+                .map(|name| (name.clone(), JsExpr::Ident(name)))
+                .collect(),
+        );
+        let assign = JsExpr::Assignment {
+            left: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("module".to_string())),
+                property: "exports".to_string(),
+            }),
+            right: Box::new(exports_obj),
+        };
+        body.push(JsStmt::Expr(assign));
     }
     JsModule { body }
 }
@@ -514,6 +538,11 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             out.push_str(&s.replace('"', "\\\""));
             out.push('"');
         }
+        JsExpr::Assignment { left, right } => {
+            write_expr(left, out);
+            out.push_str(" = ");
+            write_expr(right, out);
+        }
         JsExpr::Call { callee, args } => {
             write_expr(callee, out);
             out.push('(');
@@ -764,6 +793,51 @@ mod tests {
         assert!(src.contains("function main"));
         assert!(src.contains("let x = a + b;"));
         assert!(src.contains("return x;"));
+    }
+
+    #[test]
+    fn appends_module_exports_for_top_level_functions() {
+        // file with two top-level functions: main and helper
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let main_fn = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 0),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(0, 10),
+        };
+        let helper_fn = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("helper", 20),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(20, 30),
+        };
+
+        let file = husk_ast::File {
+            items: vec![main_fn, helper_fn],
+        };
+
+        let module = lower_file_to_js(&file);
+        let src = module.to_source();
+
+        assert!(src.contains("function main()"));
+        assert!(src.contains("function helper()"));
+        assert!(
+            src.contains("module.exports = {main: main, helper: helper};")
+                || src.contains("module.exports = {main: main, helper: helper}")
+        );
     }
 
     #[test]
