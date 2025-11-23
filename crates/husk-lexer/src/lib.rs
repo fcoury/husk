@@ -123,14 +123,16 @@ impl<'src> Lexer<'src> {
         F: FnMut(char) -> bool,
     {
         let mut last = start;
+        let mut saw_any = false;
         while let Some((idx, ch)) = self.peek() {
             if !pred(ch) {
                 break;
             }
+            saw_any = true;
             last = idx;
             self.bump();
         }
-        let end = if last == start { start } else { last + 1 };
+        let end = if saw_any { last + 1 } else { start + 1 };
         let span = self.make_span(start, end);
         let lexeme = &self.src[span.range.clone()];
         (span, lexeme)

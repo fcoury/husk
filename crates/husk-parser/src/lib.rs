@@ -8,6 +8,15 @@ use husk_ast::{
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
+fn debug_log(msg: &str) {
+    match std::env::var("HUSKC_DEBUG") {
+        Ok(val) if val == "1" || val.eq_ignore_ascii_case("true") => {
+            eprintln!("{msg}");
+        }
+        _ => {}
+    }
+}
+
 #[derive(Debug)]
 pub struct ParseError {
     pub message: String,
@@ -22,9 +31,9 @@ pub struct ParseResult {
 
 /// Parse a source string into an AST `File` and a list of parse errors.
 pub fn parse_str(source: &str) -> ParseResult {
-    eprintln!("[huskc-parser] lexing");
+    debug_log("[huskc-parser] lexing");
     let tokens: Vec<Token> = Lexer::new(source).collect();
-    eprintln!("[huskc-parser] lexed {} tokens", tokens.len());
+    debug_log(&format!("[huskc-parser] lexed {} tokens", tokens.len()));
     let mut parser = Parser::new(tokens);
     let file = parser.parse_file();
     ParseResult {
