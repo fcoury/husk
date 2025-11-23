@@ -4,7 +4,8 @@
 
 use husk_ast::{
     BinaryOp, Block, EnumVariant, EnumVariantFields, Expr, ExprKind, File, Ident, Item, ItemKind,
-    Literal, LiteralKind, Param, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
+    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField,
+    TypeExpr, TypeExprKind,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -1040,6 +1041,110 @@ impl Parser {
         args
     }
 
+    fn parse_match_expr(&mut self) -> Option<Expr> {
+        let match_tok = self.advance().clone(); // consume `match`
+        let scrutinee = self.parse_expr()?;
+        if !self.matches_token(&TokenKind::LBrace) {
+            self.error_here("expected `{` after `match` scrutinee");
+            return None;
+        }
+
+        let mut arms = Vec::new();
+        while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            let pat = self.parse_pattern()?;
+            if !self.matches_token(&TokenKind::FatArrow) {
+                self.error_here("expected `=>` after match pattern");
+                return None;
+            }
+            // Arm body: either a block `{ ... }` or an expression.
+            let arm_expr = if self.matches_token(&TokenKind::LBrace) {
+                // We already consumed `{`, so parse the block body.
+                // parse_block expects `{` still current, so we need to rewind one step:
+                // Instead, construct a block manually:
+                // For simplicity, treat `{ expr }` as a block expression by re-parsing.
+                self.pos -= 1; // move back to '{'
+                let block = self.parse_block()?;
+                Expr {
+                    kind: ExprKind::Block(block.clone()),
+                    span: block.span.clone(),
+                }
+            } else {
+                self.parse_expr()?
+            };
+
+            arms.push(MatchArm {
+                pattern: pat,
+                expr: arm_expr,
+            });
+
+            // Optional trailing comma between arms.
+            let _ = self.matches_token(&TokenKind::Comma);
+        }
+
+        let end = self.previous().span.range.end;
+        Some(Expr {
+            kind: ExprKind::Match {
+                scrutinee: Box::new(scrutinee),
+                arms,
+            },
+            span: Span {
+                range: match_tok.span.range.start..end,
+            },
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Option<Pattern> {
+        let tok = self.current().clone();
+        let kind = match &tok.kind {
+            TokenKind::Ident(name) => {
+                // Could be binding (`x`) or enum path (`Enum::Variant`).
+                let first = Ident {
+                    name: name.clone(),
+                    span: self.ast_span_from(&tok.span),
+                };
+                self.advance();
+
+                // Check for path segments `Foo::Bar`.
+                let mut path = vec![first];
+                while self.matches_token(&TokenKind::Colon) {
+                    if !self.matches_token(&TokenKind::Colon) {
+                        self.error_here("expected `::` after `:` in path");
+                        break;
+                    }
+                    let seg = self.parse_ident("expected identifier after `::` in path")?;
+                    path.push(seg);
+                }
+
+                if path.len() == 1 {
+                    // Single identifier: treat as binding pattern.
+                    PatternKind::Binding(path.pop().unwrap())
+                } else {
+                    // Enum unit pattern: Enum::Variant
+                    PatternKind::EnumUnit { path }
+                }
+            }
+            _ => {
+                // Wildcard `_`
+                if let TokenKind::Ident(ref name) = tok.kind {
+                    if name == "_" {
+                        self.advance();
+                        PatternKind::Wildcard
+                    } else {
+                        self.error_here("unexpected token in pattern");
+                        return None;
+                    }
+                } else {
+                    self.error_here("unexpected token in pattern");
+                    return None;
+                }
+            }
+        };
+
+        Some(Pattern {
+            kind,
+            span: self.ast_span_from(&tok.span),
+        })
+    }
     fn parse_primary(&mut self) -> Option<Expr> {
         let tok = self.current().clone();
         match tok.kind {
@@ -1103,12 +1208,7 @@ impl Parser {
                 }
                 Some(expr)
             }
-            TokenKind::Keyword(Keyword::Match) => {
-                // `match` expression parsing is planned but not implemented yet.
-                self.error_here("`match` expressions are not yet supported in the parser");
-                self.advance();
-                None
-            }
+            TokenKind::Keyword(Keyword::Match) => self.parse_match_expr(),
             _ => {
                 self.error_at_token(&tok, "expected expression");
                 None

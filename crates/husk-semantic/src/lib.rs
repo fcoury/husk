@@ -4,11 +4,11 @@
 //! - A basic symbol representation for top-level items.
 //! - A resolver that collects top-level symbols from a `husk_ast::File`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use husk_ast::{
-    Block, Expr, ExprKind, File, Ident, Item, ItemKind, LiteralKind, Param, Span, Stmt, StmtKind,
-    TypeExpr, TypeExprKind,
+    Block, Expr, ExprKind, File, Ident, Item, ItemKind, LiteralKind, MatchArm, Param, Pattern,
+    PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_types::{PrimitiveType, Type};
 
@@ -103,6 +103,7 @@ struct StructDef {
 #[derive(Debug, Clone)]
 struct EnumDef {
     type_params: Vec<String>,
+    variant_names: Vec<String>,
 }
 
 /// Information about a function type.
@@ -151,10 +152,13 @@ impl TypeChecker {
                     self.env.structs.insert(name.name.clone(), def);
                 }
                 ItemKind::Enum {
-                    name, type_params, ..
+                    name,
+                    type_params,
+                    variants,
                 } => {
                     let def = EnumDef {
                         type_params: type_params.iter().map(|id| id.name.clone()).collect(),
+                        variant_names: variants.iter().map(|v| v.name.name.clone()).collect(),
                     };
                     self.env.enums.insert(name.name.clone(), def);
                 }
@@ -362,6 +366,124 @@ struct FnContext<'a> {
 }
 
 impl<'a> FnContext<'a> {
+    fn check_match_expr(&mut self, expr: &Expr, scrutinee: &Expr, arms: &[MatchArm]) -> Type {
+        let scrut_ty = self.check_expr(scrutinee);
+
+        // Try to interpret scrutinee as an enum.
+        let enum_info = match &scrut_ty {
+            Type::Named { name, .. } => self
+                .tcx
+                .env
+                .enums
+                .get(name)
+                .map(|def| (name.clone(), def.variant_names.clone())),
+            _ => None,
+        };
+
+        let mut result_ty: Option<Type> = None;
+        let mut seen_variants: HashSet<String> = HashSet::new();
+        let mut has_catch_all = false;
+
+        for arm in arms {
+            // Track patterns for exhaustiveness.
+            match &arm.pattern.kind {
+                PatternKind::Wildcard | PatternKind::Binding(_) => {
+                    has_catch_all = true;
+                }
+                PatternKind::EnumUnit { path } => {
+                    if let Some((enum_name, variant_names)) = &enum_info {
+                        // Expect path like Enum::Variant
+                        if path.len() == 2 && path[0].name == *enum_name {
+                            let variant = path[1].name.clone();
+                            if !variant_names.contains(&variant) {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "unknown variant `{}` for enum `{}`",
+                                        variant, enum_name
+                                    ),
+                                    span: arm.pattern.span.clone(),
+                                });
+                            } else {
+                                seen_variants.insert(variant);
+                            }
+                        } else {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "enum pattern must use `{0}::Variant` for enum `{0}`",
+                                    enum_name
+                                ),
+                                span: arm.pattern.span.clone(),
+                            });
+                        }
+                    }
+                }
+                // Tuple/struct patterns not yet used in exhaustiveness.
+                PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => {}
+            }
+
+            // Type-check the arm expression in a fresh scope with any bindings from the pattern.
+            let saved_locals = self.locals.clone();
+            self.bind_pattern_locals(&arm.pattern, &scrut_ty);
+            let arm_ty = self.check_expr(&arm.expr);
+            self.locals = saved_locals;
+
+            match &mut result_ty {
+                None => result_ty = Some(arm_ty),
+                Some(expected) => {
+                    if !self.types_compatible(expected, &arm_ty) {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "mismatched types in match arms: expected `{:?}`, found `{:?}`",
+                                expected, arm_ty
+                            ),
+                            span: arm.expr.span.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Exhaustiveness for simple enums.
+        if let Some((enum_name, variant_names)) = enum_info {
+            if !has_catch_all {
+                for variant in &variant_names {
+                    if !seen_variants.contains(variant) {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "non-exhaustive match on enum `{}`: missing variant `{}`",
+                                enum_name, variant
+                            ),
+                            span: expr.span.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        result_ty.unwrap_or(Type::Primitive(PrimitiveType::Unit))
+    }
+
+    fn bind_pattern_locals(&mut self, pat: &Pattern, scrut_ty: &Type) {
+        match &pat.kind {
+            PatternKind::Wildcard => {}
+            PatternKind::Binding(id) => {
+                if self
+                    .locals
+                    .insert(id.name.clone(), scrut_ty.clone())
+                    .is_some()
+                {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!("duplicate binding `{}` in pattern", id.name),
+                        span: id.span.clone(),
+                    });
+                }
+            }
+            PatternKind::EnumUnit { .. } => {}
+            PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => {
+                // Not yet supported for bindings.
+            }
+        }
+    }
     fn check_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Let {
@@ -668,15 +790,7 @@ impl<'a> FnContext<'a> {
                     }
                 }
             }
-            ExprKind::Match { .. } => {
-                // `match` expressions are not yet fully supported.
-                self.tcx.errors.push(SemanticError {
-                    message: "`match` expressions are not yet supported by the type checker"
-                        .to_string(),
-                    span: expr.span.clone(),
-                });
-                Type::Primitive(PrimitiveType::Unit)
-            }
+            ExprKind::Match { scrutinee, arms } => self.check_match_expr(expr, scrutinee, arms),
             ExprKind::Block(block) => {
                 self.check_block(block);
                 Type::Primitive(PrimitiveType::Unit)
@@ -758,8 +872,8 @@ impl Resolver {
 mod tests {
     use super::*;
     use husk_ast::{
-        Expr, ExprKind, File, Ident, Item, ItemKind, Literal, LiteralKind, Span, Stmt, StmtKind,
-        TypeExpr, TypeExprKind,
+        EnumVariant, EnumVariantFields, Expr, ExprKind, File, Ident, Item, ItemKind, Literal,
+        LiteralKind, MatchArm, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
     };
 
     fn ident(name: &str, start: usize) -> Ident {
@@ -944,6 +1058,202 @@ mod tests {
                 .iter()
                 .any(|e| e.message.contains("mismatched types in `let`")),
             "expected mismatched let type error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn match_on_enum_exhaustive_is_ok() {
+        // enum Color { Red, Blue }
+        // fn f(c: Color) -> i32 {
+        //     return match c {
+        //         Color::Red => 1,
+        //         Color::Blue => 2,
+        //     };
+        // }
+        let color_ident = ident("Color", 0);
+        let enum_item = Item {
+            kind: ItemKind::Enum {
+                name: color_ident.clone(),
+                type_params: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: ident("Red", 10),
+                        fields: EnumVariantFields::Unit,
+                    },
+                    EnumVariant {
+                        name: ident("Blue", 20),
+                        fields: EnumVariantFields::Unit,
+                    },
+                ],
+            },
+            span: Span { range: 0..30 },
+        };
+
+        let c_ident = ident("c", 40);
+        let param = Param {
+            name: c_ident.clone(),
+            ty: type_ident("Color", 42),
+        };
+        let scrutinee = Expr {
+            kind: ExprKind::Ident(c_ident.clone()),
+            span: c_ident.span.clone(),
+        };
+        let pat_red = Pattern {
+            kind: PatternKind::EnumUnit {
+                path: vec![color_ident.clone(), ident("Red", 60)],
+            },
+            span: Span { range: 50..63 },
+        };
+        let pat_blue = Pattern {
+            kind: PatternKind::EnumUnit {
+                path: vec![color_ident.clone(), ident("Blue", 70)],
+            },
+            span: Span { range: 64..78 },
+        };
+        let arm_red = MatchArm {
+            pattern: pat_red,
+            expr: Expr {
+                kind: ExprKind::Literal(Literal {
+                    kind: LiteralKind::Int(1),
+                    span: Span { range: 80..81 },
+                }),
+                span: Span { range: 80..81 },
+            },
+        };
+        let arm_blue = MatchArm {
+            pattern: pat_blue,
+            expr: Expr {
+                kind: ExprKind::Literal(Literal {
+                    kind: LiteralKind::Int(2),
+                    span: Span { range: 90..91 },
+                }),
+                span: Span { range: 90..91 },
+            },
+        };
+        let match_expr = Expr {
+            kind: ExprKind::Match {
+                scrutinee: Box::new(scrutinee),
+                arms: vec![arm_red, arm_blue],
+            },
+            span: Span { range: 50..100 },
+        };
+        let ret_stmt = Stmt {
+            kind: StmtKind::Return {
+                value: Some(match_expr),
+            },
+            span: Span { range: 50..105 },
+        };
+        let fn_item = Item {
+            kind: ItemKind::Fn {
+                name: ident("f", 40),
+                type_params: Vec::new(),
+                params: vec![param],
+                ret_type: Some(type_ident("i32", 45)),
+                body: vec![ret_stmt],
+            },
+            span: Span { range: 40..110 },
+        };
+
+        let file = File {
+            items: vec![enum_item, fn_item],
+        };
+
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors, got {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn match_on_enum_non_exhaustive_reports_error() {
+        // enum Color { Red, Blue }
+        // fn f(c: Color) -> i32 {
+        //     return match c {
+        //         Color::Red => 1,
+        //     };
+        // }
+        let color_ident = ident("Color", 0);
+        let enum_item = Item {
+            kind: ItemKind::Enum {
+                name: color_ident.clone(),
+                type_params: Vec::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: ident("Red", 10),
+                        fields: EnumVariantFields::Unit,
+                    },
+                    EnumVariant {
+                        name: ident("Blue", 20),
+                        fields: EnumVariantFields::Unit,
+                    },
+                ],
+            },
+            span: Span { range: 0..30 },
+        };
+
+        let c_ident = ident("c", 40);
+        let param = Param {
+            name: c_ident.clone(),
+            ty: type_ident("Color", 42),
+        };
+        let scrutinee = Expr {
+            kind: ExprKind::Ident(c_ident.clone()),
+            span: c_ident.span.clone(),
+        };
+        let pat_red = Pattern {
+            kind: PatternKind::EnumUnit {
+                path: vec![color_ident.clone(), ident("Red", 60)],
+            },
+            span: Span { range: 50..63 },
+        };
+        let arm_red = MatchArm {
+            pattern: pat_red,
+            expr: Expr {
+                kind: ExprKind::Literal(Literal {
+                    kind: LiteralKind::Int(1),
+                    span: Span { range: 80..81 },
+                }),
+                span: Span { range: 80..81 },
+            },
+        };
+        let match_expr = Expr {
+            kind: ExprKind::Match {
+                scrutinee: Box::new(scrutinee),
+                arms: vec![arm_red],
+            },
+            span: Span { range: 50..100 },
+        };
+        let ret_stmt = Stmt {
+            kind: StmtKind::Return {
+                value: Some(match_expr),
+            },
+            span: Span { range: 50..105 },
+        };
+        let fn_item = Item {
+            kind: ItemKind::Fn {
+                name: ident("f", 40),
+                type_params: Vec::new(),
+                params: vec![param],
+                ret_type: Some(type_ident("i32", 45)),
+                body: vec![ret_stmt],
+            },
+            span: Span { range: 40..110 },
+        };
+
+        let file = File {
+            items: vec![enum_item, fn_item],
+        };
+
+        let result = analyze_file(&file);
+        assert!(
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("non-exhaustive match on enum `Color`")),
+            "expected non-exhaustive match error, got {:?}",
             result.type_errors
         );
     }
