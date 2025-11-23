@@ -75,10 +75,10 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 ### 4.2 Inbound: Consuming `.d.ts` (Later)
 
-- [ ] Select approach for parsing `.d.ts` (TS compiler API or Rust TS parser).
-- [ ] Implement parser and translator from `.d.ts` to internal type representations.
-- [ ] Implement generator for language `extern` declarations from imported `.d.ts`.
-- [ ] Decide on conservative assumptions for imported types (non-linear, shared, mutable).
+- [x] Select approach for parsing `.d.ts` (minimal custom Rust parser for a narrow subset).
+- [x] Implement parser and translator from `.d.ts` to Husk `extern "js"` declarations.
+- [x] Implement generator for language `extern` declarations from imported `.d.ts` (via `huskc import-dts`).
+- [x] Decide on conservative assumptions for imported types (treated as ordinary, shared JS values in the MVP).
 - [ ] Validate by importing a small subset of real-world libraries.
 
 ---

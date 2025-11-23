@@ -4,6 +4,7 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand};
 use husk_codegen_js::{file_to_dts, lower_file_to_js};
+mod dts_import;
 use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
@@ -36,6 +37,14 @@ enum Command {
         #[arg(long)]
         emit_dts: bool,
     },
+    /// Import a `.d.ts` file and generate Husk `extern \"js\"` declarations
+    ImportDts {
+        /// Path to the `.d.ts` file to import
+        file: String,
+        /// Optional output path for the generated Husk file (stdout if omitted)
+        #[arg(short, long)]
+        out: Option<String>,
+    },
 }
 
 fn main() {
@@ -51,12 +60,13 @@ fn main() {
     match cli.command {
         Some(Command::Check { file }) => run_check(&file),
         Some(Command::Compile { file, emit_dts }) => run_compile(&file, emit_dts),
+        Some(Command::ImportDts { file, out }) => run_import_dts(&file, out.as_deref()),
         None => {
             // Default: just parse the file if provided.
             let file = match &cli.file {
                 Some(f) => f,
                 None => {
-                    eprintln!("Usage: huskc [--debug] [check|compile] <source-file>");
+                    eprintln!("Usage: huskc [--debug] [check|compile|import-dts] <source-file>");
                     std::process::exit(1);
                 }
             };
@@ -224,6 +234,29 @@ fn run_compile(path: &str, emit_dts: bool) {
             eprintln!("Failed to write {}: {err}", dts_path.display());
             std::process::exit(1);
         }
+    }
+}
+
+fn run_import_dts(path: &str, out: Option<&str>) {
+    debug_log(&format!("[huskc] reading .d.ts: {path}"));
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", path);
+            std::process::exit(1);
+        }
+    };
+
+    debug_log("[huskc] importing .d.ts");
+    let husk = dts_import::import_dts_str(&content);
+
+    if let Some(out_path) = out {
+        if let Err(err) = fs::write(out_path, husk) {
+            eprintln!("Failed to write {}: {err}", out_path);
+            std::process::exit(1);
+        }
+    } else {
+        println!("{husk}");
     }
 }
 
