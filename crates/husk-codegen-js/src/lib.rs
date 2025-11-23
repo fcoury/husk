@@ -45,6 +45,12 @@ pub enum JsExpr {
         object: Box<JsExpr>,
         property: String,
     },
+    /// Conditional (ternary) expression: `test ? then_branch : else_branch`.
+    Conditional {
+        test: Box<JsExpr>,
+        then_branch: Box<JsExpr>,
+        else_branch: Box<JsExpr>,
+    },
     Call {
         callee: Box<JsExpr>,
         args: Vec<JsExpr>,
@@ -203,11 +209,67 @@ fn lower_expr(expr: &Expr) -> JsExpr {
                 right: Box::new(lower_expr(right)),
             }
         }
+        ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms),
         // Not yet supported in codegen.
-        ExprKind::Unary { .. } | ExprKind::Match { .. } | ExprKind::Block(_) => {
-            JsExpr::Ident("undefined".to_string())
+        ExprKind::Unary { .. } | ExprKind::Block(_) => JsExpr::Ident("undefined".to_string()),
+    }
+}
+
+fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm]) -> JsExpr {
+    use husk_ast::PatternKind;
+
+    let scrutinee_js = lower_expr(scrutinee);
+
+    // Build nested conditional expression from the arms, folding from the end.
+    // For a catch-all (wildcard or binding) arm, we treat its body as the final `else`.
+    fn pattern_test(pattern: &husk_ast::Pattern, scrutinee_js: &JsExpr) -> Option<JsExpr> {
+        match &pattern.kind {
+            PatternKind::EnumUnit { path } => {
+                // Use the last path segment as the variant tag string.
+                let variant = path
+                    .last()
+                    .map(|id| id.name.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let tag_access = JsExpr::Member {
+                    object: Box::new(scrutinee_js.clone()),
+                    property: "tag".to_string(),
+                };
+                Some(JsExpr::Binary {
+                    op: JsBinaryOp::EqEq,
+                    left: Box::new(tag_access),
+                    right: Box::new(JsExpr::String(variant)),
+                })
+            }
+            PatternKind::Wildcard | PatternKind::Binding(_) => None,
+            // Tuple/struct patterns are not yet supported in codegen.
+            PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => None,
         }
     }
+
+    if arms.is_empty() {
+        return JsExpr::Ident("undefined".to_string());
+    }
+
+    // Start from the last arm as the innermost expression.
+    let mut iter = arms.iter().rev();
+    let last_arm = iter.next().unwrap();
+    let mut acc = lower_expr(&last_arm.expr);
+
+    for arm in iter {
+        if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
+            let then_expr = lower_expr(&arm.expr);
+            acc = JsExpr::Conditional {
+                test: Box::new(test),
+                then_branch: Box::new(then_expr),
+                else_branch: Box::new(acc),
+            };
+        } else {
+            // Catch-all arm: replace accumulator with its expression.
+            acc = lower_expr(&arm.expr);
+        }
+    }
+
+    acc
 }
 
 impl JsModule {
@@ -323,6 +385,19 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             }
             out.push(')');
         }
+        JsExpr::Conditional {
+            test,
+            then_branch,
+            else_branch,
+        } => {
+            out.push('(');
+            write_expr(test, out);
+            out.push_str(" ? ");
+            write_expr(then_branch, out);
+            out.push_str(" : ");
+            write_expr(else_branch, out);
+            out.push(')');
+        }
         JsExpr::Binary { op, left, right } => {
             write_expr(left, out);
             out.push(' ');
@@ -347,6 +422,11 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use husk_ast::{
+        ExprKind as HuskExprKind, Ident as HuskIdent, Literal as HuskLiteral,
+        LiteralKind as HuskLiteralKind, MatchArm as HuskMatchArm, Pattern as HuskPattern,
+        PatternKind as HuskPatternKind, Span as HuskSpan,
+    };
 
     #[test]
     fn prints_simple_function() {
@@ -392,5 +472,83 @@ mod tests {
         out.clear();
         write_expr(&member, &mut out);
         assert_eq!(out, "color.tag");
+    }
+
+    #[test]
+    fn lowers_simple_enum_match_to_conditional() {
+        // Construct a minimal AST for:
+        // enum Color { Red, Blue }
+        // fn f(c: Color) -> i32 {
+        //     match c {
+        //         Color::Red => 1,
+        //         Color::Blue => 2,
+        //     }
+        // }
+
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let c_ident = ident("c", 0);
+        let scrutinee = husk_ast::Expr {
+            kind: HuskExprKind::Ident(c_ident.clone()),
+            span: c_ident.span.clone(),
+        };
+
+        let color_ident = ident("Color", 10);
+        let red_pat = HuskPattern {
+            kind: HuskPatternKind::EnumUnit {
+                path: vec![color_ident.clone(), ident("Red", 20)],
+            },
+            span: span(10, 23),
+        };
+        let blue_pat = HuskPattern {
+            kind: HuskPatternKind::EnumUnit {
+                path: vec![color_ident.clone(), ident("Blue", 30)],
+            },
+            span: span(24, 38),
+        };
+
+        let arm_red = HuskMatchArm {
+            pattern: red_pat,
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Literal(HuskLiteral {
+                    kind: HuskLiteralKind::Int(1),
+                    span: span(40, 41),
+                }),
+                span: span(40, 41),
+            },
+        };
+        let arm_blue = HuskMatchArm {
+            pattern: blue_pat,
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Literal(HuskLiteral {
+                    kind: HuskLiteralKind::Int(2),
+                    span: span(50, 51),
+                }),
+                span: span(50, 51),
+            },
+        };
+
+        let match_expr = husk_ast::Expr {
+            kind: HuskExprKind::Match {
+                scrutinee: Box::new(scrutinee),
+                arms: vec![arm_red, arm_blue],
+            },
+            span: span(0, 60),
+        };
+
+        let js = lower_expr(&match_expr);
+        let mut out = String::new();
+        write_expr(&js, &mut out);
+
+        // Should produce something like: (c.tag == "Red" ? 1 : 2)
+        assert!(out.contains("c.tag"));
+        assert!(out.contains("=="));
+        assert!(out.contains("\"Red\""));
+        assert!(out.contains(" ? "));
+        assert!(out.contains(" : "));
     }
 }
