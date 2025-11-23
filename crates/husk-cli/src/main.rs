@@ -210,7 +210,7 @@ fn run_compile(path: &str) {
 
     debug_log("[huskc] lowering to JS");
     let module = lower_file_to_js(&file);
-    let js = module.to_source();
+    let js = module.to_source_with_preamble();
     println!("{js}");
 }
 

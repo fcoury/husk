@@ -6,6 +6,7 @@
 //! - A minimal lowering from Husk AST to this JS AST for simple functions.
 
 use husk_ast::{Expr, ExprKind, File, ItemKind, LiteralKind, Param, Stmt, StmtKind};
+use husk_runtime_js::std_preamble_js;
 
 /// A JavaScript module (ES module) consisting of a list of statements.
 #[derive(Debug, Clone, PartialEq)]
@@ -188,6 +189,18 @@ impl JsModule {
             write_stmt(stmt, 0, &mut out);
             out.push('\n');
         }
+        out
+    }
+
+    /// Render the module to a JavaScript source string with the Husk preamble.
+    pub fn to_source_with_preamble(&self) -> String {
+        let mut out = String::new();
+        out.push_str(std_preamble_js());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push('\n');
+        out.push_str(&self.to_source());
         out
     }
 }
