@@ -36,3 +36,7 @@ These instructions apply to all files in this repository unless overridden by a 
 ## Linting
 
 - After completing a task, run `cargo clippy --all -- -D warnings` at the workspace root and for each warning reported, evaluate whether it's a problem or if it's related to unused code, if it's something we will use in the future, if we forgot to implement something or if we should just remove the code.
+
+## Testing
+
+- After completing a task, run `cargo test --all` at the workspace root to ensure all tests pass across all crates.

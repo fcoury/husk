@@ -161,7 +161,12 @@ impl TypeChecker {
                 ItemKind::TypeAlias { name, ty } => {
                     self.env.type_aliases.insert(name.name.clone(), ty.clone());
                 }
-                ItemKind::Fn { name, params, ret_type, .. } => {
+                ItemKind::Fn {
+                    name,
+                    params,
+                    ret_type,
+                    ..
+                } => {
                     let def = FnDef {
                         params: params.clone(),
                         ret_type: ret_type.clone(),
@@ -170,7 +175,11 @@ impl TypeChecker {
                 }
                 ItemKind::ExternBlock { items, .. } => {
                     for ext in items {
-                        let husk_ast::ExternItemKind::Fn { name, params, ret_type } = &ext.kind;
+                        let husk_ast::ExternItemKind::Fn {
+                            name,
+                            params,
+                            ret_type,
+                        } = &ext.kind;
                         let def = FnDef {
                             params: params.clone(),
                             ret_type: ret_type.clone(),
