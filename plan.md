@@ -153,26 +153,46 @@ The initial language version will support:
 
 ### 5.1 Representation Strategy
 
+- **Primitives**:
+  - `i32` → JS `number`.
+  - `bool` → JS `boolean`.
+  - `String` → JS `string`.
+  - `()` (unit) → JS `undefined` (this matches how `return;` is currently lowered).
 - **Structs**:
-  - Compile to plain JS objects:
+  - Compile to plain JS objects whose fields mirror the struct fields:
     ```javascript
     const user = { name: "Alice", id: 1 };
     ```
+  - Generic structs erase type parameters at runtime; all `Box<T>` instances are just plain objects.
 - **Enums**:
-  - Compile to tagged unions:
+  - Individual enum *values* compile to tagged-union objects with a `tag` field and payload fields:
+    ```javascript
+    // Conceptual shape for values of `enum Message<T> { Quit, Move { x: i32, y: i32 }, Write(T) }`
+    { tag: "Quit" }
+    { tag: "Move", x, y }
+    { tag: "Write", value }
+    ```
+  - For convenience, codegen may also emit a namespace-like object of constructors:
     ```javascript
     const Message = {
       Quit: { tag: "Quit" },
       Move: (x, y) => ({ tag: "Move", x, y }),
-      Write: (text) => ({ tag: "Write", text }),
+      Write: (value) => ({ tag: "Write", value }),
     };
     ```
+  - `Result<T, E>` uses the standard runtime constructors from `std_preamble.js`:
+    - `Ok(value)` → `{ tag: "Ok", value }`
+    - `Err(error)` → `{ tag: "Err", error }`
+  - Generic enums also use type erasure; all instantiations share the same runtime representation.
 - **Pattern Matching**:
-  - Compile `match` expressions into `switch` or `if/else` chains on `tag`, with temporary variables binding payloads.
-- **Modules**:
-  - Map language modules to ES modules:
-    - `export` for public functions/types.
-    - `import` for dependent modules.
+  - Compile `match` expressions into `switch` or `if/else` chains on `value.tag`, with temporary variables binding payloads for each arm.
+  - Where helpful, the `matchEnum(value, handlers)` helper from `std_preamble.js` can be used as a lowering target for simple matches.
+- **Functions and Modules**:
+  - Functions compile to ordinary JS functions. Higher-order functions are just values of function type.
+  - Each Husk source file is compiled as an ES module:
+    - Top-level items that are conceptually “public” become `export`ed bindings.
+    - Future visibility modifiers (`pub`, etc.) will refine which items are exported.
+  - Imported Husk or JS modules are referenced using ES `import` syntax in the generated JS.
 
 ### 5.2 Codegen Pipeline
 

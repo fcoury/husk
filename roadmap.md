@@ -40,14 +40,15 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 ## Phase 3 – JavaScript Backend & Runtime
 
-- [ ] Design JS representation for:
-  - [ ] Primitives.
-  - [ ] Structs.
-  - [ ] Enums (tagged unions).
-  - [ ] Functions and modules (ES modules).
-- [ ] Implement JS AST types and builders (`husk-codegen-js`).
+- [x] Design JS representation for:
+  - [x] Primitives.
+  - [x] Structs.
+  - [x] Enums (tagged unions).
+  - [x] Functions and modules (ES modules).
+- [x] Implement JS AST types and builders (`husk-codegen-js`).
+  - [x] Basic expressions, functions, and statements.
+  - [x] Object literals and property access for struct/enum representations.
 - [ ] Implement codegen from typed AST to JS AST and then to source.
-- [ ] Implement JS pretty-printer for stable, readable output.
 - [ ] Design contents and API surface of `std_preamble.js`.
 - [ ] Implement micro-runtime helpers:
   - [ ] `Ok` / `Err` constructors.
