@@ -7,6 +7,7 @@ edition = "2024"
 husk-parser = { path = "../husk-parser" }
 husk-semantic = { path = "../husk-semantic" }
 husk-codegen-js = { path = "../husk-codegen-js" }
+clap = { version = "4", features = ["derive"] }
 
 [[bin]]
 name = "huskc"
