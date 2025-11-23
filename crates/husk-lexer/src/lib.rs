@@ -1,0 +1,434 @@
+//! Lexical analysis: convert source text into a stream of tokens.
+
+use std::ops::Range;
+
+/// A span in the source file, represented as a byte range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Span {
+    pub range: Range<usize>,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { range: start..end }
+    }
+}
+
+/// Language keywords (subset for the MVP).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Keyword {
+    Fn,
+    Let,
+    Mut,
+    Struct,
+    Enum,
+    Type,
+    Extern,
+    If,
+    Else,
+    While,
+    Match,
+    Return,
+    True,
+    False,
+    Break,
+    Continue,
+}
+
+/// Token kinds produced by the lexer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
+    Ident(String),
+    IntLiteral(String),
+    StringLiteral(String),
+    Keyword(Keyword),
+    // Punctuation
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    Comma,
+    Colon,
+    Semicolon,
+    Dot,
+    Arrow,    // ->
+    FatArrow, // =>
+    Eq,       // =
+    EqEq,     // ==
+    Bang,     // !
+    BangEq,   // !=
+    Lt,       // <
+    Gt,       // >
+    Le,       // <=
+    Ge,       // >=
+    AndAnd,   // &&
+    OrOr,     // ||
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    // End of input
+    Eof,
+}
+
+/// A token with its kind and source span.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
+/// Simple lexer over a UTF-8 string.
+pub struct Lexer<'src> {
+    src: &'src str,
+    chars: std::str::CharIndices<'src>,
+    peeked: Option<(usize, char)>,
+    end: usize,
+}
+
+impl<'src> Lexer<'src> {
+    pub fn new(src: &'src str) -> Self {
+        let end = src.len();
+        Self {
+            src,
+            chars: src.char_indices(),
+            peeked: None,
+            end,
+        }
+    }
+
+    fn bump(&mut self) -> Option<(usize, char)> {
+        if let Some(p) = self.peeked.take() {
+            Some(p)
+        } else {
+            self.chars.next()
+        }
+    }
+
+    fn peek(&mut self) -> Option<(usize, char)> {
+        if self.peeked.is_none() {
+            self.peeked = self.chars.next();
+        }
+        self.peeked
+    }
+
+    fn make_span(&self, start: usize, end: usize) -> Span {
+        Span::new(start, end)
+    }
+
+    fn consume_while<F>(&mut self, start: usize, mut pred: F) -> (Span, &'src str)
+    where
+        F: FnMut(char) -> bool,
+    {
+        let mut last = start;
+        while let Some((idx, ch)) = self.peek() {
+            if !pred(ch) {
+                break;
+            }
+            last = idx;
+            self.bump();
+        }
+        let end = if last == start { start } else { last + 1 };
+        let span = self.make_span(start, end);
+        let lexeme = &self.src[span.range.clone()];
+        (span, lexeme)
+    }
+
+    fn skip_whitespace_and_comments(&mut self) {
+        loop {
+            let mut progressed = false;
+            while let Some((_, ch)) = self.peek() {
+                if ch.is_whitespace() {
+                    progressed = true;
+                    self.bump();
+                } else {
+                    break;
+                }
+            }
+            // Line comment: //
+            if let Some((start, '/')) = self.peek() {
+                let mut clone = self.chars.clone();
+                if let Some((_, '/')) = clone.next() {
+                    // consume the first '/'
+                    self.bump();
+                    // consume the second '/'
+                    self.bump();
+                    progressed = true;
+                    // consume until end of line
+                    while let Some((_, ch)) = self.peek() {
+                        if ch == '\n' {
+                            break;
+                        }
+                        self.bump();
+                    }
+                    continue;
+                } else {
+                    // not actually a comment
+                    let _ = start;
+                }
+            }
+            if !progressed {
+                break;
+            }
+        }
+    }
+
+    fn classify_ident_or_keyword(&self, span: Span, text: &str) -> Token {
+        let kind = match text {
+            "fn" => TokenKind::Keyword(Keyword::Fn),
+            "let" => TokenKind::Keyword(Keyword::Let),
+            "mut" => TokenKind::Keyword(Keyword::Mut),
+            "struct" => TokenKind::Keyword(Keyword::Struct),
+            "enum" => TokenKind::Keyword(Keyword::Enum),
+            "type" => TokenKind::Keyword(Keyword::Type),
+            "extern" => TokenKind::Keyword(Keyword::Extern),
+            "if" => TokenKind::Keyword(Keyword::If),
+            "else" => TokenKind::Keyword(Keyword::Else),
+            "while" => TokenKind::Keyword(Keyword::While),
+            "match" => TokenKind::Keyword(Keyword::Match),
+            "break" => TokenKind::Keyword(Keyword::Break),
+            "continue" => TokenKind::Keyword(Keyword::Continue),
+            "return" => TokenKind::Keyword(Keyword::Return),
+            "true" => TokenKind::Keyword(Keyword::True),
+            "false" => TokenKind::Keyword(Keyword::False),
+            _ => TokenKind::Ident(text.to_string()),
+        };
+        Token { kind, span }
+    }
+
+    fn lex_number(&mut self, start: usize, first_ch: char) -> Token {
+        let (span, text) = self.consume_while(start, |c| c.is_ascii_digit());
+        let full_span = if span.range.start == span.range.end {
+            // only first_ch
+            Span::new(start, start + first_ch.len_utf8())
+        } else {
+            span
+        };
+        let lexeme = &self.src[full_span.range.clone()];
+        Token {
+            kind: TokenKind::IntLiteral(lexeme.to_string()),
+            span: full_span,
+        }
+    }
+
+    fn lex_ident_or_keyword(&mut self, start: usize) -> Token {
+        let (span, text) = self.consume_while(start, |c| c.is_alphanumeric() || c == '_');
+        self.classify_ident_or_keyword(span, text)
+    }
+
+    fn lex_string(&mut self, start: usize) -> Token {
+        // Assumes opening quote has already been consumed.
+        let mut end = start;
+        while let Some((idx, ch)) = self.bump() {
+            if ch == '"' {
+                end = idx + 1;
+                break;
+            }
+        }
+        let span = self.make_span(start, end);
+        let text = &self.src[span.range.clone()];
+        // Strip quotes if present
+        let value = text
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or("")
+            .to_string();
+        Token {
+            kind: TokenKind::StringLiteral(value),
+            span,
+        }
+    }
+}
+
+impl<'src> Iterator for Lexer<'src> {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.skip_whitespace_and_comments();
+        let (start, ch) = match self.bump() {
+            Some(pair) => pair,
+            None => {
+                let span = Span::new(self.end, self.end);
+                return Some(Token {
+                    kind: TokenKind::Eof,
+                    span,
+                });
+            }
+        };
+
+        let token = match ch {
+            c if c.is_ascii_alphabetic() || c == '_' => self.lex_ident_or_keyword(start),
+            c if c.is_ascii_digit() => self.lex_number(start, c),
+            '"' => self.lex_string(start),
+            '(' => Token {
+                kind: TokenKind::LParen,
+                span: Span::new(start, start + 1),
+            },
+            ')' => Token {
+                kind: TokenKind::RParen,
+                span: Span::new(start, start + 1),
+            },
+            '{' => Token {
+                kind: TokenKind::LBrace,
+                span: Span::new(start, start + 1),
+            },
+            '}' => Token {
+                kind: TokenKind::RBrace,
+                span: Span::new(start, start + 1),
+            },
+            ',' => Token {
+                kind: TokenKind::Comma,
+                span: Span::new(start, start + 1),
+            },
+            ':' => Token {
+                kind: TokenKind::Colon,
+                span: Span::new(start, start + 1),
+            },
+            ';' => Token {
+                kind: TokenKind::Semicolon,
+                span: Span::new(start, start + 1),
+            },
+            '.' => Token {
+                kind: TokenKind::Dot,
+                span: Span::new(start, start + 1),
+            },
+            '-' => {
+                if let Some((idx2, '>')) = self.peek() {
+                    // consume '>'
+                    self.bump();
+                    Token {
+                        kind: TokenKind::Arrow,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Minus,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            '=' => {
+                if let Some((idx2, next)) = self.peek() {
+                    match next {
+                        '>' => {
+                            self.bump();
+                            Token {
+                                kind: TokenKind::FatArrow,
+                                span: Span::new(start, idx2 + 1),
+                            }
+                        }
+                        '=' => {
+                            self.bump();
+                            Token {
+                                kind: TokenKind::EqEq,
+                                span: Span::new(start, idx2 + 1),
+                            }
+                        }
+                        _ => Token {
+                            kind: TokenKind::Eq,
+                            span: Span::new(start, start + 1),
+                        },
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Eq,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            '+' => Token {
+                kind: TokenKind::Plus,
+                span: Span::new(start, start + 1),
+            },
+            '*' => Token {
+                kind: TokenKind::Star,
+                span: Span::new(start, start + 1),
+            },
+            '/' => Token {
+                kind: TokenKind::Slash,
+                span: Span::new(start, start + 1),
+            },
+            '!' => {
+                if let Some((idx2, '=')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::BangEq,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Bang,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            '<' => {
+                if let Some((idx2, '=')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::Le,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Lt,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            '>' => {
+                if let Some((idx2, '=')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::Ge,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Gt,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            '&' => {
+                if let Some((idx2, '&')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::AndAnd,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    // Single '&' is currently unsupported; treat as EOF token to signal an error.
+                    Token {
+                        kind: TokenKind::Eof,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            '|' => {
+                if let Some((idx2, '|')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::OrOr,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    // Single '|' is currently unsupported; treat as EOF token to signal an error.
+                    Token {
+                        kind: TokenKind::Eof,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
+            _ => {
+                // Unknown character, skip for now; in the future we will emit diagnostics.
+                Token {
+                    kind: TokenKind::Eof,
+                    span: Span::new(start, start + 1),
+                }
+            }
+        };
+
+        Some(token)
+    }
+}

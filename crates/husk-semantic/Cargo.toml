@@ -1,0 +1,7 @@
+[package]
+name = "husk-semantic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+husk-ast = { path = "../husk-ast" }

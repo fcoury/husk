@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/husk-ast",
+    "crates/husk-lexer",
+    "crates/husk-parser",
+    "crates/husk-types",
+    "crates/husk-semantic",
+    "crates/husk-codegen-js",
+    "crates/husk-runtime-js",
+    "crates/husk-cli",
+]
