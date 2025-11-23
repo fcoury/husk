@@ -23,7 +23,7 @@ pub struct ParseResult {
 /// Parse a source string into an AST `File` and a list of parse errors.
 pub fn parse_str(source: &str) -> ParseResult {
     let tokens: Vec<Token> = Lexer::new(source).collect();
-    let mut parser = Parser::new(source, tokens);
+    let mut parser = Parser::new(tokens);
     let file = parser.parse_file();
     ParseResult {
         file: Some(file),
@@ -31,17 +31,15 @@ pub fn parse_str(source: &str) -> ParseResult {
     }
 }
 
-struct Parser<'src> {
-    source: &'src str,
+struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     pub errors: Vec<ParseError>,
 }
 
-impl<'src> Parser<'src> {
-    fn new(source: &'src str, tokens: Vec<Token>) -> Self {
+impl Parser {
+    fn new(tokens: Vec<Token>) -> Self {
         Self {
-            source,
             tokens,
             pos: 0,
             errors: Vec::new(),
@@ -417,12 +415,8 @@ impl<'src> Parser<'src> {
         if !self.matches_token(&TokenKind::Lt) {
             return params;
         }
-        loop {
-            if let Some(id) = self.parse_ident("expected type parameter name") {
-                params.push(id);
-            } else {
-                break;
-            }
+        while let Some(id) = self.parse_ident("expected type parameter name") {
+            params.push(id);
             if self.matches_token(&TokenKind::Gt) {
                 break;
             }
@@ -440,11 +434,7 @@ impl<'src> Parser<'src> {
             return params;
         }
 
-        loop {
-            let name = match self.parse_ident("expected parameter name") {
-                Some(id) => id,
-                None => break,
-            };
+        while let Some(name) = self.parse_ident("expected parameter name") {
             if !self.matches_token(&TokenKind::Colon) {
                 self.error_here("expected `:` after parameter name");
                 break;
@@ -1026,11 +1016,7 @@ impl<'src> Parser<'src> {
         if self.matches_token(&TokenKind::RParen) {
             return args;
         }
-        loop {
-            let arg = match self.parse_expr() {
-                Some(e) => e,
-                None => break,
-            };
+        while let Some(arg) = self.parse_expr() {
             args.push(arg);
             if self.matches_token(&TokenKind::RParen) {
                 break;

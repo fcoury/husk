@@ -153,7 +153,6 @@ impl<'src> Lexer<'src> {
                     self.bump();
                     // consume the second '/'
                     self.bump();
-                    progressed = true;
                     // consume until end of line
                     while let Some((_, ch)) = self.peek() {
                         if ch == '\n' {
@@ -197,7 +196,7 @@ impl<'src> Lexer<'src> {
     }
 
     fn lex_number(&mut self, start: usize, first_ch: char) -> Token {
-        let (span, text) = self.consume_while(start, |c| c.is_ascii_digit());
+        let (span, _text) = self.consume_while(start, |c| c.is_ascii_digit());
         let full_span = if span.range.start == span.range.end {
             // only first_ch
             Span::new(start, start + first_ch.len_utf8())
