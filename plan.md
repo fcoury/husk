@@ -358,8 +358,8 @@ To support real-world JS/TS libraries such as Express, interop will be developed
 ### 7.2 Standard Library (Language Side)
 
 - Core types and utilities:
-  - Option-like enums (`Option<T>`).
-  - Result-like enums (`Result<T, E>`), unless modeled via runtime only.
+  - Option-like enums (`Option<T>`), currently defined in `stdlib/core.hk`.
+  - Result-like enums (`Result<T, E>`), currently defined in `stdlib/core.hk` and aligned with the runtime `Ok`/`Err` tagged-union encoding.
 - Interop wrappers:
   - Safe wrappers for selected JS/Node/Web APIs, returning `Result` where appropriate.
 

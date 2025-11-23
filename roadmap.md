@@ -99,8 +99,8 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 ## Phase 5 – Standard Library & Ecosystem
 
-- [ ] Implement standard library modules in the language:
-  - [ ] Core types (Option, Result, etc., if not built-in).
+- [x] Implement standard library modules in the language:
+  - [x] Core types (Option, Result, etc., if not built-in).
 - [ ] Ensure versioning and compatibility strategy for the runtime.
 
 ---
