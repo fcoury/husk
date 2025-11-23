@@ -246,6 +246,99 @@ The initial language version will support:
   - Imported types are non-linear, shared, and may be mutable.
   - Advanced TS features are initially ignored or approximated.
 
+### 6.3 JS Library Interop: Express (Phased)
+
+To support real-world JS/TS libraries such as Express, interop will be developed in phases.
+
+#### 6.3.1 Minimal Express Interop (MVP)
+
+- Goals:
+  - Call basic Express APIs from Husk without relying on full automatic `.d.ts` ingestion.
+  - Keep Husk’s type system unchanged (no unions/overloads/etc.), and accept limited static typing.
+- Surface design:
+  - Define minimal Husk types for Express:
+    - `struct ExpressApp {}` (opaque application handle).
+    - `struct Request {}` and `struct Response {}` (opaque request/response handles).
+  - Define externs for the core entrypoint:
+    ```husk
+    extern "js" {
+        fn express() -> ExpressApp;
+    }
+    ```
+  - Treat methods such as `app.get(...)`, `res.send(...)` as ordinary method calls; the current type checker already type-checks method-call receivers and arguments but does not enforce method presence or return types.
+- Runtime expectations:
+  - The compiled JS must see an `express` function in its module scope that returns an object with a `get` method accepting `(path, handler)`.
+  - For tests, a small stub `express()` implementation can be injected ahead of the compiled code, without depending on the real `express` package.
+- Validation:
+  - A Husk example (e.g. `interop_express_minimal.hk`) that:
+    - Calls `express()`.
+    - Registers at least one route via `app.get("/path", handler)`.
+  - A Node integration test that:
+    - Compiles this example.
+    - Prepends a stub `express()` implementation.
+    - Executes the result under Node and asserts it exits successfully.
+
+#### 6.3.2 Medium-Fidelity Express Interop (Curated `.d.ts`)
+
+- Goals:
+  - Leverage `.d.ts` for Express, but against a **curated, Husk-friendly** declaration file instead of the full DefinitelyTyped definitions.
+  - Provide better static typing for core Express APIs without implementing the entire TS type system.
+- Tasks:
+  - Design a simplified `express.d.ts` that:
+    - Uses straightforward function signatures and interfaces.
+    - Avoids TS features that Husk does not support (conditional types, template literal types, heavy unions/intersections).
+    - Covers:
+      - `express()` factory.
+      - `Application` methods: `use`, `get`, `post`, etc.
+      - Basic `Request`/`Response` shapes (selected properties and methods).
+  - Extend the `.d.ts` importer to handle:
+    - Generic functions and interfaces (ignoring constraints and default type parameters).
+    - Simple unions where necessary, mapping them conservatively to a single Husk type when needed.
+  - Add a CLI workflow:
+    - Ship the curated `express.d.ts` with the project or document how to obtain it.
+    - Provide a recipe like:
+      ```bash
+      huskc import-dts express.d.ts -o express_externs.hk
+      ```
+    - Ensure the generated `express_externs.hk` is usable in Husk projects.
+  - Add integration tests that:
+    - Import the curated `express.d.ts`.
+    - Compile a Husk example using the generated externs.
+    - Run it under Node with a stub (or real) Express implementation.
+
+#### 6.3.3 High-Fidelity Express / Node Typings (Future)
+
+- Goals:
+  - Support ingesting the real `@types/express` and its dependencies with high fidelity.
+  - Provide strong, TS-grade static typing for Express and related Node APIs in Husk.
+- Required TS features to handle:
+  - Module patterns:
+    - `export =`, `declare namespace`, `import = require()`, and module augmentation via `declare global`.
+  - Advanced generics:
+    - Deeply generic interfaces/type aliases with defaults and constraints.
+    - Higher-order types used in routing and middleware APIs.
+  - Overloads:
+    - Multiple function/method signatures per identifier, selecting the appropriate one based on argument shapes.
+  - Unions, intersections, and literal types:
+    - `string | RegExp | Array<string | RegExp>`, HTTP method string unions, etc.
+  - Conditional types and template literal types:
+    - For route template inference and more advanced helpers.
+  - Mapped types and utility types:
+    - `Record`, `Partial`, `Readonly`, and custom mapped types used in the Express/Node typings.
+- Husk-side implications:
+  - Potentially extend Husk’s type system with:
+    - Union types (and perhaps intersection types).
+    - Literal types (string/number literals) and/or tagged unions that map back to them.
+  - Decide how far to go in emulating TS semantics vs. erasing/approximating them to simpler Husk types.
+- Infrastructure:
+  - A more robust `.d.ts` parser and module resolver that:
+    - Follows `import` and `/// <reference types="..."/>` across `node_modules/@types`.
+    - Can selectively include only the necessary parts of the declaration graph (e.g., Express + minimal Node HTTP types).
+  - Integration tests on real packages:
+    - Import `@types/express` and selected dependencies.
+    - Generate Husk externs and compile Husk examples.
+    - Type-check and run them under Node with a real Express server in controlled conditions.
+
 ---
 
 ## 7. Runtime and Standard Library
