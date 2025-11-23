@@ -11,7 +11,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Decide definitive MVP syntax subset.
 - [x] Define token set and trivia handling.
 - [x] Implement lexer (`husk-lexer`).
-- [ ] Implement parser (`husk-parser`) for:
+- [x] Implement parser (`husk-parser`) for:
   - [x] Expressions.
   - [x] Statements.
   - [x] Function items.
@@ -31,7 +31,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Implement type checking for:
   - [x] Primitive types.
   - [x] Structs (including generic structs).
-  - [x] Generic enums (e.g. `Option<T>`, `Result<T, E>`). (*match expressions not yet parsed; exhaustiveness to be added when `match` lands in the parser.*)
+  - [x] Generic enums (e.g. `Option<T>`, `Result<T, E>`). (_match expressions not yet parsed; exhaustiveness to be added when `match` lands in the parser._)
   - [x] Function calls and returns.
   - [ ] `match` exhaustiveness on enums.
 - [x] Extend CLI with `check` mode that runs full semantic analysis.
