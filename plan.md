@@ -203,6 +203,13 @@ The initial language version will support:
 - (Optional) Source Maps:
   - Track source positions through IR and JS AST to optionally generate source maps.
 
+### 5.3 Runtime Bundling Strategy
+
+- For the MVP, the JavaScript micro-runtime (`std_preamble.js`) is **inlined** at the top of every generated module:
+  - `husk-codegen-js` exposes `JsModule::to_source_with_preamble()`, which prepends the preamble helpers to the emitted JS.
+  - `huskc compile` uses this inlined form so compiled output is a single self-contained JS file.
+- A separate, shared runtime file (e.g., as an import) can be introduced later if/when bundling and code-reuse become more important than single-file simplicity.
+
 ---
 
 ## 6. TypeScript Interop
@@ -235,8 +242,9 @@ The initial language version will support:
 ### 7.1 Micro-Runtime (`std_preamble.js`)
 
 - Provide small, reusable helpers:
-  - `Ok` and `Err` constructors for `Result`.
-  - A simple `match` helper if needed for runtime pattern matching.
+  - `Ok` and `Err` constructors for `Result`-like values, encoded as tagged unions
+    `{ tag: "Ok", value }` and `{ tag: "Err", error }`.
+  - A simple `match` helper (`matchEnum`) for runtime pattern matching on tagged unions.
   - `panic` implementation (throwing an error or similar).
 - Ensure the runtime is:
   - Small (goal: under ~1 KB minified).

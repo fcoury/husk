@@ -48,16 +48,16 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Implement JS AST types and builders (`husk-codegen-js`).
   - [x] Basic expressions, functions, and statements.
   - [x] Object literals and property access for struct/enum representations.
-- [ ] Implement codegen from typed AST to JS AST and then to source.
-- [ ] Design contents and API surface of `std_preamble.js`.
-- [ ] Implement micro-runtime helpers:
-  - [ ] `Ok` / `Err` constructors.
-  - [ ] Optional `match` helper.
-  - [ ] `panic` / assertion utilities.
-- [ ] Implement shim generator for `extern` functions (auto-wrap calls in `try/catch` and return `Result`).
-- [ ] Decide bundling strategy for runtime (inline vs. separate file).
-- [ ] Integrate codegen and runtime into CLI (`huskc compile`).
-- [ ] Create small E2E examples that compile and run under Node using `std_preamble.js`.
+- [x] Implement codegen from typed AST to JS AST and then to source.
+- [x] Design contents and API surface of `std_preamble.js`.
+- [x] Implement micro-runtime helpers:
+  - [x] `Ok` / `Err` constructors.
+  - [x] Optional `match` helper.
+  - [x] `panic` / assertion utilities.
+- [x] Implement shim generator for `extern` functions (auto-wrap calls in `try/catch` and return `Result`).
+- [x] Decide bundling strategy for runtime (inline vs. separate file).
+- [x] Integrate codegen and runtime into CLI (`huskc compile`).
+- [x] Create small E2E examples that compile and run under Node using `std_preamble.js`.
 
 ---
 
