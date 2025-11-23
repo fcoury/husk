@@ -6,8 +6,8 @@
 //! - A minimal lowering from Husk AST to this JS AST for simple functions.
 
 use husk_ast::{
-    Expr, ExprKind, ExternItemKind, File, ItemKind, LiteralKind, Param, Stmt, StmtKind, TypeExpr,
-    TypeExprKind,
+    EnumVariantFields, Expr, ExprKind, ExternItemKind, File, Ident, ItemKind, LiteralKind, Param,
+    Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
 };
 use husk_runtime_js::std_preamble_js;
 
@@ -94,6 +94,7 @@ pub enum JsBinaryOp {
 /// - Basic expressions (literals, identifiers, calls, and arithmetic/boolean binary ops).
 pub fn lower_file_to_js(file: &File) -> JsModule {
     let mut body = Vec::new();
+    let mut has_main_entry = false;
     for item in &file.items {
         match &item.kind {
             ItemKind::Fn {
@@ -103,6 +104,9 @@ pub fn lower_file_to_js(file: &File) -> JsModule {
                 ..
             } => {
                 body.push(lower_fn(&name.name, params, fn_body));
+                if name.name == "main" && params.is_empty() {
+                    has_main_entry = true;
+                }
             }
             ItemKind::ExternBlock { abi, items } => {
                 if abi == "js" {
@@ -122,16 +126,39 @@ pub fn lower_file_to_js(file: &File) -> JsModule {
             _ => {}
         }
     }
+    if has_main_entry {
+        body.push(JsStmt::Expr(JsExpr::Call {
+            callee: Box::new(JsExpr::Ident("main".to_string())),
+            args: Vec::new(),
+        }));
+    }
     JsModule { body }
 }
 
 fn lower_fn(name: &str, params: &[Param], body: &[Stmt]) -> JsStmt {
     let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
-    let js_body = body.iter().map(lower_stmt).collect();
+    let mut js_body = Vec::new();
+    for (i, stmt) in body.iter().enumerate() {
+        let is_last = i + 1 == body.len();
+        if is_last {
+            js_body.push(lower_tail_stmt(stmt));
+        } else {
+            js_body.push(lower_stmt(stmt));
+        }
+    }
     JsStmt::Function {
         name: name.to_string(),
         params: js_params,
         body: js_body,
+    }
+}
+
+fn lower_tail_stmt(stmt: &Stmt) -> JsStmt {
+    match &stmt.kind {
+        // Treat a trailing expression statement as an implicit `return expr;`,
+        // to mirror Rust-style expression-bodied functions.
+        StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr)),
+        _ => lower_stmt(stmt),
     }
 }
 
@@ -532,6 +559,177 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
     }
 }
 
+// ========== TypeScript .d.ts emission ==========
+
+/// Convert a Husk AST file into a `.d.ts` TypeScript declaration string.
+pub fn file_to_dts(file: &File) -> String {
+    let mut out = String::new();
+
+    for item in &file.items {
+        match &item.kind {
+            ItemKind::Struct {
+                name,
+                type_params,
+                fields,
+            } => {
+                write_struct_dts(name, type_params, fields, &mut out);
+                out.push('\n');
+            }
+            ItemKind::Enum {
+                name,
+                type_params,
+                variants,
+            } => {
+                write_enum_dts(name, type_params, variants, &mut out);
+                out.push('\n');
+            }
+            ItemKind::Fn {
+                name,
+                type_params,
+                params,
+                ret_type,
+                ..
+            } => {
+                write_fn_dts(name, type_params, params, ret_type.as_ref(), &mut out);
+                out.push('\n');
+            }
+            _ => {}
+        }
+    }
+
+    out
+}
+
+fn write_struct_dts(name: &Ident, type_params: &[Ident], fields: &[StructField], out: &mut String) {
+    out.push_str("export interface ");
+    out.push_str(&name.name);
+    write_type_params(type_params, out);
+    out.push_str(" {\n");
+    for field in fields {
+        out.push_str("    ");
+        out.push_str(&field.name.name);
+        out.push_str(": ");
+        write_type_expr(&field.ty, out);
+        out.push_str(";\n");
+    }
+    out.push_str("}\n");
+}
+
+fn write_enum_dts(
+    name: &Ident,
+    type_params: &[Ident],
+    variants: &[husk_ast::EnumVariant],
+    out: &mut String,
+) {
+    out.push_str("export type ");
+    out.push_str(&name.name);
+    write_type_params(type_params, out);
+    out.push_str(" =\n");
+
+    for (i, variant) in variants.iter().enumerate() {
+        out.push_str("  | { tag: \"");
+        out.push_str(&variant.name.name);
+        out.push('"');
+
+        match &variant.fields {
+            EnumVariantFields::Unit => {}
+            EnumVariantFields::Tuple(tys) => {
+                if tys.len() == 1 {
+                    out.push_str("; value: ");
+                    write_type_expr(&tys[0], out);
+                } else {
+                    for (idx, ty) in tys.iter().enumerate() {
+                        out.push_str("; value");
+                        out.push(char::from(b'0' + (idx as u8)));
+                        out.push_str(": ");
+                        write_type_expr(ty, out);
+                    }
+                }
+            }
+            EnumVariantFields::Struct(fields) => {
+                for field in fields {
+                    out.push_str("; ");
+                    out.push_str(&field.name.name);
+                    out.push_str(": ");
+                    write_type_expr(&field.ty, out);
+                }
+            }
+        }
+
+        out.push_str(" }");
+        if i + 1 < variants.len() {
+            out.push('\n');
+        } else {
+            out.push_str(";\n");
+        }
+    }
+}
+
+fn write_fn_dts(
+    name: &Ident,
+    type_params: &[Ident],
+    params: &[Param],
+    ret_type: Option<&TypeExpr>,
+    out: &mut String,
+) {
+    out.push_str("export function ");
+    out.push_str(&name.name);
+    write_type_params(type_params, out);
+    out.push('(');
+    for (i, param) in params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&param.name.name);
+        out.push_str(": ");
+        write_type_expr(&param.ty, out);
+    }
+    out.push(')');
+    out.push_str(": ");
+    if let Some(ret) = ret_type {
+        write_type_expr(ret, out);
+    } else {
+        out.push_str("void");
+    }
+    out.push_str(";\n");
+}
+
+fn write_type_params(type_params: &[Ident], out: &mut String) {
+    if !type_params.is_empty() {
+        out.push('<');
+        for (i, tp) in type_params.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&tp.name);
+        }
+        out.push('>');
+    }
+}
+
+fn write_type_expr(ty: &TypeExpr, out: &mut String) {
+    match &ty.kind {
+        TypeExprKind::Named(id) => match id.name.as_str() {
+            "i32" => out.push_str("number"),
+            "bool" => out.push_str("boolean"),
+            "String" => out.push_str("string"),
+            "()" => out.push_str("void"),
+            other => out.push_str(other),
+        },
+        TypeExprKind::Generic { name, args } => {
+            out.push_str(&name.name);
+            out.push('<');
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_type_expr(arg, out);
+            }
+            out.push('>');
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -664,6 +862,151 @@ mod tests {
         assert!(out.contains("\"Red\""));
         assert!(out.contains(" ? "));
         assert!(out.contains(" : "));
+    }
+
+    #[test]
+    fn adds_main_call_for_zero_arg_main_function() {
+        // Build a minimal Husk file with:
+        // fn main() { }
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let main_ident = ident("main", 0);
+        let fn_item = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: main_ident.clone(),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(0, 10),
+        };
+
+        let file = husk_ast::File {
+            items: vec![fn_item],
+        };
+
+        let module = lower_file_to_js(&file);
+        let src = module.to_source();
+
+        assert!(src.contains("function main()"));
+        assert!(src.contains("main();"));
+    }
+
+    #[test]
+    fn emits_basic_dts_for_struct_enum_and_function() {
+        // struct User { name: String, id: i32 }
+        // enum Color { Red, Blue }
+        // fn add(a: i32, b: i32) -> i32 { a + b }
+
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // struct User { name: String, id: i32 }
+        let user_ident = ident("User", 0);
+        let name_field_ident = ident("name", 10);
+        let id_field_ident = ident("id", 20);
+        let string_ty_ident = ident("String", 30);
+        let i32_ty_ident = ident("i32", 40);
+
+        let string_ty = HuskTypeExpr {
+            kind: HuskTypeExprKind::Named(string_ty_ident.clone()),
+            span: string_ty_ident.span.clone(),
+        };
+        let i32_ty = HuskTypeExpr {
+            kind: HuskTypeExprKind::Named(i32_ty_ident.clone()),
+            span: i32_ty_ident.span.clone(),
+        };
+
+        let user_struct = husk_ast::Item {
+            kind: husk_ast::ItemKind::Struct {
+                name: user_ident.clone(),
+                type_params: Vec::new(),
+                fields: vec![
+                    husk_ast::StructField {
+                        name: name_field_ident.clone(),
+                        ty: string_ty.clone(),
+                    },
+                    husk_ast::StructField {
+                        name: id_field_ident.clone(),
+                        ty: i32_ty.clone(),
+                    },
+                ],
+            },
+            span: span(0, 50),
+        };
+
+        // enum Color { Red, Blue }
+        let color_ident = ident("Color", 60);
+        let enum_item = husk_ast::Item {
+            kind: husk_ast::ItemKind::Enum {
+                name: color_ident.clone(),
+                type_params: Vec::new(),
+                variants: vec![
+                    husk_ast::EnumVariant {
+                        name: ident("Red", 70),
+                        fields: husk_ast::EnumVariantFields::Unit,
+                    },
+                    husk_ast::EnumVariant {
+                        name: ident("Blue", 80),
+                        fields: husk_ast::EnumVariantFields::Unit,
+                    },
+                ],
+            },
+            span: span(60, 100),
+        };
+
+        // fn add(a: i32, b: i32) -> i32 { a + b }
+        let add_ident = ident("add", 110);
+        let a_ident = ident("a", 120);
+        let b_ident = ident("b", 130);
+
+        let a_param = husk_ast::Param {
+            name: a_ident.clone(),
+            ty: i32_ty.clone(),
+        };
+        let b_param = husk_ast::Param {
+            name: b_ident.clone(),
+            ty: i32_ty.clone(),
+        };
+        let ret_ty = i32_ty.clone();
+
+        let add_fn = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: add_ident.clone(),
+                type_params: Vec::new(),
+                params: vec![a_param, b_param],
+                ret_type: Some(ret_ty),
+                body: Vec::new(),
+            },
+            span: span(110, 150),
+        };
+
+        let file = husk_ast::File {
+            items: vec![user_struct, enum_item, add_fn],
+        };
+
+        let dts = file_to_dts(&file);
+
+        assert!(dts.contains("export interface User"));
+        assert!(dts.contains("name: string;"));
+        assert!(dts.contains("id: number;"));
+
+        assert!(dts.contains("export type Color"));
+        assert!(dts.contains("{ tag: \"Red\" }"));
+        assert!(dts.contains("{ tag: \"Blue\" }"));
+
+        assert!(dts.contains("export function add"));
+        assert!(dts.contains("a: number"));
+        assert!(dts.contains("b: number"));
+        assert!(dts.contains("): number;"));
     }
 
     #[test]

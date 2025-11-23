@@ -61,6 +61,16 @@ The compiled output includes the inlined JavaScript preamble (`std_preamble.js`)
 
 For convenience, there is a small script under `scripts/` that compiles a Husk source file and runs the resulting JavaScript with Node.
 
+By convention, if your Husk module defines a zero-argument `fn main()`:
+
+```husk
+fn main() {
+    // your program entry point
+}
+```
+
+the generated JavaScript will include a call to `main();` at the end of the module, so running the compiled file under Node will automatically execute your program.
+
 Prerequisites:
 
 - Node.js installed and available on your `PATH`.
@@ -99,4 +109,3 @@ The `examples/` directory contains:
 - `examples/node_simple.hk` – a small program intended to be compiled and run under Node (good target for the `scripts/run_node_example.sh` script).
 
 All `.hk` examples are covered by the integration tests in `tests/examples.rs`, which ensure they parse, type-check, and lower to JS successfully.
-
