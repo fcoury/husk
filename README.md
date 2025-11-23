@@ -1,0 +1,102 @@
+# Husk
+
+Husk is an experimental, Rust-flavored language that compiles to modern JavaScript (ES modules). It focuses on:
+
+- Rust-like syntax for functions, structs, and enums.
+- Strong, static typing with enums and `match` (including exhaustiveness checks).
+- A small JavaScript micro-runtime (`std_preamble.js`) providing `Ok`/`Err`, `panic`, and basic tagged-union helpers.
+- A CLI compiler, `huskc`, implemented in Rust.
+
+The implementation is organized as a Rust workspace with multiple crates (`husk-ast`, `husk-lexer`, `husk-parser`, `husk-types`, `husk-semantic`, `husk-codegen-js`, `husk-runtime-js`, and `husk-cli`).
+
+## Building and Testing
+
+From the workspace root:
+
+- Format all crates:
+
+  ```bash
+  cargo fmt --all
+  ```
+
+- Run Clippy with warnings as errors:
+
+  ```bash
+  cargo clippy --all -- -D warnings
+  ```
+
+- Run all tests (unit + integration):
+
+  ```bash
+  cargo test --all
+  ```
+
+These commands are also expected to be run after each development task (see `AGENTS.md` for contributor guidance).
+
+## Using the CLI
+
+The CLI binary is called `huskc` and is built via Cargo.
+
+- Parse-only (frontend):
+
+  ```bash
+  cargo run --bin huskc -- examples/hello.hk
+  ```
+
+- Type-check a file:
+
+  ```bash
+  cargo run --bin huskc -- check examples/hello.hk
+  ```
+
+- Compile a Husk source file to JavaScript (printed to stdout):
+
+  ```bash
+  cargo run --bin huskc -- compile examples/hello.hk
+  ```
+
+The compiled output includes the inlined JavaScript preamble (`std_preamble.js`) at the top of the file.
+
+## Running a Husk Program under Node
+
+For convenience, there is a small script under `scripts/` that compiles a Husk source file and runs the resulting JavaScript with Node.
+
+Prerequisites:
+
+- Node.js installed and available on your `PATH`.
+- Rust toolchain and Cargo installed.
+
+Usage:
+
+```bash
+scripts/run_node_example.sh examples/node_simple.hk
+```
+
+This script:
+
+1. Changes to the repository root.
+2. Invokes:
+
+   ```bash
+   cargo run --quiet --bin huskc -- compile examples/node_simple.hk > target/husk-node-example.js
+   ```
+
+3. Runs the generated JS with:
+
+   ```bash
+   node target/husk-node-example.js
+   ```
+
+You can pass any `.hk` file path instead of `examples/node_simple.hk`, as long as it is a valid Husk program.
+
+## Examples
+
+The `examples/` directory contains:
+
+- `examples/hello.hk` – a minimal arithmetic and `if` example.
+- `examples/feature_match/simple_match.hk` – focused enum + `match` usage.
+- `examples/integration/basic_program.hk` – a larger integration example combining enums, generics, and `match`.
+- `examples/node_simple.hk` – a small program intended to be compiled and run under Node (good target for the `scripts/run_node_example.sh` script).
+
+All `.hk` examples are covered by the integration tests in `tests/examples.rs`, which ensure they parse, type-check, and lower to JS successfully.
+

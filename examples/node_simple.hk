@@ -1,0 +1,24 @@
+// Simple Husk program intended to be compiled and run under Node.
+// For now we rely on Node executing the generated JS and exercising
+// basic expressions and a `match` over an enum.
+
+enum Color {
+    Red,
+    Blue,
+}
+
+fn describe(color: Color) -> i32 {
+    match color {
+        Color::Red => 1,
+        Color::Blue => 2,
+    }
+}
+
+fn main() {
+    let c = Color::Red;
+    let n = describe(c);
+    // Final expression result is ignored by the runtime, but this ensures
+    // codegen covers function calls, enums, and match.
+    n;
+}
+
