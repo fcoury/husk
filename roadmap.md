@@ -79,21 +79,21 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Implement parser and translator from `.d.ts` to Husk `extern "js"` declarations.
 - [x] Implement generator for language `extern` declarations from imported `.d.ts` (via `huskc import-dts`).
 - [x] Decide on conservative assumptions for imported types (treated as ordinary, shared JS values in the MVP).
-- [ ] Validate by importing a small subset of real-world libraries.
+- [x] Validate by importing a small subset of real-world libraries.
 
 ### 4.3 Minimal JS Library Interop (Express MVP)
 
-- [ ] Design minimal Husk-facing Express surface:
-  - [ ] Define opaque types for `ExpressApp`, `Request`, and `Response`.
-  - [ ] Define `extern "js"` entrypoint for `express()` returning `ExpressApp`.
-- [ ] Implement a Husk example that:
-  - [ ] Calls `express()` to obtain an app instance.
-  - [ ] Registers at least one route via `app.get("/path", handler)`.
-  - [ ] Defines a handler function that uses `Request`/`Response` types and calls methods like `res.send(...)`.
-  - [ ] Extend Node integration tests to:
-  - [ ] Compile the minimal Express example to JS.
-  - [ ] Prepend a small stub `express()` implementation (no real `express` dependency).
-  - [ ] Execute the resulting JS under Node and assert successful exit.
+- [x] Design minimal Husk-facing Express surface:
+  - [x] Define opaque types for `ExpressApp`, `Request`, and `Response`.
+  - [x] Define `extern "js"` entrypoint for `express()` returning `ExpressApp`.
+- [x] Implement a Husk example that:
+  - [x] Calls `express()` to obtain an app instance.
+  - [x] Registers at least one route via `app.get("/path", handler)`.
+  - [x] Defines a handler function that uses `Request`/`Response` types and calls methods like `res.send(...)`.
+  - [x] Extend Node integration tests to:
+  - [x] Compile the minimal Express example to JS.
+  - [x] Prepend a small stub `express()` implementation (no real `express` dependency).
+  - [x] Execute the resulting JS under Node and assert successful exit.
 
 ### 4.4 JS Module Imports for Node/Bun
 
