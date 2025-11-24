@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+husk-lexer = { path = "../husk-lexer" }
 husk-parser = { path = "../husk-parser" }
 husk-semantic = { path = "../husk-semantic" }
 husk-codegen-js = { path = "../husk-codegen-js" }

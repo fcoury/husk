@@ -1,6 +1,9 @@
 //! Minimal `.d.ts` importer: parse a small subset of TypeScript
 //! declaration files and generate Husk `extern "js"` declarations.
 
+use husk_lexer::{is_keyword, is_valid_identifier};
+use husk_parser::derive_binding_from_package;
+
 /// Import a `.d.ts` source string and return Husk `extern "js"` code.
 ///
 /// This is intentionally narrow: it supports only simple function
@@ -9,7 +12,24 @@
 /// - `export declare function foo(a: number, b: string): boolean;`
 /// - `declare function foo(a: number): void;`
 /// - `export function foo(a: number): number;`
+///
+/// Note: TypeScript `void` return types are omitted in the output
+/// (Husk uses implicit unit return), e.g., `fn log(msg: String);`
+#[cfg(test)]
 pub fn import_dts_str(src: &str) -> String {
+    import_dts_str_with_module(src, None)
+}
+
+/// Import a `.d.ts` source string and return Husk `extern "js"` code.
+///
+/// If `module_name` is provided, a `mod` declaration is included
+/// at the beginning of the extern block to import the npm module.
+/// For package names containing hyphens or scopes (e.g., `lodash-es`, `@scope/pkg`),
+/// a string literal with `as alias` syntax is used.
+///
+/// Note: TypeScript `void` return types are omitted in the output
+/// (Husk uses implicit unit return), e.g., `fn log(msg: String);`
+pub fn import_dts_str_with_module(src: &str, module_name: Option<&str>) -> String {
     let mut fns = Vec::new();
 
     for line in src.lines() {
@@ -23,12 +43,31 @@ pub fn import_dts_str(src: &str) -> String {
         }
     }
 
-    if fns.is_empty() {
+    if fns.is_empty() && module_name.is_none() {
         return String::new();
     }
 
     let mut out = String::new();
     out.push_str("extern \"js\" {\n");
+
+    // Add module import declaration if specified
+    if let Some(mod_name) = module_name {
+        if is_valid_identifier(mod_name) {
+            // Simple identifier syntax: mod name;
+            out.push_str("    mod ");
+            out.push_str(mod_name);
+            out.push_str(";\n");
+        } else {
+            // Use string literal syntax: mod "package-name" as alias;
+            let alias = derive_binding_from_package(mod_name);
+            out.push_str("    mod \"");
+            out.push_str(mod_name);
+            out.push_str("\" as ");
+            out.push_str(&alias);
+            out.push_str(";\n");
+        }
+    }
+
     for f in fns {
         out.push_str("    fn ");
         out.push_str(&f.name);
@@ -60,6 +99,15 @@ struct ImportedFn {
     ret_type: Option<String>,
 }
 
+/// Escape a name if it's a reserved keyword by appending an underscore.
+fn escape_keyword(name: &str) -> String {
+    if is_keyword(name) {
+        format!("{}_", name)
+    } else {
+        name.to_string()
+    }
+}
+
 fn parse_function_decl(line: &str) -> Option<ImportedFn> {
     // Strip trailing semicolon.
     let mut s = line.trim_end_matches(';').trim();
@@ -78,7 +126,8 @@ fn parse_function_decl(line: &str) -> Option<ImportedFn> {
 
     // Split at '(' to get the name.
     let open_paren = rest.find('(')?;
-    let name = rest[..open_paren].trim().to_string();
+    let raw_name = rest[..open_paren].trim();
+    let name = escape_keyword(raw_name);
     let after_name = &rest[open_paren + 1..];
 
     // Find closing ')'.
@@ -127,10 +176,14 @@ fn parse_return_type(after_params: &str) -> Option<String> {
     }
     let ty_str = after[1..].trim();
     if ty_str.is_empty() {
-        None
-    } else {
-        Some(map_ts_type_to_husk(ty_str))
+        return None;
     }
+    // For void return types, omit the return type entirely (Husk uses implicit unit)
+    let ts_type = ty_str.split('|').next().unwrap_or(ty_str).trim();
+    if ts_type == "void" {
+        return None;
+    }
+    Some(map_ts_type_to_husk(ty_str))
 }
 
 fn map_ts_type_to_husk(ts: &str) -> String {
@@ -160,7 +213,8 @@ declare function log(message: string): void;
 
         assert!(husk.contains("extern \"js\" {"));
         assert!(husk.contains("fn add(a: i32, b: i32) -> i32;"));
-        assert!(husk.contains("fn log(message: String) -> ();"));
+        // void return type is omitted (Husk uses implicit unit)
+        assert!(husk.contains("fn log(message: String);"));
         assert!(husk.trim_end().ends_with('}'));
     }
 
@@ -188,8 +242,8 @@ export = mod;
             husk
         );
         assert!(
-            husk.contains("fn mod(number: i32, modulo: i32) -> i32;"),
-            "missing mod extern in:\n{}",
+            husk.contains("fn mod_(number: i32, modulo: i32) -> i32;"),
+            "missing mod_ extern (escaped from reserved keyword `mod`) in:\n{}",
             husk
         );
 
@@ -210,6 +264,70 @@ export = mod;
             "semantic errors for generated externs: symbols={:?}, types={:?}\nsource:\n{}",
             sem.symbols.errors,
             sem.type_errors,
+            husk
+        );
+    }
+
+    #[test]
+    fn import_dts_with_simple_module_name() {
+        let dts = "declare function init(): void;";
+        let husk = import_dts_str_with_module(dts, Some("express"));
+
+        assert!(husk.contains("mod express;"), "expected simple mod syntax in:\n{}", husk);
+        // void return type is omitted
+        assert!(husk.contains("fn init();"), "expected fn init() in:\n{}", husk);
+    }
+
+    #[test]
+    fn import_dts_with_hyphenated_module_name() {
+        use husk_parser::parse_str;
+        use husk_semantic::analyze_file;
+
+        let dts = "declare function init(): void;";
+        let husk = import_dts_str_with_module(dts, Some("lodash-es"));
+
+        assert!(
+            husk.contains(r#"mod "lodash-es" as lodash_es;"#),
+            "expected string literal mod syntax in:\n{}",
+            husk
+        );
+
+        // Verify the generated code parses and typechecks
+        let parsed = parse_str(&husk);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}\nsource:\n{}", parsed.errors, husk);
+        let file = parsed.file.expect("no AST");
+        let sem = analyze_file(&file);
+        assert!(
+            sem.symbols.errors.is_empty() && sem.type_errors.is_empty(),
+            "semantic errors: {:?}\nsource:\n{}",
+            (sem.symbols.errors, sem.type_errors),
+            husk
+        );
+    }
+
+    #[test]
+    fn import_dts_with_scoped_module_name() {
+        use husk_parser::parse_str;
+        use husk_semantic::analyze_file;
+
+        let dts = "declare function init(): void;";
+        let husk = import_dts_str_with_module(dts, Some("@myorg/my-lib"));
+
+        assert!(
+            husk.contains(r#"mod "@myorg/my-lib" as my_lib;"#),
+            "expected scoped mod syntax in:\n{}",
+            husk
+        );
+
+        // Verify the generated code parses and typechecks
+        let parsed = parse_str(&husk);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}\nsource:\n{}", parsed.errors, husk);
+        let file = parsed.file.expect("no AST");
+        let sem = analyze_file(&file);
+        assert!(
+            sem.symbols.errors.is_empty() && sem.type_errors.is_empty(),
+            "semantic errors: {:?}\nsource:\n{}",
+            (sem.symbols.errors, sem.type_errors),
             husk
         );
     }

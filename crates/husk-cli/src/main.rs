@@ -47,6 +47,11 @@ enum Command {
         /// Optional output path for the generated Husk file (stdout if omitted)
         #[arg(short, long)]
         out: Option<String>,
+        /// Include a `mod` declaration to import the npm module.
+        /// For valid identifiers: `mod name;`
+        /// For packages with hyphens/scopes: `mod "pkg" as alias;`
+        #[arg(short, long, value_name = "NAME")]
+        module: Option<String>,
     },
 }
 
@@ -67,7 +72,9 @@ fn main() {
             emit_dts,
             lib,
         }) => run_compile(&file, emit_dts, lib),
-        Some(Command::ImportDts { file, out }) => run_import_dts(&file, out.as_deref()),
+        Some(Command::ImportDts { file, out, module }) => {
+            run_import_dts(&file, out.as_deref(), module.as_deref())
+        }
         None => {
             // Default: just parse the file if provided.
             let file = match &cli.file {
@@ -244,7 +251,7 @@ fn run_compile(path: &str, emit_dts: bool, lib: bool) {
     }
 }
 
-fn run_import_dts(path: &str, out: Option<&str>) {
+fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
     debug_log(&format!("[huskc] reading .d.ts: {path}"));
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -255,7 +262,7 @@ fn run_import_dts(path: &str, out: Option<&str>) {
     };
 
     debug_log("[huskc] importing .d.ts");
-    let husk = dts_import::import_dts_str(&content);
+    let husk = dts_import::import_dts_str_with_module(&content, module);
 
     if let Some(out_path) = out {
         if let Err(err) = fs::write(out_path, husk) {

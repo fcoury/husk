@@ -20,6 +20,15 @@ pub struct JsModule {
 /// JavaScript statements (subset).
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsStmt {
+    /// `import name from "source";`
+    Import {
+        name: String,
+        source: String,
+    },
+    /// `export { name1, name2, ... };`
+    ExportNamed {
+        names: Vec<String>,
+    },
     /// `function name(params) { body }`
     Function {
         name: String,
@@ -103,9 +112,28 @@ pub enum JsBinaryOp {
 /// consumers should set this to `false` so `main` can be called
 /// explicitly by a host.
 pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
+    let mut imports = Vec::new();
     let mut body = Vec::new();
     let mut has_main_entry = false;
     let mut fn_names: Vec<String> = Vec::new();
+
+    // First pass: collect module imports
+    for item in &file.items {
+        if let ItemKind::ExternBlock { abi, items } = &item.kind {
+            if abi == "js" {
+                for ext in items {
+                    if let ExternItemKind::Mod { package, binding } = &ext.kind {
+                        imports.push(JsStmt::Import {
+                            name: binding.name.clone(),
+                            source: package.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Second pass: process functions and extern functions
     for item in &file.items {
         match &item.kind {
             ItemKind::Fn {
@@ -131,6 +159,9 @@ pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
                             } => {
                                 body.push(lower_extern_fn(name, params, ret_type.as_ref()));
                             }
+                            ExternItemKind::Mod { .. } => {
+                                // Already handled in first pass
+                            }
                         }
                     }
                 }
@@ -144,24 +175,39 @@ pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
             args: Vec::new(),
         }));
     }
+
+    // Choose export style based on whether we have imports (ESM) or not (CommonJS)
+    let has_imports = !imports.is_empty();
     if !fn_names.is_empty() {
-        // module.exports = { foo: foo, bar: bar, ... };
-        let exports_obj = JsExpr::Object(
-            fn_names
-                .into_iter()
-                .map(|name| (name.clone(), JsExpr::Ident(name)))
-                .collect(),
-        );
-        let assign = JsExpr::Assignment {
-            left: Box::new(JsExpr::Member {
-                object: Box::new(JsExpr::Ident("module".to_string())),
-                property: "exports".to_string(),
-            }),
-            right: Box::new(exports_obj),
-        };
-        body.push(JsStmt::Expr(assign));
+        if has_imports {
+            // Use ESM exports when we have ESM imports
+            body.push(JsStmt::ExportNamed {
+                names: fn_names,
+            });
+        } else {
+            // Use CommonJS exports when no imports (for backward compatibility)
+            let exports_obj = JsExpr::Object(
+                fn_names
+                    .into_iter()
+                    .map(|name| (name.clone(), JsExpr::Ident(name)))
+                    .collect(),
+            );
+            let assign = JsExpr::Assignment {
+                left: Box::new(JsExpr::Member {
+                    object: Box::new(JsExpr::Ident("module".to_string())),
+                    property: "exports".to_string(),
+                }),
+                right: Box::new(exports_obj),
+            };
+            body.push(JsStmt::Expr(assign));
+        }
     }
-    JsModule { body }
+
+    // Combine imports at the top, then the rest of the body
+    let mut full_body = imports;
+    full_body.append(&mut body);
+
+    JsModule { body: full_body }
 }
 
 fn lower_fn(name: &str, params: &[Param], body: &[Stmt]) -> JsStmt {
@@ -431,14 +477,39 @@ impl JsModule {
     }
 
     /// Render the module to a JavaScript source string with the Husk preamble.
+    /// Import statements are placed at the very top, followed by the preamble,
+    /// then the rest of the code.
     pub fn to_source_with_preamble(&self) -> String {
         let mut out = String::new();
+
+        // First, output all import statements at the top
+        let mut has_imports = false;
+        for stmt in &self.body {
+            if matches!(stmt, JsStmt::Import { .. }) {
+                write_stmt(stmt, 0, &mut out);
+                out.push('\n');
+                has_imports = true;
+            }
+        }
+        if has_imports {
+            out.push('\n');
+        }
+
+        // Then output the preamble
         out.push_str(std_preamble_js());
         if !out.ends_with('\n') {
             out.push('\n');
         }
         out.push('\n');
-        out.push_str(&self.to_source());
+
+        // Finally output the rest of the code (excluding imports)
+        for stmt in &self.body {
+            if !matches!(stmt, JsStmt::Import { .. }) {
+                write_stmt(stmt, 0, &mut out);
+                out.push('\n');
+            }
+        }
+
         out
     }
 }
@@ -451,6 +522,25 @@ fn indent(level: usize, out: &mut String) {
 
 fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
     match stmt {
+        JsStmt::Import { name, source } => {
+            indent(indent_level, out);
+            out.push_str("import ");
+            out.push_str(name);
+            out.push_str(" from \"");
+            out.push_str(&source.replace('"', "\\\""));
+            out.push_str("\";");
+        }
+        JsStmt::ExportNamed { names } => {
+            indent(indent_level, out);
+            out.push_str("export { ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(name);
+            }
+            out.push_str(" };");
+        }
         JsStmt::Function { name, params, body } => {
             indent(indent_level, out);
             out.push_str("function ");
@@ -1167,5 +1257,71 @@ mod tests {
         assert!(src.contains("globalThis.parse"));
         assert!(src.contains("} catch (e) {"));
         assert!(src.contains("return Err(e);"));
+    }
+
+    #[test]
+    fn generates_esm_imports_for_extern_mod_declarations() {
+        // extern "js" {
+        //     mod express;
+        //     mod fs;
+        // }
+        // fn main() { }
+
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let express_mod = husk_ast::ExternItem {
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "express".to_string(),
+                binding: ident("express", 0),
+            },
+            span: span(0, 10),
+        };
+
+        let fs_mod = husk_ast::ExternItem {
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "fs".to_string(),
+                binding: ident("fs", 20),
+            },
+            span: span(20, 25),
+        };
+
+        let main_fn = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 40),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(40, 50),
+        };
+
+        let file = husk_ast::File {
+            items: vec![
+                husk_ast::Item {
+                    kind: husk_ast::ItemKind::ExternBlock {
+                        abi: "js".to_string(),
+                        items: vec![express_mod, fs_mod],
+                    },
+                    span: span(0, 30),
+                },
+                main_fn,
+            ],
+        };
+
+        let module = lower_file_to_js(&file, true);
+        let src = module.to_source();
+
+        // Check for ESM imports at the top
+        assert!(src.contains("import express from \"express\";"));
+        assert!(src.contains("import fs from \"fs\";"));
+
+        // Check for ESM exports instead of CommonJS (because we have imports)
+        assert!(src.contains("export { main }"));
+        assert!(!src.contains("module.exports"));
     }
 }

@@ -2,6 +2,40 @@
 
 use std::ops::Range;
 
+/// List of all Husk keywords.
+pub const KEYWORDS: &[&str] = &[
+    "as", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern",
+    "if", "else", "while", "match", "return", "true", "false", "break", "continue",
+];
+
+/// Check if a string is a Husk reserved keyword.
+pub fn is_keyword(name: &str) -> bool {
+    KEYWORDS.contains(&name)
+}
+
+/// Check if a string is a valid Husk identifier.
+///
+/// A valid identifier:
+/// - Starts with an ASCII letter or underscore
+/// - Contains only ASCII alphanumeric characters or underscores
+/// - Is not a reserved keyword
+pub fn is_valid_identifier(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut chars = name.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    for ch in chars {
+        if !ch.is_ascii_alphanumeric() && ch != '_' {
+            return false;
+        }
+    }
+    !is_keyword(name)
+}
+
 /// A span in the source file, represented as a byte range.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
@@ -17,9 +51,11 @@ impl Span {
 /// Language keywords (subset for the MVP).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
+    As,
     Fn,
     Let,
     Mut,
+    Mod,
     Struct,
     Enum,
     Type,
@@ -178,8 +214,10 @@ impl<'src> Lexer<'src> {
 
     fn classify_ident_or_keyword(&self, span: Span, text: &str) -> Token {
         let kind = match text {
+            "as" => TokenKind::Keyword(Keyword::As),
             "fn" => TokenKind::Keyword(Keyword::Fn),
             "let" => TokenKind::Keyword(Keyword::Let),
+            "mod" => TokenKind::Keyword(Keyword::Mod),
             "mut" => TokenKind::Keyword(Keyword::Mut),
             "struct" => TokenKind::Keyword(Keyword::Struct),
             "enum" => TokenKind::Keyword(Keyword::Enum),

@@ -366,8 +366,61 @@ impl Parser {
 
         let mut items = Vec::new();
         while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            // Check for `mod` declaration:
+            // - `mod identifier;` - identifier is both package and binding
+            // - `mod "package-name";` - string literal, derive binding from package
+            // - `mod "package-name" as alias;` - string literal with explicit alias
+            if self.matches_keyword(Keyword::Mod) {
+                let mod_start = self.previous().span.range.start;
+
+                // Parse package name (identifier or string literal)
+                let (package, default_binding) = if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                    let pkg = s.clone();
+                    let binding_name = derive_binding_from_package(&pkg);
+                    let tok = self.advance().clone();
+                    (pkg, Ident {
+                        name: binding_name,
+                        span: Span { range: tok.span.range.clone() },
+                    })
+                } else if let Some(id) = self.parse_ident("expected module name or string literal after `mod`") {
+                    (id.name.clone(), id)
+                } else {
+                    self.synchronize_item();
+                    continue;
+                };
+
+                // Check for optional `as alias`
+                let binding = if self.matches_keyword(Keyword::As) {
+                    match self.parse_ident("expected alias identifier after `as`") {
+                        Some(alias) => alias,
+                        None => {
+                            self.synchronize_item();
+                            continue;
+                        }
+                    }
+                } else {
+                    default_binding
+                };
+
+                if !self.matches_token(&TokenKind::Semicolon) {
+                    self.error_here("expected `;` after module declaration");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                let span = Span {
+                    range: mod_start..self.previous().span.range.end,
+                };
+                items.push(husk_ast::ExternItem {
+                    kind: husk_ast::ExternItemKind::Mod { package, binding },
+                    span,
+                });
+                continue;
+            }
+
+            // Check for `fn` declaration
             if !self.matches_keyword(Keyword::Fn) {
-                self.error_here("expected `fn` inside extern block");
+                self.error_here("expected `fn` or `mod` inside extern block");
                 self.synchronize_item();
                 continue;
             }
@@ -1239,6 +1292,136 @@ impl Parser {
                 self.error_at_token(&tok, "expected expression");
                 None
             }
+        }
+    }
+}
+
+/// Derive a valid Husk identifier from an npm package name.
+///
+/// This function converts npm package names into valid Husk identifiers by:
+/// - Stripping scopes (e.g., `@scope/pkg` -> `pkg`)
+/// - Replacing hyphens with underscores (e.g., `lodash-es` -> `lodash_es`)
+/// - Prefixing with `_` if the result starts with a digit
+/// - Falling back to `"pkg"` if the result would be empty
+///
+/// # Examples
+/// - `express` -> `express`
+/// - `lodash-es` -> `lodash_es`
+/// - `@scope/pkg` -> `pkg`
+/// - `@scope/my-pkg` -> `my_pkg`
+/// - `3d-viewer` -> `_3d_viewer`
+pub fn derive_binding_from_package(package: &str) -> String {
+    // If scoped package (@scope/name), use only the name part
+    let name = if let Some(slash_pos) = package.rfind('/') {
+        &package[slash_pos + 1..]
+    } else {
+        package
+    };
+
+    // Replace hyphens with underscores to make it a valid identifier
+    let mut result = String::new();
+    for ch in name.chars() {
+        if ch == '-' {
+            result.push('_');
+        } else if ch.is_alphanumeric() || ch == '_' {
+            result.push(ch);
+        }
+        // Skip other characters (like @, /)
+    }
+
+    // Ensure the identifier doesn't start with a digit
+    if result.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        result.insert(0, '_');
+    }
+
+    // If empty, use a default
+    if result.is_empty() {
+        result = "pkg".to_string();
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derive_binding_from_simple_package() {
+        assert_eq!(derive_binding_from_package("lodash"), "lodash");
+        assert_eq!(derive_binding_from_package("express"), "express");
+    }
+
+    #[test]
+    fn derive_binding_from_hyphenated_package() {
+        assert_eq!(derive_binding_from_package("lodash-es"), "lodash_es");
+        assert_eq!(derive_binding_from_package("my-cool-pkg"), "my_cool_pkg");
+    }
+
+    #[test]
+    fn derive_binding_from_scoped_package() {
+        assert_eq!(derive_binding_from_package("@scope/pkg"), "pkg");
+        assert_eq!(derive_binding_from_package("@myorg/my-lib"), "my_lib");
+    }
+
+    #[test]
+    fn derive_binding_handles_numeric_prefix() {
+        assert_eq!(derive_binding_from_package("3d-viewer"), "_3d_viewer");
+    }
+
+    #[test]
+    fn parses_mod_declaration_with_identifier() {
+        let src = r#"extern "js" { mod express; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        assert_eq!(file.items.len(), 1);
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            assert_eq!(items.len(), 1);
+            if let husk_ast::ExternItemKind::Mod { package, binding } = &items[0].kind {
+                assert_eq!(package, "express");
+                assert_eq!(binding.name, "express");
+            } else {
+                panic!("expected Mod item");
+            }
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_mod_declaration_with_string_literal() {
+        let src = r#"extern "js" { mod "lodash-es"; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            if let husk_ast::ExternItemKind::Mod { package, binding } = &items[0].kind {
+                assert_eq!(package, "lodash-es");
+                assert_eq!(binding.name, "lodash_es");
+            } else {
+                panic!("expected Mod item");
+            }
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_mod_declaration_with_alias() {
+        let src = r#"extern "js" { mod "@myorg/my-lib" as mylib; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            if let husk_ast::ExternItemKind::Mod { package, binding } = &items[0].kind {
+                assert_eq!(package, "@myorg/my-lib");
+                assert_eq!(binding.name, "mylib");
+            } else {
+                panic!("expected Mod item");
+            }
+        } else {
+            panic!("expected ExternBlock");
         }
     }
 }

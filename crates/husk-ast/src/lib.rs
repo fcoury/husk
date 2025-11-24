@@ -262,6 +262,14 @@ pub enum ExternItemKind {
         params: Vec<Param>,
         ret_type: Option<TypeExpr>,
     },
+    /// Module import declaration: `mod express;` or `mod "package-name" as alias;`
+    /// This declares a dependency on a JS module by package name.
+    Mod {
+        /// The npm package name (e.g., "express", "@scope/pkg", "lodash-es")
+        package: String,
+        /// The identifier to use in Husk code (derived from package or explicit alias)
+        binding: Ident,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

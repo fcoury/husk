@@ -24,6 +24,7 @@ pub enum SymbolKind {
     Enum,
     TypeAlias,
     ExternFn,
+    ExternMod,
 }
 
 /// A resolved symbol.
@@ -113,12 +114,23 @@ struct FnDef {
     ret_type: Option<TypeExpr>,
 }
 
+/// Information about an imported JS module.
+/// The module name becomes a callable identifier that returns an opaque type.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct ModuleDef {
+    name: String,
+}
+
 #[derive(Debug, Default)]
 struct TypeEnv {
     structs: HashMap<String, StructDef>,
     enums: HashMap<String, EnumDef>,
     type_aliases: HashMap<String, TypeExpr>,
     functions: HashMap<String, FnDef>,
+    /// Imported JS modules (from `mod name;` in extern blocks).
+    /// These become callable identifiers.
+    modules: HashMap<String, ModuleDef>,
 }
 
 struct TypeChecker {
@@ -179,16 +191,26 @@ impl TypeChecker {
                 }
                 ItemKind::ExternBlock { items, .. } => {
                     for ext in items {
-                        let husk_ast::ExternItemKind::Fn {
-                            name,
-                            params,
-                            ret_type,
-                        } = &ext.kind;
-                        let def = FnDef {
-                            params: params.clone(),
-                            ret_type: ret_type.clone(),
-                        };
-                        self.env.functions.insert(name.name.clone(), def);
+                        match &ext.kind {
+                            husk_ast::ExternItemKind::Fn {
+                                name,
+                                params,
+                                ret_type,
+                            } => {
+                                let def = FnDef {
+                                    params: params.clone(),
+                                    ret_type: ret_type.clone(),
+                                };
+                                self.env.functions.insert(name.name.clone(), def);
+                            }
+                            husk_ast::ExternItemKind::Mod { binding, .. } => {
+                                // Module imports become callable identifiers.
+                                let def = ModuleDef {
+                                    name: binding.name.clone(),
+                                };
+                                self.env.modules.insert(binding.name.clone(), def);
+                            }
+                        }
                     }
                 }
             }
@@ -671,6 +693,20 @@ impl<'a> FnContext<'a> {
                     };
                 }
 
+                // Try imported JS module (from `mod name;` in extern block).
+                // Modules are treated as callable with any args, returning an opaque type.
+                if self.tcx.env.modules.contains_key(&id.name) {
+                    // Return a function type that accepts any args and returns an opaque type.
+                    // For MVP, we use an empty params list and return a named type.
+                    return Type::Function {
+                        params: Vec::new(),
+                        ret: Box::new(Type::Named {
+                            name: id.name.clone(),
+                            args: Vec::new(),
+                        }),
+                    };
+                }
+
                 self.tcx.errors.push(SemanticError {
                     message: format!("unknown identifier `{}`", id.name),
                     span: id.span.clone(),
@@ -678,6 +714,12 @@ impl<'a> FnContext<'a> {
                 Type::Primitive(PrimitiveType::Unit)
             }
             ExprKind::Call { callee, args } => {
+                // Check if the callee is a module import (which accepts any arguments)
+                let is_module_call = match &callee.kind {
+                    ExprKind::Ident(id) => self.tcx.env.modules.contains_key(&id.name),
+                    _ => false,
+                };
+
                 let callee_ty = self.check_expr(callee);
                 let (param_tys, ret_ty) = match callee_ty {
                     Type::Function { params, ret } => (params, *ret),
@@ -690,7 +732,8 @@ impl<'a> FnContext<'a> {
                     }
                 };
 
-                if param_tys.len() != args.len() {
+                // Skip arity checking for module imports - they accept any number of args
+                if !is_module_call && param_tys.len() != args.len() {
                     self.tcx.errors.push(SemanticError {
                         message: format!(
                             "function expects {} argument(s), got {}",
@@ -701,18 +744,26 @@ impl<'a> FnContext<'a> {
                     });
                 }
 
-                for (i, arg) in args.iter().enumerate() {
-                    let arg_ty = self.check_expr(arg);
-                    if let Some(expected) = param_tys.get(i) {
-                        if !self.types_compatible(expected, &arg_ty) {
-                            self.tcx.errors.push(SemanticError {
-                                message: format!(
-                                    "mismatched argument type at position {}: expected `{:?}`, found `{:?}`",
-                                    i, expected, arg_ty
-                                ),
-                                span: arg.span.clone(),
-                            });
+                // Type-check arguments (skip for module calls since we don't know the signature)
+                if !is_module_call {
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_ty = self.check_expr(arg);
+                        if let Some(expected) = param_tys.get(i) {
+                            if !self.types_compatible(expected, &arg_ty) {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "mismatched argument type at position {}: expected `{:?}`, found `{:?}`",
+                                        i, expected, arg_ty
+                                    ),
+                                    span: arg.span.clone(),
+                                });
+                            }
                         }
+                    }
+                } else {
+                    // Still type-check the arguments, but don't enforce types
+                    for arg in args.iter() {
+                        let _ = self.check_expr(arg);
                     }
                 }
 
@@ -871,8 +922,14 @@ impl Resolver {
             ItemKind::TypeAlias { name, .. } => self.add_symbol(name, SymbolKind::TypeAlias),
             ItemKind::ExternBlock { items, .. } => {
                 for ext in items {
-                    let husk_ast::ExternItemKind::Fn { name, .. } = &ext.kind;
-                    self.add_symbol(name, SymbolKind::ExternFn);
+                    match &ext.kind {
+                        husk_ast::ExternItemKind::Fn { name, .. } => {
+                            self.add_symbol(name, SymbolKind::ExternFn);
+                        }
+                        husk_ast::ExternItemKind::Mod { binding, .. } => {
+                            self.add_symbol(binding, SymbolKind::ExternMod);
+                        }
+                    }
                 }
             }
         }
@@ -1349,6 +1406,145 @@ mod tests {
                 .iter()
                 .any(|e| e.message.contains("non-exhaustive match on enum `Color`")),
             "expected non-exhaustive match error, got {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn module_imports_accept_any_number_of_arguments() {
+        // extern "js" { mod express; }
+        // fn main() {
+        //     let app = express();           // 0 args - should be fine
+        //     let app2 = express(42);        // 1 arg - should be fine
+        //     let app3 = express(1, 2, 3);   // 3 args - should be fine
+        // }
+        let express_ident = ident("express", 0);
+        let extern_item = husk_ast::ExternItem {
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "express".to_string(),
+                binding: express_ident.clone(),
+            },
+            span: Span { range: 0..15 },
+        };
+        let extern_block = Item {
+            kind: ItemKind::ExternBlock {
+                abi: "js".to_string(),
+                items: vec![extern_item],
+            },
+            span: Span { range: 0..20 },
+        };
+
+        // let app = express();
+        let call_0_args = Expr {
+            kind: ExprKind::Call {
+                callee: Box::new(Expr {
+                    kind: ExprKind::Ident(express_ident.clone()),
+                    span: express_ident.span.clone(),
+                }),
+                args: vec![],
+            },
+            span: Span { range: 30..40 },
+        };
+        let let_app = Stmt {
+            kind: StmtKind::Let {
+                mutable: false,
+                name: ident("app", 25),
+                ty: None,
+                value: Some(call_0_args),
+            },
+            span: Span { range: 25..45 },
+        };
+
+        // let app2 = express(42);
+        let call_1_arg = Expr {
+            kind: ExprKind::Call {
+                callee: Box::new(Expr {
+                    kind: ExprKind::Ident(express_ident.clone()),
+                    span: express_ident.span.clone(),
+                }),
+                args: vec![Expr {
+                    kind: ExprKind::Literal(Literal {
+                        kind: LiteralKind::Int(42),
+                        span: Span { range: 60..62 },
+                    }),
+                    span: Span { range: 60..62 },
+                }],
+            },
+            span: Span { range: 50..65 },
+        };
+        let let_app2 = Stmt {
+            kind: StmtKind::Let {
+                mutable: false,
+                name: ident("app2", 45),
+                ty: None,
+                value: Some(call_1_arg),
+            },
+            span: Span { range: 45..70 },
+        };
+
+        // let app3 = express(1, 2, 3);
+        let call_3_args = Expr {
+            kind: ExprKind::Call {
+                callee: Box::new(Expr {
+                    kind: ExprKind::Ident(express_ident.clone()),
+                    span: express_ident.span.clone(),
+                }),
+                args: vec![
+                    Expr {
+                        kind: ExprKind::Literal(Literal {
+                            kind: LiteralKind::Int(1),
+                            span: Span { range: 80..81 },
+                        }),
+                        span: Span { range: 80..81 },
+                    },
+                    Expr {
+                        kind: ExprKind::Literal(Literal {
+                            kind: LiteralKind::Int(2),
+                            span: Span { range: 83..84 },
+                        }),
+                        span: Span { range: 83..84 },
+                    },
+                    Expr {
+                        kind: ExprKind::Literal(Literal {
+                            kind: LiteralKind::Int(3),
+                            span: Span { range: 86..87 },
+                        }),
+                        span: Span { range: 86..87 },
+                    },
+                ],
+            },
+            span: Span { range: 75..90 },
+        };
+        let let_app3 = Stmt {
+            kind: StmtKind::Let {
+                mutable: false,
+                name: ident("app3", 70),
+                ty: None,
+                value: Some(call_3_args),
+            },
+            span: Span { range: 70..95 },
+        };
+
+        let fn_item = Item {
+            kind: ItemKind::Fn {
+                name: ident("main", 100),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: vec![let_app, let_app2, let_app3],
+            },
+            span: Span { range: 100..150 },
+        };
+
+        let file = File {
+            items: vec![extern_block, fn_item],
+        };
+
+        let result = analyze_file(&file);
+        // Should have no type errors - module imports accept any number of arguments
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for module calls with any args, got {:?}",
             result.type_errors
         );
     }

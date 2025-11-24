@@ -121,6 +121,7 @@ dependencies = [
  "clap",
  "glob",
  "husk-codegen-js",
+ "husk-lexer",
  "husk-parser",
  "husk-semantic",
 ]
