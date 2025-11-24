@@ -57,6 +57,28 @@ The CLI binary is called `huskc` and is built via Cargo.
 
 The compiled output includes the inlined JavaScript preamble (`std_preamble.js`) at the top of the file. The runtime helpers (`Ok`, `Err`, `panic`, `matchEnum`, etc.) are versioned via a `HUSK_RUNTIME_VERSION` constant inside the preamble (currently `0.1.0`).
 
+### Binary vs. Library mode
+
+By default, `huskc compile` generates a “binary-style” JS module:
+
+- If a zero-argument `fn main()` is present, the compiled JS will:
+  - Define `function main() { ... }`.
+  - Emit a call to `main();` at the end of the file.
+- It also exports all top-level functions via CommonJS:
+  ```js
+  module.exports = { main: main /*, other functions */ };
+  ```
+
+When you pass `--lib`:
+
+- `huskc compile --lib ...` still generates the same functions and `module.exports` object.
+- It **does not** auto-call `main()`, even if present.
+- This is the recommended mode when you want to treat Husk code as a library and call its exports explicitly from a Node/Bun host:
+  ```js
+  const huskLib = require("./compiled_husk.js");
+  huskLib.main(); // called explicitly by the host
+  ```
+
 ## Running a Husk Program under Node
 
 For convenience, there is a small script under `scripts/` that compiles a Husk source file and runs the resulting JavaScript with Node.

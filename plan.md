@@ -221,6 +221,24 @@ The initial language version will support:
 - The runtime has its own semantic version (`HUSK_RUNTIME_VERSION`, currently `0.1.0`), and the API surface of `std_preamble.js` plus this version string form the compatibility contract between compiled Husk code and the JS runtime.
 - A separate, shared runtime file or npm package (e.g., `@husk/runtime`) can be introduced later if/when bundling and code-reuse become more important than single-file simplicity.
 
+### 5.4 Binary vs. Library Codegen Modes
+
+- The compiler currently supports two codegen modes for JS:
+  - **Binary mode** (default for `huskc compile`):
+    - Generates top-level JS functions for Husk `fn` items.
+    - Automatically emits a call to `main();` at the end of the module when a zero-argument `fn main()` is present.
+    - Emits a CommonJS export object:
+      ```javascript
+      module.exports = { main: main, /* other functions */ };
+      ```
+    - Best suited for “run this file” workflows and CLI-style programs.
+  - **Library mode** (`huskc compile --lib`):
+    - Generates the same top-level JS functions and `module.exports` object.
+    - **Does not** auto-call `main()`, even if it exists.
+    - Intended for Node/Bun hosts and other JS code to import Husk modules as libraries and decide when/how to invoke exported functions.
+- Future work:
+  - Introduce an explicit ESM target (e.g. `export function main(...)`) alongside the CommonJS exports, once we commit to an ESM-first story for Node/Bun and bundlers.
+
 ---
 
 ## 6. TypeScript Interop
