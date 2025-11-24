@@ -163,4 +163,54 @@ declare function log(message: string): void;
         assert!(husk.contains("fn log(message: String) -> ();"));
         assert!(husk.trim_end().ends_with('}'));
     }
+
+    #[test]
+    fn imports_real_world_like_declarations_and_typechecks() {
+        use husk_parser::parse_str;
+        use husk_semantic::analyze_file;
+
+        // Derived from real npm packages (`has-symbols` and `math-intrinsics`),
+        // simplified to focus on the subset of `.d.ts` that the importer
+        // currently understands (plain `declare function` signatures).
+        let dts = r#"
+declare function hasNativeSymbols(): boolean;
+export = hasNativeSymbols;
+
+declare function mod(number: number, modulo: number): number;
+export = mod;
+"#;
+
+        let husk = import_dts_str(dts);
+
+        assert!(
+            husk.contains("fn hasNativeSymbols() -> bool;"),
+            "missing hasNativeSymbols extern in:\n{}",
+            husk
+        );
+        assert!(
+            husk.contains("fn mod(number: i32, modulo: i32) -> i32;"),
+            "missing mod extern in:\n{}",
+            husk
+        );
+
+        // The generated Husk externs should parse and typecheck end-to-end.
+        let parsed = parse_str(&husk);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors for generated externs: {:?}\nsource:\n{}",
+            parsed.errors,
+            husk
+        );
+        let file = parsed
+            .file
+            .expect("parser produced no AST for generated externs");
+        let sem = analyze_file(&file);
+        assert!(
+            sem.symbols.errors.is_empty() && sem.type_errors.is_empty(),
+            "semantic errors for generated externs: symbols={:?}, types={:?}\nsource:\n{}",
+            sem.symbols.errors,
+            sem.type_errors,
+            husk
+        );
+    }
 }
