@@ -21,14 +21,11 @@ pub struct JsModule {
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsStmt {
     /// `import name from "source";`
-    Import {
-        name: String,
-        source: String,
-    },
+    Import { name: String, source: String },
+    /// `const name = require("source");`
+    Require { name: String, source: String },
     /// `export { name1, name2, ... };`
-    ExportNamed {
-        names: Vec<String>,
-    },
+    ExportNamed { names: Vec<String> },
     /// `function name(params) { body }`
     Function {
         name: String,
@@ -100,6 +97,13 @@ pub enum JsBinaryOp {
     Ge,
 }
 
+/// Output target style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsTarget {
+    Esm,
+    Cjs,
+}
+
 /// Lower a Husk AST file into a JS module.
 ///
 /// This is intentionally minimal for now and only supports:
@@ -111,7 +115,7 @@ pub enum JsBinaryOp {
 /// automatically invoked at the end of the module. Library-style
 /// consumers should set this to `false` so `main` can be called
 /// explicitly by a host.
-pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
+pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsModule {
     let mut imports = Vec::new();
     let mut body = Vec::new();
     let mut has_main_entry = false;
@@ -123,10 +127,16 @@ pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
             if abi == "js" {
                 for ext in items {
                     if let ExternItemKind::Mod { package, binding } = &ext.kind {
-                        imports.push(JsStmt::Import {
-                            name: binding.name.clone(),
-                            source: package.clone(),
-                        });
+                        match target {
+                            JsTarget::Esm => imports.push(JsStmt::Import {
+                                name: binding.name.clone(),
+                                source: package.clone(),
+                            }),
+                            JsTarget::Cjs => imports.push(JsStmt::Require {
+                                name: binding.name.clone(),
+                                source: package.clone(),
+                            }),
+                        }
                     }
                 }
             }
@@ -177,29 +187,25 @@ pub fn lower_file_to_js(file: &File, call_main: bool) -> JsModule {
     }
 
     // Choose export style based on whether we have imports (ESM) or not (CommonJS)
-    let has_imports = !imports.is_empty();
     if !fn_names.is_empty() {
-        if has_imports {
-            // Use ESM exports when we have ESM imports
-            body.push(JsStmt::ExportNamed {
-                names: fn_names,
-            });
-        } else {
-            // Use CommonJS exports when no imports (for backward compatibility)
-            let exports_obj = JsExpr::Object(
-                fn_names
-                    .into_iter()
-                    .map(|name| (name.clone(), JsExpr::Ident(name)))
-                    .collect(),
-            );
-            let assign = JsExpr::Assignment {
-                left: Box::new(JsExpr::Member {
-                    object: Box::new(JsExpr::Ident("module".to_string())),
-                    property: "exports".to_string(),
-                }),
-                right: Box::new(exports_obj),
-            };
-            body.push(JsStmt::Expr(assign));
+        match target {
+            JsTarget::Esm => body.push(JsStmt::ExportNamed { names: fn_names }),
+            JsTarget::Cjs => {
+                let exports_obj = JsExpr::Object(
+                    fn_names
+                        .into_iter()
+                        .map(|name| (name.clone(), JsExpr::Ident(name)))
+                        .collect(),
+                );
+                let assign = JsExpr::Assignment {
+                    left: Box::new(JsExpr::Member {
+                        object: Box::new(JsExpr::Ident("module".to_string())),
+                        property: "exports".to_string(),
+                    }),
+                    right: Box::new(exports_obj),
+                };
+                body.push(JsStmt::Expr(assign));
+            }
         }
     }
 
@@ -477,15 +483,15 @@ impl JsModule {
     }
 
     /// Render the module to a JavaScript source string with the Husk preamble.
-    /// Import statements are placed at the very top, followed by the preamble,
+    /// Import/require statements are placed at the very top, followed by the preamble,
     /// then the rest of the code.
     pub fn to_source_with_preamble(&self) -> String {
         let mut out = String::new();
 
-        // First, output all import statements at the top
+        // First, output all import/require statements at the top
         let mut has_imports = false;
         for stmt in &self.body {
-            if matches!(stmt, JsStmt::Import { .. }) {
+            if matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
                 write_stmt(stmt, 0, &mut out);
                 out.push('\n');
                 has_imports = true;
@@ -502,9 +508,9 @@ impl JsModule {
         }
         out.push('\n');
 
-        // Finally output the rest of the code (excluding imports)
+        // Finally output the rest of the code (excluding imports/requires)
         for stmt in &self.body {
-            if !matches!(stmt, JsStmt::Import { .. }) {
+            if !matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
                 write_stmt(stmt, 0, &mut out);
                 out.push('\n');
             }
@@ -529,6 +535,14 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             out.push_str(" from \"");
             out.push_str(&source.replace('"', "\\\""));
             out.push_str("\";");
+        }
+        JsStmt::Require { name, source } => {
+            indent(indent_level, out);
+            out.push_str("const ");
+            out.push_str(name);
+            out.push_str(" = require(\"");
+            out.push_str(&source.replace('"', "\\\""));
+            out.push_str("\");");
         }
         JsStmt::ExportNamed { names } => {
             indent(indent_level, out);
@@ -924,7 +938,7 @@ mod tests {
             items: vec![main_fn, helper_fn],
         };
 
-        let module = lower_file_to_js(&file, true);
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -1059,7 +1073,7 @@ mod tests {
             items: vec![fn_item],
         };
 
-        let module = lower_file_to_js(&file, true);
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -1248,7 +1262,7 @@ mod tests {
             }],
         };
 
-        let module = lower_file_to_js(&file, true);
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
         let src = module.to_source();
 
         assert!(src.contains("function parse"));
@@ -1313,15 +1327,94 @@ mod tests {
             ],
         };
 
-        let module = lower_file_to_js(&file, true);
+        let module = lower_file_to_js(&file, true, JsTarget::Esm);
         let src = module.to_source();
 
         // Check for ESM imports at the top
         assert!(src.contains("import express from \"express\";"));
         assert!(src.contains("import fs from \"fs\";"));
 
-        // Check for ESM exports instead of CommonJS (because we have imports)
+        // Check for ESM exports instead of CommonJS (explicit ESM target)
         assert!(src.contains("export { main }"));
         assert!(!src.contains("module.exports"));
+    }
+
+    #[test]
+    fn esm_exports_even_without_imports_when_target_forced() {
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let main_fn = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 0),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(0, 10),
+        };
+
+        let file = husk_ast::File {
+            items: vec![main_fn],
+        };
+        let module = lower_file_to_js(&file, true, JsTarget::Esm);
+        let src = module.to_source();
+
+        assert!(src.contains("export { main }"));
+        assert!(!src.contains("module.exports"));
+    }
+
+    #[test]
+    fn generates_cjs_requires_for_extern_mod_declarations() {
+        // extern "js" { mod express; } targeting CommonJS.
+
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let express_mod = husk_ast::ExternItem {
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "express".to_string(),
+                binding: ident("express", 0),
+            },
+            span: span(0, 10),
+        };
+
+        let main_fn = husk_ast::Item {
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 20),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(20, 30),
+        };
+
+        let file = husk_ast::File {
+            items: vec![
+                husk_ast::Item {
+                    kind: husk_ast::ItemKind::ExternBlock {
+                        abi: "js".to_string(),
+                        items: vec![express_mod],
+                    },
+                    span: span(0, 15),
+                },
+                main_fn,
+            ],
+        };
+
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
+        let src = module.to_source();
+
+        assert!(src.contains("const express = require(\"express\");"));
+        assert!(src.contains("module.exports"));
+        assert!(!src.contains("export {"));
     }
 }

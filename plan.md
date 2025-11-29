@@ -227,17 +227,15 @@ The initial language version will support:
   - **Binary mode** (default for `huskc compile`):
     - Generates top-level JS functions for Husk `fn` items.
     - Automatically emits a call to `main();` at the end of the module when a zero-argument `fn main()` is present.
-    - Emits a CommonJS export object:
-      ```javascript
-      module.exports = { main: main, /* other functions */ };
-      ```
+    - Export style is selected via `--target`:
+      - `--target cjs` (default): `module.exports = { ... }`.
+      - `--target esm`: `export { ... }`.
     - Best suited for “run this file” workflows and CLI-style programs.
   - **Library mode** (`huskc compile --lib`):
-    - Generates the same top-level JS functions and `module.exports` object.
+    - Generates the same top-level JS functions.
     - **Does not** auto-call `main()`, even if it exists.
-    - Intended for Node/Bun hosts and other JS code to import Husk modules as libraries and decide when/how to invoke exported functions.
-- Future work:
-  - Introduce an explicit ESM target (e.g. `export function main(...)`) alongside the CommonJS exports, once we commit to an ESM-first story for Node/Bun and bundlers.
+    - Respects `--target` for export style (CJS or ESM).
+- The CLI flag `--target {esm,cjs}` is now the single switch for host compatibility (Node/Bun/Deno/browser).
 
 ---
 
@@ -379,6 +377,7 @@ To support real-world JS/TS libraries such as Express, interop will be developed
 - Core types and utilities:
   - Option-like enums (`Option<T>`), currently defined in `stdlib/core.hk`.
   - Result-like enums (`Result<T, E>`), currently defined in `stdlib/core.hk` and aligned with the runtime `Ok`/`Err` tagged-union encoding.
+- Stdlib prelude is auto-injected during semantic analysis (can be disabled with `--no-prelude` for advanced use cases).
 - Interop wrappers:
   - Safe wrappers for selected JS/Node/Web APIs, returning `Result` where appropriate.
 

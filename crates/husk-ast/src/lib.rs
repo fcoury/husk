@@ -224,6 +224,10 @@ pub enum ItemKind {
         abi: String,
         items: Vec<ExternItem>,
     },
+    Use {
+        /// Path like `crate::foo::bar`
+        path: Vec<Ident>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

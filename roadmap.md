@@ -58,6 +58,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Decide bundling strategy for runtime (inline vs. separate file).
 - [x] Integrate codegen and runtime into CLI (`huskc compile`).
 - [x] Create small E2E examples that compile and run under Node using `std_preamble.js`.
+- [x] Add explicit JS target selection (`--target esm|cjs`) and emit import/require accordingly.
 
 ---
 
@@ -113,6 +114,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [x] Implement standard library modules in the language:
   - [x] Core types (Option, Result, etc., if not built-in).
 - [x] Ensure versioning and compatibility strategy for the runtime.
+- [x] Inject stdlib prelude (Option/Result) by default, with opt-out flag.
 
 ---
 

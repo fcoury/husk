@@ -273,9 +273,17 @@ export = mod;
         let dts = "declare function init(): void;";
         let husk = import_dts_str_with_module(dts, Some("express"));
 
-        assert!(husk.contains("mod express;"), "expected simple mod syntax in:\n{}", husk);
+        assert!(
+            husk.contains("mod express;"),
+            "expected simple mod syntax in:\n{}",
+            husk
+        );
         // void return type is omitted
-        assert!(husk.contains("fn init();"), "expected fn init() in:\n{}", husk);
+        assert!(
+            husk.contains("fn init();"),
+            "expected fn init() in:\n{}",
+            husk
+        );
     }
 
     #[test]
@@ -294,7 +302,12 @@ export = mod;
 
         // Verify the generated code parses and typechecks
         let parsed = parse_str(&husk);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}\nsource:\n{}", parsed.errors, husk);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}\nsource:\n{}",
+            parsed.errors,
+            husk
+        );
         let file = parsed.file.expect("no AST");
         let sem = analyze_file(&file);
         assert!(
@@ -321,7 +334,12 @@ export = mod;
 
         // Verify the generated code parses and typechecks
         let parsed = parse_str(&husk);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}\nsource:\n{}", parsed.errors, husk);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}\nsource:\n{}",
+            parsed.errors,
+            husk
+        );
         let file = parsed.file.expect("no AST");
         let sem = analyze_file(&file);
         assert!(

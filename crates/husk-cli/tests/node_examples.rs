@@ -1,19 +1,25 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use glob::glob;
-use husk_codegen_js::lower_file_to_js;
+use husk_codegen_js::{JsTarget, lower_file_to_js};
 use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
 fn workspace_root() -> PathBuf {
-    // `CARGO_MANIFEST_DIR` points to `crates/husk-cli`.
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .canonicalize()
-        .expect("failed to resolve workspace root")
+    // Walk up from the current directory, returning the outermost Cargo.toml (workspace root).
+    let mut dir = std::env::current_dir().expect("failed to read current dir");
+    let mut found: Option<PathBuf> = None;
+    loop {
+        if dir.join("Cargo.toml").exists() {
+            found = Some(dir.clone());
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    found.expect("failed to resolve workspace root from current dir")
 }
 
 fn husk_example_files() -> Vec<PathBuf> {
@@ -30,6 +36,16 @@ fn has_node() -> bool {
         Ok(output) => output.status.success(),
         Err(_) => false,
     }
+}
+
+#[test]
+fn workspace_root_finds_cargo_toml() {
+    let root = workspace_root();
+    assert!(
+        root.join("Cargo.toml").exists(),
+        "workspace root {:?} missing Cargo.toml",
+        root
+    );
 }
 
 #[test]
@@ -66,7 +82,7 @@ fn examples_execute_with_node_when_available() {
         );
 
         // Lower to JS with preamble (bin mode: auto-call main when present).
-        let module = lower_file_to_js(&file, true);
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
         let mut js = module.to_source_with_preamble();
 
         // For the minimal Express interop example, prepend a tiny stub `express`

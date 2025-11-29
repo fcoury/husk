@@ -4,8 +4,8 @@ use std::ops::Range;
 
 /// List of all Husk keywords.
 pub const KEYWORDS: &[&str] = &[
-    "as", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern",
-    "if", "else", "while", "match", "return", "true", "false", "break", "continue",
+    "as", "pub", "use", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern", "if",
+    "else", "while", "match", "return", "true", "false", "break", "continue",
 ];
 
 /// Check if a string is a Husk reserved keyword.
@@ -52,6 +52,8 @@ impl Span {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     As,
+    Pub,
+    Use,
     Fn,
     Let,
     Mut,
@@ -85,6 +87,7 @@ pub enum TokenKind {
     RBrace,
     Comma,
     Colon,
+    ColonColon,
     Semicolon,
     Dot,
     Arrow,    // ->
@@ -215,6 +218,8 @@ impl<'src> Lexer<'src> {
     fn classify_ident_or_keyword(&self, span: Span, text: &str) -> Token {
         let kind = match text {
             "as" => TokenKind::Keyword(Keyword::As),
+            "pub" => TokenKind::Keyword(Keyword::Pub),
+            "use" => TokenKind::Keyword(Keyword::Use),
             "fn" => TokenKind::Keyword(Keyword::Fn),
             "let" => TokenKind::Keyword(Keyword::Let),
             "mod" => TokenKind::Keyword(Keyword::Mod),
@@ -325,10 +330,21 @@ impl<'src> Iterator for Lexer<'src> {
                 kind: TokenKind::Comma,
                 span: Span::new(start, start + 1),
             },
-            ':' => Token {
-                kind: TokenKind::Colon,
-                span: Span::new(start, start + 1),
-            },
+            ':' => {
+                if let Some((idx2, ':')) = self.peek() {
+                    // consume second ':'
+                    self.bump();
+                    Token {
+                        kind: TokenKind::ColonColon,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Colon,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
             ';' => Token {
                 kind: TokenKind::Semicolon,
                 span: Span::new(start, start + 1),
