@@ -3,7 +3,7 @@ use std::path::Path;
 
 use glob::glob;
 
-use husk_codegen_js::lower_file_to_js;
+use husk_codegen_js::{lower_file_to_js, JsTarget};
 use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
@@ -53,7 +53,7 @@ fn examples_codegen() {
         let file = parse.file.expect("parser produced no AST");
         let sem = analyze_file(&file);
         if sem.symbols.errors.is_empty() && sem.type_errors.is_empty() {
-            let module = lower_file_to_js(&file, true);
+            let module = lower_file_to_js(&file, true, JsTarget::Cjs);
             let _js = module.to_source_with_preamble();
         }
     }

@@ -5,11 +5,13 @@
 //! - A resolver that collects top-level symbols from a `husk_ast::File`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use husk_ast::{
     Block, Expr, ExprKind, File, Ident, Item, ItemKind, LiteralKind, MatchArm, Param, Pattern,
     PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
+use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
 
 /// Unique identifier for a symbol within a module.
@@ -73,16 +75,56 @@ pub struct SemanticResult {
     pub type_errors: Vec<SemanticError>,
 }
 
-/// Run full semantic analysis (name resolution + type checking) over the given file.
-pub fn analyze_file(file: &File) -> SemanticResult {
+/// Options controlling semantic analysis.
+#[derive(Debug, Clone, Copy)]
+pub struct SemanticOptions {
+    /// If true, inject the stdlib prelude (Option/Result) into the type environment.
+    pub prelude: bool,
+}
+
+impl Default for SemanticOptions {
+    fn default() -> Self {
+        Self { prelude: true }
+    }
+}
+
+/// Run semantic analysis (name resolution + type checking) over the given file with options.
+pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> SemanticResult {
     let symbols = ModuleSymbols::from_file(file);
+
     let mut checker = TypeChecker::new();
+    if opts.prelude {
+        checker.build_type_env(prelude_file());
+    }
     checker.build_type_env(file);
     let type_errors = checker.check_file(file);
     SemanticResult {
         symbols,
         type_errors,
     }
+}
+
+/// Run full semantic analysis with the stdlib prelude enabled (default).
+pub fn analyze_file(file: &File) -> SemanticResult {
+    analyze_file_with_options(file, SemanticOptions::default())
+}
+
+/// Run semantic analysis without injecting the stdlib prelude.
+pub fn analyze_file_without_prelude(file: &File) -> SemanticResult {
+    analyze_file_with_options(file, SemanticOptions { prelude: false })
+}
+
+static PRELUDE_SRC: &str = include_str!("../../../stdlib/core.hk");
+static PRELUDE_AST: OnceLock<File> = OnceLock::new();
+
+fn prelude_file() -> &'static File {
+    PRELUDE_AST.get_or_init(|| {
+        let parsed = parse_str(PRELUDE_SRC);
+        if !parsed.errors.is_empty() {
+            panic!("failed to parse stdlib prelude: {:?}", parsed.errors);
+        }
+        parsed.file.expect("stdlib prelude parse produced no AST")
+    })
 }
 
 struct Resolver {
@@ -969,6 +1011,7 @@ mod tests {
         EnumVariant, EnumVariantFields, Expr, ExprKind, File, Ident, Item, ItemKind, Literal,
         LiteralKind, MatchArm, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
     };
+    use husk_parser::parse_str;
 
     fn ident(name: &str, start: usize) -> Ident {
         Ident {
@@ -1545,6 +1588,29 @@ mod tests {
         assert!(
             result.type_errors.is_empty(),
             "expected no type errors for module calls with any args, got {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn prelude_option_available_by_default() {
+        let src = r#"
+fn main() {
+    let _v: Option<i32>;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
             result.type_errors
         );
     }

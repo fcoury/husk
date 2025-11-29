@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 husk-ast = { path = "../husk-ast" }
 husk-types = { path = "../husk-types" }
+husk-parser = { path = "../husk-parser" }
