@@ -885,7 +885,26 @@ impl<'a> FnContext<'a> {
                 let right_ty = self.check_expr(right);
                 use husk_ast::BinaryOp::*;
                 match op {
-                    Add | Sub | Mul | Div => {
+                    Add => {
+                        // Add supports both i32 + i32 and String + String
+                        if matches!(left_ty, Type::Primitive(PrimitiveType::String))
+                            && matches!(right_ty, Type::Primitive(PrimitiveType::String))
+                        {
+                            Type::Primitive(PrimitiveType::String)
+                        } else if matches!(left_ty, Type::Primitive(PrimitiveType::I32))
+                            && matches!(right_ty, Type::Primitive(PrimitiveType::I32))
+                        {
+                            Type::Primitive(PrimitiveType::I32)
+                        } else {
+                            self.tcx.errors.push(SemanticError {
+                                message: "`+` requires operands of the same type (`i32` or `String`)"
+                                    .to_string(),
+                                span: expr.span.clone(),
+                            });
+                            Type::Primitive(PrimitiveType::I32)
+                        }
+                    }
+                    Sub | Mul | Div => {
                         if !matches!(left_ty, Type::Primitive(PrimitiveType::I32))
                             || !matches!(right_ty, Type::Primitive(PrimitiveType::I32))
                         {

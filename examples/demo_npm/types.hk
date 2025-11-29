@@ -1,0 +1,17 @@
+// Type definitions for the npm demo
+// Demonstrates: structs, enums, pub visibility
+
+/// A user with a unique ID, name, and email
+pub struct User {
+    id: String,
+    name: String,
+    email: String,
+}
+
+/// Validation errors that can occur when creating a user
+pub enum ValidationError {
+    None,
+    InvalidEmail,
+    InvalidName,
+    EmptyField,
+}

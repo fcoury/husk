@@ -75,6 +75,12 @@ pub enum JsStmt {
         catch_ident: String,
         catch_block: Vec<JsStmt>,
     },
+    /// `if (cond) { ... } else { ... }`
+    If {
+        cond: JsExpr,
+        then_block: Vec<JsStmt>,
+        else_block: Option<Vec<JsStmt>>,
+    },
 }
 
 /// JavaScript expressions (subset).
@@ -110,6 +116,10 @@ pub enum JsExpr {
         op: JsBinaryOp,
         left: Box<JsExpr>,
         right: Box<JsExpr>,
+    },
+    /// Immediately Invoked Function Expression: `(function() { body })()`.
+    Iife {
+        body: Vec<JsStmt>,
     },
 }
 
@@ -296,6 +306,50 @@ fn lower_tail_stmt(stmt: &Stmt) -> JsStmt {
         // Treat a trailing expression statement as an implicit `return expr;`,
         // to mirror Rust-style expression-bodied functions.
         StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr)),
+        // For if statements in tail position, wrap branch results in returns.
+        StmtKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let js_cond = lower_expr(cond);
+            let then_block: Vec<JsStmt> = then_branch
+                .stmts
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    if i + 1 == then_branch.stmts.len() {
+                        lower_tail_stmt(s)
+                    } else {
+                        lower_stmt(s)
+                    }
+                })
+                .collect();
+            let else_block = else_branch.as_ref().map(|else_stmt| {
+                // else_branch is a Box<Stmt>, which may be another If or a Block
+                match &else_stmt.kind {
+                    StmtKind::Block(block) => block
+                        .stmts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| {
+                            if i + 1 == block.stmts.len() {
+                                lower_tail_stmt(s)
+                            } else {
+                                lower_stmt(s)
+                            }
+                        })
+                        .collect(),
+                    StmtKind::If { .. } => vec![lower_tail_stmt(else_stmt)],
+                    _ => vec![lower_tail_stmt(else_stmt)],
+                }
+            });
+            JsStmt::If {
+                cond: js_cond,
+                then_block,
+                else_block,
+            }
+        }
         _ => lower_stmt(stmt),
     }
 }
@@ -397,8 +451,29 @@ fn lower_stmt(stmt: &Stmt) -> JsStmt {
                 JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
             }
         }
-        // Control-flow constructs are not yet supported in codegen.
-        StmtKind::If { .. } | StmtKind::While { .. } | StmtKind::Break | StmtKind::Continue => {
+        StmtKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let js_cond = lower_expr(cond);
+            let then_block: Vec<JsStmt> = then_branch.stmts.iter().map(lower_stmt).collect();
+            let else_block = else_branch.as_ref().map(|else_stmt| {
+                // else_branch is a Box<Stmt>, which may be another If or a Block
+                match &else_stmt.kind {
+                    StmtKind::Block(block) => block.stmts.iter().map(lower_stmt).collect(),
+                    StmtKind::If { .. } => vec![lower_stmt(else_stmt)],
+                    _ => vec![lower_stmt(else_stmt)],
+                }
+            });
+            JsStmt::If {
+                cond: js_cond,
+                then_block,
+                else_block,
+            }
+        }
+        // While/Break/Continue not yet supported in codegen.
+        StmtKind::While { .. } | StmtKind::Break | StmtKind::Continue => {
             JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
         }
     }
@@ -477,8 +552,21 @@ fn lower_expr(expr: &Expr) -> JsExpr {
                     .collect(),
             )
         }
-        // Not yet supported in codegen.
-        ExprKind::Unary { .. } | ExprKind::Block(_) => JsExpr::Ident("undefined".to_string()),
+        ExprKind::Block(block) => {
+            // Lower a block expression to an IIFE (Immediately Invoked Function Expression).
+            // This allows blocks to be used as expressions in JavaScript.
+            let mut body: Vec<JsStmt> = block.stmts.iter().map(lower_stmt).collect();
+            // Wrap the last statement in a return if it's an expression.
+            if let Some(last) = body.pop() {
+                match last {
+                    JsStmt::Expr(expr) => body.push(JsStmt::Return(expr)),
+                    other => body.push(other),
+                }
+            }
+            JsExpr::Iife { body }
+        }
+        // Unary operators not yet supported in codegen.
+        ExprKind::Unary { .. } => JsExpr::Ident("undefined".to_string()),
     }
 }
 
@@ -671,6 +759,14 @@ fn count_newlines_in_stmt(stmt: &JsStmt) -> u32 {
             2 + try_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
               + catch_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
         }
+        JsStmt::If { then_block, else_block, .. } => {
+            // if { + then body + } else { + else body + }
+            let then_lines = then_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>();
+            let else_lines = else_block.as_ref().map_or(0, |eb| {
+                1 + eb.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+            });
+            1 + then_lines + else_lines
+        }
         _ => 0, // single-line statements
     }
 }
@@ -772,6 +868,41 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
+        JsStmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            indent(indent_level, out);
+            out.push_str("if (");
+            write_expr(cond, out);
+            out.push_str(") {\n");
+            for s in then_block {
+                write_stmt(s, indent_level + 1, out);
+                out.push('\n');
+            }
+            indent(indent_level, out);
+            out.push('}');
+            if let Some(else_stmts) = else_block {
+                // Check if the else block contains a single If statement (else if)
+                if else_stmts.len() == 1 {
+                    if let JsStmt::If { .. } = &else_stmts[0] {
+                        out.push_str(" else ");
+                        // Write without indent since it's an else-if chain
+                        write_stmt(&else_stmts[0], 0, out);
+                        // Trim leading whitespace that write_stmt added
+                        return;
+                    }
+                }
+                out.push_str(" else {\n");
+                for s in else_stmts {
+                    write_stmt(s, indent_level + 1, out);
+                    out.push('\n');
+                }
+                indent(indent_level, out);
+                out.push('}');
+            }
+        }
     }
 }
 
@@ -848,6 +979,14 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             });
             out.push(' ');
             write_expr(right, out);
+        }
+        JsExpr::Iife { body } => {
+            out.push_str("(function() {\n");
+            for s in body {
+                write_stmt(s, 1, out);
+                out.push('\n');
+            }
+            out.push_str("})()");
         }
     }
 }
