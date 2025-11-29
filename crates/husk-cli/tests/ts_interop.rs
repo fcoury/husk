@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+use husk_cli::load::{assemble_root, load_graph};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js};
-use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
 fn workspace_root() -> PathBuf {
@@ -37,17 +37,8 @@ fn typescript_can_typecheck_generated_dts_when_available() {
     let root = workspace_root();
     let hk_path = root.join("examples").join("hello.hk");
 
-    let src = fs::read_to_string(&hk_path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", hk_path.display()));
-
-    let parse = parse_str(&src);
-    assert!(
-        parse.errors.is_empty(),
-        "parse errors in {}: {:?}",
-        hk_path.display(),
-        parse.errors
-    );
-    let file = parse.file.expect("parser produced no AST");
+    let graph = load_graph(&hk_path).unwrap_or_else(|e| panic!("{e}"));
+    let file = assemble_root(&graph).unwrap_or_else(|e| panic!("{e}"));
 
     let sem = analyze_file(&file);
     assert!(

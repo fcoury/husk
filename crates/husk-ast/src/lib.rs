@@ -96,6 +96,20 @@ pub enum ExprKind {
         arms: Vec<MatchArm>,
     },
     Block(Block),
+    /// Struct instantiation expression, e.g. `Point { x: 1, y: 2 }`.
+    Struct {
+        /// The struct type name (possibly a path like `module::Type`).
+        name: Vec<Ident>,
+        /// Field initializers.
+        fields: Vec<FieldInit>,
+    },
+}
+
+/// A field initializer in a struct expression.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldInit {
+    pub name: Ident,
+    pub value: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -254,8 +268,15 @@ pub enum EnumVariantFields {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
+    pub visibility: Visibility,
     pub kind: ItemKind,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
 }
 
 /// Items that may appear inside an `extern` block.

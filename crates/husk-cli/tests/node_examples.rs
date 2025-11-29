@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use glob::glob;
+use husk_cli::load::{assemble_root, load_graph};
 use husk_codegen_js::{JsTarget, lower_file_to_js};
-use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
 fn workspace_root() -> PathBuf {
@@ -60,18 +60,8 @@ fn examples_execute_with_node_when_available() {
     fs::create_dir_all(&out_dir).expect("failed to create node-examples directory");
 
     for path in husk_example_files() {
-        let src = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-
-        // Frontend + semantics must succeed.
-        let parse = parse_str(&src);
-        assert!(
-            parse.errors.is_empty(),
-            "parse errors in {}: {:?}",
-            path.display(),
-            parse.errors
-        );
-        let file = parse.file.expect("parser produced no AST");
+        let graph = load_graph(&path).unwrap_or_else(|e| panic!("{e}"));
+        let file = assemble_root(&graph).unwrap_or_else(|e| panic!("{e}"));
         let sem = analyze_file(&file);
         assert!(
             sem.symbols.errors.is_empty() && sem.type_errors.is_empty(),

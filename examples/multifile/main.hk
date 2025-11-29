@@ -1,0 +1,8 @@
+use crate::util::add_two;
+
+fn main() {
+    let result = add_two(5);
+    if result > 6 {
+        // ok
+    }
+}

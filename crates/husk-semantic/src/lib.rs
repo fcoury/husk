@@ -255,6 +255,7 @@ impl TypeChecker {
                         }
                     }
                 }
+                ItemKind::Use { .. } => {}
             }
         }
     }
@@ -925,6 +926,18 @@ impl<'a> FnContext<'a> {
                 self.check_block(block);
                 Type::Primitive(PrimitiveType::Unit)
             }
+            ExprKind::Struct { name, fields } => {
+                // Type-check field expressions and resolve to the struct type.
+                for field in fields {
+                    self.check_expr(&field.value);
+                }
+                // Use the last segment of the path as the type name.
+                let type_name = name.last().map(|id| id.name.clone()).unwrap_or_default();
+                Type::Named {
+                    name: type_name,
+                    args: Vec::new(),
+                }
+            }
         }
     }
 
@@ -974,6 +987,7 @@ impl Resolver {
                     }
                 }
             }
+            ItemKind::Use { .. } => {}
         }
     }
 
@@ -1027,6 +1041,7 @@ mod tests {
         let f = File {
             items: vec![
                 Item {
+                    visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Fn {
                         name: ident("foo", 0),
                         type_params: Vec::new(),
@@ -1037,6 +1052,7 @@ mod tests {
                     span: Span { range: 0..3 },
                 },
                 Item {
+                    visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Struct {
                         name: ident("Bar", 10),
                         type_params: Vec::new(),
@@ -1059,6 +1075,7 @@ mod tests {
         let f = File {
             items: vec![
                 Item {
+                    visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Fn {
                         name: ident("foo", 0),
                         type_params: Vec::new(),
@@ -1069,6 +1086,7 @@ mod tests {
                     span: Span { range: 0..3 },
                 },
                 Item {
+                    visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Struct {
                         name: ident("foo", 10),
                         type_params: Vec::new(),
@@ -1129,6 +1147,7 @@ mod tests {
 
         let file = File {
             items: vec![Item {
+                visibility: husk_ast::Visibility::Private,
                 kind: ItemKind::Fn {
                     name: ident("main", 0),
                     type_params: Vec::new(),
@@ -1177,6 +1196,7 @@ mod tests {
         };
         let file = File {
             items: vec![Item {
+                visibility: husk_ast::Visibility::Private,
                 kind: ItemKind::Fn {
                     name: ident("main", 0),
                     type_params: Vec::new(),
@@ -1205,6 +1225,7 @@ mod tests {
         // fn make_red() -> Color { Color::Red }
         let color_ident = ident("Color", 0);
         let enum_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name: color_ident.clone(),
                 type_params: Vec::new(),
@@ -1235,6 +1256,7 @@ mod tests {
             span: Span { range: 30..50 },
         };
         let fn_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("make_red", 30),
                 type_params: Vec::new(),
@@ -1268,6 +1290,7 @@ mod tests {
         // }
         let color_ident = ident("Color", 0);
         let enum_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name: color_ident.clone(),
                 type_params: Vec::new(),
@@ -1340,6 +1363,7 @@ mod tests {
             span: Span { range: 50..105 },
         };
         let fn_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("f", 40),
                 type_params: Vec::new(),
@@ -1372,6 +1396,7 @@ mod tests {
         // }
         let color_ident = ident("Color", 0);
         let enum_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name: color_ident.clone(),
                 type_params: Vec::new(),
@@ -1428,6 +1453,7 @@ mod tests {
             span: Span { range: 50..105 },
         };
         let fn_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("f", 40),
                 type_params: Vec::new(),
@@ -1470,6 +1496,7 @@ mod tests {
             span: Span { range: 0..15 },
         };
         let extern_block = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::ExternBlock {
                 abi: "js".to_string(),
                 items: vec![extern_item],
@@ -1569,6 +1596,7 @@ mod tests {
         };
 
         let fn_item = Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("main", 100),
                 type_params: Vec::new(),
