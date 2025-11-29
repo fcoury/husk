@@ -409,6 +409,16 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             }
         }
         ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms),
+        ExprKind::Struct { name: _, fields } => {
+            // Lower struct instantiation to a JS object literal.
+            // `Point { x: 1, y: 2 }` -> `{ x: 1, y: 2 }`
+            JsExpr::Object(
+                fields
+                    .iter()
+                    .map(|f| (f.name.name.clone(), lower_expr(&f.value)))
+                    .collect(),
+            )
+        }
         // Not yet supported in codegen.
         ExprKind::Unary { .. } | ExprKind::Block(_) => JsExpr::Ident("undefined".to_string()),
     }
@@ -914,6 +924,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 0),
                 type_params: Vec::new(),
@@ -924,6 +935,7 @@ mod tests {
             span: span(0, 10),
         };
         let helper_fn = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("helper", 20),
                 type_params: Vec::new(),
@@ -1059,6 +1071,7 @@ mod tests {
 
         let main_ident = ident("main", 0);
         let fn_item = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: main_ident.clone(),
                 type_params: Vec::new(),
@@ -1109,6 +1122,7 @@ mod tests {
         };
 
         let user_struct = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Struct {
                 name: user_ident.clone(),
                 type_params: Vec::new(),
@@ -1129,6 +1143,7 @@ mod tests {
         // enum Color { Red, Blue }
         let color_ident = ident("Color", 60);
         let enum_item = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Enum {
                 name: color_ident.clone(),
                 type_params: Vec::new(),
@@ -1162,6 +1177,7 @@ mod tests {
         let ret_ty = i32_ty.clone();
 
         let add_fn = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: add_ident.clone(),
                 type_params: Vec::new(),
@@ -1254,6 +1270,7 @@ mod tests {
 
         let file = husk_ast::File {
             items: vec![husk_ast::Item {
+                visibility: husk_ast::Visibility::Private,
                 kind: husk_ast::ItemKind::ExternBlock {
                     abi: "js".to_string(),
                     items: vec![ext_item],
@@ -1304,6 +1321,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 40),
                 type_params: Vec::new(),
@@ -1317,6 +1335,7 @@ mod tests {
         let file = husk_ast::File {
             items: vec![
                 husk_ast::Item {
+                    visibility: husk_ast::Visibility::Private,
                     kind: husk_ast::ItemKind::ExternBlock {
                         abi: "js".to_string(),
                         items: vec![express_mod, fs_mod],
@@ -1348,6 +1367,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 0),
                 type_params: Vec::new(),
@@ -1387,6 +1407,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 20),
                 type_params: Vec::new(),
@@ -1400,6 +1421,7 @@ mod tests {
         let file = husk_ast::File {
             items: vec![
                 husk_ast::Item {
+                    visibility: husk_ast::Visibility::Private,
                     kind: husk_ast::ItemKind::ExternBlock {
                         abi: "js".to_string(),
                         items: vec![express_mod],

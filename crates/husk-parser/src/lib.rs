@@ -47,6 +47,10 @@ struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     pub errors: Vec<ParseError>,
+    /// When false, struct literal expressions like `Name { ... }` are not allowed.
+    /// This is set to false when parsing contexts where `{` has special meaning
+    /// (e.g., match/if/while scrutinee).
+    allow_struct_expr: bool,
 }
 
 impl Parser {
@@ -55,7 +59,18 @@ impl Parser {
             tokens,
             pos: 0,
             errors: Vec::new(),
+            allow_struct_expr: true,
         }
+    }
+
+    /// Parse an expression in a context where struct literals are not allowed
+    /// (e.g., match/if/while scrutinee where `{` starts a block).
+    fn parse_expr_no_struct(&mut self) -> Option<Expr> {
+        let saved = self.allow_struct_expr;
+        self.allow_struct_expr = false;
+        let result = self.parse_expr();
+        self.allow_struct_expr = saved;
+        result
     }
 
     fn is_at_end(&self) -> bool {
@@ -131,7 +146,13 @@ impl Parser {
                     return;
                 }
                 TokenKind::Keyword(
-                    Keyword::Fn | Keyword::Struct | Keyword::Enum | Keyword::Type | Keyword::Extern,
+                    Keyword::Fn
+                    | Keyword::Struct
+                    | Keyword::Enum
+                    | Keyword::Type
+                    | Keyword::Extern
+                    | Keyword::Use
+                    | Keyword::Pub,
                 ) => {
                     return;
                 }
@@ -155,7 +176,13 @@ impl Parser {
     }
 
     fn parse_item(&mut self) -> Option<Item> {
-        match self.current().kind {
+        let mut visibility = husk_ast::Visibility::Private;
+        if self.matches_keyword(Keyword::Pub) {
+            visibility = husk_ast::Visibility::Public;
+        }
+
+        let mut item = match self.current().kind {
+            TokenKind::Keyword(Keyword::Use) => self.parse_use_item(),
             TokenKind::Keyword(Keyword::Fn) => self.parse_fn_item(),
             TokenKind::Keyword(Keyword::Struct) => self.parse_struct_item(),
             TokenKind::Keyword(Keyword::Enum) => self.parse_enum_item(),
@@ -163,10 +190,15 @@ impl Parser {
             TokenKind::Keyword(Keyword::Extern) => self.parse_extern_block_item(),
             TokenKind::Eof => None,
             _ => {
-                self.error_here("expected item (`fn`, `struct`, `enum`, `type`, or `extern`)");
+                self.error_here(
+                    "expected item (`fn`, `struct`, `enum`, `type`, `extern`, or `use`)",
+                );
                 None
             }
-        }
+        }?;
+
+        item.visibility = visibility;
+        Some(item)
     }
 
     fn parse_fn_item(&mut self) -> Option<Item> {
@@ -195,6 +227,7 @@ impl Parser {
         };
 
         Some(Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name,
                 type_params,
@@ -239,6 +272,7 @@ impl Parser {
         };
 
         Some(Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Struct {
                 name,
                 type_params,
@@ -316,6 +350,7 @@ impl Parser {
         };
 
         Some(Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name,
                 type_params,
@@ -342,6 +377,7 @@ impl Parser {
             range: type_tok.span.range.start..end,
         };
         Some(Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::TypeAlias { name, ty },
             span,
         })
@@ -478,6 +514,7 @@ impl Parser {
         };
 
         Some(Item {
+            visibility: husk_ast::Visibility::Private,
             kind: ItemKind::ExternBlock { abi, items },
             span,
         })
@@ -638,6 +675,23 @@ impl Parser {
         })
     }
 
+    fn parse_use_item(&mut self) -> Option<Item> {
+        let use_tok = self.advance().clone(); // consume `use`
+        let first = self.parse_ident("expected path after `use`")?;
+        let path = self.parse_path_segments(first);
+        if !self.matches_token(&TokenKind::Semicolon) {
+            self.error_here("expected `;` after use path");
+        }
+        let end = self.previous().span.range.end;
+        Some(Item {
+            visibility: husk_ast::Visibility::Private,
+            kind: ItemKind::Use { path },
+            span: Span {
+                range: use_tok.span.range.start..end,
+            },
+        })
+    }
+
     fn parse_stmt(&mut self) -> Option<Stmt> {
         match self.current().kind {
             TokenKind::Keyword(Keyword::Let) => self.parse_let_stmt(),
@@ -717,7 +771,9 @@ impl Parser {
 
     fn parse_if_stmt(&mut self) -> Option<Stmt> {
         let if_tok = self.advance().clone(); // consume `if`
-        let cond = self.parse_expr()?;
+        // Use parse_expr_no_struct so that `if x { ... }` doesn't try to
+        // parse `x { ... }` as a struct literal.
+        let cond = self.parse_expr_no_struct()?;
         let then_branch = self.parse_block().unwrap_or(Block {
             stmts: Vec::new(),
             span: self.ast_span_from(&if_tok.span),
@@ -757,7 +813,9 @@ impl Parser {
 
     fn parse_while_stmt(&mut self) -> Option<Stmt> {
         let while_tok = self.advance().clone(); // consume `while`
-        let cond = self.parse_expr()?;
+        // Use parse_expr_no_struct so that `while x { ... }` doesn't try to
+        // parse `x { ... }` as a struct literal.
+        let cond = self.parse_expr_no_struct()?;
         let body = self.parse_block().unwrap_or(Block {
             stmts: Vec::new(),
             span: self.ast_span_from(&while_tok.span),
@@ -1118,7 +1176,9 @@ impl Parser {
 
     fn parse_match_expr(&mut self) -> Option<Expr> {
         let match_tok = self.advance().clone(); // consume `match`
-        let scrutinee = self.parse_expr()?;
+        // Use parse_expr_no_struct so that `match x { ... }` doesn't try to
+        // parse `x { ... }` as a struct literal.
+        let scrutinee = self.parse_expr_no_struct()?;
         if !self.matches_token(&TokenKind::LBrace) {
             self.error_here("expected `{` after `match` scrutinee");
             return None;
@@ -1256,13 +1316,21 @@ impl Parser {
                 })
             }
             TokenKind::Ident(ref name) => {
-                // Could be a simple identifier or a path like `Enum::Variant`.
+                // Could be a simple identifier, a path like `Enum::Variant`,
+                // or a struct literal like `Point { x: 1, y: 2 }`.
                 let first = Ident {
                     name: name.clone(),
                     span: self.ast_span_from(&tok.span),
                 };
                 self.advance();
                 let path = self.parse_path_segments(first.clone());
+
+                // Check for struct literal: `Name { ... }` or `Path::Name { ... }`
+                // Only parse as struct literal if allowed in this context.
+                if self.allow_struct_expr && self.current().kind == TokenKind::LBrace {
+                    return self.parse_struct_expr(path);
+                }
+
                 if path.len() == 1 {
                     Some(Expr {
                         kind: ExprKind::Ident(first.clone()),
@@ -1297,6 +1365,54 @@ impl Parser {
                 None
             }
         }
+    }
+
+    /// Parse a struct instantiation expression: `Name { field: value, ... }`.
+    /// The `name` path has already been parsed; we're positioned at `{`.
+    fn parse_struct_expr(&mut self, name: Vec<Ident>) -> Option<Expr> {
+        let start = name
+            .first()
+            .map(|id| id.span.range.start)
+            .unwrap_or(self.current().span.range.start);
+
+        // Consume the `{`
+        self.advance();
+
+        let mut fields = Vec::new();
+
+        // Parse field initializers: `field: expr, ...`
+        while self.current().kind != TokenKind::RBrace && self.current().kind != TokenKind::Eof {
+            let field_name = self.parse_ident("expected field name")?;
+
+            if !self.matches_token(&TokenKind::Colon) {
+                self.error_here("expected `:` after field name");
+                return None;
+            }
+
+            let value = self.parse_expr()?;
+
+            fields.push(husk_ast::FieldInit {
+                name: field_name,
+                value,
+            });
+
+            // Optional trailing comma
+            if !self.matches_token(&TokenKind::Comma) {
+                break;
+            }
+        }
+
+        if !self.matches_token(&TokenKind::RBrace) {
+            self.error_here("expected `}` after struct fields");
+            return None;
+        }
+
+        let end = self.previous().span.range.end;
+
+        Some(Expr {
+            kind: ExprKind::Struct { name, fields },
+            span: Span { range: start..end },
+        })
     }
 }
 

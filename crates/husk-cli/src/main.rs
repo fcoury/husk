@@ -5,6 +5,7 @@ use std::path::Path;
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js};
 mod dts_import;
+mod load;
 use husk_parser::parse_str;
 use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
@@ -147,8 +148,15 @@ fn run_parse_only(path: &str) {
 }
 
 fn run_check(path: &str, no_prelude: bool) {
-    debug_log(&format!("[huskc] loading source (with deps): {path}"));
-    let file = match load::load_with_deps(Path::new(path)) {
+    debug_log(&format!("[huskc] building module graph from {path}"));
+    let graph = match load::load_graph(Path::new(path)) {
+        Ok(g) => g,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+    let file = match load::assemble_root(&graph) {
         Ok(f) => f,
         Err(err) => {
             eprintln!("{err}");
@@ -186,8 +194,15 @@ fn run_check(path: &str, no_prelude: bool) {
 }
 
 fn run_compile(path: &str, emit_dts: bool, lib: bool, target: Target, no_prelude: bool) {
-    debug_log(&format!("[huskc] loading source (with deps): {path}"));
-    let file = match load::load_with_deps(Path::new(path)) {
+    debug_log(&format!("[huskc] building module graph from {path}"));
+    let graph = match load::load_graph(Path::new(path)) {
+        Ok(g) => g,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+    let file = match load::assemble_root(&graph) {
         Ok(f) => f,
         Err(err) => {
             eprintln!("{err}");
