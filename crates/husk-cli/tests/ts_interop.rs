@@ -1,18 +1,23 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
-use husk_codegen_js::{file_to_dts, lower_file_to_js};
+use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js};
 use husk_parser::parse_str;
 use husk_semantic::analyze_file;
 
 fn workspace_root() -> PathBuf {
-    // `CARGO_MANIFEST_DIR` points to `crates/husk-cli`.
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .canonicalize()
-        .expect("failed to resolve workspace root")
+    let mut dir = std::env::current_dir().expect("failed to read current dir");
+    let mut found: Option<PathBuf> = None;
+    loop {
+        if dir.join("Cargo.toml").exists() {
+            found = Some(dir.clone());
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    found.expect("failed to resolve workspace root from current dir")
 }
 
 fn has_tsc() -> bool {
@@ -57,7 +62,7 @@ fn typescript_can_typecheck_generated_dts_when_available() {
     fs::create_dir_all(&out_dir).expect("failed to create ts-interop directory");
 
     // Emit JS + preamble and .d.ts side by side.
-    let module = lower_file_to_js(&file, false);
+    let module = lower_file_to_js(&file, false, JsTarget::Esm);
     let js = module.to_source_with_preamble();
     let js_path = out_dir.join("hello.js");
     fs::write(&js_path, js)

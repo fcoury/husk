@@ -57,6 +57,23 @@ The CLI binary is called `huskc` and is built via Cargo.
 
 The compiled output includes the inlined JavaScript preamble (`std_preamble.js`) at the top of the file. The runtime helpers (`Ok`, `Err`, `panic`, `matchEnum`, etc.) are versioned via a `HUSK_RUNTIME_VERSION` constant inside the preamble (currently `0.1.0`).
 
+### Useful flags
+
+- `--target {esm,cjs}` (default `cjs`): choose export style explicitly. Use `--target esm` for Bun/Deno/browser or Node `--input-type=module`, even when your Husk file has no imports.
+- `--no-prelude`: disable automatic injection of the stdlib prelude (`Option`, `Result`). Keep the default for normal usage; opt out only for experiments or custom core definitions.
+
+### Quick start (ESM and CJS)
+
+```bash
+# CommonJS (default)
+cargo run --quiet --bin huskc -- compile examples/hello.hk > target/hello.cjs.js
+node target/hello.cjs.js
+
+# ESM output (rename to .mjs so Node treats it as ESM)
+cargo run --quiet --bin huskc -- compile --target esm examples/hello.hk > target/hello.mjs
+node target/hello.mjs
+```
+
 ### Binary vs. Library mode
 
 By default, `huskc compile` generates a “binary-style” JS module:

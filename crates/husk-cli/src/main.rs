@@ -2,11 +2,11 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-use clap::{Parser, Subcommand};
-use husk_codegen_js::{file_to_dts, lower_file_to_js};
+use clap::{Parser, Subcommand, ValueEnum};
+use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js};
 mod dts_import;
 use husk_parser::parse_str;
-use husk_semantic::analyze_file;
+use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
 #[derive(Parser, Debug)]
 #[command(name = "huskc", version, about = "The Husk compiler CLI")]
@@ -28,6 +28,9 @@ enum Command {
     Check {
         /// Source file to check
         file: String,
+        /// Disable stdlib prelude injection (Option/Result)
+        #[arg(long)]
+        no_prelude: bool,
     },
     /// Compile a file to JavaScript and print to stdout
     Compile {
@@ -39,6 +42,12 @@ enum Command {
         /// Compile in library mode (do not auto-call `main`)
         #[arg(long)]
         lib: bool,
+        /// JavaScript output target: esm or cjs
+        #[arg(long, value_enum, default_value = "cjs")]
+        target: Target,
+        /// Disable stdlib prelude injection (Option/Result)
+        #[arg(long)]
+        no_prelude: bool,
     },
     /// Import a `.d.ts` file and generate Husk `extern \"js\"` declarations
     ImportDts {
@@ -55,6 +64,12 @@ enum Command {
     },
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum Target {
+    Esm,
+    Cjs,
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -66,12 +81,14 @@ fn main() {
     }
 
     match cli.command {
-        Some(Command::Check { file }) => run_check(&file),
+        Some(Command::Check { file, no_prelude }) => run_check(&file, no_prelude),
         Some(Command::Compile {
             file,
             emit_dts,
             lib,
-        }) => run_compile(&file, emit_dts, lib),
+            target,
+            no_prelude,
+        }) => run_compile(&file, emit_dts, lib, target, no_prelude),
         Some(Command::ImportDts { file, out, module }) => {
             run_import_dts(&file, out.as_deref(), module.as_deref())
         }
@@ -129,41 +146,23 @@ fn run_parse_only(path: &str) {
     println!("Successfully parsed {file_name}");
 }
 
-fn run_check(path: &str) {
-    debug_log(&format!("[huskc] reading source: {path}"));
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
+fn run_check(path: &str, no_prelude: bool) {
+    debug_log(&format!("[huskc] loading source (with deps): {path}"));
+    let file = match load::load_with_deps(Path::new(path)) {
+        Ok(f) => f,
         Err(err) => {
-            eprintln!("Failed to read {}: {err}", path);
-            std::process::exit(1);
-        }
-    };
-
-    debug_log("[huskc] parsing");
-    let result = parse_str(&content);
-
-    if !result.errors.is_empty() {
-        eprintln!("Failed to parse {}:", path);
-        for err in result.errors {
-            eprintln!("- {} at {:?}", err.message, err.span.range);
-        }
-        std::process::exit(1);
-    }
-
-    debug_log(&format!(
-        "[huskc] parse complete, {} error(s)",
-        result.errors.len()
-    ));
-    let file = match result.file {
-        Some(f) => f,
-        None => {
-            eprintln!("No AST produced for {}", path);
+            eprintln!("{err}");
             std::process::exit(1);
         }
     };
 
     debug_log("[huskc] running semantic analysis");
-    let semantic = analyze_file(&file);
+    let semantic = analyze_file_with_options(
+        &file,
+        SemanticOptions {
+            prelude: !no_prelude,
+        },
+    );
     let mut had_errors = false;
     for err in semantic
         .symbols
@@ -186,41 +185,23 @@ fn run_check(path: &str) {
     println!("Successfully type-checked {file_name}");
 }
 
-fn run_compile(path: &str, emit_dts: bool, lib: bool) {
-    debug_log(&format!("[huskc] reading source: {path}"));
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
+fn run_compile(path: &str, emit_dts: bool, lib: bool, target: Target, no_prelude: bool) {
+    debug_log(&format!("[huskc] loading source (with deps): {path}"));
+    let file = match load::load_with_deps(Path::new(path)) {
+        Ok(f) => f,
         Err(err) => {
-            eprintln!("Failed to read {}: {err}", path);
-            std::process::exit(1);
-        }
-    };
-
-    debug_log("[huskc] parsing");
-    let result = parse_str(&content);
-
-    if !result.errors.is_empty() {
-        eprintln!("Failed to parse {}:", path);
-        for err in result.errors {
-            eprintln!("- {} at {:?}", err.message, err.span.range);
-        }
-        std::process::exit(1);
-    }
-
-    debug_log(&format!(
-        "[huskc] parse complete, {} error(s)",
-        result.errors.len()
-    ));
-    let file = match result.file {
-        Some(f) => f,
-        None => {
-            eprintln!("No AST produced for {}", path);
+            eprintln!("{err}");
             std::process::exit(1);
         }
     };
 
     debug_log("[huskc] running semantic analysis");
-    let semantic = analyze_file(&file);
+    let semantic = analyze_file_with_options(
+        &file,
+        SemanticOptions {
+            prelude: !no_prelude,
+        },
+    );
     let mut had_errors = false;
     for err in semantic
         .symbols
@@ -236,7 +217,11 @@ fn run_compile(path: &str, emit_dts: bool, lib: bool) {
     }
 
     debug_log("[huskc] lowering to JS");
-    let module = lower_file_to_js(&file, !lib);
+    let js_target = match target {
+        Target::Esm => JsTarget::Esm,
+        Target::Cjs => JsTarget::Cjs,
+    };
+    let module = lower_file_to_js(&file, !lib, js_target);
     let js = module.to_source_with_preamble();
     println!("{js}");
 

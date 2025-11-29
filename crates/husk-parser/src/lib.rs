@@ -374,20 +374,28 @@ impl Parser {
                 let mod_start = self.previous().span.range.start;
 
                 // Parse package name (identifier or string literal)
-                let (package, default_binding) = if let TokenKind::StringLiteral(ref s) = self.current().kind {
-                    let pkg = s.clone();
-                    let binding_name = derive_binding_from_package(&pkg);
-                    let tok = self.advance().clone();
-                    (pkg, Ident {
-                        name: binding_name,
-                        span: Span { range: tok.span.range.clone() },
-                    })
-                } else if let Some(id) = self.parse_ident("expected module name or string literal after `mod`") {
-                    (id.name.clone(), id)
-                } else {
-                    self.synchronize_item();
-                    continue;
-                };
+                let (package, default_binding) =
+                    if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                        let pkg = s.clone();
+                        let binding_name = derive_binding_from_package(&pkg);
+                        let tok = self.advance().clone();
+                        (
+                            pkg,
+                            Ident {
+                                name: binding_name,
+                                span: Span {
+                                    range: tok.span.range.clone(),
+                                },
+                            },
+                        )
+                    } else if let Some(id) =
+                        self.parse_ident("expected module name or string literal after `mod`")
+                    {
+                        (id.name.clone(), id)
+                    } else {
+                        self.synchronize_item();
+                        continue;
+                    };
 
                 // Check for optional `as alias`
                 let binding = if self.matches_keyword(Keyword::As) {
@@ -584,11 +592,7 @@ impl Parser {
     fn parse_path_segments(&mut self, first: Ident) -> Vec<Ident> {
         let mut path = vec![first];
         // Check for path segments `Foo::Bar`.
-        while self.matches_token(&TokenKind::Colon) {
-            if !self.matches_token(&TokenKind::Colon) {
-                self.error_here("expected `::` after `:` in path");
-                break;
-            }
+        while self.matches_token(&TokenKind::ColonColon) {
             let seg = match self.parse_ident("expected identifier after `::` in path") {
                 Some(id) => id,
                 None => break,
@@ -1330,7 +1334,12 @@ pub fn derive_binding_from_package(package: &str) -> String {
     }
 
     // Ensure the identifier doesn't start with a digit
-    if result.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    if result
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         result.insert(0, '_');
     }
 
