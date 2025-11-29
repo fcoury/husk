@@ -4,17 +4,46 @@
 //! - A small JS AST (expressions, statements, modules).
 //! - A pretty-printer that renders the AST to a JS source string.
 //! - A minimal lowering from Husk AST to this JS AST for simple functions.
+//! - Source map generation for debugging.
 
 use husk_ast::{
     EnumVariantFields, Expr, ExprKind, ExternItemKind, File, Ident, ItemKind, LiteralKind, Param,
-    Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
+    Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
 };
 use husk_runtime_js::std_preamble_js;
+use sourcemap::SourceMapBuilder;
 
 /// A JavaScript module (ES module) consisting of a list of statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsModule {
     pub body: Vec<JsStmt>,
+}
+
+/// Source span for mapping back to Husk source.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SourceSpan {
+    /// Source line (0-indexed)
+    pub line: u32,
+    /// Source column (0-indexed)
+    pub column: u32,
+}
+
+/// Compute line and column (0-indexed) from a byte offset in source text.
+pub fn offset_to_line_col(source: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 /// JavaScript statements (subset).
@@ -31,6 +60,8 @@ pub enum JsStmt {
         name: String,
         params: Vec<String>,
         body: Vec<JsStmt>,
+        /// Optional source span for source map generation.
+        source_span: Option<SourceSpan>,
     },
     /// `return expr;`
     Return(JsExpr),
@@ -116,6 +147,18 @@ pub enum JsTarget {
 /// consumers should set this to `false` so `main` can be called
 /// explicitly by a host.
 pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsModule {
+    lower_file_to_js_with_source(file, call_main, target, None)
+}
+
+/// Lower a Husk AST file into a JS module with source text for accurate source maps.
+///
+/// When `source` is provided, source spans will have accurate line/column info.
+pub fn lower_file_to_js_with_source(
+    file: &File,
+    call_main: bool,
+    target: JsTarget,
+    source: Option<&str>,
+) -> JsModule {
     let mut imports = Vec::new();
     let mut body = Vec::new();
     let mut has_main_entry = false;
@@ -152,7 +195,7 @@ pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsMod
                 body: fn_body,
                 ..
             } => {
-                body.push(lower_fn(&name.name, params, fn_body));
+                body.push(lower_fn_with_span(&name.name, params, fn_body, &item.span, source));
                 fn_names.push(name.name.clone());
                 if name.name == "main" && params.is_empty() {
                     has_main_entry = true;
@@ -216,7 +259,13 @@ pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsMod
     JsModule { body: full_body }
 }
 
-fn lower_fn(name: &str, params: &[Param], body: &[Stmt]) -> JsStmt {
+fn lower_fn_with_span(
+    name: &str,
+    params: &[Param],
+    body: &[Stmt],
+    span: &Span,
+    source: Option<&str>,
+) -> JsStmt {
     let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
     let mut js_body = Vec::new();
     for (i, stmt) in body.iter().enumerate() {
@@ -227,10 +276,18 @@ fn lower_fn(name: &str, params: &[Param], body: &[Stmt]) -> JsStmt {
             js_body.push(lower_stmt(stmt));
         }
     }
+
+    // Convert byte offset to line/column if source is provided
+    let source_span = source.map(|src| {
+        let (line, column) = offset_to_line_col(src, span.range.start);
+        SourceSpan { line, column }
+    });
+
     JsStmt::Function {
         name: name.to_string(),
         params: js_params,
         body: js_body,
+        source_span,
     }
 }
 
@@ -254,6 +311,7 @@ fn lower_extern_fn(
         name: name.name.clone(),
         params: js_params,
         body,
+        source_span: None,
     }
 }
 
@@ -528,6 +586,93 @@ impl JsModule {
 
         out
     }
+
+    /// Render the module to JavaScript source with a source map.
+    /// Returns (js_source, source_map_json).
+    pub fn to_source_with_sourcemap(&self, source_file: &str, source_content: &str) -> (String, String) {
+        let mut out = String::new();
+        let mut builder = SourceMapBuilder::new(Some(source_file));
+
+        // Add source file to the source map
+        let source_id = builder.add_source(source_file);
+        builder.set_source_contents(source_id, Some(source_content));
+
+        // Count preamble lines
+        let preamble = std_preamble_js();
+        let preamble_lines = preamble.lines().count() as u32;
+
+        // First, output all import/require statements at the top
+        let mut has_imports = false;
+        for stmt in &self.body {
+            if matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
+                write_stmt(stmt, 0, &mut out);
+                out.push('\n');
+                has_imports = true;
+            }
+        }
+        let import_lines = if has_imports {
+            out.lines().count() as u32 + 1 // +1 for blank line
+        } else {
+            0
+        };
+        if has_imports {
+            out.push('\n');
+        }
+
+        // Then output the preamble
+        out.push_str(preamble);
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push('\n');
+
+        // Track line number as we output code
+        let mut current_line = import_lines + preamble_lines + 1; // +1 for blank line after preamble
+
+        // Finally output the rest of the code (excluding imports/requires)
+        for stmt in &self.body {
+            if !matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
+                // Add source mapping for functions
+                if let JsStmt::Function { name, source_span: Some(span), .. } = stmt {
+                    builder.add(
+                        current_line,
+                        0,
+                        span.line,
+                        span.column,
+                        Some(source_file),
+                        Some(name.as_str()),
+                        false,
+                    );
+                }
+                write_stmt(stmt, 0, &mut out);
+                out.push('\n');
+                current_line += count_newlines_in_stmt(stmt) + 1;
+            }
+        }
+
+        let source_map = builder.into_sourcemap();
+        let mut sm_out = Vec::new();
+        source_map.to_writer(&mut sm_out).expect("failed to write source map");
+        let sm_json = String::from_utf8(sm_out).expect("source map is utf8");
+
+        (out, sm_json)
+    }
+}
+
+/// Count newlines in a statement (for line tracking in source maps)
+fn count_newlines_in_stmt(stmt: &JsStmt) -> u32 {
+    match stmt {
+        JsStmt::Function { body, .. } => {
+            // function header + body lines + closing brace
+            1 + body.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+        }
+        JsStmt::TryCatch { try_block, catch_block, .. } => {
+            // try { + try body + } catch { + catch body + }
+            2 + try_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+              + catch_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+        }
+        _ => 0, // single-line statements
+    }
 }
 
 fn indent(level: usize, out: &mut String) {
@@ -565,7 +710,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             }
             out.push_str(" };");
         }
-        JsStmt::Function { name, params, body } => {
+        JsStmt::Function { name, params, body, .. } => {
             indent(indent_level, out);
             out.push_str("function ");
             out.push_str(name);
@@ -905,6 +1050,7 @@ mod tests {
                     },
                     JsStmt::Return(JsExpr::Ident("x".into())),
                 ],
+                source_span: None,
             }],
         };
 

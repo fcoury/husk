@@ -3,9 +3,11 @@ use std::fs;
 use std::path::Path;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js};
+use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
+mod diagnostic;
 mod dts_import;
 mod load;
+use diagnostic::SourceDb;
 use husk_parser::parse_str;
 use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
@@ -49,6 +51,12 @@ enum Command {
         /// Disable stdlib prelude injection (Option/Result)
         #[arg(long)]
         no_prelude: bool,
+        /// Output file path (required for source maps, optional otherwise)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Generate source map (requires --output)
+        #[arg(long)]
+        source_map: bool,
     },
     /// Import a `.d.ts` file and generate Husk `extern \"js\"` declarations
     ImportDts {
@@ -62,6 +70,28 @@ enum Command {
         /// For packages with hyphens/scopes: `mod "pkg" as alias;`
         #[arg(short, long, value_name = "NAME")]
         module: Option<String>,
+    },
+    /// Create a new Husk project
+    New {
+        /// Name of the project (also used as directory name)
+        name: String,
+    },
+    /// Watch for file changes and recompile
+    Watch {
+        /// Source file to watch (entry point)
+        file: String,
+        /// Output file path
+        #[arg(short, long)]
+        output: String,
+        /// JavaScript output target: esm or cjs
+        #[arg(long, value_enum, default_value = "esm")]
+        target: Target,
+        /// Compile in library mode (do not auto-call `main`)
+        #[arg(long)]
+        lib: bool,
+        /// Disable stdlib prelude injection (Option/Result)
+        #[arg(long)]
+        no_prelude: bool,
     },
 }
 
@@ -89,10 +119,20 @@ fn main() {
             lib,
             target,
             no_prelude,
-        }) => run_compile(&file, emit_dts, lib, target, no_prelude),
+            output,
+            source_map,
+        }) => run_compile(&file, emit_dts, lib, target, no_prelude, output.as_deref(), source_map),
         Some(Command::ImportDts { file, out, module }) => {
             run_import_dts(&file, out.as_deref(), module.as_deref())
         }
+        Some(Command::New { name }) => run_new(&name),
+        Some(Command::Watch {
+            file,
+            output,
+            target,
+            lib,
+            no_prelude,
+        }) => run_watch(&file, &output, target, lib, no_prelude),
         None => {
             // Default: just parse the file if provided.
             let file = match &cli.file {
@@ -121,9 +161,9 @@ fn run_parse_only(path: &str) {
     let result = parse_str(&content);
 
     if !result.errors.is_empty() {
-        eprintln!("Failed to parse {}:", path);
-        for err in result.errors {
-            eprintln!("- {} at {:?}", err.message, err.span.range);
+        let source_db = SourceDb::new(path.to_string(), content);
+        for err in &result.errors {
+            source_db.report_parse_error(&err.message, err.span.range.clone());
         }
         std::process::exit(1);
     }
@@ -149,6 +189,16 @@ fn run_parse_only(path: &str) {
 
 fn run_check(path: &str, no_prelude: bool) {
     debug_log(&format!("[huskc] building module graph from {path}"));
+
+    // Read the source for error reporting
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", path);
+            std::process::exit(1);
+        }
+    };
+
     let graph = match load::load_graph(Path::new(path)) {
         Ok(g) => g,
         Err(err) => {
@@ -171,17 +221,19 @@ fn run_check(path: &str, no_prelude: bool) {
             prelude: !no_prelude,
         },
     );
-    let mut had_errors = false;
-    for err in semantic
+
+    let errors: Vec<_> = semantic
         .symbols
         .errors
         .iter()
         .chain(semantic.type_errors.iter())
-    {
-        had_errors = true;
-        eprintln!("- {} at {:?}", err.message, err.span.range);
-    }
-    if had_errors {
+        .collect();
+
+    if !errors.is_empty() {
+        let source_db = SourceDb::new(path.to_string(), content);
+        for err in errors {
+            source_db.report_semantic_error(&err.message, err.span.range.clone());
+        }
         std::process::exit(1);
     }
 
@@ -193,8 +245,32 @@ fn run_check(path: &str, no_prelude: bool) {
     println!("Successfully type-checked {file_name}");
 }
 
-fn run_compile(path: &str, emit_dts: bool, lib: bool, target: Target, no_prelude: bool) {
+fn run_compile(
+    path: &str,
+    emit_dts: bool,
+    lib: bool,
+    target: Target,
+    no_prelude: bool,
+    output: Option<&str>,
+    source_map: bool,
+) {
+    // Validate source_map requires output
+    if source_map && output.is_none() {
+        eprintln!("Error: --source-map requires --output");
+        std::process::exit(1);
+    }
+
     debug_log(&format!("[huskc] building module graph from {path}"));
+
+    // Read the source for error reporting and source maps
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", path);
+            std::process::exit(1);
+        }
+    };
+
     let graph = match load::load_graph(Path::new(path)) {
         Ok(g) => g,
         Err(err) => {
@@ -217,17 +293,19 @@ fn run_compile(path: &str, emit_dts: bool, lib: bool, target: Target, no_prelude
             prelude: !no_prelude,
         },
     );
-    let mut had_errors = false;
-    for err in semantic
+
+    let errors: Vec<_> = semantic
         .symbols
         .errors
         .iter()
         .chain(semantic.type_errors.iter())
-    {
-        had_errors = true;
-        eprintln!("- {} at {:?}", err.message, err.span.range);
-    }
-    if had_errors {
+        .collect();
+
+    if !errors.is_empty() {
+        let source_db = SourceDb::new(path.to_string(), content.clone());
+        for err in errors {
+            source_db.report_semantic_error(&err.message, err.span.range.clone());
+        }
         std::process::exit(1);
     }
 
@@ -236,9 +314,73 @@ fn run_compile(path: &str, emit_dts: bool, lib: bool, target: Target, no_prelude
         Target::Esm => JsTarget::Esm,
         Target::Cjs => JsTarget::Cjs,
     };
-    let module = lower_file_to_js(&file, !lib, js_target);
-    let js = module.to_source_with_preamble();
-    println!("{js}");
+
+    if source_map {
+        // Generate with source map
+        let module = lower_file_to_js_with_source(&file, !lib, js_target, Some(&content));
+        let source_file = Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(path);
+        let (mut js, map_json) = module.to_source_with_sourcemap(source_file, &content);
+
+        let output_path = output.unwrap();
+        let map_path = format!("{}.map", output_path);
+
+        // Append source map reference to JS
+        let map_name = Path::new(&map_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&map_path);
+        js.push_str(&format!("//# sourceMappingURL={}\n", map_name));
+
+        // Ensure output directory exists
+        if let Some(parent) = Path::new(output_path).parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!("Failed to create output directory: {err}");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // Write JS file
+        if let Err(err) = fs::write(output_path, &js) {
+            eprintln!("Failed to write {}: {err}", output_path);
+            std::process::exit(1);
+        }
+
+        // Write source map
+        if let Err(err) = fs::write(&map_path, &map_json) {
+            eprintln!("Failed to write {}: {err}", map_path);
+            std::process::exit(1);
+        }
+
+        debug_log(&format!("[huskc] wrote {} and {}", output_path, map_path));
+    } else {
+        // Standard output (no source map)
+        let module = lower_file_to_js(&file, !lib, js_target);
+        let js = module.to_source_with_preamble();
+
+        if let Some(output_path) = output {
+            // Write to file
+            if let Some(parent) = Path::new(output_path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    if let Err(err) = fs::create_dir_all(parent) {
+                        eprintln!("Failed to create output directory: {err}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            if let Err(err) = fs::write(output_path, &js) {
+                eprintln!("Failed to write {}: {err}", output_path);
+                std::process::exit(1);
+            }
+        } else {
+            // Print to stdout
+            println!("{js}");
+        }
+    }
 
     if emit_dts {
         debug_log("[huskc] emitting .d.ts");
@@ -272,6 +414,257 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
     } else {
         println!("{husk}");
     }
+}
+
+fn run_new(name: &str) {
+    let project_dir = Path::new(name);
+
+    if project_dir.exists() {
+        eprintln!("Error: directory '{}' already exists", name);
+        std::process::exit(1);
+    }
+
+    // Create project structure
+    let src_dir = project_dir.join("src");
+    if let Err(err) = fs::create_dir_all(&src_dir) {
+        eprintln!("Failed to create directory: {err}");
+        std::process::exit(1);
+    }
+
+    // Write main.hk
+    let main_hk = r#"fn main() {
+    let message = "Hello from Husk!";
+}
+"#;
+    if let Err(err) = fs::write(src_dir.join("main.hk"), main_hk) {
+        eprintln!("Failed to write main.hk: {err}");
+        std::process::exit(1);
+    }
+
+    // Write package.json
+    let package_json = format!(
+        r#"{{
+  "name": "{}",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {{
+    "build": "huskc compile src/main.hk --target esm > dist/main.js",
+    "start": "node dist/main.js"
+  }}
+}}
+"#,
+        name
+    );
+    if let Err(err) = fs::write(project_dir.join("package.json"), package_json) {
+        eprintln!("Failed to write package.json: {err}");
+        std::process::exit(1);
+    }
+
+    // Write README.md
+    let readme = format!(
+        r#"# {}
+
+A Husk project.
+
+## Getting Started
+
+```bash
+# Build the project
+npm run build
+
+# Run the project
+npm start
+```
+
+## Project Structure
+
+```
+{}/
+├── src/
+│   └── main.hk    # Entry point
+├── package.json
+└── README.md
+```
+"#,
+        name, name
+    );
+    if let Err(err) = fs::write(project_dir.join("README.md"), readme) {
+        eprintln!("Failed to write README.md: {err}");
+        std::process::exit(1);
+    }
+
+    // Create dist directory
+    if let Err(err) = fs::create_dir_all(project_dir.join("dist")) {
+        eprintln!("Failed to create dist directory: {err}");
+        std::process::exit(1);
+    }
+
+    // Write .gitignore
+    let gitignore = r#"dist/
+node_modules/
+"#;
+    if let Err(err) = fs::write(project_dir.join(".gitignore"), gitignore) {
+        eprintln!("Failed to write .gitignore: {err}");
+        std::process::exit(1);
+    }
+
+    println!("Created new Husk project: {}", name);
+    println!();
+    println!("To get started:");
+    println!("  cd {}", name);
+    println!("  npm run build");
+    println!("  npm start");
+}
+
+fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bool) {
+    use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    let entry_path = Path::new(path);
+    let output_path = Path::new(output);
+
+    // Get the directory to watch (parent of entry file)
+    let watch_dir = entry_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+
+    println!("Watching {} for changes...", watch_dir.display());
+    println!("Output: {}", output_path.display());
+    println!("Press Ctrl+C to stop.\n");
+
+    // Initial compile
+    compile_to_file(path, output, target, lib, no_prelude);
+
+    // Set up file watcher
+    let (tx, rx) = channel();
+    let mut debouncer = match new_debouncer(Duration::from_millis(200), tx) {
+        Ok(d) => d,
+        Err(err) => {
+            eprintln!("Failed to create file watcher: {err}");
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(err) = debouncer.watcher().watch(&watch_dir, RecursiveMode::Recursive) {
+        eprintln!("Failed to watch directory: {err}");
+        std::process::exit(1);
+    }
+
+    // Watch loop
+    loop {
+        match rx.recv() {
+            Ok(Ok(events)) => {
+                // Check if any .hk files changed
+                let hk_changed = events.iter().any(|e| {
+                    e.path
+                        .extension()
+                        .map(|ext| ext == "hk")
+                        .unwrap_or(false)
+                });
+
+                if hk_changed {
+                    println!("\n[{}] File changed, recompiling...",
+                        chrono_lite_time());
+                    compile_to_file(path, output, target, lib, no_prelude);
+                }
+            }
+            Ok(Err(errs)) => {
+                eprintln!("Watch error: {errs}");
+            }
+            Err(err) => {
+                eprintln!("Channel error: {err}");
+                break;
+            }
+        }
+    }
+}
+
+/// Simple time formatting without external crate
+fn chrono_lite_time() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    let hours = (secs / 3600) % 24;
+    let mins = (secs / 60) % 60;
+    let secs = secs % 60;
+    format!("{:02}:{:02}:{:02}", hours, mins, secs)
+}
+
+/// Compile and write to file, reporting errors but not exiting
+fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelude: bool) {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", path);
+            return;
+        }
+    };
+
+    let graph = match load::load_graph(Path::new(path)) {
+        Ok(g) => g,
+        Err(err) => {
+            eprintln!("{err}");
+            return;
+        }
+    };
+
+    let file = match load::assemble_root(&graph) {
+        Ok(f) => f,
+        Err(err) => {
+            eprintln!("{err}");
+            return;
+        }
+    };
+
+    let semantic = analyze_file_with_options(
+        &file,
+        SemanticOptions {
+            prelude: !no_prelude,
+        },
+    );
+
+    let errors: Vec<_> = semantic
+        .symbols
+        .errors
+        .iter()
+        .chain(semantic.type_errors.iter())
+        .collect();
+
+    if !errors.is_empty() {
+        let source_db = SourceDb::new(path.to_string(), content);
+        for err in errors {
+            source_db.report_semantic_error(&err.message, err.span.range.clone());
+        }
+        return;
+    }
+
+    let js_target = match target {
+        Target::Esm => JsTarget::Esm,
+        Target::Cjs => JsTarget::Cjs,
+    };
+    let module = lower_file_to_js(&file, !lib, js_target);
+    let js = module.to_source_with_preamble();
+
+    // Ensure output directory exists
+    if let Some(parent) = Path::new(output).parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(err) = fs::create_dir_all(parent) {
+                eprintln!("Failed to create output directory: {err}");
+                return;
+            }
+        }
+    }
+
+    if let Err(err) = fs::write(output, js) {
+        eprintln!("Failed to write {}: {err}", output);
+        return;
+    }
+
+    println!("Compiled {} -> {}", path, output);
 }
 
 fn debug_log(msg: &str) {
