@@ -11,6 +11,9 @@ husk-codegen-js = { path = "../husk-codegen-js" }
 husk-ast = { path = "../husk-ast" }
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
+codespan-reporting = "0.11"
+notify = "6"
+notify-debouncer-mini = "0.4"
 
 [[bin]]
 name = "huskc"
