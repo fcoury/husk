@@ -9,6 +9,7 @@ husk-parser = { path = "../husk-parser" }
 husk-semantic = { path = "../husk-semantic" }
 husk-codegen-js = { path = "../husk-codegen-js" }
 husk-ast = { path = "../husk-ast" }
+husk-dts-parser = { path = "../husk-dts-parser" }
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
 codespan-reporting = "0.11"
