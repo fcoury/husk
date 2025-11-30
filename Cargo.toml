@@ -9,4 +9,5 @@ members = [
     "crates/husk-codegen-js",
     "crates/husk-runtime-js",
     "crates/husk-cli",
+    "crates/husk-lsp",
 ]

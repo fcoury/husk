@@ -1,0 +1,22 @@
+[package]
+name = "husk-lsp"
+version = "0.1.0"
+edition = "2024"
+description = "Language Server Protocol implementation for Husk"
+
+[[bin]]
+name = "husk-lsp"
+path = "src/main.rs"
+
+[dependencies]
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1.0"
+dashmap = "6"
+
+# Reuse existing Husk crates
+husk-lexer = { path = "../husk-lexer" }
+husk-parser = { path = "../husk-parser" }
+husk-semantic = { path = "../husk-semantic" }
+husk-ast = { path = "../husk-ast" }
+husk-types = { path = "../husk-types" }
