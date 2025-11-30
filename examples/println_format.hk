@@ -1,0 +1,43 @@
+// Test println formatting with various format specifiers
+
+enum Color { Red, Blue }
+
+fn main() {
+    let x = 42;
+    let name = "world";
+    let flag = true;
+    let color = Color::Red;
+
+    // Basic formatting
+    println("Hello, {}!", name);
+    println("The answer is {}", x);
+    println("Flag is {}", flag);
+
+    // Debug formatting
+    println("Debug: {:?}", color);
+
+    // Hex formatting
+    println("Hex: {:x}", 255);
+    println("HEX: {:X}", 255);
+    println("Hex with prefix: {:#x}", 255);
+
+    // Binary and octal
+    println("Binary: {:b}", 42);
+    println("Binary with prefix: {:#b}", 42);
+    println("Octal: {:o}", 42);
+
+    // Width padding
+    println("Padded: {:10}", x);
+    println("Left: {:<10}", x);
+    println("Center: {:^10}", x);
+    println("Zero-padded: {:08}", x);
+
+    // Escaped braces
+    println("Braces: {{}}");
+
+    // Multiple arguments
+    println("{} + {} = {}", 1, 2, 3);
+
+    // Positional arguments
+    println("{1} before {0}", "second", "first");
+}

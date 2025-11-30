@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use husk_ast::{
-    Block, Expr, ExprKind, File, Ident, Item, ItemKind, LiteralKind, MatchArm, Param, Pattern,
-    PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
+    Block, Expr, ExprKind, File, FormatSegment, Ident, Item, ItemKind, LiteralKind, MatchArm,
+    Param, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
@@ -969,6 +969,99 @@ impl<'a> FnContext<'a> {
                     name: type_name,
                     args: Vec::new(),
                 }
+            }
+            ExprKind::FormatPrint { format, args } => {
+                // Count placeholders (excluding escaped braces which are literals)
+                let mut placeholders: Vec<&husk_ast::FormatPlaceholder> = Vec::new();
+                for segment in &format.segments {
+                    if let FormatSegment::Placeholder(ph) = segment {
+                        placeholders.push(ph);
+                    }
+                }
+
+                // Check for mixing positional and implicit indexing
+                let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
+                let has_implicit_position = placeholders.iter().any(|ph| ph.position.is_none() && ph.name.is_none());
+
+                if has_explicit_position && has_implicit_position {
+                    self.tcx.errors.push(SemanticError {
+                        message: "cannot mix positional and implicit argument indexing".to_string(),
+                        span: format.span.clone(),
+                    });
+                }
+
+                // Check for named arguments (which require matching argument names - not yet supported)
+                let has_named = placeholders.iter().any(|ph| ph.name.is_some());
+                if has_named {
+                    self.tcx.errors.push(SemanticError {
+                        message: "named format arguments are not yet supported".to_string(),
+                        span: format.span.clone(),
+                    });
+                }
+
+                // Validate argument count
+                if has_explicit_position {
+                    // With explicit positions, check that all indices are in bounds
+                    for ph in &placeholders {
+                        if let Some(pos) = ph.position {
+                            if pos >= args.len() {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "positional argument {} is out of range (only {} argument(s) provided)",
+                                        pos,
+                                        args.len()
+                                    ),
+                                    span: ph.span.clone(),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    // With implicit positions, count must match exactly
+                    let placeholder_count = placeholders.len();
+                    if placeholder_count != args.len() {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "format string requires {} argument(s), but {} provided",
+                                placeholder_count,
+                                args.len()
+                            ),
+                            span: expr.span.clone(),
+                        });
+                    }
+                }
+
+                // Type-check all format arguments
+                let arg_types: Vec<Type> = args.iter().map(|arg| self.check_expr(arg)).collect();
+
+                // Validate type compatibility for numeric format specifiers
+                for (i, ph) in placeholders.iter().enumerate() {
+                    let arg_index = ph.position.unwrap_or(i);
+                    if let Some(arg_ty) = arg_types.get(arg_index) {
+                        // Numeric format specifiers require i32
+                        if let Some(ty_char) = ph.spec.ty {
+                            match ty_char {
+                                'x' | 'X' | 'b' | 'o' => {
+                                    if !matches!(arg_ty, Type::Primitive(PrimitiveType::I32)) {
+                                        self.tcx.errors.push(SemanticError {
+                                            message: format!(
+                                                "format specifier `:{ty_char}` requires numeric type, found `{arg_ty:?}`"
+                                            ),
+                                            span: ph.span.clone(),
+                                        });
+                                    }
+                                }
+                                '?' => {
+                                    // Debug format works with any type
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                // println returns unit
+                Type::Primitive(PrimitiveType::Unit)
             }
         }
     }
