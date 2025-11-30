@@ -80,10 +80,7 @@ fn examples_execute_with_node_when_available() {
         // For the minimal Express interop example, prepend a tiny stub `express`
         // implementation so that the generated code can run without depending
         // on the real `express` package.
-        let file_stem_str = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let file_stem_str = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
         let is_express_minimal = file_stem_str == "interop_express_minimal";
 

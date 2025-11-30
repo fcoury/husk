@@ -93,6 +93,7 @@ pub enum JsStmt {
 pub enum JsExpr {
     Ident(String),
     Number(i64),
+    Float(f64),
     Bool(bool),
     String(String),
     /// Object literal: `{ key: value, ... }`.
@@ -189,10 +190,26 @@ pub fn lower_file_to_js_with_source(
     target: JsTarget,
     source: Option<&str>,
 ) -> JsModule {
+    use std::collections::HashSet;
+
     let mut imports = Vec::new();
     let mut body = Vec::new();
     let mut has_main_entry = false;
     let mut fn_names: Vec<String> = Vec::new();
+
+    // Collect extern struct names - these are opaque JS types
+    let mut extern_structs: HashSet<String> = HashSet::new();
+    for item in &file.items {
+        if let ItemKind::ExternBlock { abi, items } = &item.kind {
+            if abi == "js" {
+                for ext in items {
+                    if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                        extern_structs.insert(name.name.clone());
+                    }
+                }
+            }
+        }
+    }
 
     // First pass: collect module imports
     for item in &file.items {
@@ -245,9 +262,12 @@ pub fn lower_file_to_js_with_source(
     }
 
     // Second pass: generate constructor functions for structs (needed for prototype methods)
+    // Skip extern structs - they're opaque JS types and don't need constructors
     for item in &file.items {
         if let ItemKind::Struct { name, fields, .. } = &item.kind {
-            body.push(lower_struct_constructor(&name.name, fields));
+            if !extern_structs.contains(&name.name) {
+                body.push(lower_struct_constructor(&name.name, fields));
+            }
         }
     }
 
@@ -282,6 +302,10 @@ pub fn lower_file_to_js_with_source(
                             ExternItemKind::Mod { .. } => {
                                 // Already handled in first pass
                             }
+                            ExternItemKind::Struct { .. } => {
+                                // Extern structs don't generate any code -
+                                // they're opaque JS types
+                            }
                         }
                     }
                 }
@@ -292,6 +316,11 @@ pub fn lower_file_to_js_with_source(
 
                 for impl_item in &impl_block.items {
                     if let ImplItemKind::Method(method) = &impl_item.kind {
+                        // Skip extern methods - they're just declarations for JS interop
+                        // The actual method calls will go directly to the JS object
+                        if method.is_extern {
+                            continue;
+                        }
                         body.push(lower_impl_method(
                             &self_ty_name,
                             method,
@@ -669,6 +698,7 @@ fn lower_expr(expr: &Expr) -> JsExpr {
     match &expr.kind {
         ExprKind::Literal(lit) => match &lit.kind {
             LiteralKind::Int(n) => JsExpr::Number(*n),
+            LiteralKind::Float(f) => JsExpr::Float(*f),
             LiteralKind::Bool(b) => JsExpr::Bool(*b),
             LiteralKind::String(s) => JsExpr::String(s.clone()),
         },
@@ -1450,6 +1480,7 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
     match expr {
         JsExpr::Ident(name) => out.push_str(name),
         JsExpr::Number(n) => out.push_str(&n.to_string()),
+        JsExpr::Float(f) => out.push_str(&f.to_string()),
         JsExpr::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         JsExpr::Object(props) => {
             out.push('{');

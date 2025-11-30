@@ -6,6 +6,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {
     I32,
+    F64,
     Bool,
     String,
     Unit,
@@ -36,6 +37,10 @@ pub enum Type {
 impl Type {
     pub fn i32() -> Self {
         Type::Primitive(PrimitiveType::I32)
+    }
+
+    pub fn f64() -> Self {
+        Type::Primitive(PrimitiveType::F64)
     }
 
     pub fn bool() -> Self {

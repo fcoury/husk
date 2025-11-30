@@ -25,6 +25,7 @@ pub struct Ident {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralKind {
     Int(i64),
+    Float(f64),
     Bool(bool),
     String(String),
 }
@@ -431,6 +432,8 @@ pub struct ImplMethod {
     pub params: Vec<Param>,
     pub ret_type: Option<TypeExpr>,
     pub body: Vec<Stmt>,
+    /// If true, this is an `extern "js" fn` declaration (no body, direct JS call)
+    pub is_extern: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -490,6 +493,14 @@ pub enum ExternItemKind {
         /// Optional nested function declarations to import from this module.
         /// If non-empty, generates `import { fn1, fn2 } from "package";`
         items: Vec<ModItem>,
+    },
+    /// Extern struct declaration: `struct JsValue;`
+    /// Declares an opaque JavaScript type. No constructor is generated.
+    /// Methods on extern structs use direct JS method calls.
+    Struct {
+        name: Ident,
+        /// Optional type parameters: `struct JsArray<T>;`
+        type_params: Vec<Ident>,
     },
 }
 
