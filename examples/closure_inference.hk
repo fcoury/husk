@@ -1,0 +1,73 @@
+// Closure parameter type inference tests
+// Tests bidirectional type inference for closure parameters
+
+// Higher-order function that takes a closure
+fn apply(x: i32, f: fn(i32) -> i32) -> i32 {
+    f(x)
+}
+
+// Multi-parameter higher-order function
+fn combine(a: i32, b: i32, f: fn(i32, i32) -> i32) -> i32 {
+    f(a, b)
+}
+
+// Zero-parameter higher-order function
+fn run(f: fn() -> i32) -> i32 {
+    f()
+}
+
+// Test: basic inference from function signature
+fn test_basic_inference() -> i32 {
+    // x is inferred as i32 from apply's signature
+    let result = apply(5, |x| x + 1);
+    result
+}
+
+// Test: multi-parameter inference
+fn test_multi_param() -> i32 {
+    // Both x and y are inferred as i32 from combine's signature
+    let result = combine(3, 4, |x, y| x + y);
+    result
+}
+
+// Test: empty closure (no params to infer)
+fn test_empty_closure() -> i32 {
+    let result = run(|| 42);
+    result
+}
+
+// Test: explicit annotations still work
+fn test_explicit_annotations() -> i32 {
+    // Explicit type annotation should still work
+    let result = apply(5, |x: i32| x + 1);
+    result
+}
+
+// Test: variable binding with type annotation
+fn test_variable_binding_context() -> i32 {
+    // x inferred as i32 from the binding's type annotation
+    let f: fn(i32) -> i32 = |x| x * 2;
+    let result = f(5);
+    result
+}
+
+// Test: nested closure inference
+fn apply_twice(x: i32, f: fn(i32) -> i32) -> i32 {
+    f(f(x))
+}
+
+fn test_nested_calls() -> i32 {
+    // x inferred from apply_twice's signature
+    let result = apply_twice(5, |x| x + 1);
+    result
+}
+
+// Entry point
+fn main() {
+    test_basic_inference();
+    test_multi_param();
+    test_empty_closure();
+    test_explicit_annotations();
+    test_variable_binding_context();
+    test_nested_calls();
+}
