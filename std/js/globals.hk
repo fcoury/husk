@@ -1,0 +1,71 @@
+// Standard library types for JavaScript interop.
+//
+// These types are used when importing .d.ts files and provide
+// opaque wrappers for JavaScript values that can't be directly
+// represented in Husk's type system.
+
+extern "js" {
+    // Opaque JavaScript value type.
+    // Used for values that can't be precisely typed in Husk.
+    struct JsValue;
+
+    // Opaque JavaScript array wrapper.
+    // Generic over the element type.
+    struct JsArray<T>;
+
+    // Opaque JavaScript Promise wrapper.
+    // Generic over the resolved value type.
+    struct JsPromise<T>;
+
+    // Opaque JavaScript function type.
+    // Used for callbacks that can't be precisely typed.
+    struct JsFn;
+
+    // Opaque JavaScript object type.
+    // More specific than JsValue for object-like values.
+    struct JsObject;
+
+    // Console API
+    fn console_log(msg: String);
+    fn console_error(msg: String);
+    fn console_warn(msg: String);
+    fn console_info(msg: String);
+
+    // Timers
+    fn setTimeout(callback: JsFn, ms: f64) -> f64;
+    fn clearTimeout(id: f64);
+    fn setInterval(callback: JsFn, ms: f64) -> f64;
+    fn clearInterval(id: f64);
+
+    // JSON
+    fn JSON_parse(text: String) -> JsValue;
+    fn JSON_stringify(value: JsValue) -> String;
+}
+
+// Array methods
+impl JsArray<T> {
+    extern "js" fn length(self) -> f64;
+    extern "js" fn push(self, item: T);
+    extern "js" fn pop(self) -> Option<T>;
+    extern "js" fn shift(self) -> Option<T>;
+    extern "js" fn unshift(self, item: T);
+    extern "js" fn slice(self, start: f64, end: f64) -> JsArray<T>;
+    extern "js" fn concat(self, other: JsArray<T>) -> JsArray<T>;
+    extern "js" fn indexOf(self, item: T) -> f64;
+    extern "js" fn includes(self, item: T) -> bool;
+    extern "js" fn join(self, separator: String) -> String;
+    extern "js" fn reverse(self) -> JsArray<T>;
+}
+
+// Promise methods
+impl JsPromise<T> {
+    extern "js" fn then(self, callback: fn(T) -> JsValue) -> JsPromise<JsValue>;
+    extern "js" fn catch(self, callback: fn(JsValue) -> JsValue) -> JsPromise<JsValue>;
+    extern "js" fn finally(self, callback: fn() -> ()) -> JsPromise<T>;
+}
+
+// JsValue methods
+impl JsValue {
+    extern "js" fn toString(self) -> String;
+    extern "js" fn typeof_(self) -> String;
+}

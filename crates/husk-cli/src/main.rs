@@ -5,8 +5,8 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
+use husk_dts_parser::{CodegenOptions, parse as parse_dts, generate as generate_husk};
 mod diagnostic;
-mod dts_import;
 mod load;
 use diagnostic::SourceDb;
 use husk_parser::parse_str;
@@ -166,7 +166,17 @@ fn main() {
             no_prelude,
             clean,
             quiet,
-        }) => run_build(file.as_deref(), &output, target, lib, emit_dts, source_map, no_prelude, clean, quiet),
+        }) => run_build(
+            file.as_deref(),
+            &output,
+            target,
+            lib,
+            emit_dts,
+            source_map,
+            no_prelude,
+            clean,
+            quiet,
+        ),
         Some(Command::Check { file, no_prelude }) => run_check(&file, no_prelude),
         Some(Command::Compile {
             file,
@@ -176,7 +186,15 @@ fn main() {
             no_prelude,
             output,
             source_map,
-        }) => run_compile(&file, emit_dts, lib, target, no_prelude, output.as_deref(), source_map),
+        }) => run_compile(
+            &file,
+            emit_dts,
+            lib,
+            target,
+            no_prelude,
+            output.as_deref(),
+            source_map,
+        ),
         Some(Command::ImportDts { file, out, module }) => {
             run_import_dts(&file, out.as_deref(), module.as_deref())
         }
@@ -464,16 +482,35 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
         }
     };
 
-    debug_log("[huskc] importing .d.ts");
-    let husk = dts_import::import_dts_str_with_module(&content, module);
+    debug_log("[huskc] parsing .d.ts");
+    let file = match parse_dts(&content) {
+        Ok(f) => f,
+        Err(err) => {
+            eprintln!("Parse error in {}: {}", path, err);
+            std::process::exit(1);
+        }
+    };
+
+    debug_log("[huskc] generating Husk code");
+    let options = CodegenOptions {
+        module_name: module.map(String::from),
+        verbose: env::var("HUSKC_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
+    };
+    let result = generate_husk(&file, &options);
+
+    // Print warnings to stderr if any
+    for warning in &result.warnings {
+        debug_log(&format!("[huskc] warning: {}", warning.message));
+    }
 
     if let Some(out_path) = out {
-        if let Err(err) = fs::write(out_path, husk) {
+        if let Err(err) = fs::write(out_path, &result.code) {
             eprintln!("Failed to write {}: {err}", out_path);
             std::process::exit(1);
         }
+        debug_log(&format!("[huskc] wrote {}", out_path));
     } else {
-        println!("{husk}");
+        print!("{}", result.code);
     }
 }
 
@@ -586,10 +623,7 @@ fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bo
     let output_path = Path::new(output);
 
     // Get the directory to watch (parent of entry file)
-    let watch_dir = entry_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_path_buf();
+    let watch_dir = entry_path.parent().unwrap_or(Path::new(".")).to_path_buf();
 
     println!("Watching {} for changes...", watch_dir.display());
     println!("Output: {}", output_path.display());
@@ -608,7 +642,10 @@ fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bo
         }
     };
 
-    if let Err(err) = debouncer.watcher().watch(&watch_dir, RecursiveMode::Recursive) {
+    if let Err(err) = debouncer
+        .watcher()
+        .watch(&watch_dir, RecursiveMode::Recursive)
+    {
         eprintln!("Failed to watch directory: {err}");
         std::process::exit(1);
     }
@@ -618,16 +655,12 @@ fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bo
         match rx.recv() {
             Ok(Ok(events)) => {
                 // Check if any .hk files changed
-                let hk_changed = events.iter().any(|e| {
-                    e.path
-                        .extension()
-                        .map(|ext| ext == "hk")
-                        .unwrap_or(false)
-                });
+                let hk_changed = events
+                    .iter()
+                    .any(|e| e.path.extension().map(|ext| ext == "hk").unwrap_or(false));
 
                 if hk_changed {
-                    println!("\n[{}] File changed, recompiling...",
-                        chrono_lite_time());
+                    println!("\n[{}] File changed, recompiling...", chrono_lite_time());
                     compile_to_file(path, output, target, lib, no_prelude);
                 }
             }
@@ -748,7 +781,8 @@ fn detect_entry_point() -> Result<PathBuf, String> {
     }
     Err("No entry point found. Expected src/main.hk or main.hk.\n\
          Hint: Run 'huskc new <name>' to create a new project,\n\
-         or specify a file: 'huskc build myfile.hk'".into())
+         or specify a file: 'huskc build myfile.hk'"
+        .into())
 }
 
 /// Detect target from package.json. Returns ESM if "type": "module", otherwise CJS.
@@ -796,7 +830,7 @@ fn run_build(
                 eprintln!("Error: {msg}");
                 std::process::exit(2);
             }
-        }
+        },
     };
 
     let entry_str = entry_path.to_string_lossy();
@@ -945,22 +979,13 @@ fn run_build(
     }
 }
 
-fn run_run(
-    file: Option<&str>,
-    target: Option<Target>,
-    no_prelude: bool,
-    args: &[String],
-) {
+fn run_run(file: Option<&str>, target: Option<Target>, no_prelude: bool, args: &[String]) {
     // Build first (to dist/, quiet mode)
     run_build(
-        file,
-        "dist",
-        target,
-        false, // not lib mode - we need main()
+        file, "dist", target, false, // not lib mode - we need main()
         false, // no dts
         true,  // source maps for better stack traces
-        no_prelude,
-        false, // don't clean
+        no_prelude, false, // don't clean
         true,  // quiet
     );
 
@@ -973,7 +998,7 @@ fn run_run(
                 eprintln!("Error: {msg}");
                 std::process::exit(2);
             }
-        }
+        },
     };
 
     let stem = entry_path

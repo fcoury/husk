@@ -429,6 +429,7 @@ dependencies = [
  "glob",
  "husk-ast",
  "husk-codegen-js",
+ "husk-dts-parser",
  "husk-lexer",
  "husk-parser",
  "husk-semantic",
@@ -446,6 +447,10 @@ dependencies = [
  "husk-runtime-js",
  "sourcemap",
 ]
+
+[[package]]
+name = "husk-dts-parser"
+version = "0.1.0"
 
 [[package]]
 name = "husk-lexer"

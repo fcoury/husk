@@ -1,0 +1,9 @@
+[package]
+name = "husk-dts-parser"
+version = "0.1.0"
+edition = "2024"
+description = "TypeScript declaration file (.d.ts) parser for Husk"
+
+[dependencies]
+
+[dev-dependencies]
