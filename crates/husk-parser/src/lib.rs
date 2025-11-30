@@ -3,9 +3,9 @@
 //! This is a hand-written recursive-descent parser for the MVP syntax.
 
 use husk_ast::{
-    BinaryOp, Block, EnumVariant, EnumVariantFields, Expr, ExprKind, File, Ident, Item, ItemKind,
-    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField,
-    TypeExpr, TypeExprKind,
+    BinaryOp, Block, EnumVariant, EnumVariantFields, Expr, ExprKind, File, FormatPlaceholder,
+    FormatSegment, FormatSpec, FormatString, Ident, Item, ItemKind, Literal, LiteralKind, MatchArm,
+    Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -1150,7 +1150,17 @@ impl Parser {
         let mut expr = self.parse_primary()?;
         loop {
             if self.matches_token(&TokenKind::LParen) {
-                // Function call
+                // Function call - check if it's a println with format string
+                if let ExprKind::Ident(ref id) = expr.kind {
+                    if id.name == "println" {
+                        if let Some(format_expr) = self.try_parse_format_print(&expr) {
+                            expr = format_expr;
+                            continue;
+                        }
+                    }
+                }
+
+                // Regular function call
                 let args = self.parse_argument_list();
                 let span = Span {
                     range: expr.span.range.start..self.previous().span.range.end,
@@ -1229,6 +1239,271 @@ impl Parser {
             }
         }
         args
+    }
+
+    /// Try to parse a println call as a FormatPrint expression.
+    /// Returns None if first argument is not a string literal with format placeholders,
+    /// in which case it falls back to a regular Call.
+    /// We're positioned right after the `(` of `println(...)`.
+    fn try_parse_format_print(&mut self, callee_expr: &Expr) -> Option<Expr> {
+        let start = callee_expr.span.range.start;
+
+        // Check if first token is a string literal
+        let format_tok = self.current().clone();
+        let format_str = match &format_tok.kind {
+            TokenKind::StringLiteral(s) => s.clone(),
+            _ => return None, // Not a string literal, fall back to regular call
+        };
+
+        // Parse the format string to check if it has placeholders
+        let format_span = self.ast_span_from(&format_tok.span);
+        let parsed_format = self.parse_format_string(&format_str, &format_span);
+
+        // Advance past the format string
+        self.advance();
+
+        // Collect remaining arguments
+        let mut args = Vec::new();
+        if !self.matches_token(&TokenKind::RParen) {
+            // There are more arguments after the format string
+            if !self.matches_token(&TokenKind::Comma) {
+                self.error_here("expected `,` or `)` after format string");
+                return None;
+            }
+            while let Some(arg) = self.parse_expr() {
+                args.push(arg);
+                if self.matches_token(&TokenKind::RParen) {
+                    break;
+                }
+                if !self.matches_token(&TokenKind::Comma) {
+                    self.error_here("expected `,` or `)` in argument list");
+                    break;
+                }
+            }
+        }
+
+        let end = self.previous().span.range.end;
+
+        Some(Expr {
+            kind: ExprKind::FormatPrint {
+                format: parsed_format,
+                args,
+            },
+            span: Span { range: start..end },
+        })
+    }
+
+    /// Parse a format string like "Hello, {}! Value: {:x}" into segments.
+    fn parse_format_string(&mut self, s: &str, span: &Span) -> FormatString {
+        let mut segments = Vec::new();
+        let mut chars = s.chars().peekable();
+        let mut current_literal = String::new();
+        let mut char_offset = 0usize;
+
+        while let Some(c) = chars.next() {
+            if c == '{' {
+                // Check for escaped brace {{
+                if chars.peek() == Some(&'{') {
+                    chars.next();
+                    current_literal.push('{');
+                    char_offset += 2;
+                    continue;
+                }
+
+                // Start of placeholder - save any accumulated literal
+                if !current_literal.is_empty() {
+                    segments.push(FormatSegment::Literal(current_literal.clone()));
+                    current_literal.clear();
+                }
+
+                // Parse the placeholder contents
+                let placeholder_start = char_offset;
+                let mut placeholder_content = String::new();
+                char_offset += 1; // for the '{'
+
+                while let Some(&next) = chars.peek() {
+                    if next == '}' {
+                        chars.next();
+                        char_offset += 1;
+                        break;
+                    }
+                    placeholder_content.push(chars.next().unwrap());
+                    char_offset += 1;
+                }
+
+                let placeholder_span = Span {
+                    range: span.range.start + placeholder_start..span.range.start + char_offset,
+                };
+                let placeholder = self.parse_placeholder(&placeholder_content, &placeholder_span);
+                segments.push(FormatSegment::Placeholder(placeholder));
+            } else if c == '}' {
+                // Check for escaped brace }}
+                if chars.peek() == Some(&'}') {
+                    chars.next();
+                    current_literal.push('}');
+                    char_offset += 2;
+                    continue;
+                }
+                // Unmatched } - treat as error but continue
+                current_literal.push('}');
+                char_offset += 1;
+            } else {
+                current_literal.push(c);
+                char_offset += 1;
+            }
+        }
+
+        // Add any remaining literal
+        if !current_literal.is_empty() {
+            segments.push(FormatSegment::Literal(current_literal));
+        }
+
+        FormatString {
+            span: span.clone(),
+            segments,
+        }
+    }
+
+    /// Parse placeholder content like "", "0", "name", ":?", ":x", "0:08x", etc.
+    fn parse_placeholder(&self, content: &str, span: &Span) -> FormatPlaceholder {
+        let mut position: Option<usize> = None;
+        let mut name: Option<String> = None;
+        let mut spec = FormatSpec::default();
+
+        // Split on ':' to separate argument from format spec
+        let (arg_part, spec_part) = match content.find(':') {
+            Some(idx) => (&content[..idx], Some(&content[idx + 1..])),
+            None => (content, None),
+        };
+
+        // Parse the argument part (position or name)
+        if !arg_part.is_empty() {
+            if let Ok(pos) = arg_part.parse::<usize>() {
+                position = Some(pos);
+            } else if arg_part.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                name = Some(arg_part.to_string());
+            }
+        }
+
+        // Parse the format spec part
+        if let Some(spec_str) = spec_part {
+            spec = self.parse_format_spec(spec_str);
+        }
+
+        FormatPlaceholder {
+            position,
+            name,
+            spec,
+            span: span.clone(),
+        }
+    }
+
+    /// Parse format spec like "?", "#?", "x", "08x", "<10", "*^20.5", etc.
+    /// Format: [[fill]align][sign]['#']['0'][width]['.' precision][type]
+    fn parse_format_spec(&self, s: &str) -> FormatSpec {
+        let mut spec = FormatSpec::default();
+        let mut chars = s.chars().peekable();
+
+        // Parse fill and align
+        // Fill is any character followed by an alignment (<, >, ^)
+        // Or just alignment alone
+        if let Some(&first) = chars.peek() {
+            let mut lookahead = chars.clone();
+            lookahead.next();
+            if let Some(&second) = lookahead.peek() {
+                if second == '<' || second == '>' || second == '^' {
+                    spec.fill = Some(first);
+                    spec.align = Some(second);
+                    chars.next();
+                    chars.next();
+                } else if first == '<' || first == '>' || first == '^' {
+                    spec.align = Some(first);
+                    chars.next();
+                }
+            } else if first == '<' || first == '>' || first == '^' {
+                spec.align = Some(first);
+                chars.next();
+            }
+        }
+
+        // Parse sign (+)
+        if chars.peek() == Some(&'+') {
+            spec.sign = true;
+            chars.next();
+        }
+
+        // Parse alternate form (#)
+        if chars.peek() == Some(&'#') {
+            spec.alternate = true;
+            chars.next();
+        }
+
+        // Parse zero padding (0) - must come before width
+        if chars.peek() == Some(&'0') {
+            // Peek ahead to see if there are more digits (width) or if this is just '0'
+            let mut lookahead = chars.clone();
+            lookahead.next();
+            match lookahead.peek() {
+                Some(&c) if c.is_ascii_digit() => {
+                    // This is zero-padding prefix followed by width
+                    spec.zero_pad = true;
+                    chars.next();
+                }
+                Some(&'.') | Some(&'?') | Some(&'x') | Some(&'X') | Some(&'b') | Some(&'o') | None => {
+                    // Just a width of 0, or followed by precision/type
+                    // Don't consume, let width parsing handle it
+                }
+                _ => {
+                    // Zero padding
+                    spec.zero_pad = true;
+                    chars.next();
+                }
+            }
+        }
+
+        // Parse width (digits)
+        let mut width_str = String::new();
+        while let Some(&c) = chars.peek() {
+            if c.is_ascii_digit() {
+                width_str.push(c);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if !width_str.is_empty() {
+            spec.width = width_str.parse().ok();
+        }
+
+        // Parse precision (.N)
+        if chars.peek() == Some(&'.') {
+            chars.next();
+            let mut prec_str = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_ascii_digit() {
+                    prec_str.push(c);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if !prec_str.is_empty() {
+                spec.precision = prec_str.parse().ok();
+            }
+        }
+
+        // Parse type specifier (?, x, X, b, o, e, E)
+        if let Some(&c) = chars.peek() {
+            match c {
+                '?' | 'x' | 'X' | 'b' | 'o' | 'e' | 'E' => {
+                    spec.ty = Some(c);
+                    chars.next();
+                }
+                _ => {}
+            }
+        }
+
+        spec
     }
 
     fn parse_match_expr(&mut self) -> Option<Expr> {

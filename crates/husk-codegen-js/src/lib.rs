@@ -7,8 +7,8 @@
 //! - Source map generation for debugging.
 
 use husk_ast::{
-    EnumVariantFields, Expr, ExprKind, ExternItemKind, File, Ident, ItemKind, LiteralKind, Param,
-    Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
+    EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec, Ident,
+    ItemKind, LiteralKind, Param, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
 };
 use husk_runtime_js::std_preamble_js;
 use sourcemap::SourceMapBuilder;
@@ -613,7 +613,181 @@ fn lower_expr(expr: &Expr) -> JsExpr {
         }
         // Unary operators not yet supported in codegen.
         ExprKind::Unary { .. } => JsExpr::Ident("undefined".to_string()),
+        ExprKind::FormatPrint { format, args } => {
+            // Generate console.log with string concatenation for format string.
+            // Build the formatted string by concatenating literal segments and formatted args.
+            lower_format_print(&format.segments, args)
+        }
     }
+}
+
+/// Lower a FormatPrint expression to a console.log call.
+fn lower_format_print(segments: &[FormatSegment], args: &[Expr]) -> JsExpr {
+    // Track which argument we're using for implicit positioning
+    let mut implicit_index = 0;
+    let mut parts: Vec<JsExpr> = Vec::new();
+
+    for segment in segments {
+        match segment {
+            FormatSegment::Literal(text) => {
+                if !text.is_empty() {
+                    parts.push(JsExpr::String(text.clone()));
+                }
+            }
+            FormatSegment::Placeholder(ph) => {
+                // Determine which argument to use
+                let arg_index = ph.position.unwrap_or_else(|| {
+                    let idx = implicit_index;
+                    implicit_index += 1;
+                    idx
+                });
+
+                if let Some(arg) = args.get(arg_index) {
+                    let arg_js = lower_expr(arg);
+                    let formatted = format_arg(arg_js, &ph.spec);
+                    parts.push(formatted);
+                }
+            }
+        }
+    }
+
+    // Build the console.log call
+    // If we only have one part, pass it directly
+    // If we have multiple parts, concatenate them
+    let log_arg = if parts.is_empty() {
+        JsExpr::String(String::new())
+    } else if parts.len() == 1 {
+        parts.pop().unwrap()
+    } else {
+        // Concatenate all parts with +
+        let mut iter = parts.into_iter();
+        let mut acc = iter.next().unwrap();
+        for part in iter {
+            acc = JsExpr::Binary {
+                op: JsBinaryOp::Add,
+                left: Box::new(acc),
+                right: Box::new(part),
+            };
+        }
+        acc
+    };
+
+    JsExpr::Call {
+        callee: Box::new(JsExpr::Member {
+            object: Box::new(JsExpr::Ident("console".to_string())),
+            property: "log".to_string(),
+        }),
+        args: vec![log_arg],
+    }
+}
+
+/// Format an argument according to the format spec.
+fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
+    // Check for special type specifiers
+    match spec.ty {
+        Some('?') => {
+            // Debug format: __husk_fmt_debug(arg, pretty)
+            let pretty = spec.alternate;
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("__husk_fmt_debug".to_string())),
+                args: vec![arg, JsExpr::Bool(pretty)],
+            }
+        }
+        Some('x') | Some('X') | Some('b') | Some('o') => {
+            // Numeric format: __husk_fmt_num(value, base, width, precision, fill, align, sign, alternate, zeroPad, uppercase)
+            let base = match spec.ty {
+                Some('x') | Some('X') => 16,
+                Some('b') => 2,
+                Some('o') => 8,
+                _ => 10,
+            };
+            let uppercase = spec.ty == Some('X');
+
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("__husk_fmt_num".to_string())),
+                args: vec![
+                    arg,
+                    JsExpr::Number(base),
+                    spec.width.map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
+                    spec.precision.map_or(JsExpr::Ident("null".to_string()), |p| JsExpr::Number(p as i64)),
+                    spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                    spec.align.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                    JsExpr::Bool(spec.sign),
+                    JsExpr::Bool(spec.alternate),
+                    JsExpr::Bool(spec.zero_pad),
+                    JsExpr::Bool(uppercase),
+                ],
+            }
+        }
+        None if has_formatting(spec) => {
+            // Basic display format with formatting options
+            // Use __husk_fmt_num for numeric formatting (zero-pad, width with numbers)
+            if spec.zero_pad || spec.sign {
+                // Use numeric formatting
+                JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("__husk_fmt_num".to_string())),
+                    args: vec![
+                        arg,
+                        JsExpr::Number(10), // base 10
+                        spec.width.map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
+                        spec.precision.map_or(JsExpr::Ident("null".to_string()), |p| JsExpr::Number(p as i64)),
+                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                        JsExpr::Bool(spec.sign),
+                        JsExpr::Bool(spec.alternate),
+                        JsExpr::Bool(spec.zero_pad),
+                        JsExpr::Bool(false), // uppercase
+                    ],
+                }
+            } else if spec.width.is_some() {
+                // Use string padding for width without zero-pad
+                let str_arg = JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("String".to_string())),
+                    args: vec![arg],
+                };
+                JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("__husk_fmt_pad".to_string())),
+                    args: vec![
+                        str_arg,
+                        JsExpr::Number(spec.width.unwrap_or(0) as i64),
+                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                    ],
+                }
+            } else {
+                // Just convert to string with __husk_fmt
+                JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("__husk_fmt".to_string())),
+                    args: vec![arg],
+                }
+            }
+        }
+        None => {
+            // Simple {} - just use __husk_fmt for proper display
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("__husk_fmt".to_string())),
+                args: vec![arg],
+            }
+        }
+        _ => {
+            // Unknown format specifier, just convert to string
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("__husk_fmt".to_string())),
+                args: vec![arg],
+            }
+        }
+    }
+}
+
+/// Check if a format spec has any non-default formatting options.
+fn has_formatting(spec: &FormatSpec) -> bool {
+    spec.fill.is_some()
+        || spec.align.is_some()
+        || spec.sign
+        || spec.alternate
+        || spec.zero_pad
+        || spec.width.is_some()
+        || spec.precision.is_some()
 }
 
 fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm]) -> JsExpr {

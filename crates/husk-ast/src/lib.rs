@@ -103,6 +103,84 @@ pub enum ExprKind {
         /// Field initializers.
         fields: Vec<FieldInit>,
     },
+    /// println!-style formatted output: `println("Value: {}", x)`
+    FormatPrint {
+        /// The parsed format string with placeholders
+        format: FormatString,
+        /// Arguments to substitute into placeholders
+        args: Vec<Expr>,
+    },
+}
+
+// ============================================================================
+// Format String Types (for println! style formatting)
+// ============================================================================
+
+/// A parsed format string with placeholders.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormatString {
+    /// The original string literal span
+    pub span: Span,
+    /// Parsed segments (alternating literal and placeholder)
+    pub segments: Vec<FormatSegment>,
+}
+
+/// A segment of a format string - either literal text or a placeholder.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FormatSegment {
+    /// Literal text (between placeholders)
+    Literal(String),
+    /// A format placeholder like {} or {:x}
+    Placeholder(FormatPlaceholder),
+}
+
+/// A format placeholder like `{}`, `{0}`, `{name}`, or `{:x}`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormatPlaceholder {
+    /// Position in argument list (None = next sequential, Some(n) = explicit position)
+    pub position: Option<usize>,
+    /// Named argument identifier (e.g., "name" for {name})
+    pub name: Option<String>,
+    /// Format specifier details
+    pub spec: FormatSpec,
+    /// Span of this placeholder in the source
+    pub span: Span,
+}
+
+/// Format specifier details like width, precision, alignment, etc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormatSpec {
+    /// Fill character for padding (default: space)
+    pub fill: Option<char>,
+    /// Alignment: '<' left, '>' right, '^' center
+    pub align: Option<char>,
+    /// Show sign for positive numbers (+)
+    pub sign: bool,
+    /// Alternate form (#) - adds 0x, 0b, 0o prefixes or pretty-prints debug
+    pub alternate: bool,
+    /// Zero-pad (0)
+    pub zero_pad: bool,
+    /// Minimum width
+    pub width: Option<usize>,
+    /// Precision for floats / max length for strings
+    pub precision: Option<usize>,
+    /// Type specifier: None (display), '?' (debug), 'x'/'X' (hex), 'b' (binary), 'o' (octal)
+    pub ty: Option<char>,
+}
+
+impl Default for FormatSpec {
+    fn default() -> Self {
+        Self {
+            fill: None,
+            align: None,
+            sign: false,
+            alternate: false,
+            zero_pad: false,
+            width: None,
+            precision: None,
+            ty: None,
+        }
+    }
 }
 
 /// A field initializer in a struct expression.
