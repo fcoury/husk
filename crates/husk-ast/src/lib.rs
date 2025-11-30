@@ -320,6 +320,102 @@ pub enum ItemKind {
         /// Path like `crate::foo::bar`
         path: Vec<Ident>,
     },
+    /// Trait definition: `trait Name { fn method(&self); }`
+    Trait(TraitDef),
+    /// Implementation block: `impl Trait for Type { ... }` or `impl Type { ... }`
+    Impl(ImplBlock),
+}
+
+// ============================================================================
+// Trait and Impl AST Nodes
+// ============================================================================
+
+/// A trait definition: `trait Name { fn method(&self); }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitDef {
+    pub name: Ident,
+    pub type_params: Vec<TypeParam>,
+    pub items: Vec<TraitItem>,
+    pub span: Span,
+}
+
+/// A type parameter with optional trait bounds: `T` or `T: Foo + Bar`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeParam {
+    pub name: Ident,
+    pub bounds: Vec<TypeExpr>, // Trait bounds
+}
+
+/// An item inside a trait definition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitItem {
+    pub kind: TraitItemKind,
+    pub span: Span,
+}
+
+/// Kinds of items that can appear in a trait.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TraitItemKind {
+    /// A method signature (possibly with default implementation)
+    Method(TraitMethod),
+}
+
+/// A method in a trait definition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethod {
+    pub name: Ident,
+    pub receiver: Option<SelfReceiver>,
+    pub params: Vec<Param>,
+    pub ret_type: Option<TypeExpr>,
+    /// Default implementation body (None = required method)
+    pub default_body: Option<Vec<Stmt>>,
+}
+
+/// The self receiver in a method: `self`, `&self`, or `&mut self`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfReceiver {
+    /// `self` - by value
+    Value,
+    /// `&self` - immutable reference
+    Ref,
+    /// `&mut self` - mutable reference
+    RefMut,
+}
+
+/// An impl block: `impl Trait for Type { ... }` or `impl Type { ... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplBlock {
+    pub type_params: Vec<TypeParam>,
+    /// The trait being implemented (None for inherent impl)
+    pub trait_ref: Option<TypeExpr>,
+    /// The type this impl is for
+    pub self_ty: TypeExpr,
+    pub items: Vec<ImplItem>,
+    pub span: Span,
+}
+
+/// An item inside an impl block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplItem {
+    pub kind: ImplItemKind,
+    pub span: Span,
+}
+
+/// Kinds of items that can appear in an impl block.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImplItemKind {
+    /// A method implementation
+    Method(ImplMethod),
+}
+
+/// A method in an impl block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplMethod {
+    pub name: Ident,
+    pub receiver: Option<SelfReceiver>,
+    pub params: Vec<Param>,
+    pub ret_type: Option<TypeExpr>,
+    pub body: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

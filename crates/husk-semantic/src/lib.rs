@@ -27,6 +27,8 @@ pub enum SymbolKind {
     TypeAlias,
     ExternFn,
     ExternMod,
+    Trait,
+    Impl,
 }
 
 /// A resolved symbol.
@@ -164,6 +166,48 @@ struct ModuleDef {
     name: String,
 }
 
+/// Information about a trait definition.
+#[derive(Debug, Clone)]
+struct TraitInfo {
+    #[allow(dead_code)]
+    type_params: Vec<String>,
+    /// Method signatures: name -> (params, return type)
+    methods: HashMap<String, MethodSig>,
+}
+
+/// A method signature (for traits and impls).
+#[derive(Debug, Clone)]
+struct MethodSig {
+    #[allow(dead_code)]
+    receiver: Option<husk_ast::SelfReceiver>,
+    #[allow(dead_code)]
+    params: Vec<Param>,
+    #[allow(dead_code)]
+    ret_type: Option<TypeExpr>,
+}
+
+/// Information about an impl block.
+#[derive(Debug, Clone)]
+struct ImplInfo {
+    /// The trait being implemented (None for inherent impl)
+    #[allow(dead_code)]
+    trait_name: Option<String>,
+    /// The type this impl is for
+    self_ty_name: String,
+    /// Methods defined in this impl
+    methods: HashMap<String, MethodInfo>,
+}
+
+/// Information about a method in an impl block.
+#[derive(Debug, Clone)]
+struct MethodInfo {
+    #[allow(dead_code)]
+    receiver: Option<husk_ast::SelfReceiver>,
+    #[allow(dead_code)]
+    params: Vec<Param>,
+    ret_type: Option<TypeExpr>,
+}
+
 #[derive(Debug, Default)]
 struct TypeEnv {
     structs: HashMap<String, StructDef>,
@@ -173,6 +217,18 @@ struct TypeEnv {
     /// Imported JS modules (from `mod name;` in extern blocks).
     /// These become callable identifiers.
     modules: HashMap<String, ModuleDef>,
+    /// Trait definitions
+    traits: HashMap<String, TraitInfo>,
+    /// Impl blocks (can have multiple impls for the same type)
+    impls: Vec<ImplInfo>,
+}
+
+/// Extract a simple type name from a TypeExpr (for impl/trait lookups).
+fn type_expr_to_name(ty: &TypeExpr) -> String {
+    match &ty.kind {
+        TypeExprKind::Named(ident) => ident.name.clone(),
+        TypeExprKind::Generic { name, .. } => name.name.clone(),
+    }
 }
 
 struct TypeChecker {
@@ -269,6 +325,53 @@ impl TypeChecker {
                     }
                 }
                 ItemKind::Use { .. } => {}
+                ItemKind::Trait(trait_def) => {
+                    let mut methods = HashMap::new();
+                    for item in &trait_def.items {
+                        if let husk_ast::TraitItemKind::Method(method) = &item.kind {
+                            methods.insert(
+                                method.name.name.clone(),
+                                MethodSig {
+                                    receiver: method.receiver,
+                                    params: method.params.clone(),
+                                    ret_type: method.ret_type.clone(),
+                                },
+                            );
+                        }
+                    }
+                    let info = TraitInfo {
+                        type_params: trait_def
+                            .type_params
+                            .iter()
+                            .map(|p| p.name.name.clone())
+                            .collect(),
+                        methods,
+                    };
+                    self.env.traits.insert(trait_def.name.name.clone(), info);
+                }
+                ItemKind::Impl(impl_block) => {
+                    let self_ty_name = type_expr_to_name(&impl_block.self_ty);
+                    let trait_name = impl_block.trait_ref.as_ref().map(type_expr_to_name);
+
+                    let mut methods = HashMap::new();
+                    for item in &impl_block.items {
+                        if let husk_ast::ImplItemKind::Method(method) = &item.kind {
+                            methods.insert(
+                                method.name.name.clone(),
+                                MethodInfo {
+                                    receiver: method.receiver,
+                                    params: method.params.clone(),
+                                    ret_type: method.ret_type.clone(),
+                                },
+                            );
+                        }
+                    }
+                    self.env.impls.push(ImplInfo {
+                        trait_name,
+                        self_ty_name,
+                        methods,
+                    });
+                }
             }
         }
     }
@@ -1122,6 +1225,26 @@ impl Resolver {
                 }
             }
             ItemKind::Use { .. } => {}
+            ItemKind::Trait(trait_def) => {
+                self.add_symbol(&trait_def.name, SymbolKind::Trait);
+            }
+            ItemKind::Impl(impl_block) => {
+                // Impl blocks don't define a named symbol, but we track them
+                // We can use a synthetic name for debugging/tracking
+                let self_ty_name = type_expr_to_name(&impl_block.self_ty);
+                let impl_name = if let Some(trait_ref) = &impl_block.trait_ref {
+                    let trait_name = type_expr_to_name(trait_ref);
+                    format!("<impl {} for {}>", trait_name, self_ty_name)
+                } else {
+                    format!("<impl {}>", self_ty_name)
+                };
+                // Create a synthetic ident for the impl
+                let synth_ident = Ident {
+                    name: impl_name,
+                    span: impl_block.span.clone(),
+                };
+                self.add_symbol(&synth_ident, SymbolKind::Impl);
+            }
         }
     }
 

@@ -216,6 +216,8 @@ fn matches_name(item: &Item, name: &str) -> bool {
         ItemKind::Struct { name: n, .. } => n.name == name,
         ItemKind::Enum { name: n, .. } => n.name == name,
         ItemKind::TypeAlias { name: n, .. } => n.name == name,
+        ItemKind::Trait(trait_def) => trait_def.name.name == name,
+        ItemKind::Impl(_) => false, // Impl blocks don't have names
         ItemKind::ExternBlock { .. } => false,
         ItemKind::Use { .. } => false,
     }

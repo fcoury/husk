@@ -5,7 +5,8 @@ use std::ops::Range;
 /// List of all Husk keywords.
 pub const KEYWORDS: &[&str] = &[
     "as", "pub", "use", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern", "if",
-    "else", "while", "match", "return", "true", "false", "break", "continue",
+    "else", "while", "match", "return", "true", "false", "break", "continue", "trait", "impl",
+    "for", "Self",
 ];
 
 /// Check if a string is a Husk reserved keyword.
@@ -71,6 +72,10 @@ pub enum Keyword {
     False,
     Break,
     Continue,
+    Trait,
+    Impl,
+    For,
+    SelfType, // `Self` keyword (capital S)
 }
 
 /// Token kinds produced by the lexer.
@@ -101,6 +106,7 @@ pub enum TokenKind {
     Le,       // <=
     Ge,       // >=
     AndAnd,   // &&
+    Amp,      // & (single ampersand for references/self receivers)
     OrOr,     // ||
     Plus,
     Minus,
@@ -237,6 +243,10 @@ impl<'src> Lexer<'src> {
             "return" => TokenKind::Keyword(Keyword::Return),
             "true" => TokenKind::Keyword(Keyword::True),
             "false" => TokenKind::Keyword(Keyword::False),
+            "trait" => TokenKind::Keyword(Keyword::Trait),
+            "impl" => TokenKind::Keyword(Keyword::Impl),
+            "for" => TokenKind::Keyword(Keyword::For),
+            "Self" => TokenKind::Keyword(Keyword::SelfType),
             _ => TokenKind::Ident(text.to_string()),
         };
         Token { kind, span }
@@ -459,9 +469,9 @@ impl<'src> Iterator for Lexer<'src> {
                         span: Span::new(start, idx2 + 1),
                     }
                 } else {
-                    // Single '&' is currently unsupported; treat as EOF token to signal an error.
+                    // Single '&' for references and self receivers
                     Token {
-                        kind: TokenKind::Eof,
+                        kind: TokenKind::Amp,
                         span: Span::new(start, start + 1),
                     }
                 }
