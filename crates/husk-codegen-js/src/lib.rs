@@ -51,8 +51,12 @@ pub fn offset_to_line_col(source: &str, offset: usize) -> (u32, u32) {
 pub enum JsStmt {
     /// `import name from "source";`
     Import { name: String, source: String },
+    /// `import { name1, name2, ... } from "source";`
+    NamedImport { names: Vec<String>, source: String },
     /// `const name = require("source");`
     Require { name: String, source: String },
+    /// `const { name1, name2, ... } = require("source");`
+    NamedRequire { names: Vec<String>, source: String },
     /// `export { name1, name2, ... };`
     ExportNamed { names: Vec<String> },
     /// `function name(params) { body }`
@@ -179,16 +183,44 @@ pub fn lower_file_to_js_with_source(
         if let ItemKind::ExternBlock { abi, items } = &item.kind {
             if abi == "js" {
                 for ext in items {
-                    if let ExternItemKind::Mod { package, binding } = &ext.kind {
-                        match target {
-                            JsTarget::Esm => imports.push(JsStmt::Import {
-                                name: binding.name.clone(),
-                                source: package.clone(),
-                            }),
-                            JsTarget::Cjs => imports.push(JsStmt::Require {
-                                name: binding.name.clone(),
-                                source: package.clone(),
-                            }),
+                    if let ExternItemKind::Mod {
+                        package,
+                        binding,
+                        items: mod_items,
+                    } = &ext.kind
+                    {
+                        if mod_items.is_empty() {
+                            // Simple default import: import binding from "package";
+                            match target {
+                                JsTarget::Esm => imports.push(JsStmt::Import {
+                                    name: binding.name.clone(),
+                                    source: package.clone(),
+                                }),
+                                JsTarget::Cjs => imports.push(JsStmt::Require {
+                                    name: binding.name.clone(),
+                                    source: package.clone(),
+                                }),
+                            }
+                        } else {
+                            // Named imports: import { fn1, fn2 } from "package";
+                            let names: Vec<String> = mod_items
+                                .iter()
+                                .filter_map(|mi| match &mi.kind {
+                                    husk_ast::ModItemKind::Fn { name, .. } => {
+                                        Some(name.name.clone())
+                                    }
+                                })
+                                .collect();
+                            match target {
+                                JsTarget::Esm => imports.push(JsStmt::NamedImport {
+                                    names,
+                                    source: package.clone(),
+                                }),
+                                JsTarget::Cjs => imports.push(JsStmt::NamedRequire {
+                                    names,
+                                    source: package.clone(),
+                                }),
+                            }
                         }
                     }
                 }
@@ -511,10 +543,24 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             }),
             args: args.iter().map(lower_expr).collect(),
         },
-        ExprKind::Call { callee, args } => JsExpr::Call {
-            callee: Box::new(lower_expr(callee)),
-            args: args.iter().map(lower_expr).collect(),
-        },
+        ExprKind::Call { callee, args } => {
+            // Handle built-in functions like println -> console.log
+            if let ExprKind::Ident(ref id) = callee.kind {
+                if id.name == "println" {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Member {
+                            object: Box::new(JsExpr::Ident("console".to_string())),
+                            property: "log".to_string(),
+                        }),
+                        args: args.iter().map(lower_expr).collect(),
+                    };
+                }
+            }
+            JsExpr::Call {
+                callee: Box::new(lower_expr(callee)),
+                args: args.iter().map(lower_expr).collect(),
+            }
+        }
         ExprKind::Binary { op, left, right } => {
             use husk_ast::BinaryOp::*;
             let js_op = match op {
@@ -647,7 +693,7 @@ impl JsModule {
         // First, output all import/require statements at the top
         let mut has_imports = false;
         for stmt in &self.body {
-            if matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
+            if is_import_stmt(stmt) {
                 write_stmt(stmt, 0, &mut out);
                 out.push('\n');
                 has_imports = true;
@@ -666,7 +712,7 @@ impl JsModule {
 
         // Finally output the rest of the code (excluding imports/requires)
         for stmt in &self.body {
-            if !matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
+            if !is_import_stmt(stmt) {
                 write_stmt(stmt, 0, &mut out);
                 out.push('\n');
             }
@@ -692,7 +738,7 @@ impl JsModule {
         // First, output all import/require statements at the top
         let mut has_imports = false;
         for stmt in &self.body {
-            if matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
+            if is_import_stmt(stmt) {
                 write_stmt(stmt, 0, &mut out);
                 out.push('\n');
                 has_imports = true;
@@ -719,7 +765,7 @@ impl JsModule {
 
         // Finally output the rest of the code (excluding imports/requires)
         for stmt in &self.body {
-            if !matches!(stmt, JsStmt::Import { .. } | JsStmt::Require { .. }) {
+            if !is_import_stmt(stmt) {
                 // Add source mapping for functions
                 if let JsStmt::Function { name, source_span: Some(span), .. } = stmt {
                     builder.add(
@@ -777,6 +823,17 @@ fn indent(level: usize, out: &mut String) {
     }
 }
 
+/// Check if a statement is an import/require statement.
+fn is_import_stmt(stmt: &JsStmt) -> bool {
+    matches!(
+        stmt,
+        JsStmt::Import { .. }
+            | JsStmt::NamedImport { .. }
+            | JsStmt::Require { .. }
+            | JsStmt::NamedRequire { .. }
+    )
+}
+
 fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
     match stmt {
         JsStmt::Import { name, source } => {
@@ -787,11 +844,61 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             out.push_str(&source.replace('"', "\\\""));
             out.push_str("\";");
         }
+        JsStmt::NamedImport { names, source } => {
+            // Universal pattern that works with both CJS and ESM packages:
+            // import * as __pkg from "pkg";
+            // const _pkg = __pkg.default || __pkg;
+            // const { a, b, c } = _pkg;
+            let safe_name = source.replace('-', "_").replace('@', "").replace('/', "_");
+            let star_name = format!("__{}", safe_name);
+            let pkg_name = format!("_{}", safe_name);
+
+            indent(indent_level, out);
+            out.push_str("import * as ");
+            out.push_str(&star_name);
+            out.push_str(" from \"");
+            out.push_str(&source.replace('"', "\\\""));
+            out.push_str("\";\n");
+
+            indent(indent_level, out);
+            out.push_str("const ");
+            out.push_str(&pkg_name);
+            out.push_str(" = ");
+            out.push_str(&star_name);
+            out.push_str(".default || ");
+            out.push_str(&star_name);
+            out.push_str(";\n");
+
+            indent(indent_level, out);
+            out.push_str("const { ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(name);
+            }
+            out.push_str(" } = ");
+            out.push_str(&pkg_name);
+            out.push(';');
+        }
         JsStmt::Require { name, source } => {
             indent(indent_level, out);
             out.push_str("const ");
             out.push_str(name);
             out.push_str(" = require(\"");
+            out.push_str(&source.replace('"', "\\\""));
+            out.push_str("\");");
+        }
+        JsStmt::NamedRequire { names, source } => {
+            indent(indent_level, out);
+            out.push_str("const { ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(name);
+            }
+            out.push_str(" } = require(\"");
             out.push_str(&source.replace('"', "\\\""));
             out.push_str("\");");
         }
@@ -1593,6 +1700,7 @@ mod tests {
             kind: husk_ast::ExternItemKind::Mod {
                 package: "express".to_string(),
                 binding: ident("express", 0),
+                items: Vec::new(),
             },
             span: span(0, 10),
         };
@@ -1601,6 +1709,7 @@ mod tests {
             kind: husk_ast::ExternItemKind::Mod {
                 package: "fs".to_string(),
                 binding: ident("fs", 20),
+                items: Vec::new(),
             },
             span: span(20, 25),
         };
@@ -1687,6 +1796,7 @@ mod tests {
             kind: husk_ast::ExternItemKind::Mod {
                 package: "express".to_string(),
                 binding: ident("express", 0),
+                items: Vec::new(),
             },
             span: span(0, 10),
         };

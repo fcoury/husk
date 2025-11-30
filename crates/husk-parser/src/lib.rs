@@ -446,17 +446,74 @@ impl Parser {
                     default_binding
                 };
 
-                if !self.matches_token(&TokenKind::Semicolon) {
-                    self.error_here("expected `;` after module declaration");
+                // Check for block `{ ... }` with nested function declarations
+                // or semicolon `;` for simple module import
+                let mod_items = if self.matches_token(&TokenKind::LBrace) {
+                    let mut nested = Vec::new();
+                    while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+                        if !self.matches_keyword(Keyword::Fn) {
+                            self.error_here("expected `fn` inside mod block");
+                            self.synchronize_item();
+                            continue;
+                        }
+                        let fn_name =
+                            match self.parse_ident("expected function name in mod block") {
+                                Some(id) => id,
+                                None => {
+                                    self.synchronize_item();
+                                    continue;
+                                }
+                            };
+
+                        if !self.matches_token(&TokenKind::LParen) {
+                            self.error_here("expected `(` after function name");
+                            self.synchronize_item();
+                            continue;
+                        }
+                        let fn_params = self.parse_param_list();
+
+                        let fn_ret_type = if self.matches_token(&TokenKind::Arrow) {
+                            self.parse_type_expr()
+                        } else {
+                            None
+                        };
+
+                        if !self.matches_token(&TokenKind::Semicolon) {
+                            self.error_here("expected `;` after function declaration in mod block");
+                            self.synchronize_item();
+                            continue;
+                        }
+
+                        let fn_span = Span {
+                            range: fn_name.span.range.start..self.previous().span.range.end,
+                        };
+                        nested.push(husk_ast::ModItem {
+                            kind: husk_ast::ModItemKind::Fn {
+                                name: fn_name,
+                                params: fn_params,
+                                ret_type: fn_ret_type,
+                            },
+                            span: fn_span,
+                        });
+                    }
+                    nested
+                } else if self.matches_token(&TokenKind::Semicolon) {
+                    Vec::new()
+                } else {
+                    self.error_here("expected `{` or `;` after module declaration");
                     self.synchronize_item();
                     continue;
-                }
+                };
 
                 let span = Span {
                     range: mod_start..self.previous().span.range.end,
                 };
                 items.push(husk_ast::ExternItem {
-                    kind: husk_ast::ExternItemKind::Mod { package, binding },
+                    kind: husk_ast::ExternItemKind::Mod {
+                        package,
+                        binding,
+                        items: mod_items,
+                    },
                     span,
                 });
                 continue;
@@ -1503,9 +1560,10 @@ mod tests {
         assert_eq!(file.items.len(), 1);
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
             assert_eq!(items.len(), 1);
-            if let husk_ast::ExternItemKind::Mod { package, binding } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
                 assert_eq!(package, "express");
                 assert_eq!(binding.name, "express");
+                assert!(items.is_empty());
             } else {
                 panic!("expected Mod item");
             }
@@ -1521,9 +1579,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
-            if let husk_ast::ExternItemKind::Mod { package, binding } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
                 assert_eq!(package, "lodash-es");
                 assert_eq!(binding.name, "lodash_es");
+                assert!(items.is_empty());
             } else {
                 panic!("expected Mod item");
             }
@@ -1539,9 +1598,41 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
-            if let husk_ast::ExternItemKind::Mod { package, binding } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
                 assert_eq!(package, "@myorg/my-lib");
                 assert_eq!(binding.name, "mylib");
+                assert!(items.is_empty());
+            } else {
+                panic!("expected Mod item");
+            }
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_mod_block_with_functions() {
+        let src = r#"extern "js" {
+            mod nanoid {
+                fn nanoid() -> String;
+            }
+        }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            assert_eq!(items.len(), 1);
+            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
+                assert_eq!(package, "nanoid");
+                assert_eq!(binding.name, "nanoid");
+                assert_eq!(items.len(), 1);
+                if let husk_ast::ModItemKind::Fn { name, params, ret_type } = &items[0].kind {
+                    assert_eq!(name.name, "nanoid");
+                    assert!(params.is_empty());
+                    assert!(ret_type.is_some());
+                } else {
+                    panic!("expected Fn item in mod block");
+                }
             } else {
                 panic!("expected Mod item");
             }
