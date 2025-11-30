@@ -231,9 +231,46 @@ impl<'a> Codegen<'a> {
 
                     self.known_generics = old_generics;
                 }
-                InterfaceMember::Property(_) => {
-                    // Properties become opaque - we can't access them directly
-                    // Could generate getter methods in the future
+                InterfaceMember::Property(p) => {
+                    let mapped_type = self.map_type(&p.ty);
+
+                    // Generate getter method for property access
+                    let return_type = if p.optional {
+                        format!("Option<{}>", mapped_type)
+                    } else {
+                        mapped_type.clone()
+                    };
+
+                    methods.push(GeneratedMethod {
+                        name: escape_keyword(&p.name),
+                        type_params: Vec::new(),
+                        params: Vec::new(),
+                        return_type: Some(return_type),
+                        is_static: false,
+                        comment: if p.readonly {
+                            Some("property (readonly)".to_string())
+                        } else {
+                            Some("property getter".to_string())
+                        },
+                    });
+
+                    // Generate setter method for non-readonly properties
+                    if !p.readonly {
+                        let setter_param_type = if p.optional {
+                            format!("Option<{}>", mapped_type)
+                        } else {
+                            mapped_type
+                        };
+
+                        methods.push(GeneratedMethod {
+                            name: format!("set_{}", escape_keyword(&p.name)),
+                            type_params: Vec::new(),
+                            params: vec![("value".to_string(), setter_param_type)],
+                            return_type: None,
+                            is_static: false,
+                            comment: Some("property setter".to_string()),
+                        });
+                    }
                 }
                 InterfaceMember::CallSignature(_) => {
                     self.warn(WarningKind::Skipped, format!("Call signature on {} skipped", i.name));
@@ -330,8 +367,65 @@ impl<'a> Codegen<'a> {
                         comment: None,
                     });
                 }
-                ClassMember::Property(_) => {
-                    // Skip properties (opaque)
+                ClassMember::Property(p) => {
+                    // Skip private properties
+                    if p.visibility == Visibility::Private {
+                        continue;
+                    }
+
+                    // Generate getter method for property access
+                    let mapped_type = p
+                        .ty
+                        .as_ref()
+                        .map(|t| self.map_type(t))
+                        .unwrap_or_else(|| "JsValue".to_string());
+
+                    let return_type = if p.optional {
+                        format!("Option<{}>", mapped_type)
+                    } else {
+                        mapped_type.clone()
+                    };
+
+                    methods.push(GeneratedMethod {
+                        name: escape_keyword(&p.name),
+                        type_params: Vec::new(),
+                        params: Vec::new(),
+                        return_type: Some(return_type),
+                        is_static: p.is_static,
+                        comment: Some(if p.is_static {
+                            if p.readonly {
+                                "static property (readonly)".to_string()
+                            } else {
+                                "static property getter".to_string()
+                            }
+                        } else if p.readonly {
+                            "property (readonly)".to_string()
+                        } else {
+                            "property getter".to_string()
+                        }),
+                    });
+
+                    // Generate setter method for non-readonly properties
+                    if !p.readonly {
+                        let setter_param_type = if p.optional {
+                            format!("Option<{}>", mapped_type)
+                        } else {
+                            mapped_type
+                        };
+
+                        methods.push(GeneratedMethod {
+                            name: format!("set_{}", escape_keyword(&p.name)),
+                            type_params: Vec::new(),
+                            params: vec![("value".to_string(), setter_param_type)],
+                            return_type: None,
+                            is_static: p.is_static,
+                            comment: Some(if p.is_static {
+                                "static property setter".to_string()
+                            } else {
+                                "property setter".to_string()
+                            }),
+                        });
+                    }
                 }
                 ClassMember::IndexSignature(_) => {
                     self.warn(WarningKind::Skipped, format!("Index signature on {} skipped", c.name));

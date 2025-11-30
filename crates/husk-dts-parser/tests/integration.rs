@@ -282,3 +282,112 @@ fn test_module_name_variants() {
     });
     assert!(result.code.contains(r#"mod "@types/node" as node;"#));
 }
+
+/// Test property getters and setters for interfaces.
+#[test]
+fn test_property_getters_and_setters() {
+    let dts = r#"
+        interface Config {
+            host: string;
+            port?: number;
+            readonly version: string;
+        }
+    "#;
+
+    let file = parse(dts).expect("Failed to parse");
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Required property - getter and setter
+    assert!(result.code.contains("fn host(self) -> String;"),
+        "Should generate host getter");
+    assert!(result.code.contains("fn set_host(self, value: String);"),
+        "Should generate host setter");
+
+    // Optional property - getter and setter with Option
+    assert!(result.code.contains("fn port(self) -> Option<f64>;"),
+        "Should generate optional port getter");
+    assert!(result.code.contains("fn set_port(self, value: Option<f64>);"),
+        "Should generate optional port setter");
+
+    // Readonly property - getter only, NO setter
+    assert!(result.code.contains("fn version(self) -> String;"),
+        "Should generate version getter");
+    assert!(!result.code.contains("fn set_version"),
+        "Readonly property should not have setter");
+}
+
+/// Test class properties generate getters and setters.
+#[test]
+fn test_class_properties_with_setters() {
+    let dts = r#"
+        declare class Buffer {
+            readonly length: number;
+            static BYTES_PER_ELEMENT: number;
+            data: Uint8Array;
+            private _internal: any;
+        }
+    "#;
+
+    let file = parse(dts).expect("Failed to parse");
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Instance readonly property - getter only
+    assert!(result.code.contains("fn length(self) -> f64;"),
+        "Should generate length getter");
+    assert!(!result.code.contains("fn set_length"),
+        "Readonly property should not have setter");
+
+    // Static property - getter and setter (no self parameter)
+    assert!(result.code.contains("fn BYTES_PER_ELEMENT() -> f64;"),
+        "Should generate static getter without self");
+    assert!(result.code.contains("fn set_BYTES_PER_ELEMENT(value: f64);"),
+        "Should generate static setter without self");
+
+    // Mutable instance property - getter and setter
+    assert!(result.code.contains("fn data(self) -> Uint8Array;"),
+        "Should generate data getter");
+    assert!(result.code.contains("fn set_data(self, value: Uint8Array);"),
+        "Should generate data setter");
+
+    // Private property should be skipped entirely
+    assert!(!result.code.contains("_internal"),
+        "Private properties should be skipped");
+}
+
+/// Test that properties in existing tests now generate getters.
+#[test]
+fn test_interface_properties_generate_getters() {
+    let dts = r#"
+        interface Request {
+            url: string;
+            method: string;
+            body: any;
+            readonly headers: Headers;
+        }
+    "#;
+
+    let file = parse(dts).expect("Failed to parse");
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Check property getters are generated
+    assert!(result.code.contains("fn url(self) -> String;"),
+        "Should generate url getter");
+    assert!(result.code.contains("fn method(self) -> String;"),
+        "Should generate method getter");
+    assert!(result.code.contains("fn body(self) -> JsValue;"),
+        "Should generate body getter with JsValue for any");
+    assert!(result.code.contains("fn headers(self) -> Headers;"),
+        "Should generate readonly headers getter");
+
+    // Check setters for non-readonly properties
+    assert!(result.code.contains("fn set_url(self, value: String);"),
+        "Should generate url setter");
+    assert!(result.code.contains("fn set_method(self, value: String);"),
+        "Should generate method setter");
+    assert!(result.code.contains("fn set_body(self, value: JsValue);"),
+        "Should generate body setter");
+
+    // Readonly should not have setter
+    assert!(!result.code.contains("fn set_headers"),
+        "Readonly headers should not have setter");
+}
