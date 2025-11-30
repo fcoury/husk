@@ -8,7 +8,8 @@
 
 use husk_ast::{
     EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec, Ident,
-    ItemKind, LiteralKind, Param, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
+    ImplItemKind, ItemKind, LiteralKind, Param, Span, Stmt, StmtKind, StructField, TypeExpr,
+    TypeExprKind,
 };
 use husk_runtime_js::std_preamble_js;
 use sourcemap::SourceMapBuilder;
@@ -125,6 +126,16 @@ pub enum JsExpr {
     Iife {
         body: Vec<JsStmt>,
     },
+    /// Function expression: `function(params) { body }`.
+    Function {
+        params: Vec<String>,
+        body: Vec<JsStmt>,
+    },
+    /// Constructor call: `new Foo(args)`.
+    New {
+        constructor: String,
+        args: Vec<JsExpr>,
+    },
 }
 
 /// Binary operators in JS (subset we need).
@@ -228,7 +239,14 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
-    // Second pass: process functions and extern functions
+    // Second pass: generate constructor functions for structs (needed for prototype methods)
+    for item in &file.items {
+        if let ItemKind::Struct { name, fields, .. } = &item.kind {
+            body.push(lower_struct_constructor(&name.name, fields));
+        }
+    }
+
+    // Third pass: process functions and extern functions
     for item in &file.items {
         match &item.kind {
             ItemKind::Fn {
@@ -260,6 +278,24 @@ pub fn lower_file_to_js_with_source(
                         }
                     }
                 }
+            }
+            ItemKind::Impl(impl_block) => {
+                // Generate prototype methods for impl blocks
+                let self_ty_name = type_expr_to_js_name(&impl_block.self_ty);
+
+                for impl_item in &impl_block.items {
+                    if let ImplItemKind::Method(method) = &impl_item.kind {
+                        body.push(lower_impl_method(
+                            &self_ty_name,
+                            method,
+                            &impl_item.span,
+                            source,
+                        ));
+                    }
+                }
+            }
+            ItemKind::Trait(_) => {
+                // Traits don't generate code - they're purely compile-time constructs
             }
             _ => {}
         }
@@ -331,6 +367,112 @@ fn lower_fn_with_span(
         body: js_body,
         source_span,
     }
+}
+
+/// Generate a constructor function for a struct.
+///
+/// For `struct Point { x: i32, y: i32 }`, generates:
+/// ```js
+/// function Point(x, y) { this.x = x; this.y = y; }
+/// ```
+fn lower_struct_constructor(name: &str, fields: &[StructField]) -> JsStmt {
+    let param_names: Vec<String> = fields.iter().map(|f| f.name.name.clone()).collect();
+
+    // Generate: this.field = field; for each field
+    let mut body_stmts = Vec::new();
+    for field in fields {
+        let field_name = field.name.name.clone();
+        body_stmts.push(JsStmt::Expr(JsExpr::Assignment {
+            left: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("this".to_string())),
+                property: field_name.clone(),
+            }),
+            right: Box::new(JsExpr::Ident(field_name)),
+        }));
+    }
+
+    JsStmt::Function {
+        name: name.to_string(),
+        params: param_names,
+        body: body_stmts,
+        source_span: None,
+    }
+}
+
+/// Extract a JavaScript-usable type name from a TypeExpr.
+fn type_expr_to_js_name(ty: &TypeExpr) -> String {
+    match &ty.kind {
+        TypeExprKind::Named(ident) => ident.name.clone(),
+        TypeExprKind::Generic { name, .. } => name.name.clone(),
+    }
+}
+
+/// Lower an impl method to JavaScript.
+///
+/// For methods with a receiver (`&self`, `self`, etc.), we generate:
+///   `TypeName.prototype.methodName = function(params) { body };`
+///
+/// For static methods (no receiver), we generate:
+///   `TypeName.methodName = function(params) { body };`
+fn lower_impl_method(
+    type_name: &str,
+    method: &husk_ast::ImplMethod,
+    span: &Span,
+    source: Option<&str>,
+) -> JsStmt {
+    let method_name = &method.name.name;
+
+    // Build params: for methods with receiver, we don't include `self` in params
+    // since it becomes `this` in JavaScript
+    let js_params: Vec<String> = method.params.iter().map(|p| p.name.name.clone()).collect();
+
+    // Lower the body
+    let mut js_body = Vec::new();
+    for (i, stmt) in method.body.iter().enumerate() {
+        let is_last = i + 1 == method.body.len();
+        if is_last {
+            js_body.push(lower_tail_stmt(stmt));
+        } else {
+            js_body.push(lower_stmt(stmt));
+        }
+    }
+
+    // Convert byte offset to line/column if source is provided
+    let _source_span = source.map(|src| {
+        let (line, column) = offset_to_line_col(src, span.range.start);
+        SourceSpan { line, column }
+    });
+
+    // Generate: TypeName.prototype.methodName = function(params) { body };
+    // or for static: TypeName.methodName = function(params) { body };
+    let target = if method.receiver.is_some() {
+        // Instance method: TypeName.prototype.methodName
+        JsExpr::Member {
+            object: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident(type_name.to_string())),
+                property: "prototype".to_string(),
+            }),
+            property: method_name.clone(),
+        }
+    } else {
+        // Static method: TypeName.methodName
+        JsExpr::Member {
+            object: Box::new(JsExpr::Ident(type_name.to_string())),
+            property: method_name.clone(),
+        }
+    };
+
+    // Create the function expression
+    let func_expr = JsExpr::Function {
+        params: js_params,
+        body: js_body,
+    };
+
+    // Generate assignment: target = function(...) { ... }
+    JsStmt::Expr(JsExpr::Assignment {
+        left: Box::new(target),
+        right: Box::new(func_expr),
+    })
 }
 
 fn lower_tail_stmt(stmt: &Stmt) -> JsStmt {
@@ -518,7 +660,14 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             LiteralKind::Bool(b) => JsExpr::Bool(*b),
             LiteralKind::String(s) => JsExpr::String(s.clone()),
         },
-        ExprKind::Ident(id) => JsExpr::Ident(id.name.clone()),
+        ExprKind::Ident(id) => {
+            // Translate `self` to `this` for JavaScript method bodies
+            if id.name == "self" {
+                JsExpr::Ident("this".to_string())
+            } else {
+                JsExpr::Ident(id.name.clone())
+            }
+        }
         ExprKind::Path { segments } => {
             // MVP: treat `Enum::Variant` as a tagged union value `{ tag: "Variant" }`.
             // We ignore the enum name and any intermediate segments here.
@@ -588,15 +737,21 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             }
         }
         ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms),
-        ExprKind::Struct { name: _, fields } => {
-            // Lower struct instantiation to a JS object literal.
-            // `Point { x: 1, y: 2 }` -> `{ x: 1, y: 2 }`
-            JsExpr::Object(
-                fields
-                    .iter()
-                    .map(|f| (f.name.name.clone(), lower_expr(&f.value)))
-                    .collect(),
-            )
+        ExprKind::Struct { name, fields } => {
+            // Lower struct instantiation to a constructor call.
+            // `Point { x: 1, y: 2 }` -> `new Point(1, 2)`
+            // The order of args must match the order of fields in the struct definition.
+            // For now, we pass them in the order they appear in the instantiation.
+            let args: Vec<JsExpr> = fields.iter().map(|f| lower_expr(&f.value)).collect();
+            // name is a Vec<Ident> representing the path (e.g., ["Point"] or ["module", "Point"])
+            let constructor_name = name
+                .last()
+                .map(|id| id.name.clone())
+                .unwrap_or_else(|| "UnknownType".to_string());
+            JsExpr::New {
+                constructor: constructor_name,
+                args,
+            }
         }
         ExprKind::Block(block) => {
             // Lower a block expression to an IIFE (Immediately Invoked Function Expression).
@@ -1268,6 +1423,33 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
                 out.push('\n');
             }
             out.push_str("})()");
+        }
+        JsExpr::Function { params, body } => {
+            out.push_str("function(");
+            for (i, p) in params.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(p);
+            }
+            out.push_str(") {\n");
+            for s in body {
+                write_stmt(s, 1, out);
+                out.push('\n');
+            }
+            out.push('}');
+        }
+        JsExpr::New { constructor, args } => {
+            out.push_str("new ");
+            out.push_str(constructor);
+            out.push('(');
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_expr(arg, out);
+            }
+            out.push(')');
         }
     }
 }

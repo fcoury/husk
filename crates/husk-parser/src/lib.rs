@@ -4,8 +4,10 @@
 
 use husk_ast::{
     BinaryOp, Block, EnumVariant, EnumVariantFields, Expr, ExprKind, File, FormatPlaceholder,
-    FormatSegment, FormatSpec, FormatString, Ident, Item, ItemKind, Literal, LiteralKind, MatchArm,
-    Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
+    FormatSegment, FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod,
+    Item, ItemKind, Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver,
+    Span, Stmt, StmtKind, StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr,
+    TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -152,7 +154,9 @@ impl Parser {
                     | Keyword::Type
                     | Keyword::Extern
                     | Keyword::Use
-                    | Keyword::Pub,
+                    | Keyword::Pub
+                    | Keyword::Trait
+                    | Keyword::Impl,
                 ) => {
                     return;
                 }
@@ -188,10 +192,12 @@ impl Parser {
             TokenKind::Keyword(Keyword::Enum) => self.parse_enum_item(),
             TokenKind::Keyword(Keyword::Type) => self.parse_type_alias_item(),
             TokenKind::Keyword(Keyword::Extern) => self.parse_extern_block_item(),
+            TokenKind::Keyword(Keyword::Trait) => self.parse_trait_item(),
+            TokenKind::Keyword(Keyword::Impl) => self.parse_impl_item(),
             TokenKind::Eof => None,
             _ => {
                 self.error_here(
-                    "expected item (`fn`, `struct`, `enum`, `type`, `extern`, or `use`)",
+                    "expected item (`fn`, `struct`, `enum`, `type`, `extern`, `use`, `trait`, or `impl`)",
                 );
                 None
             }
@@ -575,6 +581,318 @@ impl Parser {
             kind: ItemKind::ExternBlock { abi, items },
             span,
         })
+    }
+
+    /// Parse a trait definition: `trait Name { fn method(&self); }`
+    fn parse_trait_item(&mut self) -> Option<Item> {
+        let trait_tok = self.advance().clone(); // consume `trait`
+        let name = self.parse_ident("expected trait name after `trait`")?;
+
+        // Parse optional type parameters with bounds
+        let type_params = self.parse_type_params_with_bounds();
+
+        if !self.matches_token(&TokenKind::LBrace) {
+            self.error_here("expected `{` after trait name");
+            return None;
+        }
+
+        let mut items = Vec::new();
+        while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            if let Some(item) = self.parse_trait_method() {
+                items.push(item);
+            } else {
+                self.synchronize_item();
+            }
+        }
+
+        let end = self.previous().span.range.end;
+        let span = Span {
+            range: trait_tok.span.range.start..end,
+        };
+
+        Some(Item {
+            visibility: husk_ast::Visibility::Private,
+            kind: ItemKind::Trait(TraitDef {
+                name,
+                type_params,
+                items,
+                span: span.clone(),
+            }),
+            span,
+        })
+    }
+
+    /// Parse a method inside a trait: `fn method(&self) -> RetType;` or with default body
+    fn parse_trait_method(&mut self) -> Option<TraitItem> {
+        if !self.matches_keyword(Keyword::Fn) {
+            self.error_here("expected `fn` inside trait");
+            return None;
+        }
+        let fn_start = self.previous().span.range.start;
+        let name = self.parse_ident("expected method name after `fn`")?;
+
+        if !self.matches_token(&TokenKind::LParen) {
+            self.error_here("expected `(` after method name");
+            return None;
+        }
+
+        // Parse self receiver and regular parameters
+        let (receiver, params) = self.parse_method_param_list();
+
+        // Optional return type
+        let ret_type = if self.matches_token(&TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        // Either `;` (required method) or `{ ... }` (default implementation)
+        let default_body = if self.matches_token(&TokenKind::Semicolon) {
+            None
+        } else if self.matches_token(&TokenKind::LBrace) {
+            self.pos -= 1; // move back to parse_block
+            let block = self.parse_block()?;
+            Some(block.stmts)
+        } else {
+            self.error_here("expected `;` or `{` after method signature");
+            return None;
+        };
+
+        let end = self.previous().span.range.end;
+        Some(TraitItem {
+            kind: TraitItemKind::Method(TraitMethod {
+                name,
+                receiver,
+                params,
+                ret_type,
+                default_body,
+            }),
+            span: Span {
+                range: fn_start..end,
+            },
+        })
+    }
+
+    /// Parse an impl block: `impl Trait for Type { ... }` or `impl Type { ... }`
+    fn parse_impl_item(&mut self) -> Option<Item> {
+        let impl_tok = self.advance().clone(); // consume `impl`
+
+        // Parse optional type parameters with bounds
+        let type_params = self.parse_type_params_with_bounds();
+
+        // Parse the first type (could be trait or self_ty)
+        let first_ty = self.parse_type_expr()?;
+
+        // Check for `for` keyword to distinguish `impl Trait for Type` from `impl Type`
+        let (trait_ref, self_ty) = if self.matches_keyword(Keyword::For) {
+            let self_ty = self.parse_type_expr()?;
+            (Some(first_ty), self_ty)
+        } else {
+            (None, first_ty)
+        };
+
+        if !self.matches_token(&TokenKind::LBrace) {
+            self.error_here("expected `{` after impl header");
+            return None;
+        }
+
+        let mut items = Vec::new();
+        while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            if let Some(item) = self.parse_impl_method() {
+                items.push(item);
+            } else {
+                self.synchronize_item();
+            }
+        }
+
+        let end = self.previous().span.range.end;
+        let span = Span {
+            range: impl_tok.span.range.start..end,
+        };
+
+        Some(Item {
+            visibility: husk_ast::Visibility::Private,
+            kind: ItemKind::Impl(ImplBlock {
+                type_params,
+                trait_ref,
+                self_ty,
+                items,
+                span: span.clone(),
+            }),
+            span,
+        })
+    }
+
+    /// Parse a method inside an impl block: `fn method(&self) -> RetType { ... }`
+    fn parse_impl_method(&mut self) -> Option<ImplItem> {
+        if !self.matches_keyword(Keyword::Fn) {
+            self.error_here("expected `fn` inside impl");
+            return None;
+        }
+        let fn_start = self.previous().span.range.start;
+        let name = self.parse_ident("expected method name after `fn`")?;
+
+        if !self.matches_token(&TokenKind::LParen) {
+            self.error_here("expected `(` after method name");
+            return None;
+        }
+
+        // Parse self receiver and regular parameters
+        let (receiver, params) = self.parse_method_param_list();
+
+        // Optional return type
+        let ret_type = if self.matches_token(&TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        // Method body is required in impl
+        let body_block = self.parse_block()?;
+
+        let end = body_block.span.range.end;
+        Some(ImplItem {
+            kind: ImplItemKind::Method(ImplMethod {
+                name,
+                receiver,
+                params,
+                ret_type,
+                body: body_block.stmts,
+            }),
+            span: Span {
+                range: fn_start..end,
+            },
+        })
+    }
+
+    /// Parse method parameter list, handling `self`, `&self`, `&mut self` as first param
+    fn parse_method_param_list(&mut self) -> (Option<SelfReceiver>, Vec<Param>) {
+        let mut receiver = None;
+        let mut params = Vec::new();
+
+        if self.matches_token(&TokenKind::RParen) {
+            return (receiver, params);
+        }
+
+        // Check for self receiver
+        if self.matches_token(&TokenKind::Amp) {
+            // `&self` or `&mut self`
+            if self.matches_keyword(Keyword::Mut) {
+                // `&mut self`
+                if !self.check_ident("self") {
+                    self.error_here("expected `self` after `&mut`");
+                } else {
+                    self.advance(); // consume `self`
+                    receiver = Some(SelfReceiver::RefMut);
+                }
+            } else if self.check_ident("self") {
+                // `&self`
+                self.advance(); // consume `self`
+                receiver = Some(SelfReceiver::Ref);
+            } else {
+                self.error_here("expected `self` or `mut self` after `&`");
+            }
+        } else if self.check_ident("self") {
+            // `self` by value
+            self.advance(); // consume `self`
+            receiver = Some(SelfReceiver::Value);
+        }
+
+        // If we got a receiver, check for comma or end
+        if receiver.is_some() {
+            if self.matches_token(&TokenKind::RParen) {
+                return (receiver, params);
+            }
+            if !self.matches_token(&TokenKind::Comma) {
+                self.error_here("expected `,` or `)` after self parameter");
+                return (receiver, params);
+            }
+        }
+
+        // Parse remaining parameters
+        if self.matches_token(&TokenKind::RParen) {
+            return (receiver, params);
+        }
+
+        while let Some(name) = self.parse_ident("expected parameter name") {
+            if !self.matches_token(&TokenKind::Colon) {
+                self.error_here("expected `:` after parameter name");
+                break;
+            }
+            let ty = match self.parse_type_expr() {
+                Some(t) => t,
+                None => break,
+            };
+            params.push(Param { name, ty });
+
+            if self.matches_token(&TokenKind::RParen) {
+                break;
+            }
+            if !self.matches_token(&TokenKind::Comma) {
+                self.error_here("expected `,` or `)` in parameter list");
+                break;
+            }
+        }
+
+        (receiver, params)
+    }
+
+    /// Check if current token is a specific identifier (without consuming)
+    fn check_ident(&self, name: &str) -> bool {
+        matches!(&self.current().kind, TokenKind::Ident(s) if s == name)
+    }
+
+    /// Parse type parameters with optional bounds: `<T, U: Foo + Bar>`
+    fn parse_type_params_with_bounds(&mut self) -> Vec<TypeParam> {
+        let mut params = Vec::new();
+        if !self.matches_token(&TokenKind::Lt) {
+            return params;
+        }
+
+        loop {
+            let name = match self.parse_ident("expected type parameter name") {
+                Some(id) => id,
+                None => break,
+            };
+
+            // Parse optional bounds: `: Foo + Bar`
+            let bounds = if self.matches_token(&TokenKind::Colon) {
+                self.parse_trait_bounds()
+            } else {
+                Vec::new()
+            };
+
+            params.push(TypeParam { name, bounds });
+
+            if self.matches_token(&TokenKind::Gt) {
+                break;
+            }
+            if !self.matches_token(&TokenKind::Comma) {
+                self.error_here("expected `,` or `>` in type parameter list");
+                break;
+            }
+        }
+
+        params
+    }
+
+    /// Parse trait bounds: `Foo + Bar + Baz`
+    fn parse_trait_bounds(&mut self) -> Vec<TypeExpr> {
+        let mut bounds = Vec::new();
+
+        loop {
+            if let Some(ty) = self.parse_type_expr() {
+                bounds.push(ty);
+            } else {
+                break;
+            }
+
+            if !self.matches_token(&TokenKind::Plus) {
+                break;
+            }
+        }
+
+        bounds
     }
 
     fn parse_type_params(&mut self) -> Vec<Ident> {
