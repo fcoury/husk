@@ -4,33 +4,33 @@
 // - Multi-file modules (use crate::types)
 // - Structs and enums
 // - Pattern matching on unit enum variants
-// - Extern FFI function declarations
+// - Extern FFI with npm module imports
 // - String operations
 // - Conditionals
 
 use crate::types::User;
 use crate::types::ValidationError;
 
-// Extern declarations for npm package functions
-// These are wired up via globalThis in host.js
+// Import npm packages using mod blocks
+// This generates proper ES imports: import { nanoid } from "nanoid";
 extern "js" {
-    // nanoid - generates unique IDs
-    fn nanoid() -> String;
+    mod nanoid {
+        fn nanoid() -> String;
+    }
 
-    // validator - string validation
-    fn is_email(s: String) -> bool;
-    fn is_alpha(s: String) -> bool;
-    fn is_length(s: String, min: i32, max: i32) -> bool;
+    mod validator {
+        fn isEmail(s: String) -> bool;
+        fn isAlpha(s: String) -> bool;
+        fn isLength(s: String, min: i32, max: i32) -> bool;
+    }
 
-    // chalk - terminal colors
-    fn chalk_green(s: String) -> String;
-    fn chalk_red(s: String) -> String;
-    fn chalk_blue(s: String) -> String;
-    fn chalk_gray(s: String) -> String;
-    fn chalk_bold(s: String) -> String;
-
-    // console output
-    fn println(s: String);
+    mod picocolors {
+        fn green(s: String) -> String;
+        fn red(s: String) -> String;
+        fn blue(s: String) -> String;
+        fn gray(s: String) -> String;
+        fn bold(s: String) -> String;
+    }
 }
 
 fn validate_and_create_user(name: String, email: String) -> User {
@@ -39,8 +39,8 @@ fn validate_and_create_user(name: String, email: String) -> User {
 }
 
 fn check_name(name: String) -> ValidationError {
-    if is_length(name, 1, 50) {
-        if is_alpha(name) {
+    if isLength(name, 1, 50) {
+        if isAlpha(name) {
             ValidationError::None
         } else {
             ValidationError::InvalidName
@@ -51,7 +51,7 @@ fn check_name(name: String) -> ValidationError {
 }
 
 fn check_email(email: String) -> ValidationError {
-    if is_email(email) {
+    if isEmail(email) {
         ValidationError::None
     } else {
         ValidationError::InvalidEmail
@@ -59,18 +59,18 @@ fn check_email(email: String) -> ValidationError {
 }
 
 fn display_user(user: User) {
-    println(chalk_bold(chalk_green("User created successfully!")));
-    println(chalk_gray("  ID:    ") + chalk_blue(user.id));
-    println(chalk_gray("  Name:  ") + user.name);
-    println(chalk_gray("  Email: ") + user.email);
+    println(bold(green("User created successfully!")));
+    println(gray("  ID:    ") + blue(user.id));
+    println(gray("  Name:  ") + user.name);
+    println(gray("  Email: ") + user.email);
 }
 
 fn display_error(error: ValidationError) {
     match error {
-        ValidationError::None => println(chalk_green("Valid!")),
-        ValidationError::InvalidEmail => println(chalk_red("Error: Invalid email address")),
-        ValidationError::InvalidName => println(chalk_red("Error: Name must contain only letters")),
-        ValidationError::EmptyField => println(chalk_red("Error: Field cannot be empty")),
+        ValidationError::None => println(green("Valid!")),
+        ValidationError::InvalidEmail => println(red("Error: Invalid email address")),
+        ValidationError::InvalidName => println(red("Error: Name must contain only letters")),
+        ValidationError::EmptyField => println(red("Error: Field cannot be empty")),
     }
 }
 
@@ -92,24 +92,24 @@ fn try_create_user(name: String, email: String) {
 }
 
 fn main() {
-    println(chalk_bold("=== Husk npm Demo ==="));
+    println(bold("=== Husk npm Demo ==="));
     println("");
 
-    println(chalk_gray("Creating user: Alice, alice@example.com"));
+    println(gray("Creating user: Alice, alice@example.com"));
     try_create_user("Alice", "alice@example.com");
     println("");
 
-    println(chalk_gray("Creating user: Bob, not-an-email"));
+    println(gray("Creating user: Bob, not-an-email"));
     try_create_user("Bob", "not-an-email");
     println("");
 
-    println(chalk_gray("Creating user: Alice123, alice@test.com"));
+    println(gray("Creating user: Alice123, alice@test.com"));
     try_create_user("Alice123", "alice@test.com");
     println("");
 
-    println(chalk_gray("Creating user: (empty), test@test.com"));
+    println(gray("Creating user: (empty), test@test.com"));
     try_create_user("", "test@test.com");
 
     println("");
-    println(chalk_bold("=== Demo Complete ==="));
+    println(bold("=== Demo Complete ==="));
 }

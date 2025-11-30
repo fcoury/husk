@@ -245,12 +245,25 @@ impl TypeChecker {
                                 };
                                 self.env.functions.insert(name.name.clone(), def);
                             }
-                            husk_ast::ExternItemKind::Mod { binding, .. } => {
-                                // Module imports become callable identifiers.
-                                let def = ModuleDef {
-                                    name: binding.name.clone(),
-                                };
-                                self.env.modules.insert(binding.name.clone(), def);
+                            husk_ast::ExternItemKind::Mod { binding, items, .. } => {
+                                if items.is_empty() {
+                                    // Simple module import becomes a callable identifier.
+                                    let def = ModuleDef {
+                                        name: binding.name.clone(),
+                                    };
+                                    self.env.modules.insert(binding.name.clone(), def);
+                                } else {
+                                    // Mod block with functions - register each function.
+                                    for mod_item in items {
+                                        if let husk_ast::ModItemKind::Fn { name, params, ret_type } = &mod_item.kind {
+                                            let def = FnDef {
+                                                params: params.clone(),
+                                                ret_type: ret_type.clone(),
+                                            };
+                                            self.env.functions.insert(name.name.clone(), def);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1000,8 +1013,17 @@ impl Resolver {
                         husk_ast::ExternItemKind::Fn { name, .. } => {
                             self.add_symbol(name, SymbolKind::ExternFn);
                         }
-                        husk_ast::ExternItemKind::Mod { binding, .. } => {
-                            self.add_symbol(binding, SymbolKind::ExternMod);
+                        husk_ast::ExternItemKind::Mod { binding, items, .. } => {
+                            if items.is_empty() {
+                                self.add_symbol(binding, SymbolKind::ExternMod);
+                            } else {
+                                // Register functions from mod block
+                                for mod_item in items {
+                                    if let husk_ast::ModItemKind::Fn { name, .. } = &mod_item.kind {
+                                        self.add_symbol(name, SymbolKind::ExternFn);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1511,6 +1533,7 @@ mod tests {
             kind: husk_ast::ExternItemKind::Mod {
                 package: "express".to_string(),
                 binding: express_ident.clone(),
+                items: Vec::new(),
             },
             span: Span { range: 0..15 },
         };

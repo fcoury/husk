@@ -17,3 +17,8 @@ enum Result<T, E> {
     Err(E),
 }
 
+// Built-in functions for console output.
+// These are translated to console.log/console.error in JavaScript.
+extern "js" {
+    fn println(s: String);
+}

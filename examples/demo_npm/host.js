@@ -5,18 +5,18 @@
  * This script:
  * 1. Requires npm packages (chalk, nanoid, validator)
  * 2. Exposes wrapper functions via globalThis
- * 3. Loads the compiled Husk module
+ * 3. Loads the compiled Husk module from dist/
  * 4. Calls the main() function
  *
  * Usage:
  *   npm install
- *   cd ../.. && cargo run --bin huskc -- compile --lib examples/demo_npm/main.hk > examples/demo_npm/main.js
- *   node examples/demo_npm/host.js
+ *   npm run build   # or: huskc build
+ *   npm start       # or: node host.js
  */
 
-const chalk = require('chalk');
-const { nanoid } = require('nanoid');
-const validator = require('validator');
+import chalk from 'chalk';
+import { nanoid } from 'nanoid';
+import validator from 'validator';
 
 // === Expose npm package functions via globalThis ===
 
@@ -39,6 +39,6 @@ globalThis.chalk_bold = (s) => chalk.bold(s);
 globalThis.println = (s) => console.log(s);
 
 // === Load and run compiled Husk code ===
-
-const huskApp = require('./main.js');
-huskApp.main();
+// Note: The Husk build outputs to dist/main.js with --lib mode disabled,
+// so main() is auto-called. We just need to import it.
+await import('./dist/main.js');

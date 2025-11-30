@@ -282,6 +282,8 @@ pub enum Visibility {
 /// Items that may appear inside an `extern` block.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExternItemKind {
+    /// Bare function declaration: `fn foo() -> i32;`
+    /// Generates globalThis.foo() calls.
     Fn {
         name: Ident,
         params: Vec<Param>,
@@ -289,11 +291,32 @@ pub enum ExternItemKind {
     },
     /// Module import declaration: `mod express;` or `mod "package-name" as alias;`
     /// This declares a dependency on a JS module by package name.
+    /// When `items` is empty, imports the default export.
+    /// When `items` has functions, generates named imports for those functions.
     Mod {
         /// The npm package name (e.g., "express", "@scope/pkg", "lodash-es")
         package: String,
         /// The identifier to use in Husk code (derived from package or explicit alias)
         binding: Ident,
+        /// Optional nested function declarations to import from this module.
+        /// If non-empty, generates `import { fn1, fn2 } from "package";`
+        items: Vec<ModItem>,
+    },
+}
+
+/// Items that may appear inside a `mod` block within an extern block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModItem {
+    pub kind: ModItemKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModItemKind {
+    Fn {
+        name: Ident,
+        params: Vec<Param>,
+        ret_type: Option<TypeExpr>,
     },
 }
 

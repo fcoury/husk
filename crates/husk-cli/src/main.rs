@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
@@ -27,6 +28,35 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Build the project to dist/ directory
+    Build {
+        /// Entry point file (default: auto-detect src/main.hk or main.hk)
+        file: Option<String>,
+        /// Output directory
+        #[arg(short, long, default_value = "dist")]
+        output: String,
+        /// JavaScript output target: esm or cjs (default: auto-detect from package.json)
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Compile in library mode (do not auto-call `main`)
+        #[arg(long)]
+        lib: bool,
+        /// Also emit a `.d.ts` declaration file
+        #[arg(long)]
+        emit_dts: bool,
+        /// Generate source maps
+        #[arg(long, default_value = "true")]
+        source_map: bool,
+        /// Disable stdlib prelude injection (Option/Result)
+        #[arg(long)]
+        no_prelude: bool,
+        /// Clean output directory before build
+        #[arg(long)]
+        clean: bool,
+        /// Suppress non-error output
+        #[arg(short, long)]
+        quiet: bool,
+    },
     /// Parse and type-check a file
     Check {
         /// Source file to check
@@ -76,6 +106,20 @@ enum Command {
         /// Name of the project (also used as directory name)
         name: String,
     },
+    /// Build and run the project
+    Run {
+        /// Entry point file (default: auto-detect src/main.hk or main.hk)
+        file: Option<String>,
+        /// JavaScript output target: esm or cjs (default: auto-detect from package.json)
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Disable stdlib prelude injection (Option/Result)
+        #[arg(long)]
+        no_prelude: bool,
+        /// Arguments to pass to the program
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
     /// Watch for file changes and recompile
     Watch {
         /// Source file to watch (entry point)
@@ -112,6 +156,17 @@ fn main() {
     }
 
     match cli.command {
+        Some(Command::Build {
+            file,
+            output,
+            target,
+            lib,
+            emit_dts,
+            source_map,
+            no_prelude,
+            clean,
+            quiet,
+        }) => run_build(file.as_deref(), &output, target, lib, emit_dts, source_map, no_prelude, clean, quiet),
         Some(Command::Check { file, no_prelude }) => run_check(&file, no_prelude),
         Some(Command::Compile {
             file,
@@ -126,6 +181,12 @@ fn main() {
             run_import_dts(&file, out.as_deref(), module.as_deref())
         }
         Some(Command::New { name }) => run_new(&name),
+        Some(Command::Run {
+            file,
+            target,
+            no_prelude,
+            args,
+        }) => run_run(file.as_deref(), target, no_prelude, &args),
         Some(Command::Watch {
             file,
             output,
@@ -448,8 +509,8 @@ fn run_new(name: &str) {
   "version": "0.1.0",
   "type": "module",
   "scripts": {{
-    "build": "huskc compile src/main.hk --target esm > dist/main.js",
-    "start": "node dist/main.js"
+    "build": "huskc build",
+    "start": "huskc run"
   }}
 }}
 "#,
@@ -673,5 +734,287 @@ fn debug_log(msg: &str) {
             eprintln!("{msg}");
         }
         _ => {}
+    }
+}
+
+/// Detect entry point file. Checks src/main.hk first, then main.hk.
+fn detect_entry_point() -> Result<PathBuf, String> {
+    let candidates = ["src/main.hk", "main.hk"];
+    for candidate in candidates {
+        let path = PathBuf::from(candidate);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+    Err("No entry point found. Expected src/main.hk or main.hk.\n\
+         Hint: Run 'huskc new <name>' to create a new project,\n\
+         or specify a file: 'huskc build myfile.hk'".into())
+}
+
+/// Detect target from package.json. Returns ESM if "type": "module", otherwise CJS.
+fn detect_target_from_package_json() -> Target {
+    let pkg_path = Path::new("package.json");
+    if let Ok(content) = fs::read_to_string(pkg_path) {
+        // Simple JSON parsing for "type" field
+        if content.contains("\"type\"") && content.contains("\"module\"") {
+            return Target::Esm;
+        }
+    }
+    Target::Cjs
+}
+
+/// Check for missing node_modules when package.json exists
+fn check_npm_deps() -> Option<String> {
+    let pkg_json = Path::new("package.json");
+    let node_modules = Path::new("node_modules");
+
+    if pkg_json.exists() && !node_modules.exists() {
+        Some("Warning: node_modules not found. Run 'npm install' before executing.".into())
+    } else {
+        None
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_build(
+    file: Option<&str>,
+    output_dir: &str,
+    target: Option<Target>,
+    lib: bool,
+    emit_dts: bool,
+    source_map: bool,
+    no_prelude: bool,
+    clean: bool,
+    quiet: bool,
+) {
+    // Detect or use provided entry point
+    let entry_path = match file {
+        Some(f) => PathBuf::from(f),
+        None => match detect_entry_point() {
+            Ok(p) => p,
+            Err(msg) => {
+                eprintln!("Error: {msg}");
+                std::process::exit(2);
+            }
+        }
+    };
+
+    let entry_str = entry_path.to_string_lossy();
+    debug_log(&format!("[huskc] building from entry point: {}", entry_str));
+
+    // Detect or use provided target
+    let js_target = match target {
+        Some(t) => t,
+        None => detect_target_from_package_json(),
+    };
+
+    // Clean output directory if requested
+    let output_path = Path::new(output_dir);
+    if clean && output_path.exists() {
+        if let Err(err) = fs::remove_dir_all(output_path) {
+            eprintln!("Failed to clean output directory: {err}");
+            std::process::exit(1);
+        }
+    }
+
+    // Create output directory
+    if let Err(err) = fs::create_dir_all(output_path) {
+        eprintln!("Failed to create output directory: {err}");
+        std::process::exit(1);
+    }
+
+    // Read source for error reporting
+    let content = match fs::read_to_string(&entry_path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", entry_str);
+            std::process::exit(1);
+        }
+    };
+
+    // Load module graph
+    let graph = match load::load_graph(&entry_path) {
+        Ok(g) => g,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    let file_ast = match load::assemble_root(&graph) {
+        Ok(f) => f,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    // Semantic analysis
+    debug_log("[huskc] running semantic analysis");
+    let semantic = analyze_file_with_options(
+        &file_ast,
+        SemanticOptions {
+            prelude: !no_prelude,
+        },
+    );
+
+    let errors: Vec<_> = semantic
+        .symbols
+        .errors
+        .iter()
+        .chain(semantic.type_errors.iter())
+        .collect();
+
+    if !errors.is_empty() {
+        let source_db = SourceDb::new(entry_str.to_string(), content.clone());
+        for err in errors {
+            source_db.report_semantic_error(&err.message, err.span.range.clone());
+        }
+        std::process::exit(1);
+    }
+
+    // Determine output file name
+    let stem = entry_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("main");
+    let js_file = output_path.join(format!("{stem}.js"));
+
+    debug_log("[huskc] lowering to JS");
+    let codegen_target = match js_target {
+        Target::Esm => JsTarget::Esm,
+        Target::Cjs => JsTarget::Cjs,
+    };
+
+    if source_map {
+        // Generate with source map
+        let module = lower_file_to_js_with_source(&file_ast, !lib, codegen_target, Some(&content));
+        let source_file = entry_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&entry_str);
+        let (mut js, map_json) = module.to_source_with_sourcemap(source_file, &content);
+
+        let map_file = output_path.join(format!("{stem}.js.map"));
+        let map_name = format!("{stem}.js.map");
+        js.push_str(&format!("//# sourceMappingURL={}\n", map_name));
+
+        // Write JS file
+        if let Err(err) = fs::write(&js_file, &js) {
+            eprintln!("Failed to write {}: {err}", js_file.display());
+            std::process::exit(1);
+        }
+
+        // Write source map
+        if let Err(err) = fs::write(&map_file, &map_json) {
+            eprintln!("Failed to write {}: {err}", map_file.display());
+            std::process::exit(1);
+        }
+
+        if !quiet {
+            println!("Built {} -> {}", entry_str, js_file.display());
+            println!("      {} -> {}", "", map_file.display());
+        }
+    } else {
+        // No source map
+        let module = lower_file_to_js(&file_ast, !lib, codegen_target);
+        let js = module.to_source_with_preamble();
+
+        if let Err(err) = fs::write(&js_file, &js) {
+            eprintln!("Failed to write {}: {err}", js_file.display());
+            std::process::exit(1);
+        }
+
+        if !quiet {
+            println!("Built {} -> {}", entry_str, js_file.display());
+        }
+    }
+
+    // Emit .d.ts if requested
+    if emit_dts {
+        debug_log("[huskc] emitting .d.ts");
+        let dts = file_to_dts(&file_ast);
+        let dts_file = output_path.join(format!("{stem}.d.ts"));
+        if let Err(err) = fs::write(&dts_file, dts) {
+            eprintln!("Failed to write {}: {err}", dts_file.display());
+            std::process::exit(1);
+        }
+        if !quiet {
+            println!("      {} -> {}", "", dts_file.display());
+        }
+    }
+}
+
+fn run_run(
+    file: Option<&str>,
+    target: Option<Target>,
+    no_prelude: bool,
+    args: &[String],
+) {
+    // Build first (to dist/, quiet mode)
+    run_build(
+        file,
+        "dist",
+        target,
+        false, // not lib mode - we need main()
+        false, // no dts
+        true,  // source maps for better stack traces
+        no_prelude,
+        false, // don't clean
+        true,  // quiet
+    );
+
+    // Determine the JS file to run
+    let entry_path = match file {
+        Some(f) => PathBuf::from(f),
+        None => match detect_entry_point() {
+            Ok(p) => p,
+            Err(msg) => {
+                eprintln!("Error: {msg}");
+                std::process::exit(2);
+            }
+        }
+    };
+
+    let stem = entry_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("main");
+    let js_file = PathBuf::from("dist").join(format!("{stem}.js"));
+
+    // Check for missing npm deps
+    if let Some(warning) = check_npm_deps() {
+        eprintln!("{warning}");
+    }
+
+    // Execute with Node.js
+    debug_log(&format!("[huskc] running with node: {}", js_file.display()));
+
+    let status = ProcessCommand::new("node")
+        .arg("--enable-source-maps")
+        .arg(&js_file)
+        .args(args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status();
+
+    match status {
+        Ok(s) => {
+            let code = s.code().unwrap_or(1);
+            std::process::exit(code);
+        }
+        Err(err) => {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                eprintln!("Error: Node.js not found");
+                eprintln!("  'huskc run' requires Node.js to execute the compiled code");
+                eprintln!();
+                eprintln!("  Hint: Install Node.js from https://nodejs.org");
+                std::process::exit(3);
+            } else {
+                eprintln!("Failed to execute node: {err}");
+                std::process::exit(3);
+            }
+        }
     }
 }
