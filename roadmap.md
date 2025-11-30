@@ -42,7 +42,7 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [x] Implement closure parsing (`|x, y| expr` and `|| expr`).
   - [x] Add closure type checking in semantic analysis.
   - [x] Add `JsExpr::Arrow` and closure codegen (closures → arrow functions).
-  - [ ] Implement type inference for closure parameters from call-site context.
+  - [x] Implement type inference for closure parameters from call-site context.
 
 ---
 

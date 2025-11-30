@@ -1,5 +1,5 @@
 // Closures in Husk - demonstration of first-class functions
-// Note: typed closure params required until type inference is implemented
+// Note: closure params can have explicit types or be inferred from context
 
 // Simple closure with no parameters
 fn test_empty_closure() -> i32 {

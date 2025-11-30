@@ -727,7 +727,11 @@ impl<'a> FnContext<'a> {
                 value,
             } => {
                 let annotated_ty = ty.as_ref().map(|t| self.tcx.resolve_type_expr(t, &[]));
-                let value_ty = value.as_ref().map(|expr| self.check_expr(expr));
+                // Use check_expr_with_expected to enable closure parameter inference
+                // from type annotation: `let f: fn(i32) -> i32 = |x| x + 1`
+                let value_ty = value
+                    .as_ref()
+                    .map(|expr| self.check_expr_with_expected(expr, annotated_ty.as_ref()));
 
                 let final_ty = match (annotated_ty, value_ty) {
                     (Some(a), Some(v)) => {
@@ -920,11 +924,14 @@ impl<'a> FnContext<'a> {
                     });
                 }
 
-                // Type-check arguments (skip for module calls since we don't know the signature)
+                // Type-check arguments with expected types for closure inference
+                // (skip for module calls since we don't know the signature)
                 if !is_module_call {
                     for (i, arg) in args.iter().enumerate() {
-                        let arg_ty = self.check_expr(arg);
-                        if let Some(expected) = param_tys.get(i) {
+                        let expected = param_tys.get(i);
+                        // Use check_expr_with_expected to enable closure parameter inference
+                        let arg_ty = self.check_expr_with_expected(arg, expected);
+                        if let Some(expected) = expected {
                             if !self.types_compatible(expected, &arg_ty) {
                                 self.tcx.errors.push(SemanticError {
                                     message: format!(
@@ -1190,37 +1197,122 @@ impl<'a> FnContext<'a> {
                 params,
                 ret_type,
                 body,
-            } => self.check_closure_expr(expr, params, ret_type.as_ref(), body),
+            } => self.check_closure_expr(expr, params, ret_type.as_ref(), body, None),
+        }
+    }
+
+    /// Check expression with optional expected type for bidirectional inference.
+    /// This enables closure parameter type inference from call-site context.
+    fn check_expr_with_expected(&mut self, expr: &Expr, expected: Option<&Type>) -> Type {
+        match &expr.kind {
+            ExprKind::Closure {
+                params,
+                ret_type,
+                body,
+            } => self.check_closure_expr(expr, params, ret_type.as_ref(), body, expected),
+            _ => self.check_expr(expr),
         }
     }
 
     /// Check a closure expression and return its function type.
+    /// If `expected` is provided and is a function type, use it to infer parameter types.
     fn check_closure_expr(
         &mut self,
         _expr: &Expr,
         params: &[ClosureParam],
         ret_type: Option<&TypeExpr>,
         body: &Expr,
+        expected: Option<&Type>,
     ) -> Type {
+        // Extract expected parameter types if available
+        let expected_params = match expected {
+            Some(Type::Function { params, .. }) => Some(params.as_slice()),
+            _ => None,
+        };
+
+        // Extract expected return type if available
+        let expected_ret = match expected {
+            Some(Type::Function { ret, .. }) => Some(ret.as_ref()),
+            _ => None,
+        };
+
         // Resolve parameter types
         let mut param_types = Vec::new();
         let mut closure_locals = self.locals.clone();
 
-        for param in params {
+        for (i, param) in params.iter().enumerate() {
             let ty = if let Some(type_expr) = &param.ty {
-                self.tcx.resolve_type_expr(type_expr, &[])
+                // Explicit annotation provided - use it
+                let annotated = self.tcx.resolve_type_expr(type_expr, &[]);
+
+                // Validate against expected type if available
+                if let Some(expected_params) = expected_params {
+                    if let Some(expected_ty) = expected_params.get(i) {
+                        if !self.types_compatible(expected_ty, &annotated) {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "closure parameter type `{:?}` does not match expected `{:?}`",
+                                    annotated, expected_ty
+                                ),
+                                span: param.name.span.clone(),
+                            });
+                        }
+                    }
+                }
+                annotated
+            } else if let Some(expected_params) = expected_params {
+                // No annotation - infer from expected type
+                if let Some(expected_ty) = expected_params.get(i) {
+                    expected_ty.clone()
+                } else {
+                    // More params than expected - error
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "closure has more parameters than expected (expected {}, got {})",
+                            expected_params.len(),
+                            params.len()
+                        ),
+                        span: param.name.span.clone(),
+                    });
+                    Type::Primitive(PrimitiveType::Unit)
+                }
             } else {
-                // Type inference for closure parameters not yet implemented.
-                // For MVP, treat as unknown/any.
+                // No context available - require annotation
+                self.tcx.errors.push(SemanticError {
+                    message: format!(
+                        "cannot infer type for closure parameter `{}`. \
+                         Add type annotation: `|{}: Type|`",
+                        param.name.name, param.name.name
+                    ),
+                    span: param.name.span.clone(),
+                });
                 Type::Primitive(PrimitiveType::Unit)
             };
+
             param_types.push(ty.clone());
             closure_locals.insert(param.name.name.clone(), ty);
+        }
+
+        // Check arity mismatch (fewer params than expected)
+        if let Some(expected_params) = expected_params {
+            if params.len() < expected_params.len() {
+                self.tcx.errors.push(SemanticError {
+                    message: format!(
+                        "closure has fewer parameters than expected (expected {}, got {})",
+                        expected_params.len(),
+                        params.len()
+                    ),
+                    span: _expr.span.clone(),
+                });
+            }
         }
 
         // Resolve return type if specified
         let expected_ret_ty = if let Some(ret_expr) = ret_type {
             self.tcx.resolve_type_expr(ret_expr, &[])
+        } else if let Some(expected_ret) = expected_ret {
+            // Use expected return type for body checking
+            expected_ret.clone()
         } else {
             // Will be inferred from body
             Type::Primitive(PrimitiveType::Unit)

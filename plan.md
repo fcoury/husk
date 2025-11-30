@@ -137,6 +137,8 @@ The initial language version will support:
   - Optional explicit return type: `|x: i32| -> i32 { x + 1 }`
   - Block bodies for multi-statement closures: `|x| { let y = x * 2; y + 1 }`
   - Function type syntax for type annotations: `fn(i32, i32) -> i32`
+  - Bidirectional type inference for closure parameters from call-site context:
+    `apply(5, |x| x + 1)` infers `x: i32` from `apply`'s signature.
   - Closures compile to JavaScript arrow functions.
 
 #### Entry Point
