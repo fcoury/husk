@@ -136,6 +136,11 @@ pub enum JsExpr {
         constructor: String,
         args: Vec<JsExpr>,
     },
+    /// Arrow function: `(x, y) => expr` or `(x, y) => { ... }`.
+    Arrow {
+        params: Vec<String>,
+        body: Vec<JsStmt>,
+    },
 }
 
 /// Binary operators in JS (subset we need).
@@ -255,7 +260,9 @@ pub fn lower_file_to_js_with_source(
                 body: fn_body,
                 ..
             } => {
-                body.push(lower_fn_with_span(&name.name, params, fn_body, &item.span, source));
+                body.push(lower_fn_with_span(
+                    &name.name, params, fn_body, &item.span, source,
+                ));
                 fn_names.push(name.name.clone());
                 if name.name == "main" && params.is_empty() {
                     has_main_entry = true;
@@ -404,6 +411,11 @@ fn type_expr_to_js_name(ty: &TypeExpr) -> String {
     match &ty.kind {
         TypeExprKind::Named(ident) => ident.name.clone(),
         TypeExprKind::Generic { name, .. } => name.name.clone(),
+        TypeExprKind::Function { params, ret } => {
+            // Generate a TypeScript-style function type name for documentation
+            let param_names: Vec<String> = params.iter().map(type_expr_to_js_name).collect();
+            format!("(({}) => {})", param_names.join(", "), type_expr_to_js_name(ret))
+        }
     }
 }
 
@@ -773,6 +785,42 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             // Build the formatted string by concatenating literal segments and formatted args.
             lower_format_print(&format.segments, args)
         }
+        ExprKind::Closure {
+            params,
+            ret_type: _,
+            body,
+        } => {
+            // Lower closure to JS arrow function.
+            // `|x, y| x + y` -> `(x, y) => x + y`
+            // `|x: i32| -> i32 { x + 1 }` -> `(x) => { return x + 1; }`
+            let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
+
+            // Check if the body is a block or a simple expression
+            let js_body = match &body.kind {
+                ExprKind::Block(block) => {
+                    // For block bodies, lower each statement
+                    let mut stmts: Vec<JsStmt> = Vec::new();
+                    for (i, stmt) in block.stmts.iter().enumerate() {
+                        let is_last = i + 1 == block.stmts.len();
+                        if is_last {
+                            stmts.push(lower_tail_stmt(stmt));
+                        } else {
+                            stmts.push(lower_stmt(stmt));
+                        }
+                    }
+                    stmts
+                }
+                _ => {
+                    // For expression bodies, wrap in a return statement
+                    vec![JsStmt::Return(lower_expr(body))]
+                }
+            };
+
+            JsExpr::Arrow {
+                params: js_params,
+                body: js_body,
+            }
+        }
     }
 }
 
@@ -863,10 +911,18 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                 args: vec![
                     arg,
                     JsExpr::Number(base),
-                    spec.width.map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
-                    spec.precision.map_or(JsExpr::Ident("null".to_string()), |p| JsExpr::Number(p as i64)),
-                    spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
-                    spec.align.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                    spec.width
+                        .map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
+                    spec.precision
+                        .map_or(JsExpr::Ident("null".to_string()), |p| {
+                            JsExpr::Number(p as i64)
+                        }),
+                    spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
+                        JsExpr::String(c.to_string())
+                    }),
+                    spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
+                        JsExpr::String(c.to_string())
+                    }),
                     JsExpr::Bool(spec.sign),
                     JsExpr::Bool(spec.alternate),
                     JsExpr::Bool(spec.zero_pad),
@@ -884,10 +940,18 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                     args: vec![
                         arg,
                         JsExpr::Number(10), // base 10
-                        spec.width.map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
-                        spec.precision.map_or(JsExpr::Ident("null".to_string()), |p| JsExpr::Number(p as i64)),
-                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
-                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                        spec.width
+                            .map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
+                        spec.precision
+                            .map_or(JsExpr::Ident("null".to_string()), |p| {
+                                JsExpr::Number(p as i64)
+                            }),
+                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
+                            JsExpr::String(c.to_string())
+                        }),
+                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
+                            JsExpr::String(c.to_string())
+                        }),
                         JsExpr::Bool(spec.sign),
                         JsExpr::Bool(spec.alternate),
                         JsExpr::Bool(spec.zero_pad),
@@ -905,8 +969,12 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                     args: vec![
                         str_arg,
                         JsExpr::Number(spec.width.unwrap_or(0) as i64),
-                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
-                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| JsExpr::String(c.to_string())),
+                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
+                            JsExpr::String(c.to_string())
+                        }),
+                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
+                            JsExpr::String(c.to_string())
+                        }),
                     ],
                 }
             } else {
@@ -1052,7 +1120,11 @@ impl JsModule {
 
     /// Render the module to JavaScript source with a source map.
     /// Returns (js_source, source_map_json).
-    pub fn to_source_with_sourcemap(&self, source_file: &str, source_content: &str) -> (String, String) {
+    pub fn to_source_with_sourcemap(
+        &self,
+        source_file: &str,
+        source_content: &str,
+    ) -> (String, String) {
         let mut out = String::new();
         let mut builder = SourceMapBuilder::new(Some(source_file));
 
@@ -1096,7 +1168,12 @@ impl JsModule {
         for stmt in &self.body {
             if !is_import_stmt(stmt) {
                 // Add source mapping for functions
-                if let JsStmt::Function { name, source_span: Some(span), .. } = stmt {
+                if let JsStmt::Function {
+                    name,
+                    source_span: Some(span),
+                    ..
+                } = stmt
+                {
                     builder.add(
                         current_line,
                         0,
@@ -1115,7 +1192,9 @@ impl JsModule {
 
         let source_map = builder.into_sourcemap();
         let mut sm_out = Vec::new();
-        source_map.to_writer(&mut sm_out).expect("failed to write source map");
+        source_map
+            .to_writer(&mut sm_out)
+            .expect("failed to write source map");
         let sm_json = String::from_utf8(sm_out).expect("source map is utf8");
 
         (out, sm_json)
@@ -1127,18 +1206,41 @@ fn count_newlines_in_stmt(stmt: &JsStmt) -> u32 {
     match stmt {
         JsStmt::Function { body, .. } => {
             // function header + body lines + closing brace
-            1 + body.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+            1 + body
+                .iter()
+                .map(|s| count_newlines_in_stmt(s) + 1)
+                .sum::<u32>()
         }
-        JsStmt::TryCatch { try_block, catch_block, .. } => {
+        JsStmt::TryCatch {
+            try_block,
+            catch_block,
+            ..
+        } => {
             // try { + try body + } catch { + catch body + }
-            2 + try_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
-              + catch_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+            2 + try_block
+                .iter()
+                .map(|s| count_newlines_in_stmt(s) + 1)
+                .sum::<u32>()
+                + catch_block
+                    .iter()
+                    .map(|s| count_newlines_in_stmt(s) + 1)
+                    .sum::<u32>()
         }
-        JsStmt::If { then_block, else_block, .. } => {
+        JsStmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             // if { + then body + } else { + else body + }
-            let then_lines = then_block.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>();
+            let then_lines = then_block
+                .iter()
+                .map(|s| count_newlines_in_stmt(s) + 1)
+                .sum::<u32>();
             let else_lines = else_block.as_ref().map_or(0, |eb| {
-                1 + eb.iter().map(|s| count_newlines_in_stmt(s) + 1).sum::<u32>()
+                1 + eb
+                    .iter()
+                    .map(|s| count_newlines_in_stmt(s) + 1)
+                    .sum::<u32>()
             });
             1 + then_lines + else_lines
         }
@@ -1242,7 +1344,9 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             }
             out.push_str(" };");
         }
-        JsStmt::Function { name, params, body, .. } => {
+        JsStmt::Function {
+            name, params, body, ..
+        } => {
             indent(indent_level, out);
             out.push_str("function ");
             out.push_str(name);
@@ -1451,6 +1555,33 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             }
             out.push(')');
         }
+        JsExpr::Arrow { params, body } => {
+            // Generate arrow function: `(x, y) => { ... }` or `(x) => expr`
+            out.push('(');
+            for (i, p) in params.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(p);
+            }
+            out.push_str(") => ");
+
+            // If body is a single return statement, emit concise form
+            if body.len() == 1 {
+                if let JsStmt::Return(expr) = &body[0] {
+                    write_expr(expr, out);
+                    return;
+                }
+            }
+
+            // Otherwise emit block form
+            out.push_str("{\n");
+            for s in body {
+                write_stmt(s, 1, out);
+                out.push('\n');
+            }
+            out.push('}');
+        }
     }
 }
 
@@ -1621,6 +1752,19 @@ fn write_type_expr(ty: &TypeExpr, out: &mut String) {
                 write_type_expr(arg, out);
             }
             out.push('>');
+        }
+        TypeExprKind::Function { params, ret } => {
+            // Generate TypeScript function type: `(x: T, y: U) => R`
+            out.push('(');
+            for (i, param) in params.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&format!("arg{}: ", i));
+                write_type_expr(param, out);
+            }
+            out.push_str(") => ");
+            write_type_expr(ret, out);
         }
     }
 }

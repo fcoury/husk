@@ -3,11 +3,11 @@
 //! This is a hand-written recursive-descent parser for the MVP syntax.
 
 use husk_ast::{
-    BinaryOp, Block, EnumVariant, EnumVariantFields, Expr, ExprKind, File, FormatPlaceholder,
-    FormatSegment, FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod,
-    Item, ItemKind, Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver,
-    Span, Stmt, StmtKind, StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr,
-    TypeExprKind, TypeParam,
+    BinaryOp, Block, ClosureParam, EnumVariant, EnumVariantFields, Expr, ExprKind, File,
+    FormatPlaceholder, FormatSegment, FormatSpec, FormatString, Ident, ImplBlock, ImplItem,
+    ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind, MatchArm, Param, Pattern,
+    PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField, TraitDef, TraitItem,
+    TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -462,14 +462,14 @@ impl Parser {
                             self.synchronize_item();
                             continue;
                         }
-                        let fn_name =
-                            match self.parse_ident("expected function name in mod block") {
-                                Some(id) => id,
-                                None => {
-                                    self.synchronize_item();
-                                    continue;
-                                }
-                            };
+                        let fn_name = match self.parse_ident("expected function name in mod block")
+                        {
+                            Some(id) => id,
+                            None => {
+                                self.synchronize_item();
+                                continue;
+                            }
+                        };
 
                         if !self.matches_token(&TokenKind::LParen) {
                             self.error_here("expected `(` after function name");
@@ -944,6 +944,49 @@ impl Parser {
     fn parse_type_expr(&mut self) -> Option<TypeExpr> {
         let tok = self.current().clone();
         match tok.kind {
+            // Function type: `fn(T, U) -> V`
+            TokenKind::Keyword(Keyword::Fn) => {
+                let start = tok.span.range.start;
+                self.advance(); // consume `fn`
+
+                if !self.matches_token(&TokenKind::LParen) {
+                    self.error_here("expected `(` after `fn` in function type");
+                    return None;
+                }
+
+                // Parse parameter types
+                let mut params = Vec::new();
+                if !self.matches_token(&TokenKind::RParen) {
+                    loop {
+                        let param_ty = self.parse_type_expr()?;
+                        params.push(param_ty);
+                        if self.matches_token(&TokenKind::RParen) {
+                            break;
+                        }
+                        if !self.matches_token(&TokenKind::Comma) {
+                            self.error_here("expected `,` or `)` in function type parameters");
+                            break;
+                        }
+                    }
+                }
+
+                // Return type is required: `-> Type`
+                if !self.matches_token(&TokenKind::Arrow) {
+                    self.error_here("expected `->` after function type parameters");
+                    return None;
+                }
+
+                let ret = self.parse_type_expr()?;
+                let end = ret.span.range.end;
+
+                Some(TypeExpr {
+                    kind: TypeExprKind::Function {
+                        params,
+                        ret: Box::new(ret),
+                    },
+                    span: Span { range: start..end },
+                })
+            }
             TokenKind::Ident(ref name) => {
                 self.advance();
                 let ident = Ident {
@@ -1767,7 +1810,8 @@ impl Parser {
                     spec.zero_pad = true;
                     chars.next();
                 }
-                Some(&'.') | Some(&'?') | Some(&'x') | Some(&'X') | Some(&'b') | Some(&'o') | None => {
+                Some(&'.') | Some(&'?') | Some(&'x') | Some(&'X') | Some(&'b') | Some(&'o')
+                | None => {
                     // Just a width of 0, or followed by precision/type
                     // Don't consume, let width parsing handle it
                 }
@@ -1921,9 +1965,99 @@ impl Parser {
             span: self.ast_span_from(&tok.span),
         })
     }
+    /// Parse a closure expression: `|x, y| expr` or `|x: i32| -> i32 { expr }` or `|| expr`
+    fn parse_closure_expr(&mut self) -> Option<Expr> {
+        let start_tok = self.current().clone();
+        let start = start_tok.span.range.start;
+
+        // Handle `||` (empty param list) or `|` (start of param list)
+        let params = if self.matches_token(&TokenKind::OrOr) {
+            // `|| expr` - no parameters
+            Vec::new()
+        } else if self.matches_token(&TokenKind::Pipe) {
+            // `|x, y| expr` - parse parameter list
+            let params = self.parse_closure_param_list();
+            if !self.matches_token(&TokenKind::Pipe) {
+                self.error_here("expected `|` after closure parameters");
+                return None;
+            }
+            params
+        } else {
+            self.error_here("expected `|` or `||` to start closure");
+            return None;
+        };
+
+        // Optional return type: `-> Type`
+        let ret_type = if self.matches_token(&TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        // Body: either a block `{ ... }` or a single expression
+        let body = if matches!(self.current().kind, TokenKind::LBrace) {
+            let block = self.parse_block()?;
+            Expr {
+                kind: ExprKind::Block(block.clone()),
+                span: block.span.clone(),
+            }
+        } else {
+            self.parse_expr()?
+        };
+
+        let end = body.span.range.end;
+
+        Some(Expr {
+            kind: ExprKind::Closure {
+                params,
+                ret_type,
+                body: Box::new(body),
+            },
+            span: Span { range: start..end },
+        })
+    }
+
+    /// Parse closure parameter list: `x, y: i32, z`
+    fn parse_closure_param_list(&mut self) -> Vec<ClosureParam> {
+        let mut params = Vec::new();
+
+        // Handle empty param list (just `||`)
+        if matches!(self.current().kind, TokenKind::Pipe) {
+            return params;
+        }
+
+        loop {
+            let name = match self.parse_ident("expected parameter name in closure") {
+                Some(id) => id,
+                None => break,
+            };
+
+            // Optional type annotation: `: Type`
+            let ty = if self.matches_token(&TokenKind::Colon) {
+                self.parse_type_expr()
+            } else {
+                None
+            };
+
+            params.push(ClosureParam { name, ty });
+
+            // Check for closing pipe or comma
+            if matches!(self.current().kind, TokenKind::Pipe) {
+                break;
+            }
+            if !self.matches_token(&TokenKind::Comma) {
+                break;
+            }
+        }
+
+        params
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
         let tok = self.current().clone();
         match tok.kind {
+            // Closure expressions: `|x, y| expr` or `|| expr`
+            TokenKind::Pipe | TokenKind::OrOr => self.parse_closure_expr(),
             TokenKind::IntLiteral(ref s) => {
                 self.advance();
                 let value = s.parse::<i64>().unwrap_or(0);
@@ -2153,7 +2287,12 @@ mod tests {
         assert_eq!(file.items.len(), 1);
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
             assert_eq!(items.len(), 1);
-            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod {
+                package,
+                binding,
+                items,
+            } = &items[0].kind
+            {
                 assert_eq!(package, "express");
                 assert_eq!(binding.name, "express");
                 assert!(items.is_empty());
@@ -2172,7 +2311,12 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
-            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod {
+                package,
+                binding,
+                items,
+            } = &items[0].kind
+            {
                 assert_eq!(package, "lodash-es");
                 assert_eq!(binding.name, "lodash_es");
                 assert!(items.is_empty());
@@ -2191,7 +2335,12 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
-            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod {
+                package,
+                binding,
+                items,
+            } = &items[0].kind
+            {
                 assert_eq!(package, "@myorg/my-lib");
                 assert_eq!(binding.name, "mylib");
                 assert!(items.is_empty());
@@ -2215,11 +2364,21 @@ mod tests {
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
             assert_eq!(items.len(), 1);
-            if let husk_ast::ExternItemKind::Mod { package, binding, items } = &items[0].kind {
+            if let husk_ast::ExternItemKind::Mod {
+                package,
+                binding,
+                items,
+            } = &items[0].kind
+            {
                 assert_eq!(package, "nanoid");
                 assert_eq!(binding.name, "nanoid");
                 assert_eq!(items.len(), 1);
-                if let husk_ast::ModItemKind::Fn { name, params, ret_type } = &items[0].kind {
+                if let husk_ast::ModItemKind::Fn {
+                    name,
+                    params,
+                    ret_type,
+                } = &items[0].kind
+                {
                     assert_eq!(name.name, "nanoid");
                     assert!(params.is_empty());
                     assert!(ret_type.is_some());

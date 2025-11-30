@@ -110,6 +110,12 @@ pub enum ExprKind {
         /// Arguments to substitute into placeholders
         args: Vec<Expr>,
     },
+    /// Closure expression: `|x, y| x + y` or `|x: i32| -> i32 { x + 1 }`
+    Closure {
+        params: Vec<ClosureParam>,
+        ret_type: Option<TypeExpr>,
+        body: Box<Expr>,
+    },
 }
 
 // ============================================================================
@@ -273,6 +279,8 @@ pub struct Stmt {
 pub enum TypeExprKind {
     Named(Ident),
     Generic { name: Ident, args: Vec<TypeExpr> },
+    /// Function type: `fn(T, U) -> V` or `fn() -> T`
+    Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,6 +294,13 @@ pub struct TypeExpr {
 pub struct Param {
     pub name: Ident,
     pub ty: TypeExpr,
+}
+
+/// Closure parameter (type annotation is optional for inference).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClosureParam {
+    pub name: Ident,
+    pub ty: Option<TypeExpr>,
 }
 
 /// Item-level definitions.
