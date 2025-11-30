@@ -108,6 +108,7 @@ pub enum TokenKind {
     AndAnd,   // &&
     Amp,      // & (single ampersand for references/self receivers)
     OrOr,     // ||
+    Pipe,     // | (single pipe for closures)
     Plus,
     Minus,
     Star,
@@ -484,9 +485,9 @@ impl<'src> Iterator for Lexer<'src> {
                         span: Span::new(start, idx2 + 1),
                     }
                 } else {
-                    // Single '|' is currently unsupported; treat as EOF token to signal an error.
+                    // Single '|' for closure parameter delimiters
                     Token {
-                        kind: TokenKind::Eof,
+                        kind: TokenKind::Pipe,
                         span: Span::new(start, start + 1),
                     }
                 }

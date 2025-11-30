@@ -35,6 +35,14 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [x] Function calls and returns.
   - [x] `match` exhaustiveness on enums.
 - [x] Extend CLI with `check` mode that runs full semantic analysis.
+- [x] Implement closures and function types:
+  - [x] Add `Pipe` token to lexer for closure syntax.
+  - [x] Add `ClosureParam` and `ExprKind::Closure` to AST.
+  - [x] Add `TypeExprKind::Function` for `fn(T) -> U` syntax.
+  - [x] Implement closure parsing (`|x, y| expr` and `|| expr`).
+  - [x] Add closure type checking in semantic analysis.
+  - [x] Add `JsExpr::Arrow` and closure codegen (closures → arrow functions).
+  - [ ] Implement type inference for closure parameters from call-site context.
 
 ---
 
@@ -151,7 +159,10 @@ Use `[ ]` for pending items and `[x]` for completed items.
 - [ ] Extend type system:
   - [ ] Richer generics support (constraints, trait bounds, etc.).
   - [ ] Trait-like abstractions or interfaces.
-  - [ ] More advanced inference (where beneficial).
+  - [ ] More advanced inference (where beneficial):
+    - [ ] Closure parameter type inference from expected function type context.
+    - [ ] Bidirectional type inference for higher-order functions.
+    - [ ] Local variable type inference from usage patterns.
 - [ ] Performance and optimization:
   - [ ] If an IR is introduced, IR-level optimizations (DCE, constant folding, inlining).
   - [ ] Output-level improvements for JS engines (e.g., predictable object shapes).

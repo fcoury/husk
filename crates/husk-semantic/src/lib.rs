@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use husk_ast::{
-    Block, Expr, ExprKind, File, FormatSegment, Ident, Item, ItemKind, LiteralKind, MatchArm,
-    Param, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
+    Block, ClosureParam, Expr, ExprKind, File, FormatSegment, Ident, Item, ItemKind, LiteralKind,
+    MatchArm, Param, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
@@ -228,6 +228,7 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
     match &ty.kind {
         TypeExprKind::Named(ident) => ident.name.clone(),
         TypeExprKind::Generic { name, .. } => name.name.clone(),
+        TypeExprKind::Function { .. } => "<fn>".to_string(),
     }
 }
 
@@ -311,7 +312,12 @@ impl TypeChecker {
                                 } else {
                                     // Mod block with functions - register each function.
                                     for mod_item in items {
-                                        if let husk_ast::ModItemKind::Fn { name, params, ret_type } = &mod_item.kind {
+                                        if let husk_ast::ModItemKind::Fn {
+                                            name,
+                                            params,
+                                            ret_type,
+                                        } = &mod_item.kind
+                                        {
                                             let def = FnDef {
                                                 params: params.clone(),
                                                 ret_type: ret_type.clone(),
@@ -448,6 +454,17 @@ impl TypeChecker {
                     .map(|a| self.resolve_type_expr(a, generic_params))
                     .collect();
                 self.resolve_named_type(&name.name, &resolved_args, ty.span.clone(), generic_params)
+            }
+            TypeExprKind::Function { params, ret } => {
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|p| self.resolve_type_expr(p, generic_params))
+                    .collect();
+                let ret_type = self.resolve_type_expr(ret, generic_params);
+                Type::Function {
+                    params: param_types,
+                    ret: Box::new(ret_type),
+                }
             }
         }
     }
@@ -1013,8 +1030,9 @@ impl<'a> FnContext<'a> {
                             Type::Primitive(PrimitiveType::I32)
                         } else {
                             self.tcx.errors.push(SemanticError {
-                                message: "`+` requires operands of the same type (`i32` or `String`)"
-                                    .to_string(),
+                                message:
+                                    "`+` requires operands of the same type (`i32` or `String`)"
+                                        .to_string(),
                                 span: expr.span.clone(),
                             });
                             Type::Primitive(PrimitiveType::I32)
@@ -1084,7 +1102,9 @@ impl<'a> FnContext<'a> {
 
                 // Check for mixing positional and implicit indexing
                 let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
-                let has_implicit_position = placeholders.iter().any(|ph| ph.position.is_none() && ph.name.is_none());
+                let has_implicit_position = placeholders
+                    .iter()
+                    .any(|ph| ph.position.is_none() && ph.name.is_none());
 
                 if has_explicit_position && has_implicit_position {
                     self.tcx.errors.push(SemanticError {
@@ -1166,6 +1186,67 @@ impl<'a> FnContext<'a> {
                 // println returns unit
                 Type::Primitive(PrimitiveType::Unit)
             }
+            ExprKind::Closure {
+                params,
+                ret_type,
+                body,
+            } => self.check_closure_expr(expr, params, ret_type.as_ref(), body),
+        }
+    }
+
+    /// Check a closure expression and return its function type.
+    fn check_closure_expr(
+        &mut self,
+        _expr: &Expr,
+        params: &[ClosureParam],
+        ret_type: Option<&TypeExpr>,
+        body: &Expr,
+    ) -> Type {
+        // Resolve parameter types
+        let mut param_types = Vec::new();
+        let mut closure_locals = self.locals.clone();
+
+        for param in params {
+            let ty = if let Some(type_expr) = &param.ty {
+                self.tcx.resolve_type_expr(type_expr, &[])
+            } else {
+                // Type inference for closure parameters not yet implemented.
+                // For MVP, treat as unknown/any.
+                Type::Primitive(PrimitiveType::Unit)
+            };
+            param_types.push(ty.clone());
+            closure_locals.insert(param.name.name.clone(), ty);
+        }
+
+        // Resolve return type if specified
+        let expected_ret_ty = if let Some(ret_expr) = ret_type {
+            self.tcx.resolve_type_expr(ret_expr, &[])
+        } else {
+            // Will be inferred from body
+            Type::Primitive(PrimitiveType::Unit)
+        };
+
+        // Create a nested context for the closure body
+        let old_locals = std::mem::replace(&mut self.locals, closure_locals);
+        let old_ret_ty = std::mem::replace(&mut self.ret_ty, expected_ret_ty.clone());
+
+        // Check the body and infer return type
+        let body_ty = self.check_expr(body);
+
+        // Restore the outer context
+        self.locals = old_locals;
+        self.ret_ty = old_ret_ty;
+
+        // Use explicit return type if specified, otherwise infer from body
+        let actual_ret_ty = if ret_type.is_some() {
+            expected_ret_ty
+        } else {
+            body_ty
+        };
+
+        Type::Function {
+            params: param_types,
+            ret: Box::new(actual_ret_ty),
         }
     }
 

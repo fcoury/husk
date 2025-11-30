@@ -1,0 +1,30 @@
+// Closures in Husk - demonstration of first-class functions
+// Note: typed closure params required until type inference is implemented
+
+// Simple closure with no parameters
+fn test_empty_closure() -> i32 {
+    let get_answer = || 42;
+    get_answer()
+}
+
+// Closure with typed parameters
+fn test_typed_closure() -> i32 {
+    let add = |x: i32, y: i32| x + y;
+    add(20, 22)
+}
+
+// Closure with explicit return type and block body
+fn test_block_body_closure() -> i32 {
+    let compute = |x: i32| -> i32 {
+        let doubled = x * 2;
+        doubled + 10
+    };
+    compute(5)
+}
+
+// Entry point - closures execute and return expected values
+fn main() {
+    test_empty_closure();
+    test_typed_closure();
+    test_block_body_closure();
+}
