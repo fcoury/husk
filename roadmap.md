@@ -125,11 +125,11 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [ ] `huskc new` (project template).
   - [ ] `huskc test` (test harness, if added).
 - [ ] Implement or integrate a source formatter for the language.
-- [ ] Implement an LSP server (basic version):
-  - [ ] Real-time diagnostics.
-  - [ ] Go-to-definition.
-  - [ ] Hover type information.
-- [ ] Add editor configuration and example setups (VS Code, etc.).
+- [x] Implement an LSP server (basic version):
+  - [x] Real-time diagnostics.
+  - [x] Go-to-definition.
+  - [x] Hover type information.
+- [x] Add editor configuration and example setups (VS Code, etc.).
 
 ### 6.2 Node/Bun Host Integration
 

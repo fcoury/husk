@@ -1,0 +1,132 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Husk",
+  "scopeName": "source.husk",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#variables" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.husk",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.husk",
+          "match": "\\b(if|else|while|match|return|break|continue|for)\\b"
+        },
+        {
+          "name": "keyword.other.husk",
+          "match": "\\b(as|pub|use|mod|extern)\\b"
+        },
+        {
+          "name": "storage.type.husk",
+          "match": "\\b(fn|let|mut|struct|enum|type|trait|impl)\\b"
+        },
+        {
+          "name": "constant.language.boolean.husk",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "variable.language.self.husk",
+          "match": "\\b(self|Self)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.husk",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.husk",
+              "match": "\\\\."
+            },
+            {
+              "name": "constant.other.placeholder.husk",
+              "match": "\\{[^}]*\\}"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.husk",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.husk",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.husk",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.husk",
+          "match": "(\\+|-|\\*|/)"
+        },
+        {
+          "name": "keyword.operator.assignment.husk",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arrow.husk",
+          "match": "(->|=>)"
+        },
+        {
+          "name": "keyword.operator.namespace.husk",
+          "match": "::"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.husk",
+          "match": "\\b(i32|i64|u32|u64|bool|String|str)\\b"
+        },
+        {
+          "name": "entity.name.type.husk",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.husk",
+          "match": "\\b([a-z_][a-zA-Z0-9_]*)\\s*(?=\\()"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.husk",
+          "match": "\\b[a-z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}
