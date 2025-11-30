@@ -83,6 +83,7 @@ pub enum Keyword {
 pub enum TokenKind {
     Ident(String),
     IntLiteral(String),
+    FloatLiteral(String),
     StringLiteral(String),
     Keyword(Keyword),
     // Punctuation
@@ -255,15 +256,41 @@ impl<'src> Lexer<'src> {
 
     fn lex_number(&mut self, start: usize, first_ch: char) -> Token {
         let (span, _text) = self.consume_while(start, |c| c.is_ascii_digit());
-        let full_span = if span.range.start == span.range.end {
+        let mut end = if span.range.start == span.range.end {
             // only first_ch
-            Span::new(start, start + first_ch.len_utf8())
+            start + first_ch.len_utf8()
         } else {
-            span
+            span.range.end
         };
+
+        // Check for decimal point followed by digits (float literal)
+        let mut is_float = false;
+        if let Some((dot_idx, '.')) = self.peek() {
+            // Look ahead to see if there's a digit after the dot
+            // We need to check if the next character after '.' is a digit
+            let after_dot = self.src.get(dot_idx + 1..dot_idx + 2);
+            if let Some(ch_str) = after_dot {
+                if let Some(ch) = ch_str.chars().next() {
+                    if ch.is_ascii_digit() {
+                        // Consume the dot
+                        self.bump();
+                        // Consume the fractional digits
+                        let (frac_span, _) = self.consume_while(dot_idx + 1, |c| c.is_ascii_digit());
+                        end = frac_span.range.end;
+                        is_float = true;
+                    }
+                }
+            }
+        }
+
+        let full_span = Span::new(start, end);
         let lexeme = &self.src[full_span.range.clone()];
         Token {
-            kind: TokenKind::IntLiteral(lexeme.to_string()),
+            kind: if is_float {
+                TokenKind::FloatLiteral(lexeme.to_string())
+            } else {
+                TokenKind::IntLiteral(lexeme.to_string())
+            },
             span: full_span,
         }
     }

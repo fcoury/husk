@@ -525,9 +525,55 @@ impl Parser {
                 continue;
             }
 
+            // Check for `struct` declaration (extern struct)
+            if self.matches_keyword(Keyword::Struct) {
+                let struct_start = self.previous().span.range.start;
+                let name = match self.parse_ident("expected struct name after `struct`") {
+                    Some(id) => id,
+                    None => {
+                        self.synchronize_item();
+                        continue;
+                    }
+                };
+
+                // Parse optional type parameters: struct JsArray<T>;
+                let type_params = if self.matches_token(&TokenKind::Lt) {
+                    let mut params = Vec::new();
+                    loop {
+                        if let Some(param) = self.parse_ident("expected type parameter") {
+                            params.push(param);
+                        }
+                        if !self.matches_token(&TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    if !self.matches_token(&TokenKind::Gt) {
+                        self.error_here("expected `>` after type parameters");
+                    }
+                    params
+                } else {
+                    Vec::new()
+                };
+
+                if !self.matches_token(&TokenKind::Semicolon) {
+                    self.error_here("expected `;` after extern struct declaration");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                let span = Span {
+                    range: struct_start..self.previous().span.range.end,
+                };
+                items.push(husk_ast::ExternItem {
+                    kind: husk_ast::ExternItemKind::Struct { name, type_params },
+                    span,
+                });
+                continue;
+            }
+
             // Check for `fn` declaration
             if !self.matches_keyword(Keyword::Fn) {
-                self.error_here("expected `fn` or `mod` inside extern block");
+                self.error_here("expected `fn`, `mod`, or `struct` inside extern block");
                 self.synchronize_item();
                 continue;
             }
@@ -724,7 +770,24 @@ impl Parser {
     }
 
     /// Parse a method inside an impl block: `fn method(&self) -> RetType { ... }`
+    /// Also handles `extern "js" fn method(&self) -> RetType;` declarations
     fn parse_impl_method(&mut self) -> Option<ImplItem> {
+        // Check for extern "js" fn (extern method declaration)
+        let is_extern = if self.matches_keyword(Keyword::Extern) {
+            // Expect "js" string literal
+            if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                if s != "js" {
+                    self.error_here("only \"js\" ABI is supported for extern methods");
+                }
+                self.advance();
+            } else {
+                self.error_here("expected string literal ABI after `extern`");
+            }
+            true
+        } else {
+            false
+        };
+
         if !self.matches_keyword(Keyword::Fn) {
             self.error_here("expected `fn` inside impl");
             return None;
@@ -747,22 +810,44 @@ impl Parser {
             None
         };
 
-        // Method body is required in impl
-        let body_block = self.parse_block()?;
-
-        let end = body_block.span.range.end;
-        Some(ImplItem {
-            kind: ImplItemKind::Method(ImplMethod {
-                name,
-                receiver,
-                params,
-                ret_type,
-                body: body_block.stmts,
-            }),
-            span: Span {
-                range: fn_start..end,
-            },
-        })
+        if is_extern {
+            // Extern methods end with semicolon, no body
+            if !self.matches_token(&TokenKind::Semicolon) {
+                self.error_here("expected `;` after extern method declaration");
+                return None;
+            }
+            let end = self.previous().span.range.end;
+            Some(ImplItem {
+                kind: ImplItemKind::Method(ImplMethod {
+                    name,
+                    receiver,
+                    params,
+                    ret_type,
+                    body: Vec::new(), // Extern methods have no body
+                    is_extern: true,
+                }),
+                span: Span {
+                    range: fn_start..end,
+                },
+            })
+        } else {
+            // Regular method - body is required
+            let body_block = self.parse_block()?;
+            let end = body_block.span.range.end;
+            Some(ImplItem {
+                kind: ImplItemKind::Method(ImplMethod {
+                    name,
+                    receiver,
+                    params,
+                    ret_type,
+                    body: body_block.stmts,
+                    is_extern: false,
+                }),
+                span: Span {
+                    range: fn_start..end,
+                },
+            })
+        }
     }
 
     /// Parse method parameter list, handling `self`, `&self`, `&mut self` as first param
@@ -984,6 +1069,24 @@ impl Parser {
                         params,
                         ret: Box::new(ret),
                     },
+                    span: Span { range: start..end },
+                })
+            }
+            // Unit type: `()`
+            TokenKind::LParen => {
+                let start = tok.span.range.start;
+                self.advance(); // consume `(`
+                if !self.matches_token(&TokenKind::RParen) {
+                    self.error_here("expected `)` for unit type `()`");
+                    return None;
+                }
+                let end = self.previous().span.range.end;
+                // Unit type is represented as a named type "()"
+                Some(TypeExpr {
+                    kind: TypeExprKind::Named(Ident {
+                        name: "()".to_string(),
+                        span: Span { range: start..end },
+                    }),
                     span: Span { range: start..end },
                 })
             }
@@ -2064,6 +2167,17 @@ impl Parser {
                 Some(Expr {
                     kind: ExprKind::Literal(Literal {
                         kind: LiteralKind::Int(value),
+                        span: self.ast_span_from(&tok.span),
+                    }),
+                    span: self.ast_span_from(&tok.span),
+                })
+            }
+            TokenKind::FloatLiteral(ref s) => {
+                self.advance();
+                let value = s.parse::<f64>().unwrap_or(0.0);
+                Some(Expr {
+                    kind: ExprKind::Literal(Literal {
+                        kind: LiteralKind::Float(value),
                         span: self.ast_span_from(&tok.span),
                     }),
                     span: self.ast_span_from(&tok.span),

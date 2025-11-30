@@ -22,11 +22,9 @@ impl SourceDb {
 
     /// Report a parse error with source context.
     pub fn report_parse_error(&self, message: &str, span: Range<usize>) {
-        let diagnostic = Diagnostic::error()
-            .with_message(message)
-            .with_labels(vec![
-                Label::primary(self.file_id, span).with_message("error occurs here")
-            ]);
+        let diagnostic = Diagnostic::error().with_message(message).with_labels(vec![
+            Label::primary(self.file_id, span).with_message("error occurs here"),
+        ]);
 
         self.emit_diagnostic(&diagnostic);
     }

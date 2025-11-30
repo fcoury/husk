@@ -332,6 +332,14 @@ impl TypeChecker {
                                     }
                                 }
                             }
+                            husk_ast::ExternItemKind::Struct { name, type_params } => {
+                                // Register extern struct as a type
+                                let def = StructDef {
+                                    type_params: type_params.iter().map(|p| p.name.clone()).collect(),
+                                    fields: HashMap::new(), // Extern structs are opaque
+                                };
+                                self.env.structs.insert(name.name.clone(), def);
+                            }
                         }
                     }
                 }
@@ -500,6 +508,7 @@ impl TypeChecker {
         // Primitive types.
         let prim = match name {
             "i32" => Some(Type::Primitive(PrimitiveType::I32)),
+            "f64" => Some(Type::Primitive(PrimitiveType::F64)),
             "bool" => Some(Type::Primitive(PrimitiveType::Bool)),
             "String" => Some(Type::Primitive(PrimitiveType::String)),
             "()" => Some(Type::Primitive(PrimitiveType::Unit)),
@@ -860,6 +869,7 @@ impl<'a> FnContext<'a> {
         match &expr.kind {
             ExprKind::Literal(lit) => match lit.kind {
                 LiteralKind::Int(_) => Type::Primitive(PrimitiveType::I32),
+                LiteralKind::Float(_) => Type::Primitive(PrimitiveType::F64),
                 LiteralKind::Bool(_) => Type::Primitive(PrimitiveType::Bool),
                 LiteralKind::String(_) => Type::Primitive(PrimitiveType::String),
             },
@@ -1566,6 +1576,9 @@ impl Resolver {
                                     }
                                 }
                             }
+                        }
+                        husk_ast::ExternItemKind::Struct { name, .. } => {
+                            self.add_symbol(name, SymbolKind::Struct);
                         }
                     }
                 }
