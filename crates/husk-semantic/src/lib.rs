@@ -154,6 +154,7 @@ struct EnumDef {
 /// Information about a function type.
 #[derive(Debug, Clone)]
 struct FnDef {
+    type_params: Vec<String>,
     params: Vec<Param>,
     ret_type: Option<TypeExpr>,
 }
@@ -278,11 +279,13 @@ impl TypeChecker {
                 }
                 ItemKind::Fn {
                     name,
+                    type_params,
                     params,
                     ret_type,
                     ..
                 } => {
                     let def = FnDef {
+                        type_params: type_params.iter().map(|id| id.name.clone()).collect(),
                         params: params.clone(),
                         ret_type: ret_type.clone(),
                     };
@@ -297,6 +300,7 @@ impl TypeChecker {
                                 ret_type,
                             } => {
                                 let def = FnDef {
+                                    type_params: Vec::new(), // Extern functions don't have generics
                                     params: params.clone(),
                                     ret_type: ret_type.clone(),
                                 };
@@ -319,6 +323,7 @@ impl TypeChecker {
                                         } = &mod_item.kind
                                         {
                                             let def = FnDef {
+                                                type_params: Vec::new(), // Mod functions don't have generics
                                                 params: params.clone(),
                                                 ret_type: ret_type.clone(),
                                             };
@@ -387,13 +392,14 @@ impl TypeChecker {
         for item in &file.items {
             if let ItemKind::Fn {
                 name,
+                type_params,
                 params,
                 ret_type,
                 body,
                 ..
             } = &item.kind
             {
-                self.check_fn(name, params, ret_type.as_ref(), body, item.span.clone());
+                self.check_fn(name, type_params, params, ret_type.as_ref(), body, item.span.clone());
             }
         }
         self.errors.clone()
@@ -402,13 +408,20 @@ impl TypeChecker {
     fn check_fn(
         &mut self,
         name: &Ident,
+        type_params: &[Ident],
         params: &[Param],
         ret_type_expr: Option<&TypeExpr>,
         body: &[Stmt],
         span: Span,
     ) {
+        // Convert type_params to Vec<String> for resolve_type_expr
+        let generic_params: Vec<String> = type_params
+            .iter()
+            .map(|id| id.name.clone())
+            .collect();
+
         let ret_ty = if let Some(ty_expr) = ret_type_expr {
-            self.resolve_type_expr(ty_expr, &[])
+            self.resolve_type_expr(ty_expr, &generic_params)
         } else {
             Type::Primitive(PrimitiveType::Unit)
         };
@@ -417,7 +430,7 @@ impl TypeChecker {
 
         // Parameters must have explicit types.
         for param in params {
-            let ty = self.resolve_type_expr(&param.ty, &[]);
+            let ty = self.resolve_type_expr(&param.ty, &generic_params);
             if locals.insert(param.name.name.clone(), ty).is_some() {
                 self.errors.push(SemanticError {
                     message: format!(
@@ -857,13 +870,14 @@ impl<'a> FnContext<'a> {
                 }
                 // Try top-level function.
                 if let Some(fn_def) = self.tcx.env.functions.get(&id.name).cloned() {
+                    // Pass the function's type params so generic types like T are recognized
                     let param_types: Vec<Type> = fn_def
                         .params
                         .iter()
-                        .map(|p| self.tcx.resolve_type_expr(&p.ty, &[]))
+                        .map(|p| self.tcx.resolve_type_expr(&p.ty, &fn_def.type_params))
                         .collect();
                     let ret_ty = if let Some(ret_expr) = fn_def.ret_type.as_ref() {
-                        self.tcx.resolve_type_expr(ret_expr, &[])
+                        self.tcx.resolve_type_expr(ret_expr, &fn_def.type_params)
                     } else {
                         Type::Primitive(PrimitiveType::Unit)
                     };
@@ -900,6 +914,17 @@ impl<'a> FnContext<'a> {
                     _ => false,
                 };
 
+                // Get the function name for looking up generic type parameters
+                let fn_name = match &callee.kind {
+                    ExprKind::Ident(id) => Some(id.name.clone()),
+                    _ => None,
+                };
+
+                // Get the function definition for generic type inference
+                let fn_def = fn_name.as_ref().and_then(|name| {
+                    self.tcx.env.functions.get(name).cloned()
+                });
+
                 let callee_ty = self.check_expr(callee);
                 let (param_tys, ret_ty) = match callee_ty {
                     Type::Function { params, ret } => (params, *ret),
@@ -924,6 +949,12 @@ impl<'a> FnContext<'a> {
                     });
                 }
 
+                // Collect type substitutions for generic functions
+                let mut substitutions = std::collections::HashMap::new();
+                let type_params = fn_def.as_ref()
+                    .map(|d| d.type_params.as_slice())
+                    .unwrap_or(&[]);
+
                 // Type-check arguments with expected types for closure inference
                 // (skip for module calls since we don't know the signature)
                 if !is_module_call {
@@ -931,8 +962,23 @@ impl<'a> FnContext<'a> {
                         let expected = param_tys.get(i);
                         // Use check_expr_with_expected to enable closure parameter inference
                         let arg_ty = self.check_expr_with_expected(arg, expected);
+
+                        // Collect substitutions for generic type parameters
+                        if let Some(param_ty) = expected {
+                            self.unify_types(param_ty, &arg_ty, type_params, &mut substitutions);
+                        }
+
+                        // For generic functions, we skip strict type checking since types
+                        // like T should match any concrete type
                         if let Some(expected) = expected {
-                            if !self.types_compatible(expected, &arg_ty) {
+                            // Only check compatibility for non-generic parameter types
+                            let is_generic_param = match expected {
+                                Type::Named { name, args } if args.is_empty() => {
+                                    type_params.contains(name)
+                                }
+                                _ => false,
+                            };
+                            if !is_generic_param && !self.types_compatible(expected, &arg_ty) {
                                 self.tcx.errors.push(SemanticError {
                                     message: format!(
                                         "mismatched argument type at position {}: expected `{:?}`, found `{:?}`",
@@ -950,7 +996,12 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
-                ret_ty
+                // Apply substitutions to the return type for generic functions
+                if !type_params.is_empty() {
+                    self.apply_substitutions(&ret_ty, &substitutions)
+                } else {
+                    ret_ty
+                }
             }
             ExprKind::Field { base, member } => {
                 let base_ty = self.check_expr(base);
@@ -1343,7 +1394,129 @@ impl<'a> FnContext<'a> {
     }
 
     fn types_compatible(&self, expected: &Type, actual: &Type) -> bool {
+        self.types_compatible_inner(expected, actual)
+    }
+
+    fn types_compatible_inner(&self, expected: &Type, actual: &Type) -> bool {
+        // Generic type parameters (like T, U) are compatible with any type
+        // This enables type inference to work with explicit closure annotations
+        if let Type::Named { name, args } = expected {
+            if args.is_empty() {
+                // Check if this is a generic type parameter (single uppercase letter
+                // or a name that's not a known type)
+                let is_generic = name.len() == 1 && name.chars().next().unwrap().is_uppercase()
+                    || (!self.tcx.env.structs.contains_key(name)
+                        && !self.tcx.env.enums.contains_key(name)
+                        && !matches!(name.as_str(), "i32" | "bool" | "String" | "Unit"));
+                if is_generic {
+                    return true;
+                }
+            }
+        }
+
+        // Handle function types: compare structurally with generic-aware compatibility
+        if let (
+            Type::Function { params: expected_params, ret: expected_ret },
+            Type::Function { params: actual_params, ret: actual_ret }
+        ) = (expected, actual) {
+            if expected_params.len() != actual_params.len() {
+                return false;
+            }
+            // Check each parameter is compatible
+            for (exp, act) in expected_params.iter().zip(actual_params.iter()) {
+                if !self.types_compatible_inner(exp, act) {
+                    return false;
+                }
+            }
+            // Check return type is compatible
+            return self.types_compatible_inner(expected_ret, actual_ret);
+        }
+
         expected == actual
+    }
+
+    /// Unify a parameter type with a concrete argument type, collecting substitutions
+    /// for generic type parameters. This enables type inference for generic functions.
+    fn unify_types(
+        &self,
+        param_ty: &Type,
+        arg_ty: &Type,
+        type_params: &[String],
+        substitutions: &mut std::collections::HashMap<String, Type>,
+    ) {
+        match param_ty {
+            Type::Named { name, args } if args.is_empty() && type_params.contains(name) => {
+                // This is a generic type parameter - record or check substitution
+                if let Some(existing) = substitutions.get(name) {
+                    // Already have a substitution - should be compatible
+                    // For now, we just accept the first one
+                    let _ = existing;
+                } else {
+                    substitutions.insert(name.clone(), arg_ty.clone());
+                }
+            }
+            Type::Named { name, args } => {
+                // Concrete named type - recursively unify type arguments
+                if let Type::Named { name: arg_name, args: arg_args } = arg_ty {
+                    if name == arg_name && args.len() == arg_args.len() {
+                        for (param_arg, arg_arg) in args.iter().zip(arg_args.iter()) {
+                            self.unify_types(param_arg, arg_arg, type_params, substitutions);
+                        }
+                    }
+                }
+            }
+            Type::Function { params, ret } => {
+                // Function type - recursively unify params and return
+                if let Type::Function { params: arg_params, ret: arg_ret } = arg_ty {
+                    if params.len() == arg_params.len() {
+                        for (p, a) in params.iter().zip(arg_params.iter()) {
+                            self.unify_types(p, a, type_params, substitutions);
+                        }
+                        self.unify_types(ret, arg_ret, type_params, substitutions);
+                    }
+                }
+            }
+            _ => {
+                // Primitive types don't contribute to substitutions
+            }
+        }
+    }
+
+    /// Apply collected substitutions to a type, replacing generic parameters
+    /// with their inferred concrete types.
+    fn apply_substitutions(
+        &self,
+        ty: &Type,
+        substitutions: &std::collections::HashMap<String, Type>,
+    ) -> Type {
+        match ty {
+            Type::Named { name, args } if args.is_empty() => {
+                // Could be a generic parameter
+                if let Some(concrete) = substitutions.get(name) {
+                    concrete.clone()
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Named { name, args } => {
+                // Apply substitutions to type arguments
+                Type::Named {
+                    name: name.clone(),
+                    args: args.iter()
+                        .map(|a| self.apply_substitutions(a, substitutions))
+                        .collect(),
+                }
+            }
+            Type::Function { params, ret } => {
+                Type::Function {
+                    params: params.iter()
+                        .map(|p| self.apply_substitutions(p, substitutions))
+                        .collect(),
+                    ret: Box::new(self.apply_substitutions(ret, substitutions)),
+                }
+            }
+            _ => ty.clone(),
+        }
     }
 }
 
