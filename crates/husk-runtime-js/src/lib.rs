@@ -201,6 +201,126 @@ function __husk_fmt_pad(str, width, fill, align) {
         return str + padding;
     }
 }
+
+// JsValue field accessor helpers
+// These are free functions that match the Husk stdlib declarations
+
+// Get a field from an object as JsValue (returns null for Option::None)
+function jsvalue_get(obj, key) {
+    if (obj == null) return null;
+    var v = obj[key];
+    return v !== undefined ? v : null;
+}
+
+// Get a string field from an object (returns null for Option::None)
+function jsvalue_getString(obj, key) {
+    if (obj == null) return null;
+    var v = obj[key];
+    return typeof v === "string" ? v : null;
+}
+
+// Get a numeric field from an object (returns null for Option::None)
+function jsvalue_getNumber(obj, key) {
+    if (obj == null) return null;
+    var v = obj[key];
+    return typeof v === "number" ? v : null;
+}
+
+// Get a boolean field from an object (returns null for Option::None)
+function jsvalue_getBool(obj, key) {
+    if (obj == null) return null;
+    var v = obj[key];
+    return typeof v === "boolean" ? v : null;
+}
+
+// Get an array field from an object (returns null for Option::None)
+function jsvalue_getArray(obj, key) {
+    if (obj == null) return null;
+    var v = obj[key];
+    return Array.isArray(v) ? v : null;
+}
+
+// Type checking helpers
+function jsvalue_isNull(obj) {
+    return obj === null;
+}
+
+function jsvalue_isUndefined(obj) {
+    return obj === undefined;
+}
+
+function jsvalue_isObject(obj) {
+    return obj !== null && typeof obj === "object" && !Array.isArray(obj);
+}
+
+function jsvalue_isArray(obj) {
+    return Array.isArray(obj);
+}
+
+// Value coercion helpers
+function jsvalue_toString(obj) {
+    if (obj == null) return "";
+    return String(obj);
+}
+
+function jsvalue_toBool(obj) {
+    return Boolean(obj);
+}
+
+function jsvalue_toNumber(obj) {
+    if (obj == null) return 0;
+    return Number(obj);
+}
+
+// JsObject builder class for fluent API
+// Usage: JsObject_new().setString("key", "value").setNumber("count", 42).toJsValue()
+function JsObject_new() {
+    var obj = {};
+    var builder = {
+        setString: function(key, value) {
+            obj[key] = value;
+            return builder;
+        },
+        setNumber: function(key, value) {
+            obj[key] = value;
+            return builder;
+        },
+        setBool: function(key, value) {
+            obj[key] = value;
+            return builder;
+        },
+        set: function(key, value) {
+            obj[key] = value;
+            return builder;
+        },
+        toJsValue: function() {
+            return obj;
+        }
+    };
+    return builder;
+}
+
+// Express.js helper - provides express.json() middleware
+// This helper allows Husk code to access express.json() as a function
+function express_json() {
+    if (typeof express !== 'undefined' && typeof express.json === 'function') {
+        return express.json();
+    }
+    throw new Error('express_json: express module not available');
+}
+
+// Express.js wrapper - patches app.use to app.use_middleware alias
+// 'use' is a reserved keyword in Husk, so we use 'use_middleware' instead
+function __husk_express() {
+    if (typeof express === 'undefined' || typeof express !== 'function') {
+        throw new Error('__husk_express: express module not available');
+    }
+    var app = express.apply(null, arguments);
+    if (app && typeof app.use === 'function') {
+        app.use_middleware = app.use.bind(app);
+    }
+    return app;
+}
 "#
 }
 

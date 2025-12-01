@@ -1,0 +1,230 @@
+// Express.js + SQLite Todo API in Husk
+//
+// This example demonstrates:
+// - Property getters: req.body(), req.params(), result.changes() generate correct JS property access
+// - JsValue null checking: jsvalue_isNull() for checking missing values
+// - JsObject construction: JsObject_new().setString()
+// - npm package integration with extern "js" blocks
+
+// JsValue/JsObject types and helpers (from runtime)
+extern "js" {
+    struct JsValue;
+    struct JsObject;
+
+    fn JsObject_new() -> JsObject;
+    fn jsvalue_get(obj: JsValue, key: String) -> JsValue;
+    fn jsvalue_isNull(obj: JsValue) -> bool;
+    fn jsvalue_toString(obj: JsValue) -> String;
+    fn jsvalue_toBool(obj: JsValue) -> bool;
+    fn parseFloat(s: String) -> f64;
+}
+
+impl JsObject {
+    extern "js" fn setString(self, key: String, value: String) -> JsObject;
+    extern "js" fn setNumber(self, key: String, value: f64) -> JsObject;
+    extern "js" fn toJsValue(self) -> JsValue;
+}
+
+// Express.js bindings
+extern "js" {
+    mod express;
+
+    struct Express;
+    struct Request;
+    struct Response;
+
+    // Note: express() function comes from `mod express;` - it's callable directly
+    // express_json() is express.json() middleware
+    fn express_json() -> JsValue;
+}
+
+impl Express {
+    extern "js" fn use_middleware(self, middleware: JsValue);
+    extern "js" fn get(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn post(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn put(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn delete(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn listen(self, port: f64, callback: fn() -> ());
+}
+
+impl Request {
+    extern "js" fn body(self) -> JsValue;
+    extern "js" fn params(self) -> JsValue;
+    extern "js" fn query(self) -> JsValue;
+    extern "js" fn path(self) -> String;
+}
+
+impl Response {
+    extern "js" fn status(self, code: f64) -> Response;
+    extern "js" fn json(self, data: JsValue);
+    extern "js" fn send(self, body: String);
+}
+
+// better-sqlite3 bindings
+extern "js" {
+    mod "better-sqlite3" as better_sqlite3;
+
+    struct Database;
+    struct Statement;
+    struct RunResult;
+
+    // Note: better_sqlite3() function comes from `mod ... as better_sqlite3;`
+}
+
+impl Database {
+    extern "js" fn exec(self, sql: String);
+    extern "js" fn prepare(self, sql: String) -> Statement;
+    extern "js" fn close(self);
+    extern "js" fn open(self) -> bool;
+    extern "js" fn inTransaction(self) -> bool;
+    extern "js" fn name(self) -> String;
+}
+
+impl Statement {
+    extern "js" fn run(self) -> RunResult;
+    extern "js" fn run1(self, p1: f64) -> RunResult;
+    extern "js" fn run2(self, p1: String, p2: f64) -> RunResult;
+    extern "js" fn run3(self, p1: String, p2: f64, p3: f64) -> RunResult;
+    extern "js" fn get(self, p1: f64) -> JsValue;
+    extern "js" fn all(self) -> JsValue;
+}
+
+impl RunResult {
+    extern "js" fn changes(self) -> f64;
+    extern "js" fn lastInsertRowid(self) -> f64;
+}
+
+// Helper to extract string from JsValue, returns empty string if not found
+fn get_string_or_empty(obj: JsValue, key: String) -> String {
+    let val = jsvalue_get(obj, key);
+    if jsvalue_isNull(val) {
+        ""
+    } else {
+        jsvalue_toString(val)
+    }
+}
+
+// Helper to get boolean as number (0.0 or 1.0) for SQLite
+fn get_bool_as_number(obj: JsValue, key: String) -> f64 {
+    let val = jsvalue_get(obj, key);
+    if jsvalue_isNull(val) {
+        0.0
+    } else {
+        if jsvalue_toBool(val) {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+
+fn main() {
+    // Initialize database
+    let db = better_sqlite3("todos.db");
+    db.exec("CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0)");
+
+    // Prepare statements
+    let insert_stmt = db.prepare("INSERT INTO todos (title, completed) VALUES (?, ?)");
+    let select_all_stmt = db.prepare("SELECT id, title, completed FROM todos");
+    let select_one_stmt = db.prepare("SELECT id, title, completed FROM todos WHERE id = ?");
+    let update_stmt = db.prepare("UPDATE todos SET title = ?, completed = ? WHERE id = ?");
+    let delete_stmt = db.prepare("DELETE FROM todos WHERE id = ?");
+
+    // Create Express app
+    let app = express();
+    app.use_middleware(express_json());
+
+    // GET /todos - List all todos
+    app.get("/todos", |req: Request, res: Response| {
+        let todos = select_all_stmt.all();
+        res.json(todos);
+    });
+
+    // GET /todos/:id - Get single todo
+    app.get("/todos/:id", |req: Request, res: Response| {
+        let params = req.params();
+        let id_str = get_string_or_empty(params, "id");
+        if id_str == "" {
+            let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
+            res.status(400.0).json(err);
+        } else {
+            let id = parseFloat(id_str);
+            let todo = select_one_stmt.get(id);
+            if jsvalue_isNull(todo) {
+                let err = JsObject_new().setString("error", "Todo not found").toJsValue();
+                res.status(404.0).json(err);
+            } else {
+                res.json(todo);
+            }
+        }
+    });
+
+    // POST /todos - Create new todo
+    app.post("/todos", |req: Request, res: Response| {
+        let body = req.body();
+        let title = get_string_or_empty(body, "title");
+        if title == "" {
+            let err = JsObject_new().setString("error", "Title is required").toJsValue();
+            res.status(400.0).json(err);
+        } else {
+            let result = insert_stmt.run2(title, 0.0);
+            let id = result.lastInsertRowid();
+            let response = JsObject_new().setNumber("id", id).toJsValue();
+            res.status(201.0).json(response);
+        }
+    });
+
+    // PUT /todos/:id - Update todo
+    app.put("/todos/:id", |req: Request, res: Response| {
+        let params = req.params();
+        let body = req.body();
+        let id_str = get_string_or_empty(params, "id");
+        if id_str == "" {
+            let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
+            res.status(400.0).json(err);
+        } else {
+            let id = parseFloat(id_str);
+            let title = get_string_or_empty(body, "title");
+            if title == "" {
+                let err = JsObject_new().setString("error", "Title is required").toJsValue();
+                res.status(400.0).json(err);
+            } else {
+                let completed_int = get_bool_as_number(body, "completed");
+                let result = update_stmt.run3(title, completed_int, id);
+                let changes = result.changes();
+                if changes > 0.0 {
+                    let response = JsObject_new().setNumber("id", id).toJsValue();
+                    res.json(response);
+                } else {
+                    let err = JsObject_new().setString("error", "Todo not found").toJsValue();
+                    res.status(404.0).json(err);
+                }
+            }
+        }
+    });
+
+    // DELETE /todos/:id - Delete todo
+    app.delete("/todos/:id", |req: Request, res: Response| {
+        let params = req.params();
+        let id_str = get_string_or_empty(params, "id");
+        if id_str == "" {
+            let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
+            res.status(400.0).json(err);
+        } else {
+            let id = parseFloat(id_str);
+            let result = delete_stmt.run1(id);
+            let changes = result.changes();
+            if changes > 0.0 {
+                res.status(204.0).send("");
+            } else {
+                let err = JsObject_new().setString("error", "Todo not found").toJsValue();
+                res.status(404.0).json(err);
+            }
+        }
+    });
+
+    // Start server
+    app.listen(3000.0, || {
+        println("Server running at http://localhost:3000");
+    });
+}
