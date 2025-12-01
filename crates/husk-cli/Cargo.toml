@@ -12,6 +12,9 @@ husk-ast = { path = "../husk-ast" }
 husk-dts-parser = { path = "../husk-dts-parser" }
 clap = { version = "4", features = ["derive"] }
 thiserror = "1"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+toml_edit = "0.22"
 codespan-reporting = "0.11"
 notify = "6"
 notify-debouncer-mini = "0.4"
