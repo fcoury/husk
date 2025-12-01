@@ -556,13 +556,17 @@ impl<'a> Codegen<'a> {
     }
 
     fn map_named_type(&mut self, name: &str, type_args: &[DtsType]) -> String {
+        // Handle qualified names: use the last segment as the type name
+        // e.g., "Database.RunResult" -> "RunResult"
+        let simple_name = name.split('.').last().unwrap_or(name);
+
         // Check if it's a known generic
-        if self.known_generics.contains(name) {
-            return name.to_string();
+        if self.known_generics.contains(simple_name) {
+            return simple_name.to_string();
         }
 
-        // Map well-known types
-        match name {
+        // Map well-known types using simple name
+        match simple_name {
             "Array" | "ReadonlyArray" => {
                 if let Some(inner) = type_args.first() {
                     let inner_mapped = self.map_type(inner);
@@ -588,17 +592,17 @@ impl<'a> Codegen<'a> {
                 // TypeScript utility types - map to JsValue
                 self.warn(
                     WarningKind::Unsupported,
-                    format!("Utility type {} not supported", name),
+                    format!("Utility type {} not supported", simple_name),
                 );
                 "JsValue".to_string()
             }
             _ => {
-                // User-defined type - keep as-is
+                // User-defined type - use simple name (last segment of qualified name)
                 if type_args.is_empty() {
-                    name.to_string()
+                    simple_name.to_string()
                 } else {
                     let args: Vec<String> = type_args.iter().map(|a| self.map_type(a)).collect();
-                    format!("{}<{}>", name, args.join(", "))
+                    format!("{}<{}>", simple_name, args.join(", "))
                 }
             }
         }
