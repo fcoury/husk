@@ -809,10 +809,12 @@ impl<'a> Codegen<'a> {
     }
 }
 
-/// Check if a string is a Husk reserved keyword.
+/// Check if a string is a Husk reserved keyword or a TypeScript keyword
+/// that might conflict when used as an identifier.
 fn is_keyword(name: &str) -> bool {
     matches!(
         name,
+        // Husk keywords
         "as" | "pub"
             | "use"
             | "fn"
@@ -836,6 +838,31 @@ fn is_keyword(name: &str) -> bool {
             | "impl"
             | "for"
             | "Self"
+            // TypeScript keywords that might conflict as property/method names
+            | "static"
+            | "readonly"
+            | "const"
+            | "var"
+            | "function"
+            | "class"
+            | "interface"
+            | "public"
+            | "private"
+            | "protected"
+            | "abstract"
+            | "async"
+            | "await"
+            | "new"
+            | "void"
+            | "null"
+            | "default"
+            | "export"
+            | "import"
+            | "extends"
+            | "implements"
+            | "typeof"
+            | "instanceof"
+            | "in"
     )
 }
 
