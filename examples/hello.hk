@@ -5,7 +5,8 @@ fn add(a: i32, b: i32) -> i32 {
 fn main() {
     let x: i32 = add(1, 2);
     let y = x + 3;
+    println("x: {}, y: {}", x, y);
     if y > 3 {
-        // do nothing
+      println("y is greater than 3");
     }
 }
