@@ -200,6 +200,21 @@ struct ImplInfo {
     self_ty_name: String,
     /// Methods defined in this impl
     methods: HashMap<String, MethodInfo>,
+    /// Extern properties defined in this impl
+    properties: HashMap<String, PropertyInfo>,
+}
+
+/// Information about an extern property in an impl block.
+#[derive(Debug, Clone)]
+struct PropertyInfo {
+    /// The property type
+    ty: TypeExpr,
+    /// Whether the property has a getter
+    #[allow(dead_code)]
+    has_getter: bool,
+    /// Whether the property has a setter
+    #[allow(dead_code)]
+    has_setter: bool,
 }
 
 /// Information about a method in an impl block.
@@ -402,22 +417,36 @@ impl TypeChecker {
                     let trait_name = impl_block.trait_ref.as_ref().map(type_expr_to_name);
 
                     let mut methods = HashMap::new();
+                    let mut properties = HashMap::new();
                     for item in &impl_block.items {
-                        if let husk_ast::ImplItemKind::Method(method) = &item.kind {
-                            methods.insert(
-                                method.name.name.clone(),
-                                MethodInfo {
-                                    receiver: method.receiver,
-                                    params: method.params.clone(),
-                                    ret_type: method.ret_type.clone(),
-                                },
-                            );
+                        match &item.kind {
+                            husk_ast::ImplItemKind::Method(method) => {
+                                methods.insert(
+                                    method.name.name.clone(),
+                                    MethodInfo {
+                                        receiver: method.receiver,
+                                        params: method.params.clone(),
+                                        ret_type: method.ret_type.clone(),
+                                    },
+                                );
+                            }
+                            husk_ast::ImplItemKind::Property(prop) => {
+                                properties.insert(
+                                    prop.name.name.clone(),
+                                    PropertyInfo {
+                                        ty: prop.ty.clone(),
+                                        has_getter: prop.has_getter(),
+                                        has_setter: prop.has_setter(),
+                                    },
+                                );
+                            }
                         }
                     }
                     self.env.impls.push(ImplInfo {
                         trait_name,
                         self_ty_name,
                         methods,
+                        properties,
                     });
                 }
             }
@@ -1046,12 +1075,26 @@ impl<'a> FnContext<'a> {
             ExprKind::Field { base, member } => {
                 let base_ty = self.check_expr(base);
                 if let Type::Named { name, args } = base_ty {
+                    // First, check regular struct fields
                     if let Some(def) = self.tcx.env.structs.get(&name).cloned() {
                         if let Some(field_ty_expr) = def.fields.get(&member.name) {
                             // For now, ignore generic substitution and just resolve as-is.
                             let _ = args;
                             return self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
                         }
+                    }
+
+                    // Then check extern properties from impl blocks
+                    let prop_ty = self.tcx.env.impls.iter()
+                        .find(|info| info.self_ty_name == name)
+                        .and_then(|info| info.properties.get(&member.name))
+                        .map(|prop| prop.ty.clone());
+                    if let Some(ty) = prop_ty {
+                        return self.tcx.resolve_type_expr(&ty, &[]);
+                    }
+
+                    // Not found in either
+                    if self.tcx.env.structs.contains_key(&name) {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
                                 "no field named `{}` on struct `{}`",
@@ -1060,13 +1103,9 @@ impl<'a> FnContext<'a> {
                             span: member.span.clone(),
                         });
                     } else {
-                        self.tcx.errors.push(SemanticError {
-                            message: format!(
-                                "field access on non-struct type `{:?}`",
-                                Type::Named { name, args }
-                            ),
-                            span: expr.span.clone(),
-                        });
+                        // Extern struct - try to be permissive for JS FFI
+                        // Return Unit as fallback (JS property access is dynamic)
+                        return Type::Primitive(PrimitiveType::Unit);
                     }
                 } else {
                     self.tcx.errors.push(SemanticError {

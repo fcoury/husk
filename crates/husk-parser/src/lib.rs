@@ -3,11 +3,11 @@
 //! This is a hand-written recursive-descent parser for the MVP syntax.
 
 use husk_ast::{
-    BinaryOp, Block, ClosureParam, EnumVariant, EnumVariantFields, Expr, ExprKind, File,
-    FormatPlaceholder, FormatSegment, FormatSpec, FormatString, Ident, ImplBlock, ImplItem,
-    ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind, MatchArm, Param, Pattern,
-    PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField, TraitDef, TraitItem,
-    TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    Attribute, BinaryOp, Block, ClosureParam, EnumVariant, EnumVariantFields, Expr, ExprKind,
+    ExternProperty, File, FormatPlaceholder, FormatSegment, FormatSpec, FormatString, Ident,
+    ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind, MatchArm,
+    Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField, TraitDef,
+    TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -769,10 +769,69 @@ impl Parser {
         })
     }
 
-    /// Parse a method inside an impl block: `fn method(&self) -> RetType { ... }`
-    /// Also handles `extern "js" fn method(&self) -> RetType;` declarations
+    /// Parse a single attribute like `#[getter]` or `#[js_name = "innerHTML"]`.
+    /// Returns None if no attribute is found (not an error).
+    fn parse_attribute(&mut self) -> Option<Attribute> {
+        if !self.matches_token(&TokenKind::Hash) {
+            return None;
+        }
+        let start = self.previous().span.range.start;
+
+        if !self.matches_token(&TokenKind::LBracket) {
+            self.error_here("expected `[` after `#`");
+            return None;
+        }
+
+        let name = self.parse_ident("expected attribute name")?;
+
+        // Check for `= "value"` syntax
+        let value = if self.matches_token(&TokenKind::Eq) {
+            if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                let val = s.clone();
+                self.advance();
+                Some(val)
+            } else {
+                self.error_here("expected string literal after `=` in attribute");
+                None
+            }
+        } else {
+            None
+        };
+
+        if !self.matches_token(&TokenKind::RBracket) {
+            self.error_here("expected `]` to close attribute");
+            return None;
+        }
+
+        let end = self.previous().span.range.end;
+        Some(Attribute {
+            name,
+            value,
+            span: Span { range: start..end },
+        })
+    }
+
+    /// Parse zero or more attributes: `#[getter] #[setter] #[js_name = "foo"]`
+    fn parse_attributes(&mut self) -> Vec<Attribute> {
+        let mut attrs = Vec::new();
+        while let TokenKind::Hash = self.current().kind {
+            if let Some(attr) = self.parse_attribute() {
+                attrs.push(attr);
+            } else {
+                break;
+            }
+        }
+        attrs
+    }
+
+    /// Parse a method or property inside an impl block.
+    /// Methods: `fn method(&self) -> RetType { ... }` or `extern "js" fn method(&self) -> RetType;`
+    /// Properties: `#[getter] extern "js" body: JsValue;`
     fn parse_impl_method(&mut self) -> Option<ImplItem> {
-        // Check for extern "js" fn (extern method declaration)
+        // First, parse any attributes
+        let attributes = self.parse_attributes();
+
+        // Check for extern "js" (could be method or property)
         let is_extern = if self.matches_keyword(Keyword::Extern) {
             // Expect "js" string literal
             if let TokenKind::StringLiteral(ref s) = self.current().kind {
@@ -787,6 +846,12 @@ impl Parser {
         } else {
             false
         };
+
+        // If extern and NOT followed by `fn`, this is a property declaration
+        if is_extern && !matches!(self.current().kind, TokenKind::Keyword(Keyword::Fn)) {
+            // Parse property: `name: Type;`
+            return self.parse_extern_property(attributes);
+        }
 
         if !self.matches_keyword(Keyword::Fn) {
             self.error_here("expected `fn` inside impl");
@@ -848,6 +913,45 @@ impl Parser {
                 },
             })
         }
+    }
+
+    /// Parse an extern property declaration: `name: Type;`
+    /// Called after attributes and `extern "js"` have been parsed.
+    fn parse_extern_property(&mut self, attributes: Vec<Attribute>) -> Option<ImplItem> {
+        // Get start position from first attribute if present, otherwise use current position
+        let start = attributes
+            .first()
+            .map(|a| a.span.range.start)
+            .unwrap_or_else(|| self.current().span.range.start);
+
+        // Parse property name
+        let name = self.parse_ident("expected property name")?;
+
+        // Expect `:`
+        if !self.matches_token(&TokenKind::Colon) {
+            self.error_here("expected `:` after property name");
+            return None;
+        }
+
+        // Parse type
+        let ty = self.parse_type_expr()?;
+
+        // Expect `;`
+        if !self.matches_token(&TokenKind::Semicolon) {
+            self.error_here("expected `;` after extern property declaration");
+            return None;
+        }
+
+        let end = self.previous().span.range.end;
+        Some(ImplItem {
+            kind: ImplItemKind::Property(ExternProperty {
+                attributes,
+                name,
+                ty,
+                span: Span { range: start..end },
+            }),
+            span: Span { range: start..end },
+        })
     }
 
     /// Parse method parameter list, handling `self`, `&self`, `&mut self` as first param
