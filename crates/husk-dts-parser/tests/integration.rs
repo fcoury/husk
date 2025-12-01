@@ -641,3 +641,124 @@ fn test_keyword_property_codegen() {
     assert!(result.code.contains("readonly_"),
         "readonly should be escaped to readonly_");
 }
+
+/// Test simple qualified type name (single dot).
+#[test]
+fn test_qualified_type_name_simple() {
+    let dts = r#"
+        interface Statement {
+            run(): Database.RunResult;
+        }
+    "#;
+    let file = parse(dts).expect("Should parse qualified type name");
+    let result = generate(&file, &CodegenOptions::default());
+
+    assert!(result.code.contains("fn run(self) -> RunResult;"),
+        "Should use simple name from qualified type");
+}
+
+/// Test nested qualified type name (multiple dots).
+#[test]
+fn test_qualified_type_name_nested() {
+    let dts = r#"
+        declare function create(): express.core.Application;
+    "#;
+    let file = parse(dts).expect("Should parse nested qualified type");
+    let result = generate(&file, &CodegenOptions::default());
+
+    assert!(result.code.contains("fn create() -> Application;"),
+        "Should use last segment from deeply nested qualified type");
+}
+
+/// Test qualified type with generic arguments.
+#[test]
+fn test_qualified_type_with_generics() {
+    let dts = r#"
+        declare function getEntries(): Namespace.Entry<string, number>;
+    "#;
+    let file = parse(dts).expect("Should parse qualified type with generics");
+    let result = generate(&file, &CodegenOptions::default());
+
+    assert!(result.code.contains("Entry<String, f64>"),
+        "Should handle generics on qualified types");
+}
+
+/// Test qualified types in various positions (properties, parameters, return types).
+#[test]
+fn test_qualified_type_in_various_positions() {
+    let dts = r#"
+        interface Foo {
+            prop: Namespace.Type;
+            method(param: Other.Param): Return.Result;
+        }
+    "#;
+    let file = parse(dts).expect("Should parse qualified types in all positions");
+
+    let result = generate(&file, &CodegenOptions::default());
+    assert!(result.code.contains("fn prop(self) -> Type;"),
+        "Property should use simple name from qualified type");
+    assert!(result.code.contains("fn method(self, param: Param) -> Result;"),
+        "Method params and return should use simple names");
+}
+
+/// Test Express-like qualified type pattern.
+#[test]
+fn test_express_core_application() {
+    let dts = r#"
+        declare namespace express {
+            interface Application extends core.Application {}
+        }
+    "#;
+    let file = parse(dts).expect("Should parse Express-like qualified type");
+
+    // Just verify it parses - the extends clause should work with qualified type
+    assert_eq!(file.items.len(), 1);
+}
+
+/// Test better-sqlite3-like qualified type pattern.
+#[test]
+fn test_better_sqlite3_database_runresult() {
+    let dts = r#"
+        interface Statement {
+            database: Database;
+            source: string;
+            reader: boolean;
+            readonly: boolean;
+            run(): Database.RunResult;
+        }
+    "#;
+    let file = parse(dts).expect("Should parse better-sqlite3-like qualified type");
+
+    let result = generate(&file, &CodegenOptions::default());
+    assert!(result.code.contains("fn run(self) -> RunResult;"),
+        "Should use RunResult (last segment) from Database.RunResult");
+}
+
+/// Test qualified type as array element.
+#[test]
+fn test_qualified_type_array() {
+    let dts = r#"
+        declare function getItems(): Namespace.Item[];
+    "#;
+    let file = parse(dts).expect("Should parse qualified type in array");
+    let result = generate(&file, &CodegenOptions::default());
+
+    assert!(result.code.contains("JsArray<Item>"),
+        "Should handle qualified type inside array");
+}
+
+/// Test backward compatibility - simple types still work.
+#[test]
+fn test_simple_type_still_works() {
+    let dts = r#"
+        declare function simple(): SimpleType;
+        declare function withGenerics(): Array<SimpleType>;
+    "#;
+    let file = parse(dts).expect("Simple types should still parse");
+    let result = generate(&file, &CodegenOptions::default());
+
+    assert!(result.code.contains("fn simple() -> SimpleType;"),
+        "Simple types should work unchanged");
+    assert!(result.code.contains("fn withGenerics() -> JsArray<SimpleType>;"),
+        "Simple types in generics should work");
+}

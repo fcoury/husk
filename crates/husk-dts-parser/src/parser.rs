@@ -1121,6 +1121,18 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_named_type(&mut self, name: String) -> ParseResult<DtsType> {
+        // Build qualified name by consuming dot-separated segments
+        // e.g., Database.RunResult, express.core.Application
+        let mut path = vec![name];
+        while self.matches(&TokenKind::Dot) {
+            // Use expect_property_name to allow keywords as namespace segments
+            let segment = self.expect_property_name()?;
+            path.push(segment);
+        }
+
+        let qualified_name = path.join(".");
+
+        // Parse type arguments AFTER resolving qualified name
         let type_args = if self.check(&TokenKind::LAngle) {
             self.parse_type_args()?
         } else {
@@ -1136,14 +1148,14 @@ impl<'src> Parser<'src> {
             let false_type = self.parse_type()?;
 
             return Ok(DtsType::Conditional {
-                check: Box::new(DtsType::Named { name, type_args }),
+                check: Box::new(DtsType::Named { name: qualified_name, type_args }),
                 extends: Box::new(extends),
                 true_type: Box::new(true_type),
                 false_type: Box::new(false_type),
             });
         }
 
-        Ok(DtsType::Named { name, type_args })
+        Ok(DtsType::Named { name: qualified_name, type_args })
     }
 
     fn parse_type_args(&mut self) -> ParseResult<Vec<DtsType>> {
