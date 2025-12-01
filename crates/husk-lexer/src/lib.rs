@@ -114,6 +114,10 @@ pub enum TokenKind {
     Minus,
     Star,
     Slash,
+    // Attribute-related tokens
+    Hash,      // #
+    LBracket,  // [
+    RBracket,  // ]
     // End of input
     Eof,
 }
@@ -519,6 +523,18 @@ impl<'src> Iterator for Lexer<'src> {
                     }
                 }
             }
+            '#' => Token {
+                kind: TokenKind::Hash,
+                span: Span::new(start, start + 1),
+            },
+            '[' => Token {
+                kind: TokenKind::LBracket,
+                span: Span::new(start, start + 1),
+            },
+            ']' => Token {
+                kind: TokenKind::RBracket,
+                span: Span::new(start, start + 1),
+            },
             _ => {
                 // Unknown character, skip for now; in the future we will emit diagnostics.
                 Token {

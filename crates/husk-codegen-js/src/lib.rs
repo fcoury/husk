@@ -15,6 +15,27 @@ use husk_runtime_js::std_preamble_js;
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 
+/// Convert snake_case to camelCase.
+/// Examples:
+/// - "status_code" -> "statusCode"
+/// - "last_insert_rowid" -> "lastInsertRowid"
+/// - "body" -> "body" (no change if no underscores)
+fn snake_to_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut capitalize_next = false;
+    for c in s.chars() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Tracks extern property accessors (getters and setters) for codegen.
 ///
 /// When an extern impl method matches the getter/setter pattern, we need to
@@ -229,49 +250,78 @@ pub fn lower_file_to_js_with_source(
     }
 
     // Collect property accessors from extern impl blocks
-    // An extern method is a getter if: no params (besides self), has return type
-    // An extern method is a setter if: starts with "set_", has one param (besides self), no return
+    // Priority 1: Explicit #[getter]/#[setter] extern properties
+    // Priority 2: Heuristic-based detection (deprecated, to be removed)
     let mut accessors = PropertyAccessors::default();
     for item in &file.items {
         if let ItemKind::Impl(impl_block) = &item.kind {
             let type_name = type_expr_to_js_name(&impl_block.self_ty);
             for impl_item in &impl_block.items {
-                if let ImplItemKind::Method(method) = &impl_item.kind {
-                    if method.is_extern && method.receiver.is_some() {
-                        let method_name = &method.name.name;
-                        // Methods that should NOT be treated as getters even if they have
-                        // no params and a return type. These are actual method calls in JS.
-                        // TODO: Replace with proper #[getter] attribute support
-                        const NON_GETTER_METHODS: &[&str] = &[
-                            "all",         // stmt.all() in better-sqlite3
-                            "toJsValue",   // JsObject.toJsValue() builder method
-                            "open",        // db.open() check if database is open
-                            "run",         // stmt.run() execute statement
-                            "iterate",     // stmt.iterate() in better-sqlite3
-                            "bind",        // stmt.bind() in better-sqlite3
-                            "pluck",       // stmt.pluck() in better-sqlite3
-                            "raw",         // stmt.raw() in better-sqlite3
-                            "columns",     // stmt.columns() in better-sqlite3
-                        ];
-                        let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
+                match &impl_item.kind {
+                    // NEW: Handle explicit extern properties with #[getter]/#[setter]
+                    ImplItemKind::Property(prop) => {
+                        let prop_name = &prop.name.name;
+                        // Get the JS name: use #[js_name] if present, otherwise snake_to_camel
+                        let js_name = prop
+                            .js_name()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| snake_to_camel(prop_name));
 
-                        // Check if it's a getter: no params, has return type, and not in exclusion list
-                        if method.params.is_empty() && method.ret_type.is_some() && !is_non_getter {
+                        if prop.has_getter() {
+                            // For property access: obj.prop_name -> obj.jsName
                             accessors.getters.insert(
-                                (type_name.clone(), method_name.clone()),
-                                method_name.clone(),
+                                (type_name.clone(), prop_name.clone()),
+                                js_name.clone(),
                             );
                         }
-                        // Check if it's a setter: starts with "set_", one param, no return
-                        else if method_name.starts_with("set_")
-                            && method.params.len() == 1
-                            && method.ret_type.is_none()
-                        {
-                            let prop_name = method_name.strip_prefix("set_").unwrap().to_string();
+                        if prop.has_setter() {
+                            // For property assignment: obj.prop_name = val -> obj.jsName = val
                             accessors.setters.insert(
-                                (type_name.clone(), method_name.clone()),
-                                prop_name,
+                                (type_name.clone(), prop_name.clone()),
+                                js_name,
                             );
+                        }
+                    }
+                    // DEPRECATED: Heuristic-based detection for extern methods
+                    // TODO: Remove this once all code migrates to explicit properties
+                    ImplItemKind::Method(method) => {
+                        if method.is_extern && method.receiver.is_some() {
+                            let method_name = &method.name.name;
+                            // Methods that should NOT be treated as getters even if they have
+                            // no params and a return type. These are actual method calls in JS.
+                            const NON_GETTER_METHODS: &[&str] = &[
+                                "all",         // stmt.all() in better-sqlite3
+                                "toJsValue",   // JsObject.toJsValue() builder method
+                                "open",        // db.open() check if database is open
+                                "run",         // stmt.run() execute statement
+                                "iterate",     // stmt.iterate() in better-sqlite3
+                                "bind",        // stmt.bind() in better-sqlite3
+                                "pluck",       // stmt.pluck() in better-sqlite3
+                                "raw",         // stmt.raw() in better-sqlite3
+                                "columns",     // stmt.columns() in better-sqlite3
+                            ];
+                            let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
+
+                            // Check if it's a getter: no params, has return type, and not in exclusion list
+                            if method.params.is_empty() && method.ret_type.is_some() && !is_non_getter
+                            {
+                                accessors.getters.insert(
+                                    (type_name.clone(), method_name.clone()),
+                                    method_name.clone(),
+                                );
+                            }
+                            // Check if it's a setter: starts with "set_", one param, no return
+                            else if method_name.starts_with("set_")
+                                && method.params.len() == 1
+                                && method.ret_type.is_none()
+                            {
+                                let prop_name =
+                                    method_name.strip_prefix("set_").unwrap().to_string();
+                                accessors.setters.insert(
+                                    (type_name.clone(), method_name.clone()),
+                                    prop_name,
+                                );
+                            }
                         }
                     }
                 }
@@ -840,10 +890,21 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
                 .unwrap_or_else(|| "Unknown".to_string());
             JsExpr::Object(vec![("tag".to_string(), JsExpr::String(variant))])
         }
-        ExprKind::Field { base, member } => JsExpr::Member {
-            object: Box::new(lower_expr(base, accessors)),
-            property: member.name.clone(),
-        },
+        ExprKind::Field { base, member } => {
+            let field_name = &member.name;
+            // Check if this field is an extern property (look up by field name across all types)
+            let js_property = accessors
+                .getters
+                .iter()
+                .find(|((_, prop_name), _)| prop_name == field_name)
+                .map(|(_, js_name)| js_name.clone())
+                .unwrap_or_else(|| field_name.clone());
+
+            JsExpr::Member {
+                object: Box::new(lower_expr(base, accessors)),
+                property: js_property,
+            }
+        }
         ExprKind::MethodCall {
             receiver,
             method,

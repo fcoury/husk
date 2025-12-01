@@ -1,7 +1,9 @@
 // Express.js + SQLite Todo API in Husk
 //
 // This example demonstrates:
-// - Property getters: req.body(), req.params(), result.changes() generate correct JS property access
+// - First-class property declarations with #[getter] attribute
+// - Natural property access: req.body, req.params, result.changes (no method call syntax)
+// - Automatic snake_case -> camelCase conversion: last_insert_rowid -> lastInsertRowid
 // - JsValue null checking: jsvalue_isNull() for checking missing values
 // - JsObject construction: JsObject_new().setString()
 // - npm package integration with extern "js" blocks
@@ -48,10 +50,17 @@ impl Express {
 }
 
 impl Request {
-    extern "js" fn body(self) -> JsValue;
-    extern "js" fn params(self) -> JsValue;
-    extern "js" fn query(self) -> JsValue;
-    extern "js" fn path(self) -> String;
+    #[getter]
+    extern "js" body: JsValue;
+
+    #[getter]
+    extern "js" params: JsValue;
+
+    #[getter]
+    extern "js" query: JsValue;
+
+    #[getter]
+    extern "js" path: String;
 }
 
 impl Response {
@@ -90,8 +99,11 @@ impl Statement {
 }
 
 impl RunResult {
-    extern "js" fn changes(self) -> f64;
-    extern "js" fn lastInsertRowid(self) -> f64;
+    #[getter]
+    extern "js" changes: f64;
+
+    #[getter]
+    extern "js" last_insert_rowid: f64;
 }
 
 // Helper to extract string from JsValue, returns empty string if not found
@@ -142,7 +154,7 @@ fn main() {
 
     // GET /todos/:id - Get single todo
     app.get("/todos/:id", |req: Request, res: Response| {
-        let params = req.params();
+        let params = req.params;
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
@@ -161,14 +173,14 @@ fn main() {
 
     // POST /todos - Create new todo
     app.post("/todos", |req: Request, res: Response| {
-        let body = req.body();
+        let body = req.body;
         let title = get_string_or_empty(body, "title");
         if title == "" {
             let err = JsObject_new().setString("error", "Title is required").toJsValue();
             res.status(400.0).json(err);
         } else {
             let result = insert_stmt.run2(title, 0.0);
-            let id = result.lastInsertRowid();
+            let id = result.last_insert_rowid;
             let response = JsObject_new().setNumber("id", id).toJsValue();
             res.status(201.0).json(response);
         }
@@ -176,8 +188,8 @@ fn main() {
 
     // PUT /todos/:id - Update todo
     app.put("/todos/:id", |req: Request, res: Response| {
-        let params = req.params();
-        let body = req.body();
+        let params = req.params;
+        let body = req.body;
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
@@ -191,7 +203,7 @@ fn main() {
             } else {
                 let completed_int = get_bool_as_number(body, "completed");
                 let result = update_stmt.run3(title, completed_int, id);
-                let changes = result.changes();
+                let changes = result.changes;
                 if changes > 0.0 {
                     let response = JsObject_new().setNumber("id", id).toJsValue();
                     res.json(response);
@@ -205,7 +217,7 @@ fn main() {
 
     // DELETE /todos/:id - Delete todo
     app.delete("/todos/:id", |req: Request, res: Response| {
-        let params = req.params();
+        let params = req.params;
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
@@ -213,7 +225,7 @@ fn main() {
         } else {
             let id = parseFloat(id_str);
             let result = delete_stmt.run1(id);
-            let changes = result.changes();
+            let changes = result.changes;
             if changes > 0.0 {
                 res.status(204.0).send("");
             } else {

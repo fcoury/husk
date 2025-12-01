@@ -2,6 +2,20 @@
 
 use std::ops::Range;
 
+// ============================================================================
+// Attributes
+// ============================================================================
+
+/// An attribute like `#[getter]` or `#[js_name = "innerHTML"]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attribute {
+    /// The attribute name (e.g., "getter", "setter", "js_name")
+    pub name: Ident,
+    /// Optional value for key-value attributes (e.g., "innerHTML" for `#[js_name = "innerHTML"]`)
+    pub value: Option<String>,
+    pub span: Span,
+}
+
 /// A span in the source file, represented as a byte range.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
@@ -422,6 +436,41 @@ pub struct ImplItem {
 pub enum ImplItemKind {
     /// A method implementation
     Method(ImplMethod),
+    /// An extern property declaration (e.g., `#[getter] extern "js" body: JsValue;`)
+    Property(ExternProperty),
+}
+
+/// An extern property declaration in an impl block.
+/// Example: `#[getter] #[setter] extern "js" text_content: String;`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternProperty {
+    /// Attributes on this property (e.g., #[getter], #[setter], #[js_name = "..."])
+    pub attributes: Vec<Attribute>,
+    /// The property name in Husk (e.g., "text_content")
+    pub name: Ident,
+    /// The property type
+    pub ty: TypeExpr,
+    pub span: Span,
+}
+
+impl ExternProperty {
+    /// Returns true if the property has a #[getter] attribute.
+    pub fn has_getter(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "getter")
+    }
+
+    /// Returns true if the property has a #[setter] attribute.
+    pub fn has_setter(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "setter")
+    }
+
+    /// Returns the JS name if specified via #[js_name = "..."], otherwise None.
+    pub fn js_name(&self) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|a| a.name.name == "js_name")
+            .and_then(|a| a.value.as_deref())
+    }
 }
 
 /// A method in an impl block.

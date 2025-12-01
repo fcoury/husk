@@ -1,5 +1,5 @@
 // better-sqlite3 bindings for Husk
-// Demonstrates property getters (changes, lastInsertRowid) that generate correct JS property access
+// Demonstrates property declarations with #[getter] for JS property access
 
 extern "js" {
     mod "better-sqlite3" as better_sqlite3;
@@ -8,8 +8,7 @@ extern "js" {
     struct Statement;
     struct RunResult;
 
-    // Constructor function - creates a new Database instance
-    fn better_sqlite3(filename: String) -> Database;
+    // Constructor function comes from the default export of better-sqlite3
 }
 
 impl Database {
@@ -17,10 +16,15 @@ impl Database {
     extern "js" fn prepare(self, sql: String) -> Statement;
     extern "js" fn close(self);
 
-    // Property getters
-    extern "js" fn open(self) -> bool;
-    extern "js" fn inTransaction(self) -> bool;
-    extern "js" fn name(self) -> String;
+    // Property getters - use natural property access syntax
+    #[getter]
+    extern "js" open: bool;
+
+    #[getter]
+    extern "js" in_transaction: bool;
+
+    #[getter]
+    extern "js" name: String;
 }
 
 impl Statement {
@@ -40,6 +44,9 @@ impl Statement {
 
 impl RunResult {
     // Property getters - these generate property access (result.changes) not method calls
-    extern "js" fn changes(self) -> f64;
-    extern "js" fn lastInsertRowid(self) -> f64;
+    #[getter]
+    extern "js" changes: f64;
+
+    #[getter]
+    extern "js" last_insert_rowid: f64;
 }
