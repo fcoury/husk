@@ -7,25 +7,9 @@
 // - JsValue null checking: jsvalue_isNull() for checking missing values
 // - JsObject construction: JsObject_new().setString()
 // - npm package integration with extern "js" blocks
-
-// JsValue/JsObject types and helpers (from runtime)
-extern "js" {
-    struct JsValue;
-    struct JsObject;
-
-    fn JsObject_new() -> JsObject;
-    fn jsvalue_get(obj: JsValue, key: String) -> JsValue;
-    fn jsvalue_isNull(obj: JsValue) -> bool;
-    fn jsvalue_toString(obj: JsValue) -> String;
-    fn jsvalue_toBool(obj: JsValue) -> bool;
-    fn parseFloat(s: String) -> f64;
-}
-
-impl JsObject {
-    extern "js" fn setString(self, key: String, value: String) -> JsObject;
-    extern "js" fn setNumber(self, key: String, value: f64) -> JsObject;
-    extern "js" fn toJsValue(self) -> JsValue;
-}
+//
+// Note: JsValue, JsObject, and helper functions (jsvalue_get, jsvalue_isNull, etc.)
+// are automatically available from the standard library prelude.
 
 // Express.js bindings
 extern "js" {
