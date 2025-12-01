@@ -1,0 +1,22 @@
+[package]
+name = "husk-express-sqlite-example"
+version = "1.0.0"
+description = "Express.js + SQLite example demonstrating Husk npm integration"
+
+[build]
+entry = "main.hk"
+output = "dist"
+target = "cjs"
+source_maps = true
+
+[[dts]]
+package = "express"
+types = "@types/express"
+version = "^5.0.0"
+output = "extern/express.hk"
+
+[[dts]]
+package = "better-sqlite3"
+types = "@types/better-sqlite3"
+version = "^7.6.0"
+output = "extern/sqlite.hk"
