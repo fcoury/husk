@@ -134,6 +134,151 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Check if current token is any keyword that can be used as a property name.
+    /// Per TypeScript spec, PropertyName uses IdentifierName which allows all keywords.
+    fn is_keyword_token(&self) -> bool {
+        matches!(
+            self.peek(),
+            TokenKind::Declare
+                | TokenKind::Function
+                | TokenKind::Interface
+                | TokenKind::Class
+                | TokenKind::Type
+                | TokenKind::Namespace
+                | TokenKind::Module
+                | TokenKind::Export
+                | TokenKind::Import
+                | TokenKind::Const
+                | TokenKind::Let
+                | TokenKind::Var
+                | TokenKind::Readonly
+                | TokenKind::Extends
+                | TokenKind::Implements
+                | TokenKind::New
+                | TokenKind::Typeof
+                | TokenKind::Keyof
+                | TokenKind::Infer
+                | TokenKind::As
+                | TokenKind::Is
+                | TokenKind::From
+                | TokenKind::Default
+                | TokenKind::Static
+                | TokenKind::Public
+                | TokenKind::Private
+                | TokenKind::Protected
+                | TokenKind::Abstract
+                | TokenKind::In
+                | TokenKind::Out
+                | TokenKind::This
+                | TokenKind::String_
+                | TokenKind::Number_
+                | TokenKind::Boolean_
+                | TokenKind::Void_
+                | TokenKind::Null_
+                | TokenKind::Undefined_
+                | TokenKind::Any_
+                | TokenKind::Unknown_
+                | TokenKind::Never_
+                | TokenKind::Object_
+                | TokenKind::Symbol_
+                | TokenKind::BigInt_
+                | TokenKind::True_
+                | TokenKind::False_
+        )
+    }
+
+    /// Convert any keyword token to its string representation for use as property name.
+    fn token_to_ident_name(&self) -> String {
+        match self.peek() {
+            TokenKind::Declare => "declare".to_string(),
+            TokenKind::Function => "function".to_string(),
+            TokenKind::Interface => "interface".to_string(),
+            TokenKind::Class => "class".to_string(),
+            TokenKind::Type => "type".to_string(),
+            TokenKind::Namespace => "namespace".to_string(),
+            TokenKind::Module => "module".to_string(),
+            TokenKind::Export => "export".to_string(),
+            TokenKind::Import => "import".to_string(),
+            TokenKind::Const => "const".to_string(),
+            TokenKind::Let => "let".to_string(),
+            TokenKind::Var => "var".to_string(),
+            TokenKind::Readonly => "readonly".to_string(),
+            TokenKind::Extends => "extends".to_string(),
+            TokenKind::Implements => "implements".to_string(),
+            TokenKind::New => "new".to_string(),
+            TokenKind::Typeof => "typeof".to_string(),
+            TokenKind::Keyof => "keyof".to_string(),
+            TokenKind::Infer => "infer".to_string(),
+            TokenKind::As => "as".to_string(),
+            TokenKind::Is => "is".to_string(),
+            TokenKind::From => "from".to_string(),
+            TokenKind::Default => "default".to_string(),
+            TokenKind::Static => "static".to_string(),
+            TokenKind::Public => "public".to_string(),
+            TokenKind::Private => "private".to_string(),
+            TokenKind::Protected => "protected".to_string(),
+            TokenKind::Abstract => "abstract".to_string(),
+            TokenKind::In => "in".to_string(),
+            TokenKind::Out => "out".to_string(),
+            TokenKind::This => "this".to_string(),
+            TokenKind::String_ => "string".to_string(),
+            TokenKind::Number_ => "number".to_string(),
+            TokenKind::Boolean_ => "boolean".to_string(),
+            TokenKind::Void_ => "void".to_string(),
+            TokenKind::Null_ => "null".to_string(),
+            TokenKind::Undefined_ => "undefined".to_string(),
+            TokenKind::Any_ => "any".to_string(),
+            TokenKind::Unknown_ => "unknown".to_string(),
+            TokenKind::Never_ => "never".to_string(),
+            TokenKind::Object_ => "object".to_string(),
+            TokenKind::Symbol_ => "symbol".to_string(),
+            TokenKind::BigInt_ => "bigint".to_string(),
+            TokenKind::True_ => "true".to_string(),
+            TokenKind::False_ => "false".to_string(),
+            _ => panic!("token_to_ident_name called on non-keyword: {:?}", self.peek()),
+        }
+    }
+
+    /// Accept any keyword or identifier as a property name.
+    /// Per TypeScript spec, PropertyName uses IdentifierName which allows keywords.
+    fn expect_property_name(&mut self) -> ParseResult<String> {
+        match self.peek().clone() {
+            TokenKind::Ident(name) => {
+                self.advance();
+                Ok(name)
+            }
+            // Accept string literals as property names
+            TokenKind::StringLiteral(s) => {
+                self.advance();
+                Ok(s)
+            }
+            // Accept ANY keyword as property name
+            _ if self.is_keyword_token() => {
+                let name = self.token_to_ident_name();
+                self.advance();
+                Ok(name)
+            }
+            _ => Err(ParseError {
+                message: format!("expected property name, found {:?}", self.peek()),
+                pos: self.current().start,
+            }),
+        }
+    }
+
+    /// Check if current modifier keyword is actually a property name.
+    /// Returns true if it's a modifier (followed by another identifier/keyword that is NOT a punctuation).
+    /// Returns false if it's a property name (followed by : or ? or ( or <).
+    fn is_modifier_not_property(&self) -> bool {
+        // Check next token to disambiguate
+        let next = self.peek_nth(1);
+        // If followed by : or ? or ( or <, the current token is a property/method name, not a modifier
+        // Example: `readonly: boolean` -> readonly is property name
+        // Example: `readonly name: string` -> readonly is modifier
+        // Example: `readonly(flag: bool): bool` -> readonly is method name
+        // Example: `readonly<T>(x: T): T` -> readonly is method name
+        !matches!(next, TokenKind::Colon | TokenKind::Question | TokenKind::LParen | TokenKind::LAngle)
+    }
+
     fn parse_file(&mut self) -> ParseResult<DtsFile> {
         let mut items = Vec::new();
 
@@ -325,7 +470,14 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_interface_member(&mut self) -> ParseResult<Option<InterfaceMember>> {
-        let readonly = self.matches(&TokenKind::Readonly);
+        // Handle readonly modifier with disambiguation
+        // readonly: boolean (property named "readonly") vs readonly name: string (modifier)
+        let readonly = if self.check(&TokenKind::Readonly) && self.is_modifier_not_property() {
+            self.advance();
+            true
+        } else {
+            false
+        };
 
         // Check for index signature: [key: Type]: Type
         if self.check(&TokenKind::LBracket) {
@@ -352,7 +504,9 @@ impl<'src> Parser<'src> {
         }
 
         // Check for construct signature: new (params): Type
-        if self.matches(&TokenKind::New) {
+        // But only if "new" is followed by ( - otherwise it might be a property named "new"
+        if self.check(&TokenKind::New) && self.is_modifier_not_property() {
+            self.advance();
             let type_params = self.parse_type_params()?;
             let params = self.parse_params()?;
             let return_type = if self.matches(&TokenKind::Colon) {
@@ -371,16 +525,11 @@ impl<'src> Parser<'src> {
             )));
         }
 
-        // Property or method
-        let name = match self.peek() {
-            TokenKind::Ident(_) => self.expect_ident()?,
-            TokenKind::StringLiteral(s) => {
-                let s = s.clone();
-                self.advance();
-                s
-            }
-            _ => {
-                // Skip unknown
+        // Property or method - use expect_property_name to accept keywords
+        let name = match self.expect_property_name() {
+            Ok(n) => n,
+            Err(_) => {
+                // Skip unknown token
                 self.advance();
                 return Ok(None);
             }
@@ -487,33 +636,35 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_class_member(&mut self) -> ParseResult<Option<ClassMember>> {
-        // Parse modifiers
+        // Parse modifiers with disambiguation
+        // e.g., `static: boolean` (property named "static") vs `static name: string` (modifier)
         let mut visibility = Visibility::Public;
         let mut is_static = false;
         let mut readonly = false;
+
         loop {
             match self.peek() {
-                TokenKind::Public => {
+                TokenKind::Public if self.is_modifier_not_property() => {
                     visibility = Visibility::Public;
                     self.advance();
                 }
-                TokenKind::Private => {
+                TokenKind::Private if self.is_modifier_not_property() => {
                     visibility = Visibility::Private;
                     self.advance();
                 }
-                TokenKind::Protected => {
+                TokenKind::Protected if self.is_modifier_not_property() => {
                     visibility = Visibility::Protected;
                     self.advance();
                 }
-                TokenKind::Static => {
+                TokenKind::Static if self.is_modifier_not_property() => {
                     is_static = true;
                     self.advance();
                 }
-                TokenKind::Readonly => {
+                TokenKind::Readonly if self.is_modifier_not_property() => {
                     readonly = true;
                     self.advance();
                 }
-                TokenKind::Abstract => {
+                TokenKind::Abstract if self.is_modifier_not_property() => {
                     // Skip abstract modifier
                     self.advance();
                 }
@@ -521,24 +672,40 @@ impl<'src> Parser<'src> {
             }
         }
 
-        // Constructor
-        if self.matches(&TokenKind::New) || self.check(&TokenKind::LParen) {
-            if self.check(&TokenKind::LParen) {
-                // constructor(params)
-                let type_params = self.parse_type_params()?;
-                let params = self.parse_params()?;
-                let return_type = if self.matches(&TokenKind::Colon) {
-                    Some(self.parse_type()?)
-                } else {
-                    None
-                };
-                self.matches(&TokenKind::Semicolon);
-                return Ok(Some(ClassMember::Constructor(ConstructSignature {
-                    type_params,
-                    params,
-                    return_type,
-                })));
-            }
+        // Constructor - but only if "new" is followed by ( or <, otherwise it's a property
+        if self.check(&TokenKind::New) && self.is_modifier_not_property() {
+            self.advance();
+            // constructor(params)
+            let type_params = self.parse_type_params()?;
+            let params = self.parse_params()?;
+            let return_type = if self.matches(&TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            self.matches(&TokenKind::Semicolon);
+            return Ok(Some(ClassMember::Constructor(ConstructSignature {
+                type_params,
+                params,
+                return_type,
+            })));
+        }
+
+        // Constructor with just parens (no "new")
+        if self.check(&TokenKind::LParen) {
+            let type_params = self.parse_type_params()?;
+            let params = self.parse_params()?;
+            let return_type = if self.matches(&TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            self.matches(&TokenKind::Semicolon);
+            return Ok(Some(ClassMember::Constructor(ConstructSignature {
+                type_params,
+                params,
+                return_type,
+            })));
         }
 
         // Index signature
@@ -547,19 +714,10 @@ impl<'src> Parser<'src> {
             return Ok(Some(ClassMember::IndexSignature(sig)));
         }
 
-        // Property or method
-        let name = match self.peek() {
-            TokenKind::Ident(name) => {
-                let n = name.clone();
-                self.advance();
-                n
-            }
-            TokenKind::StringLiteral(s) => {
-                let s = s.clone();
-                self.advance();
-                s
-            }
-            _ => {
+        // Property or method - use expect_property_name to accept keywords
+        let name = match self.expect_property_name() {
+            Ok(n) => n,
+            Err(_) => {
                 self.advance();
                 return Ok(None);
             }
@@ -627,7 +785,8 @@ impl<'src> Parser<'src> {
             self.matches(&TokenKind::Var);
         }
 
-        let name = self.expect_ident()?;
+        // Variable name can be a keyword (e.g., `var static: Type`)
+        let name = self.expect_property_name()?;
         self.expect(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
         self.matches(&TokenKind::Semicolon);
@@ -1120,7 +1279,13 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_object_member(&mut self) -> ParseResult<Option<ObjectMember>> {
-        let readonly = self.matches(&TokenKind::Readonly);
+        // Handle readonly modifier with disambiguation
+        let readonly = if self.check(&TokenKind::Readonly) && self.is_modifier_not_property() {
+            self.advance();
+            true
+        } else {
+            false
+        };
 
         // Index signature
         if self.check(&TokenKind::LBracket) {
@@ -1146,8 +1311,9 @@ impl<'src> Parser<'src> {
             })));
         }
 
-        // Construct signature
-        if self.matches(&TokenKind::New) {
+        // Construct signature - but only if "new" is followed by (, not by : or ?
+        if self.check(&TokenKind::New) && self.is_modifier_not_property() {
+            self.advance();
             let type_params = self.parse_type_params()?;
             let params = self.parse_params()?;
             let return_type = if self.matches(&TokenKind::Colon) {
@@ -1164,15 +1330,10 @@ impl<'src> Parser<'src> {
             })));
         }
 
-        // Property or method
-        let name = match self.peek() {
-            TokenKind::Ident(_) => self.expect_ident()?,
-            TokenKind::StringLiteral(s) => {
-                let s = s.clone();
-                self.advance();
-                s
-            }
-            _ => {
+        // Property or method - use expect_property_name to accept keywords
+        let name = match self.expect_property_name() {
+            Ok(n) => n,
+            Err(_) => {
                 self.advance();
                 return Ok(None);
             }

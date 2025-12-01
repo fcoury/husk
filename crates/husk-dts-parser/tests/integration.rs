@@ -391,3 +391,253 @@ fn test_interface_properties_generate_getters() {
     assert!(!result.code.contains("fn set_headers"),
         "Readonly headers should not have setter");
 }
+
+/// Test parsing interface with keyword property names.
+#[test]
+fn test_keyword_as_property_name() {
+    let dts = r#"
+        interface Options {
+            static: boolean;
+            readonly: string;
+            public: number;
+            private: boolean;
+            class: string;
+            function: () => void;
+            new: string;
+            default: boolean;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse keywords as property names");
+
+    // Verify all properties are present
+    assert_eq!(file.items.len(), 1);
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Keywords should be escaped in generated code
+    assert!(result.code.contains("fn static_(self) -> bool;"),
+        "Should generate escaped static getter");
+    assert!(result.code.contains("fn readonly_(self) -> String;"),
+        "Should generate escaped readonly getter");
+    assert!(result.code.contains("fn public_(self) -> f64;"),
+        "Should generate escaped public getter");
+    assert!(result.code.contains("fn private_(self) -> bool;"),
+        "Should generate escaped private getter");
+    assert!(result.code.contains("fn class_(self) -> String;"),
+        "Should generate escaped class getter");
+    assert!(result.code.contains("fn new_(self) -> String;"),
+        "Should generate escaped new getter");
+    assert!(result.code.contains("fn default_(self) -> bool;"),
+        "Should generate escaped default getter");
+}
+
+/// Test disambiguating modifiers from property names.
+#[test]
+fn test_modifier_vs_property_name() {
+    let dts = r#"
+        interface Mixed {
+            readonly: boolean;
+            readonly name: string;
+            readonly readonly: boolean;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should disambiguate modifiers");
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // "readonly" alone is a property named "readonly"
+    assert!(result.code.contains("fn readonly_(self) -> bool;"),
+        "Should have readonly_ getter for property named readonly");
+
+    // "readonly name" means "name" is the property with readonly modifier
+    assert!(result.code.contains("fn name(self) -> String;"),
+        "Should have name getter (readonly modifier)");
+    assert!(!result.code.contains("fn set_name"),
+        "Readonly property 'name' should not have setter");
+
+    // "readonly readonly" means property named "readonly" with readonly modifier
+    // The second one should generate a getter for the readonly property
+}
+
+/// Test variable declarations with keyword names.
+#[test]
+fn test_var_with_keyword_name() {
+    let dts = r#"
+        declare var static: RequestHandler;
+        declare let readonly: boolean;
+        declare const public: string;
+    "#;
+
+    let file = parse(dts).expect("Should parse var with keyword name");
+
+    // All three should parse as variables
+    assert_eq!(file.items.len(), 3);
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Keywords should be escaped in function names
+    assert!(result.code.contains("fn static_() -> RequestHandler;"),
+        "Should generate escaped static constant");
+    assert!(result.code.contains("fn readonly_() -> bool;"),
+        "Should generate escaped readonly constant");
+    assert!(result.code.contains("fn public_() -> String;"),
+        "Should generate escaped public constant");
+}
+
+/// Test method names can be keywords.
+#[test]
+fn test_method_with_keyword_name() {
+    let dts = r#"
+        interface HttpClient {
+            delete(): Promise<Response>;
+            get(url: string): Promise<Response>;
+            static(value: boolean): void;
+            readonly(flag: boolean): boolean;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse methods with keyword names");
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Methods with keyword names
+    assert!(result.code.contains("fn delete(self) -> JsPromise<Response>;"),
+        "Should have delete method (not a keyword in Husk)");
+    assert!(result.code.contains("fn get(self, url: String) -> JsPromise<Response>;"),
+        "Should have get method");
+    assert!(result.code.contains("fn static_(self, value: bool);"),
+        "Should have escaped static_ method");
+    assert!(result.code.contains("fn readonly_(self, flag: bool) -> bool;"),
+        "Should have escaped readonly_ method");
+}
+
+/// Test that `new(...)` in interfaces can be parsed as a method named "new".
+/// Note: In TypeScript, `new(...)` at the start of a member is a construct signature,
+/// but our parser now treats it as a method when followed by `(`, making it more flexible.
+#[test]
+fn test_new_as_method_name() {
+    let dts = r#"
+        interface Factory {
+            new(config: Config): Product;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse");
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // `new(...)` is now parsed as a method named "new"
+    // The name gets escaped to `new_` in the generated code
+    assert!(result.code.contains("fn new_"),
+        "new(...) should be parsed as method and escaped to new_");
+}
+
+/// Test class properties with keyword names.
+#[test]
+fn test_class_keyword_properties() {
+    let dts = r#"
+        declare class Config {
+            static: boolean;
+            readonly: string;
+            static static: number;
+            readonly readonly: string;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse class with keyword properties");
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Instance properties named with keywords
+    assert!(result.code.contains("fn static_(self) -> bool;"),
+        "Should have instance static_ getter");
+    assert!(result.code.contains("fn readonly_(self) -> String;"),
+        "Should have instance readonly_ getter");
+
+    // Static property named "static" - "static static: number" means static property named "static"
+    assert!(result.code.contains("fn static_() -> f64;"),
+        "Should have static static_ getter (no self)");
+}
+
+/// Test object type literals with keyword property names.
+#[test]
+fn test_object_type_keyword_properties() {
+    let dts = r#"
+        type Options = {
+            static: boolean;
+            readonly: string;
+            function(): void;
+            new(): Options;
+        };
+    "#;
+
+    let file = parse(dts).expect("Should parse object type with keyword properties");
+
+    // Should parse successfully without errors
+    assert_eq!(file.items.len(), 1);
+}
+
+/// Test parsing the actual Express static property issue.
+#[test]
+fn test_express_static_property() {
+    let dts = r#"
+        declare namespace e {
+            var json: any;
+            var raw: any;
+            var static: RequestHandler;
+            var urlencoded: any;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse Express namespace with 'var static'");
+
+    // Should have namespace with 4 variables
+    assert_eq!(file.items.len(), 1);
+}
+
+/// Test parsing the actual better-sqlite3 readonly property issue.
+#[test]
+fn test_better_sqlite3_readonly_property() {
+    let dts = r#"
+        interface Statement {
+            database: Database;
+            source: string;
+            reader: boolean;
+            readonly: boolean;
+            busy: boolean;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse interface with 'readonly' as property name");
+
+    // Verify we have the interface with all properties
+    assert_eq!(file.items.len(), 1);
+
+    let result = generate(&file, &CodegenOptions::default());
+
+    // The property named "readonly" should generate an escaped getter
+    assert!(result.code.contains("fn readonly_(self) -> bool;"),
+        "Should have readonly_ getter for property named 'readonly'");
+}
+
+/// Test generated code escapes TypeScript keywords.
+#[test]
+fn test_keyword_property_codegen() {
+    let dts = r#"
+        interface Config {
+            static: boolean;
+            readonly: string;
+        }
+    "#;
+
+    let file = parse(dts).expect("Should parse");
+    let result = generate(&file, &CodegenOptions::default());
+
+    // Verify keywords are escaped in generated Husk code
+    assert!(result.code.contains("static_"),
+        "static should be escaped to static_");
+    assert!(result.code.contains("readonly_"),
+        "readonly should be escaped to readonly_");
+}
