@@ -165,6 +165,9 @@ struct FnDef {
 #[allow(dead_code)]
 struct ModuleDef {
     name: String,
+    /// Return type for calling this module as a function.
+    /// Inferred from the first struct in the same extern block if not the capitalized name.
+    ret_type: Option<String>,
 }
 
 /// Information about a trait definition.
@@ -292,6 +295,15 @@ impl TypeChecker {
                     self.env.functions.insert(name.name.clone(), def);
                 }
                 ItemKind::ExternBlock { items, .. } => {
+                    // First pass: collect all struct names in this extern block
+                    let mut struct_names: Vec<String> = Vec::new();
+                    for ext in items {
+                        if let husk_ast::ExternItemKind::Struct { name, .. } = &ext.kind {
+                            struct_names.push(name.name.clone());
+                        }
+                    }
+
+                    // Second pass: register all items
                     for ext in items {
                         match &ext.kind {
                             husk_ast::ExternItemKind::Fn {
@@ -306,16 +318,33 @@ impl TypeChecker {
                                 };
                                 self.env.functions.insert(name.name.clone(), def);
                             }
-                            husk_ast::ExternItemKind::Mod { binding, items, .. } => {
-                                if items.is_empty() {
+                            husk_ast::ExternItemKind::Mod { binding, items: mod_items, .. } => {
+                                if mod_items.is_empty() {
                                     // Simple module import becomes a callable identifier.
+                                    // Try to infer return type from struct in same block:
+                                    // 1. First, try capitalizing the first letter (e.g., express -> Express)
+                                    // 2. If that doesn't match, use the first struct in the block
+                                    let capitalized = {
+                                        let mut chars = binding.name.chars();
+                                        match chars.next() {
+                                            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                                            None => binding.name.clone(),
+                                        }
+                                    };
+                                    let ret_type = if struct_names.contains(&capitalized) {
+                                        Some(capitalized)
+                                    } else {
+                                        // Use the first struct in the block as a fallback
+                                        struct_names.first().cloned()
+                                    };
                                     let def = ModuleDef {
                                         name: binding.name.clone(),
+                                        ret_type,
                                     };
                                     self.env.modules.insert(binding.name.clone(), def);
                                 } else {
                                     // Mod block with functions - register each function.
-                                    for mod_item in items {
+                                    for mod_item in mod_items {
                                         if let husk_ast::ModItemKind::Fn {
                                             name,
                                             params,
@@ -899,13 +928,14 @@ impl<'a> FnContext<'a> {
 
                 // Try imported JS module (from `mod name;` in extern block).
                 // Modules are treated as callable with any args, returning an opaque type.
-                if self.tcx.env.modules.contains_key(&id.name) {
-                    // Return a function type that accepts any args and returns an opaque type.
-                    // For MVP, we use an empty params list and return a named type.
+                if let Some(module_def) = self.tcx.env.modules.get(&id.name) {
+                    // Use the stored return type if available, otherwise use the module name
+                    let ret_type_name = module_def.ret_type.clone()
+                        .unwrap_or_else(|| id.name.clone());
                     return Type::Function {
                         params: Vec::new(),
                         ret: Box::new(Type::Named {
-                            name: id.name.clone(),
+                            name: ret_type_name,
                             args: Vec::new(),
                         }),
                     };
@@ -1048,15 +1078,56 @@ impl<'a> FnContext<'a> {
             }
             ExprKind::MethodCall {
                 receiver,
-                method: _,
+                method,
                 args,
             } => {
-                // MVP: just type-check receiver and arguments, but treat result as unit.
-                let _ = self.check_expr(receiver);
+                // Type-check receiver and arguments
+                let receiver_ty = self.check_expr(receiver);
                 for arg in args {
                     let _ = self.check_expr(arg);
                 }
-                Type::Primitive(PrimitiveType::Unit)
+
+                // Try to resolve the method's return type from impl blocks
+                let method_name = &method.name;
+                let receiver_type_name = match &receiver_ty {
+                    Type::Named { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+
+                // Look up the method in impl blocks and get its return type.
+                // Use Option<Option<TypeExpr>> to distinguish "method not found" from "method found with no return type"
+                let method_lookup_result: Option<Option<TypeExpr>> = if let Some(ref type_name) = receiver_type_name
+                {
+                    let mut found = None;
+                    for impl_info in &self.tcx.env.impls {
+                        if impl_info.self_ty_name == *type_name {
+                            if let Some(method_info) = impl_info.methods.get(method_name) {
+                                // Found the method - wrap ret_type in Some to indicate success
+                                found = Some(method_info.ret_type.clone());
+                                break;
+                            }
+                        }
+                    }
+                    found
+                } else {
+                    None
+                };
+
+                // Resolve the return type
+                match method_lookup_result {
+                    Some(Some(ret_type_expr)) => {
+                        // Method found with explicit return type
+                        self.tcx.resolve_type_expr(&ret_type_expr, &[])
+                    }
+                    Some(None) => {
+                        // Method found but returns unit (no explicit return type)
+                        Type::Primitive(PrimitiveType::Unit)
+                    }
+                    None => {
+                        // Method not found - return Unit as fallback
+                        Type::Primitive(PrimitiveType::Unit)
+                    }
+                }
             }
             ExprKind::Unary { op, expr: inner } => {
                 let inner_ty = self.check_expr(inner);

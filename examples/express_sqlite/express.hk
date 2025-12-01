@@ -1,0 +1,37 @@
+// Express.js bindings for Husk
+// Demonstrates property getters (body, params, query) that generate correct JS property access
+
+extern "js" {
+    mod express;
+
+    struct Express;
+    struct Request;
+    struct Response;
+
+    fn express() -> Express;
+    // express.json() middleware for parsing JSON bodies
+    fn express_json() -> JsValue;
+}
+
+impl Express {
+    extern "js" fn use_middleware(self, middleware: JsValue);
+    extern "js" fn get(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn post(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn put(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn delete(self, path: String, handler: fn(Request, Response) -> ());
+    extern "js" fn listen(self, port: f64, callback: fn() -> ());
+}
+
+impl Request {
+    // Property getters - these generate property access (req.body) not method calls (req.body())
+    extern "js" fn body(self) -> JsValue;
+    extern "js" fn params(self) -> JsValue;
+    extern "js" fn query(self) -> JsValue;
+    extern "js" fn path(self) -> String;
+}
+
+impl Response {
+    extern "js" fn status(self, code: f64) -> Response;
+    extern "js" fn json(self, data: JsValue);
+    extern "js" fn send(self, body: String);
+}

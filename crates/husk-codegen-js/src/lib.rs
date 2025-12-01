@@ -13,6 +13,23 @@ use husk_ast::{
 };
 use husk_runtime_js::std_preamble_js;
 use sourcemap::SourceMapBuilder;
+use std::collections::HashMap;
+
+/// Tracks extern property accessors (getters and setters) for codegen.
+///
+/// When an extern impl method matches the getter/setter pattern, we need to
+/// generate property access instead of method calls:
+/// - `obj.prop()` → `obj.prop` (getter)
+/// - `obj.set_prop(value)` → `obj.prop = value` (setter)
+#[derive(Debug, Clone, Default)]
+struct PropertyAccessors {
+    /// Maps (type_name, method_name) -> property_name for getters
+    /// e.g., ("Request", "body") -> "body"
+    getters: HashMap<(String, String), String>,
+    /// Maps (type_name, method_name) -> property_name for setters
+    /// e.g., ("Request", "set_body") -> "body"
+    setters: HashMap<(String, String), String>,
+}
 
 /// A JavaScript module (ES module) consisting of a list of statements.
 #[derive(Debug, Clone, PartialEq)]
@@ -211,6 +228,57 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
+    // Collect property accessors from extern impl blocks
+    // An extern method is a getter if: no params (besides self), has return type
+    // An extern method is a setter if: starts with "set_", has one param (besides self), no return
+    let mut accessors = PropertyAccessors::default();
+    for item in &file.items {
+        if let ItemKind::Impl(impl_block) = &item.kind {
+            let type_name = type_expr_to_js_name(&impl_block.self_ty);
+            for impl_item in &impl_block.items {
+                if let ImplItemKind::Method(method) = &impl_item.kind {
+                    if method.is_extern && method.receiver.is_some() {
+                        let method_name = &method.name.name;
+                        // Methods that should NOT be treated as getters even if they have
+                        // no params and a return type. These are actual method calls in JS.
+                        // TODO: Replace with proper #[getter] attribute support
+                        const NON_GETTER_METHODS: &[&str] = &[
+                            "all",         // stmt.all() in better-sqlite3
+                            "toJsValue",   // JsObject.toJsValue() builder method
+                            "open",        // db.open() check if database is open
+                            "run",         // stmt.run() execute statement
+                            "iterate",     // stmt.iterate() in better-sqlite3
+                            "bind",        // stmt.bind() in better-sqlite3
+                            "pluck",       // stmt.pluck() in better-sqlite3
+                            "raw",         // stmt.raw() in better-sqlite3
+                            "columns",     // stmt.columns() in better-sqlite3
+                        ];
+                        let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
+
+                        // Check if it's a getter: no params, has return type, and not in exclusion list
+                        if method.params.is_empty() && method.ret_type.is_some() && !is_non_getter {
+                            accessors.getters.insert(
+                                (type_name.clone(), method_name.clone()),
+                                method_name.clone(),
+                            );
+                        }
+                        // Check if it's a setter: starts with "set_", one param, no return
+                        else if method_name.starts_with("set_")
+                            && method.params.len() == 1
+                            && method.ret_type.is_none()
+                        {
+                            let prop_name = method_name.strip_prefix("set_").unwrap().to_string();
+                            accessors.setters.insert(
+                                (type_name.clone(), method_name.clone()),
+                                prop_name,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // First pass: collect module imports
     for item in &file.items {
         if let ItemKind::ExternBlock { abi, items } = &item.kind {
@@ -281,7 +349,7 @@ pub fn lower_file_to_js_with_source(
                 ..
             } => {
                 body.push(lower_fn_with_span(
-                    &name.name, params, fn_body, &item.span, source,
+                    &name.name, params, fn_body, &item.span, source, &accessors,
                 ));
                 fn_names.push(name.name.clone());
                 if name.name == "main" && params.is_empty() {
@@ -290,6 +358,22 @@ pub fn lower_file_to_js_with_source(
             }
             ItemKind::ExternBlock { abi, items } => {
                 if abi == "js" {
+                    // Functions that are already defined in the runtime preamble
+                    // and should not have wrappers generated
+                    const PREAMBLE_FUNCTIONS: &[&str] = &[
+                        "JsObject_new",
+                        "jsvalue_get",
+                        "jsvalue_getString",
+                        "jsvalue_getNumber",
+                        "jsvalue_getBool",
+                        "jsvalue_getArray",
+                        "jsvalue_isNull",
+                        "jsvalue_toString",
+                        "jsvalue_toBool",
+                        "jsvalue_toNumber",
+                        "express_json",
+                    ];
+
                     for ext in items {
                         match &ext.kind {
                             ExternItemKind::Fn {
@@ -297,7 +381,10 @@ pub fn lower_file_to_js_with_source(
                                 params,
                                 ret_type,
                             } => {
-                                body.push(lower_extern_fn(name, params, ret_type.as_ref()));
+                                // Skip functions that are already in the preamble
+                                if !PREAMBLE_FUNCTIONS.contains(&name.name.as_str()) {
+                                    body.push(lower_extern_fn(name, params, ret_type.as_ref()));
+                                }
                             }
                             ExternItemKind::Mod { .. } => {
                                 // Already handled in first pass
@@ -326,6 +413,7 @@ pub fn lower_file_to_js_with_source(
                             method,
                             &impl_item.span,
                             source,
+                            &accessors,
                         ));
                     }
                 }
@@ -379,15 +467,16 @@ fn lower_fn_with_span(
     body: &[Stmt],
     span: &Span,
     source: Option<&str>,
+    accessors: &PropertyAccessors,
 ) -> JsStmt {
     let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
     let mut js_body = Vec::new();
     for (i, stmt) in body.iter().enumerate() {
         let is_last = i + 1 == body.len();
         if is_last {
-            js_body.push(lower_tail_stmt(stmt));
+            js_body.push(lower_tail_stmt(stmt, accessors));
         } else {
-            js_body.push(lower_stmt(stmt));
+            js_body.push(lower_stmt(stmt, accessors));
         }
     }
 
@@ -460,6 +549,7 @@ fn lower_impl_method(
     method: &husk_ast::ImplMethod,
     span: &Span,
     source: Option<&str>,
+    accessors: &PropertyAccessors,
 ) -> JsStmt {
     let method_name = &method.name.name;
 
@@ -472,9 +562,9 @@ fn lower_impl_method(
     for (i, stmt) in method.body.iter().enumerate() {
         let is_last = i + 1 == method.body.len();
         if is_last {
-            js_body.push(lower_tail_stmt(stmt));
+            js_body.push(lower_tail_stmt(stmt, accessors));
         } else {
-            js_body.push(lower_stmt(stmt));
+            js_body.push(lower_stmt(stmt, accessors));
         }
     }
 
@@ -516,27 +606,27 @@ fn lower_impl_method(
     })
 }
 
-fn lower_tail_stmt(stmt: &Stmt) -> JsStmt {
+fn lower_tail_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
     match &stmt.kind {
         // Treat a trailing expression statement as an implicit `return expr;`,
         // to mirror Rust-style expression-bodied functions.
-        StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr)),
+        StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr, accessors)),
         // For if statements in tail position, wrap branch results in returns.
         StmtKind::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            let js_cond = lower_expr(cond);
+            let js_cond = lower_expr(cond, accessors);
             let then_block: Vec<JsStmt> = then_branch
                 .stmts
                 .iter()
                 .enumerate()
                 .map(|(i, s)| {
                     if i + 1 == then_branch.stmts.len() {
-                        lower_tail_stmt(s)
+                        lower_tail_stmt(s, accessors)
                     } else {
-                        lower_stmt(s)
+                        lower_stmt(s, accessors)
                     }
                 })
                 .collect();
@@ -549,14 +639,14 @@ fn lower_tail_stmt(stmt: &Stmt) -> JsStmt {
                         .enumerate()
                         .map(|(i, s)| {
                             if i + 1 == block.stmts.len() {
-                                lower_tail_stmt(s)
+                                lower_tail_stmt(s, accessors)
                             } else {
-                                lower_stmt(s)
+                                lower_stmt(s, accessors)
                             }
                         })
                         .collect(),
-                    StmtKind::If { .. } => vec![lower_tail_stmt(else_stmt)],
-                    _ => vec![lower_tail_stmt(else_stmt)],
+                    StmtKind::If { .. } => vec![lower_tail_stmt(else_stmt, accessors)],
+                    _ => vec![lower_tail_stmt(else_stmt, accessors)],
                 }
             });
             JsStmt::If {
@@ -565,7 +655,7 @@ fn lower_tail_stmt(stmt: &Stmt) -> JsStmt {
                 else_block,
             }
         }
-        _ => lower_stmt(stmt),
+        _ => lower_stmt(stmt, accessors),
     }
 }
 
@@ -635,7 +725,7 @@ fn lower_extern_body(
     }
 }
 
-fn lower_stmt(stmt: &Stmt) -> JsStmt {
+fn lower_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
     match &stmt.kind {
         StmtKind::Let {
             mutable: _,
@@ -644,13 +734,13 @@ fn lower_stmt(stmt: &Stmt) -> JsStmt {
             value,
         } => JsStmt::Let {
             name: name.name.clone(),
-            init: value.as_ref().map(lower_expr),
+            init: value.as_ref().map(|e| lower_expr(e, accessors)),
         },
-        StmtKind::Expr(expr) | StmtKind::Semi(expr) => JsStmt::Expr(lower_expr(expr)),
+        StmtKind::Expr(expr) | StmtKind::Semi(expr) => JsStmt::Expr(lower_expr(expr, accessors)),
         StmtKind::Return { value } => {
             let expr = value
                 .as_ref()
-                .map(lower_expr)
+                .map(|e| lower_expr(e, accessors))
                 // Represent `return;` as `return undefined;` for now.
                 .unwrap_or_else(|| JsExpr::Ident("undefined".to_string()));
             JsStmt::Return(expr)
@@ -661,7 +751,7 @@ fn lower_stmt(stmt: &Stmt) -> JsStmt {
             // expression, discarding internal structure. This is a placeholder
             // until we add proper JS block statements.
             if let Some(last) = block.stmts.last() {
-                lower_stmt(last)
+                lower_stmt(last, accessors)
             } else {
                 JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
             }
@@ -671,14 +761,22 @@ fn lower_stmt(stmt: &Stmt) -> JsStmt {
             then_branch,
             else_branch,
         } => {
-            let js_cond = lower_expr(cond);
-            let then_block: Vec<JsStmt> = then_branch.stmts.iter().map(lower_stmt).collect();
+            let js_cond = lower_expr(cond, accessors);
+            let then_block: Vec<JsStmt> = then_branch
+                .stmts
+                .iter()
+                .map(|s| lower_stmt(s, accessors))
+                .collect();
             let else_block = else_branch.as_ref().map(|else_stmt| {
                 // else_branch is a Box<Stmt>, which may be another If or a Block
                 match &else_stmt.kind {
-                    StmtKind::Block(block) => block.stmts.iter().map(lower_stmt).collect(),
-                    StmtKind::If { .. } => vec![lower_stmt(else_stmt)],
-                    _ => vec![lower_stmt(else_stmt)],
+                    StmtKind::Block(block) => block
+                        .stmts
+                        .iter()
+                        .map(|s| lower_stmt(s, accessors))
+                        .collect(),
+                    StmtKind::If { .. } => vec![lower_stmt(else_stmt, accessors)],
+                    _ => vec![lower_stmt(else_stmt, accessors)],
                 }
             });
             JsStmt::If {
@@ -694,7 +792,30 @@ fn lower_stmt(stmt: &Stmt) -> JsStmt {
     }
 }
 
-fn lower_expr(expr: &Expr) -> JsExpr {
+/// Strip numeric suffix from method names for variadic function emulation.
+/// E.g., "run1" -> "run", "run2" -> "run", "run" -> "run"
+/// This allows Husk to declare `fn run1(self, p1: T)`, `fn run2(self, p1: T, p2: U)`
+/// but emit `.run(p1)`, `.run(p1, p2)` in JavaScript for variadic JS functions.
+fn strip_variadic_suffix(method_name: &str) -> String {
+    // Check if the method ends with one or more digits
+    let last_non_digit = method_name
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !c.is_ascii_digit());
+
+    match last_non_digit {
+        Some((idx, _)) if idx < method_name.len() - 1 => {
+            // Has trailing digits - strip them
+            method_name[..=idx].to_string()
+        }
+        _ => {
+            // No trailing digits or all digits - return as-is
+            method_name.to_string()
+        }
+    }
+}
+
+fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
     match &expr.kind {
         ExprKind::Literal(lit) => match &lit.kind {
             LiteralKind::Int(n) => JsExpr::Number(*n),
@@ -720,20 +841,61 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             JsExpr::Object(vec![("tag".to_string(), JsExpr::String(variant))])
         }
         ExprKind::Field { base, member } => JsExpr::Member {
-            object: Box::new(lower_expr(base)),
+            object: Box::new(lower_expr(base, accessors)),
             property: member.name.clone(),
         },
         ExprKind::MethodCall {
             receiver,
             method,
             args,
-        } => JsExpr::Call {
-            callee: Box::new(JsExpr::Member {
-                object: Box::new(lower_expr(receiver)),
-                property: method.name.clone(),
-            }),
-            args: args.iter().map(lower_expr).collect(),
-        },
+        } => {
+            // Try to determine receiver type for getter/setter lookup.
+            // For now, we use a heuristic: look up by method name across all types.
+            // A more robust solution would require type information from semantic analysis.
+            let method_name = &method.name;
+
+            // Check if this is a getter (no args, matches getter pattern)
+            if args.is_empty() {
+                // Search for any type that has this method as a getter
+                for ((_, m), prop) in &accessors.getters {
+                    if m == method_name {
+                        // Found a getter! Emit property access instead of method call.
+                        return JsExpr::Member {
+                            object: Box::new(lower_expr(receiver, accessors)),
+                            property: prop.clone(),
+                        };
+                    }
+                }
+            }
+
+            // Check if this is a setter (one arg, method starts with "set_")
+            if args.len() == 1 && method_name.starts_with("set_") {
+                // Search for any type that has this method as a setter
+                for ((_, m), prop) in &accessors.setters {
+                    if m == method_name {
+                        // Found a setter! Emit property assignment instead of method call.
+                        return JsExpr::Assignment {
+                            left: Box::new(JsExpr::Member {
+                                object: Box::new(lower_expr(receiver, accessors)),
+                                property: prop.clone(),
+                            }),
+                            right: Box::new(lower_expr(&args[0], accessors)),
+                        };
+                    }
+                }
+            }
+
+            // Default: emit as a regular method call
+            // Strip numeric suffix for variadic function emulation (run1, run2, run3 -> run)
+            let js_method_name = strip_variadic_suffix(&method.name);
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Member {
+                    object: Box::new(lower_expr(receiver, accessors)),
+                    property: js_method_name,
+                }),
+                args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
+            }
+        }
         ExprKind::Call { callee, args } => {
             // Handle built-in functions like println -> console.log
             if let ExprKind::Ident(ref id) = callee.kind {
@@ -743,13 +905,20 @@ fn lower_expr(expr: &Expr) -> JsExpr {
                             object: Box::new(JsExpr::Ident("console".to_string())),
                             property: "log".to_string(),
                         }),
-                        args: args.iter().map(lower_expr).collect(),
+                        args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
+                    };
+                }
+                // Rewrite express() to __husk_express() to patch use -> use_middleware
+                if id.name == "express" {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_express".to_string())),
+                        args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
                     };
                 }
             }
             JsExpr::Call {
-                callee: Box::new(lower_expr(callee)),
-                args: args.iter().map(lower_expr).collect(),
+                callee: Box::new(lower_expr(callee, accessors)),
+                args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
             }
         }
         ExprKind::Binary { op, left, right } => {
@@ -774,17 +943,20 @@ fn lower_expr(expr: &Expr) -> JsExpr {
             };
             JsExpr::Binary {
                 op: js_op,
-                left: Box::new(lower_expr(left)),
-                right: Box::new(lower_expr(right)),
+                left: Box::new(lower_expr(left, accessors)),
+                right: Box::new(lower_expr(right, accessors)),
             }
         }
-        ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms),
+        ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms, accessors),
         ExprKind::Struct { name, fields } => {
             // Lower struct instantiation to a constructor call.
             // `Point { x: 1, y: 2 }` -> `new Point(1, 2)`
             // The order of args must match the order of fields in the struct definition.
             // For now, we pass them in the order they appear in the instantiation.
-            let args: Vec<JsExpr> = fields.iter().map(|f| lower_expr(&f.value)).collect();
+            let args: Vec<JsExpr> = fields
+                .iter()
+                .map(|f| lower_expr(&f.value, accessors))
+                .collect();
             // name is a Vec<Ident> representing the path (e.g., ["Point"] or ["module", "Point"])
             let constructor_name = name
                 .last()
@@ -798,7 +970,11 @@ fn lower_expr(expr: &Expr) -> JsExpr {
         ExprKind::Block(block) => {
             // Lower a block expression to an IIFE (Immediately Invoked Function Expression).
             // This allows blocks to be used as expressions in JavaScript.
-            let mut body: Vec<JsStmt> = block.stmts.iter().map(lower_stmt).collect();
+            let mut body: Vec<JsStmt> = block
+                .stmts
+                .iter()
+                .map(|s| lower_stmt(s, accessors))
+                .collect();
             // Wrap the last statement in a return if it's an expression.
             if let Some(last) = body.pop() {
                 match last {
@@ -813,7 +989,7 @@ fn lower_expr(expr: &Expr) -> JsExpr {
         ExprKind::FormatPrint { format, args } => {
             // Generate console.log with string concatenation for format string.
             // Build the formatted string by concatenating literal segments and formatted args.
-            lower_format_print(&format.segments, args)
+            lower_format_print(&format.segments, args, accessors)
         }
         ExprKind::Closure {
             params,
@@ -833,16 +1009,16 @@ fn lower_expr(expr: &Expr) -> JsExpr {
                     for (i, stmt) in block.stmts.iter().enumerate() {
                         let is_last = i + 1 == block.stmts.len();
                         if is_last {
-                            stmts.push(lower_tail_stmt(stmt));
+                            stmts.push(lower_tail_stmt(stmt, accessors));
                         } else {
-                            stmts.push(lower_stmt(stmt));
+                            stmts.push(lower_stmt(stmt, accessors));
                         }
                     }
                     stmts
                 }
                 _ => {
                     // For expression bodies, wrap in a return statement
-                    vec![JsStmt::Return(lower_expr(body))]
+                    vec![JsStmt::Return(lower_expr(body, accessors))]
                 }
             };
 
@@ -855,7 +1031,11 @@ fn lower_expr(expr: &Expr) -> JsExpr {
 }
 
 /// Lower a FormatPrint expression to a console.log call.
-fn lower_format_print(segments: &[FormatSegment], args: &[Expr]) -> JsExpr {
+fn lower_format_print(
+    segments: &[FormatSegment],
+    args: &[Expr],
+    accessors: &PropertyAccessors,
+) -> JsExpr {
     // Track which argument we're using for implicit positioning
     let mut implicit_index = 0;
     let mut parts: Vec<JsExpr> = Vec::new();
@@ -876,7 +1056,7 @@ fn lower_format_print(segments: &[FormatSegment], args: &[Expr]) -> JsExpr {
                 });
 
                 if let Some(arg) = args.get(arg_index) {
-                    let arg_js = lower_expr(arg);
+                    let arg_js = lower_expr(arg, accessors);
                     let formatted = format_arg(arg_js, &ph.spec);
                     parts.push(formatted);
                 }
@@ -1043,10 +1223,14 @@ fn has_formatting(spec: &FormatSpec) -> bool {
         || spec.precision.is_some()
 }
 
-fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm]) -> JsExpr {
+fn lower_match_expr(
+    scrutinee: &Expr,
+    arms: &[husk_ast::MatchArm],
+    accessors: &PropertyAccessors,
+) -> JsExpr {
     use husk_ast::PatternKind;
 
-    let scrutinee_js = lower_expr(scrutinee);
+    let scrutinee_js = lower_expr(scrutinee, accessors);
 
     // Build nested conditional expression from the arms, folding from the end.
     // For a catch-all (wildcard or binding) arm, we treat its body as the final `else`.
@@ -1081,11 +1265,11 @@ fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm]) -> JsExpr {
     // Start from the last arm as the innermost expression.
     let mut iter = arms.iter().rev();
     let last_arm = iter.next().unwrap();
-    let mut acc = lower_expr(&last_arm.expr);
+    let mut acc = lower_expr(&last_arm.expr, accessors);
 
     for arm in iter {
         if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
-            let then_expr = lower_expr(&arm.expr);
+            let then_expr = lower_expr(&arm.expr, accessors);
             acc = JsExpr::Conditional {
                 test: Box::new(test),
                 then_branch: Box::new(then_expr),
@@ -1093,7 +1277,7 @@ fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm]) -> JsExpr {
             };
         } else {
             // Catch-all arm: replace accumulator with its expression.
-            acc = lower_expr(&arm.expr);
+            acc = lower_expr(&arm.expr, accessors);
         }
     }
 
@@ -1970,7 +2154,7 @@ mod tests {
             span: span(0, 60),
         };
 
-        let js = lower_expr(&match_expr);
+        let js = lower_expr(&match_expr, &PropertyAccessors::default());
         let mut out = String::new();
         write_expr(&js, &mut out);
 
