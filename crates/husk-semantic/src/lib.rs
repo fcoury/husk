@@ -97,6 +97,7 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
     let mut checker = TypeChecker::new();
     if opts.prelude {
         checker.build_type_env(prelude_file());
+        checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(file);
     let type_errors = checker.check_file(file);
@@ -126,6 +127,19 @@ fn prelude_file() -> &'static File {
             panic!("failed to parse stdlib prelude: {:?}", parsed.errors);
         }
         parsed.file.expect("stdlib prelude parse produced no AST")
+    })
+}
+
+static JS_GLOBALS_SRC: &str = include_str!("../../../std/js/globals.hk");
+static JS_GLOBALS_AST: OnceLock<File> = OnceLock::new();
+
+fn js_globals_file() -> &'static File {
+    JS_GLOBALS_AST.get_or_init(|| {
+        let parsed = parse_str(JS_GLOBALS_SRC);
+        if !parsed.errors.is_empty() {
+            panic!("failed to parse JS globals: {:?}", parsed.errors);
+        }
+        parsed.file.expect("JS globals parse produced no AST")
     })
 }
 
@@ -2366,6 +2380,54 @@ fn main() {
             result.symbols.errors.is_empty() && result.type_errors.is_empty(),
             "semantic errors: symbols={:?}, types={:?}",
             result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn prelude_jsvalue_available_by_default() {
+        // JsValue and jsvalue_get should be available without explicit declaration
+        let src = r#"
+fn main() {
+    let _v: JsValue;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn prelude_js_globals_not_available_with_no_prelude() {
+        // With --no-prelude, JsValue should not be available
+        let src = r#"
+fn main() {
+    let _v: JsValue;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file_without_prelude(&file);
+        // Should have a type error for unknown type JsValue
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("unknown type `JsValue`")),
+            "expected unknown type error for JsValue, got: {:?}",
             result.type_errors
         );
     }
