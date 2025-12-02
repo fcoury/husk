@@ -571,9 +571,50 @@ impl Parser {
                 continue;
             }
 
+            // Check for `static` declaration (extern static variable)
+            if self.matches_keyword(Keyword::Static) {
+                let static_start = self.previous().span.range.start;
+                let name = match self.parse_ident("expected variable name after `static`") {
+                    Some(id) => id,
+                    None => {
+                        self.synchronize_item();
+                        continue;
+                    }
+                };
+
+                if !self.matches_token(&TokenKind::Colon) {
+                    self.error_here("expected `:` after static variable name");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                let ty = match self.parse_type_expr() {
+                    Some(t) => t,
+                    None => {
+                        self.synchronize_item();
+                        continue;
+                    }
+                };
+
+                if !self.matches_token(&TokenKind::Semicolon) {
+                    self.error_here("expected `;` after static declaration");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                let span = Span {
+                    range: static_start..self.previous().span.range.end,
+                };
+                items.push(husk_ast::ExternItem {
+                    kind: husk_ast::ExternItemKind::Static { name, ty },
+                    span,
+                });
+                continue;
+            }
+
             // Check for `fn` declaration
             if !self.matches_keyword(Keyword::Fn) {
-                self.error_here("expected `fn`, `mod`, or `struct` inside extern block");
+                self.error_here("expected `fn`, `mod`, `struct`, or `static` inside extern block");
                 self.synchronize_item();
                 continue;
             }
@@ -1718,10 +1759,15 @@ impl Parser {
         let mut expr = self.parse_primary()?;
         loop {
             if self.matches_token(&TokenKind::LParen) {
-                // Function call - check if it's a println with format string
+                // Function call - check if it's a println or format with format string
                 if let ExprKind::Ident(ref id) = expr.kind {
                     if id.name == "println" {
                         if let Some(format_expr) = self.try_parse_format_print(&expr) {
+                            expr = format_expr;
+                            continue;
+                        }
+                    } else if id.name == "format" {
+                        if let Some(format_expr) = self.try_parse_format(&expr) {
                             expr = format_expr;
                             continue;
                         }
@@ -1854,6 +1900,58 @@ impl Parser {
 
         Some(Expr {
             kind: ExprKind::FormatPrint {
+                format: parsed_format,
+                args,
+            },
+            span: Span { range: start..end },
+        })
+    }
+
+    /// Try to parse a format call as a Format expression.
+    /// Returns None if first argument is not a string literal with format placeholders,
+    /// in which case it falls back to a regular Call.
+    /// We're positioned right after the `(` of `format(...)`.
+    fn try_parse_format(&mut self, callee_expr: &Expr) -> Option<Expr> {
+        let start = callee_expr.span.range.start;
+
+        // Check if first token is a string literal
+        let format_tok = self.current().clone();
+        let format_str = match &format_tok.kind {
+            TokenKind::StringLiteral(s) => s.clone(),
+            _ => return None, // Not a string literal, fall back to regular call
+        };
+
+        // Parse the format string to check if it has placeholders
+        let format_span = self.ast_span_from(&format_tok.span);
+        let parsed_format = self.parse_format_string(&format_str, &format_span);
+
+        // Advance past the format string
+        self.advance();
+
+        // Collect remaining arguments
+        let mut args = Vec::new();
+        if !self.matches_token(&TokenKind::RParen) {
+            // There are more arguments after the format string
+            if !self.matches_token(&TokenKind::Comma) {
+                self.error_here("expected `,` or `)` after format string");
+                return None;
+            }
+            while let Some(arg) = self.parse_expr() {
+                args.push(arg);
+                if self.matches_token(&TokenKind::RParen) {
+                    break;
+                }
+                if !self.matches_token(&TokenKind::Comma) {
+                    self.error_here("expected `,` or `)` in argument list");
+                    break;
+                }
+            }
+        }
+
+        let end = self.previous().span.range.end;
+
+        Some(Expr {
+            kind: ExprKind::Format {
                 format: parsed_format,
                 args,
             },
@@ -2608,6 +2706,106 @@ mod tests {
             }
         } else {
             panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_format_basic() {
+        let src = r#"fn main() { let s = format("hello"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                assert!(
+                    matches!(val.kind, ExprKind::Format { .. }),
+                    "expected Format expression, got {:?}",
+                    val.kind
+                );
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_placeholder() {
+        let src = r#"fn main() { let s = format("hello {}", name); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    assert_eq!(args.len(), 1);
+                    // Check that we have a placeholder segment
+                    let has_placeholder = format.segments.iter().any(|s| {
+                        matches!(s, husk_ast::FormatSegment::Placeholder(_))
+                    });
+                    assert!(has_placeholder, "expected at least one placeholder");
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_multiple_args() {
+        let src = r#"fn main() { let s = format("{} + {} = {}", a, b, c); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { args, .. } = &val.kind {
+                    assert_eq!(args.len(), 3, "expected 3 arguments");
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_format_specifiers() {
+        let src = r#"fn main() { let s = format("{:x} {:?}", num, val); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    assert_eq!(args.len(), 2);
+                    // Check format specifiers
+                    let placeholders: Vec<_> = format.segments.iter().filter_map(|s| {
+                        if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                            Some(ph)
+                        } else {
+                            None
+                        }
+                    }).collect();
+                    assert_eq!(placeholders.len(), 2);
+                    assert_eq!(placeholders[0].spec.ty, Some('x'));
+                    assert_eq!(placeholders[1].spec.ty, Some('?'));
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
         }
     }
 }

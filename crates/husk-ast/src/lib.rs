@@ -125,6 +125,13 @@ pub enum ExprKind {
         /// Arguments to substitute into placeholders
         args: Vec<Expr>,
     },
+    /// format!-style string formatting: `format("Value: {}", x)` -> String
+    Format {
+        /// The parsed format string with placeholders
+        format: FormatString,
+        /// Arguments to substitute into placeholders
+        args: Vec<Expr>,
+    },
     /// Closure expression: `|x, y| x + y` or `|x: i32| -> i32 { x + 1 }`
     Closure {
         params: Vec<ClosureParam>,
@@ -550,6 +557,12 @@ pub enum ExternItemKind {
         name: Ident,
         /// Optional type parameters: `struct JsArray<T>;`
         type_params: Vec<Ident>,
+    },
+    /// Static variable declaration: `static __dirname: String;`
+    /// Declares a global JavaScript variable accessible from Husk code.
+    Static {
+        name: Ident,
+        ty: TypeExpr,
     },
 }
 

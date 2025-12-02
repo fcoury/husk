@@ -1,0 +1,48 @@
+// Example demonstrating the format() function for string formatting.
+// format() works like println() but returns a String instead of printing.
+
+fn main() {
+    // Basic string formatting
+    let greeting = format("Hello, World!");
+    println("{}", greeting);
+
+    // Single placeholder
+    let name = "Alice";
+    let personal_greeting = format("Hello, {}!", name);
+    println("{}", personal_greeting);
+
+    // Multiple placeholders
+    let x = 10;
+    let y = 20;
+    let sum = x + y;
+    let equation = format("{} + {} = {}", x, y, sum);
+    println("{}", equation);
+
+    // Hex formatting
+    let value = 255;
+    let hex_str = format("Value in hex: {:x}", value);
+    println("{}", hex_str);
+
+    // Uppercase hex
+    let upper_hex = format("Value in HEX: {:X}", value);
+    println("{}", upper_hex);
+
+    // Binary formatting
+    let binary_str = format("Value in binary: {:b}", value);
+    println("{}", binary_str);
+
+    // Debug formatting
+    let debug_num = format("Debug: {:?}", 42);
+    println("{}", debug_num);
+
+    // Combining format with string operations
+    let first = format("First: {}", 1);
+    let second = format("Second: {}", 2);
+    let combined = first + " | " + second;
+    println("{}", combined);
+
+    // Nested formatting
+    let inner = format("{}", 100);
+    let outer = format("Value is: {}", inner);
+    println("{}", outer);
+}

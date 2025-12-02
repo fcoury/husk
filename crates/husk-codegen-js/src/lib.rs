@@ -443,6 +443,10 @@ pub fn lower_file_to_js_with_source(
                                 // Extern structs don't generate any code -
                                 // they're opaque JS types
                             }
+                            ExternItemKind::Static { .. } => {
+                                // Static declarations don't generate code -
+                                // they declare global JS variables
+                            }
                         }
                     }
                 }
@@ -1052,6 +1056,10 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             // Build the formatted string by concatenating literal segments and formatted args.
             lower_format_print(&format.segments, args, accessors)
         }
+        ExprKind::Format { format, args } => {
+            // Generate the formatted string (without console.log).
+            lower_format_string(&format.segments, args, accessors)
+        }
         ExprKind::Closure {
             params,
             ret_type: _,
@@ -1152,6 +1160,62 @@ fn lower_format_print(
             property: "log".to_string(),
         }),
         args: vec![log_arg],
+    }
+}
+
+/// Lower a Format expression to a string (without console.log).
+fn lower_format_string(
+    segments: &[FormatSegment],
+    args: &[Expr],
+    accessors: &PropertyAccessors,
+) -> JsExpr {
+    // Track which argument we're using for implicit positioning
+    let mut implicit_index = 0;
+    let mut parts: Vec<JsExpr> = Vec::new();
+
+    for segment in segments {
+        match segment {
+            FormatSegment::Literal(text) => {
+                if !text.is_empty() {
+                    parts.push(JsExpr::String(text.clone()));
+                }
+            }
+            FormatSegment::Placeholder(ph) => {
+                // Determine which argument to use
+                let arg_index = ph.position.unwrap_or_else(|| {
+                    let idx = implicit_index;
+                    implicit_index += 1;
+                    idx
+                });
+
+                if let Some(arg) = args.get(arg_index) {
+                    let arg_js = lower_expr(arg, accessors);
+                    let formatted = format_arg(arg_js, &ph.spec);
+                    parts.push(formatted);
+                }
+            }
+        }
+    }
+
+    // Build the formatted string
+    // If we only have one part, return it directly
+    // If we have multiple parts, concatenate them
+    if parts.is_empty() {
+        JsExpr::String(String::new())
+    } else if parts.len() == 1 {
+        parts.pop().unwrap()
+    } else {
+        // Concatenate all parts with +
+        let mut iter = parts.into_iter();
+        let mut acc = iter.next().unwrap();
+        for part in iter {
+            acc = JsExpr::Binary {
+                op: JsBinaryOp::Add,
+                left: Box::new(acc),
+                right: Box::new(part),
+            };
+        }
+        acc
     }
 }
 
@@ -1746,7 +1810,20 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
         }
         JsExpr::String(s) => {
             out.push('"');
-            out.push_str(&s.replace('"', "\\\""));
+            for ch in s.chars() {
+                match ch {
+                    '\\' => out.push_str("\\\\"),
+                    '"' => out.push_str("\\\""),
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
+                    '\0' => out.push_str("\\0"),
+                    c if c.is_control() => {
+                        out.push_str(&format!("\\u{:04x}", c as u32));
+                    }
+                    c => out.push(c),
+                }
+            }
             out.push('"');
         }
         JsExpr::Assignment { left, right } => {
@@ -2609,5 +2686,143 @@ mod tests {
         assert!(src.contains("const express = require(\"express\");"));
         assert!(src.contains("module.exports"));
         assert!(!src.contains("export {"));
+    }
+
+    #[test]
+    fn lowers_format_to_string_concatenation() {
+        // Test that format("hello {}!", name) generates string concatenation
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: let s = format("Hello, {}!", name);
+        let format_expr = husk_ast::Expr {
+            kind: HuskExprKind::Format {
+                format: husk_ast::FormatString {
+                    span: span(0, 12),
+                    segments: vec![
+                        husk_ast::FormatSegment::Literal("Hello, ".to_string()),
+                        husk_ast::FormatSegment::Placeholder(husk_ast::FormatPlaceholder {
+                            position: None,
+                            name: None,
+                            spec: husk_ast::FormatSpec::default(),
+                            span: span(7, 9),
+                        }),
+                        husk_ast::FormatSegment::Literal("!".to_string()),
+                    ],
+                },
+                args: vec![husk_ast::Expr {
+                    kind: HuskExprKind::Ident(ident("name", 20)),
+                    span: span(20, 24),
+                }],
+            },
+            span: span(0, 25),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let js_expr = lower_expr(&format_expr, &accessors);
+        let mut js_str = String::new();
+        write_expr(&js_expr, &mut js_str);
+
+        // Should generate: "Hello, " + __husk_fmt(name) + "!"
+        assert!(
+            js_str.contains("\"Hello, \""),
+            "expected 'Hello, ' literal in output: {}",
+            js_str
+        );
+        assert!(
+            js_str.contains("__husk_fmt"),
+            "expected __husk_fmt call in output: {}",
+            js_str
+        );
+        assert!(
+            js_str.contains("\"!\""),
+            "expected '!' literal in output: {}",
+            js_str
+        );
+        // Should NOT contain console.log
+        assert!(
+            !js_str.contains("console.log"),
+            "format should not generate console.log: {}",
+            js_str
+        );
+    }
+
+    #[test]
+    fn lowers_format_with_hex_specifier() {
+        // Test that format("{:x}", num) generates __husk_fmt_num call
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let format_expr = husk_ast::Expr {
+            kind: HuskExprKind::Format {
+                format: husk_ast::FormatString {
+                    span: span(0, 5),
+                    segments: vec![husk_ast::FormatSegment::Placeholder(
+                        husk_ast::FormatPlaceholder {
+                            position: None,
+                            name: None,
+                            spec: husk_ast::FormatSpec {
+                                ty: Some('x'),
+                                ..Default::default()
+                            },
+                            span: span(0, 4),
+                        },
+                    )],
+                },
+                args: vec![husk_ast::Expr {
+                    kind: HuskExprKind::Ident(ident("num", 10)),
+                    span: span(10, 13),
+                }],
+            },
+            span: span(0, 15),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let js_expr = lower_expr(&format_expr, &accessors);
+        let mut js_str = String::new();
+        write_expr(&js_expr, &mut js_str);
+
+        // Should generate __husk_fmt_num with base 16
+        assert!(
+            js_str.contains("__husk_fmt_num"),
+            "expected __husk_fmt_num call in output: {}",
+            js_str
+        );
+        assert!(
+            js_str.contains("16"),
+            "expected base 16 for hex format: {}",
+            js_str
+        );
+    }
+
+    #[test]
+    fn lowers_format_simple_string_returns_string_directly() {
+        // Test that format("hello") generates just the string
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+
+        let format_expr = husk_ast::Expr {
+            kind: HuskExprKind::Format {
+                format: husk_ast::FormatString {
+                    span: span(0, 7),
+                    segments: vec![husk_ast::FormatSegment::Literal("hello".to_string())],
+                },
+                args: vec![],
+            },
+            span: span(0, 10),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let js_expr = lower_expr(&format_expr, &accessors);
+        let mut js_str = String::new();
+        write_expr(&js_expr, &mut js_str);
+
+        // Should generate just "hello"
+        assert_eq!(js_str, "\"hello\"");
     }
 }
