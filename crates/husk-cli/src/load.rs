@@ -8,6 +8,8 @@ use husk_parser::parse_str;
 #[derive(Debug, Clone)]
 pub struct Module {
     pub file: File,
+    /// Original source file path (for resolving relative paths in include_str, etc.)
+    pub source_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -87,7 +89,13 @@ fn dfs_load(
         dfs_load(&dep_fs_path, root, dep_mod_path, modules, visiting, order)?;
     }
 
-    modules.insert(module_path.clone(), Module { file: file.clone() });
+    modules.insert(
+        module_path.clone(),
+        Module {
+            file: file.clone(),
+            source_path: path.to_path_buf(),
+        },
+    );
     order.push(module_path.clone());
     visiting.remove(&module_path);
     Ok(())
@@ -388,5 +396,6 @@ fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
         ExternItemKind::Struct { name: n, .. } => n.name == name,
         ExternItemKind::Fn { name: n, .. } => n.name == name,
         ExternItemKind::Mod { binding, .. } => binding.name == name,
+        ExternItemKind::Static { name: n, .. } => n.name == name,
     }
 }
