@@ -30,3 +30,17 @@ extern "js" {
     /// The path is resolved relative to the source file.
     fn include_str(path: String) -> String;
 }
+
+// Test assertion functions.
+// These are available in the runtime preamble and panic on failure.
+// Note: assert_eq and assert_ne use JsValue to accept any type.
+extern "js" {
+    /// Asserts that a condition is true. Panics with an optional message if false.
+    fn assert(condition: bool);
+
+    /// Asserts that two values are equal. Panics with a detailed message if not.
+    fn assert_eq(left: JsValue, right: JsValue);
+
+    /// Asserts that two values are not equal. Panics with a detailed message if equal.
+    fn assert_ne(left: JsValue, right: JsValue);
+}

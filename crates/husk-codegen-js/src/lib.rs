@@ -2455,6 +2455,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 0),
@@ -2466,6 +2467,7 @@ mod tests {
             span: span(0, 10),
         };
         let helper_fn = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("helper", 20),
@@ -2602,6 +2604,7 @@ mod tests {
 
         let main_ident = ident("main", 0);
         let fn_item = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: main_ident.clone(),
@@ -2653,6 +2656,7 @@ mod tests {
         };
 
         let user_struct = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Struct {
                 name: user_ident.clone(),
@@ -2674,6 +2678,7 @@ mod tests {
         // enum Color { Red, Blue }
         let color_ident = ident("Color", 60);
         let enum_item = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Enum {
                 name: color_ident.clone(),
@@ -2708,6 +2713,7 @@ mod tests {
         let ret_ty = i32_ty.clone();
 
         let add_fn = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: add_ident.clone(),
@@ -2801,6 +2807,7 @@ mod tests {
 
         let file = husk_ast::File {
             items: vec![husk_ast::Item {
+                attributes: Vec::new(),
                 visibility: husk_ast::Visibility::Private,
                 kind: husk_ast::ItemKind::ExternBlock {
                     abi: "js".to_string(),
@@ -2854,6 +2861,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 40),
@@ -2868,6 +2876,7 @@ mod tests {
         let file = husk_ast::File {
             items: vec![
                 husk_ast::Item {
+                    attributes: Vec::new(),
                     visibility: husk_ast::Visibility::Private,
                     kind: husk_ast::ItemKind::ExternBlock {
                         abi: "js".to_string(),
@@ -2900,6 +2909,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 0),
@@ -2941,6 +2951,7 @@ mod tests {
         };
 
         let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: husk_ast::ItemKind::Fn {
                 name: ident("main", 20),
@@ -2955,6 +2966,7 @@ mod tests {
         let file = husk_ast::File {
             items: vec![
                 husk_ast::Item {
+                    attributes: Vec::new(),
                     visibility: husk_ast::Visibility::Private,
                     kind: husk_ast::ItemKind::ExternBlock {
                         abi: "js".to_string(),

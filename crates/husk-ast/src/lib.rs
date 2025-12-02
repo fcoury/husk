@@ -6,14 +6,36 @@ use std::ops::Range;
 // Attributes
 // ============================================================================
 
-/// An attribute like `#[getter]` or `#[js_name = "innerHTML"]`.
+/// An attribute like `#[getter]` or `#[js_name = "innerHTML"]` or `#[cfg(test)]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
-    /// The attribute name (e.g., "getter", "setter", "js_name")
+    /// The attribute name (e.g., "getter", "setter", "js_name", "cfg", "test")
     pub name: Ident,
     /// Optional value for key-value attributes (e.g., "innerHTML" for `#[js_name = "innerHTML"]`)
     pub value: Option<String>,
+    /// Optional cfg predicate for `#[cfg(...)]` attributes
+    pub cfg_predicate: Option<CfgPredicate>,
     pub span: Span,
+}
+
+// ============================================================================
+// Conditional Compilation (cfg)
+// ============================================================================
+
+/// A predicate for conditional compilation, used in `#[cfg(...)]` attributes.
+/// Supports simple flags, key-value pairs, and boolean combinators.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CfgPredicate {
+    /// Simple flag: `#[cfg(test)]`, `#[cfg(debug)]`
+    Flag(String),
+    /// Key-value pair: `#[cfg(target = "esm")]`
+    KeyValue { key: String, value: String },
+    /// All predicates must be true: `#[cfg(all(test, debug))]`
+    All(Vec<CfgPredicate>),
+    /// Any predicate must be true: `#[cfg(any(node, bun))]`
+    Any(Vec<CfgPredicate>),
+    /// Negation: `#[cfg(not(test))]`
+    Not(Box<CfgPredicate>),
 }
 
 /// A span in the source file, represented as a byte range.
@@ -553,9 +575,44 @@ pub enum EnumVariantFields {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
+    /// Attributes on this item (e.g., #[test], #[cfg(test)], #[ignore])
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub kind: ItemKind,
     pub span: Span,
+}
+
+impl Item {
+    /// Returns the #[cfg(...)] predicate if this item has one.
+    pub fn cfg_predicate(&self) -> Option<&CfgPredicate> {
+        self.attributes
+            .iter()
+            .find(|a| a.name.name == "cfg")
+            .and_then(|a| a.cfg_predicate.as_ref())
+    }
+
+    /// Returns true if this item has a #[test] attribute.
+    pub fn is_test(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "test")
+    }
+
+    /// Returns true if this item has a #[ignore] attribute.
+    pub fn is_ignored(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "ignore")
+    }
+
+    /// Returns true if this item has a #[should_panic] attribute.
+    pub fn should_panic(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "should_panic")
+    }
+
+    /// Returns the expected panic message if #[should_panic(expected = "...")] is present.
+    pub fn expected_panic_message(&self) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|a| a.name.name == "should_panic")
+            .and_then(|a| a.value.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
