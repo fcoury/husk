@@ -172,7 +172,10 @@ impl<'a> Codegen<'a> {
 
             // Group methods by name AND is_static flag
             for m in methods {
-                merged_groups.entry((m.name.clone(), m.is_static)).or_default().push(m);
+                merged_groups
+                    .entry((m.name.clone(), m.is_static))
+                    .or_default()
+                    .push(m);
             }
 
             // Merge each group
@@ -192,7 +195,11 @@ impl<'a> Codegen<'a> {
     }
 
     /// Merge a group of function overloads into a single signature.
-    fn merge_fn_overloads(&mut self, name: &str, mut overloads: Vec<GeneratedFn>) -> Option<GeneratedFn> {
+    fn merge_fn_overloads(
+        &mut self,
+        name: &str,
+        mut overloads: Vec<GeneratedFn>,
+    ) -> Option<GeneratedFn> {
         if overloads.is_empty() {
             return None;
         }
@@ -202,7 +209,11 @@ impl<'a> Codegen<'a> {
         let base = overloads.remove(0);
 
         // Find which params are optional (present in base but not in all overloads)
-        let min_params = overloads.iter().map(|o| o.params.len()).min().unwrap_or(base.params.len());
+        let min_params = overloads
+            .iter()
+            .map(|o| o.params.len())
+            .min()
+            .unwrap_or(base.params.len());
 
         let merged_params: Vec<(String, String)> = base
             .params
@@ -226,7 +237,11 @@ impl<'a> Codegen<'a> {
         if overloads.len() > 0 {
             self.warn(
                 WarningKind::Simplified,
-                format!("Merged {} overloads of function `{}`", overloads.len() + 1, name),
+                format!(
+                    "Merged {} overloads of function `{}`",
+                    overloads.len() + 1,
+                    name
+                ),
             );
         }
 
@@ -240,7 +255,11 @@ impl<'a> Codegen<'a> {
     }
 
     /// Merge a group of method overloads into a single signature.
-    fn merge_method_group(&mut self, name: &str, mut overloads: Vec<GeneratedMethod>) -> Option<GeneratedMethod> {
+    fn merge_method_group(
+        &mut self,
+        name: &str,
+        mut overloads: Vec<GeneratedMethod>,
+    ) -> Option<GeneratedMethod> {
         if overloads.is_empty() {
             return None;
         }
@@ -250,7 +269,11 @@ impl<'a> Codegen<'a> {
         let base = overloads.remove(0);
 
         // Find which params are optional (present in base but not in all overloads)
-        let min_params = overloads.iter().map(|o| o.params.len()).min().unwrap_or(base.params.len());
+        let min_params = overloads
+            .iter()
+            .map(|o| o.params.len())
+            .min()
+            .unwrap_or(base.params.len());
 
         let merged_params: Vec<(String, String)> = base
             .params
@@ -274,7 +297,11 @@ impl<'a> Codegen<'a> {
         if overloads.len() > 0 {
             self.warn(
                 WarningKind::Simplified,
-                format!("Merged {} overloads of method `{}`", overloads.len() + 1, name),
+                format!(
+                    "Merged {} overloads of method `{}`",
+                    overloads.len() + 1,
+                    name
+                ),
             );
         }
 
@@ -343,10 +370,7 @@ impl<'a> Codegen<'a> {
         // Check for constrained type params
         for tp in &f.type_params {
             if tp.constraint.is_some() {
-                comment = Some(format!(
-                    "NOTE: constraint on `{}` not enforced",
-                    tp.name
-                ));
+                comment = Some(format!("NOTE: constraint on `{}` not enforced", tp.name));
             }
         }
 
@@ -361,11 +385,7 @@ impl<'a> Codegen<'a> {
 
         let return_type = f.return_type.as_ref().and_then(|ty| {
             let mapped = self.map_type(ty);
-            if mapped == "()" {
-                None
-            } else {
-                Some(mapped)
-            }
+            if mapped == "()" { None } else { Some(mapped) }
         });
 
         self.functions.push(GeneratedFn {
@@ -393,11 +413,8 @@ impl<'a> Codegen<'a> {
             match member {
                 InterfaceMember::Method(m) => {
                     // Track method-only type params (not in struct-level params)
-                    let method_only_params: HashSet<String> = m
-                        .type_params
-                        .iter()
-                        .map(|p| p.name.clone())
-                        .collect();
+                    let method_only_params: HashSet<String> =
+                        m.type_params.iter().map(|p| p.name.clone()).collect();
 
                     // Only keep struct-level type params for generated method
                     // Method-only type params will be simplified to JsValue
@@ -405,7 +422,8 @@ impl<'a> Codegen<'a> {
 
                     // Save old state and set up for type mapping
                     let old_generics = self.known_generics.clone();
-                    let old_method_params = std::mem::replace(&mut self.method_type_params, method_only_params.clone());
+                    let old_method_params =
+                        std::mem::replace(&mut self.method_type_params, method_only_params.clone());
 
                     // Add method type params to known generics for mapping
                     for tp in &m.type_params {
@@ -423,11 +441,7 @@ impl<'a> Codegen<'a> {
 
                     let return_type = m.return_type.as_ref().and_then(|ty| {
                         let mapped = self.map_type(ty);
-                        if mapped == "()" {
-                            None
-                        } else {
-                            Some(mapped)
-                        }
+                        if mapped == "()" { None } else { Some(mapped) }
                     });
 
                     methods.push(GeneratedMethod {
@@ -473,25 +487,33 @@ impl<'a> Codegen<'a> {
                             mapped_type
                         };
 
-                        self.properties
-                            .entry(i.name.clone())
-                            .or_default()
-                            .push(GeneratedProperty {
+                        self.properties.entry(i.name.clone()).or_default().push(
+                            GeneratedProperty {
                                 name: escape_keyword(&p.name),
                                 ty: final_type,
                                 is_readonly: p.readonly,
                                 is_static: false,
-                            });
+                            },
+                        );
                     }
                 }
                 InterfaceMember::CallSignature(_) => {
-                    self.warn(WarningKind::Skipped, format!("Call signature on {} skipped", i.name));
+                    self.warn(
+                        WarningKind::Skipped,
+                        format!("Call signature on {} skipped", i.name),
+                    );
                 }
                 InterfaceMember::ConstructSignature(_) => {
-                    self.warn(WarningKind::Skipped, format!("Construct signature on {} skipped", i.name));
+                    self.warn(
+                        WarningKind::Skipped,
+                        format!("Construct signature on {} skipped", i.name),
+                    );
                 }
                 InterfaceMember::IndexSignature(_) => {
-                    self.warn(WarningKind::Skipped, format!("Index signature on {} skipped", i.name));
+                    self.warn(
+                        WarningKind::Skipped,
+                        format!("Index signature on {} skipped", i.name),
+                    );
                 }
             }
         }
@@ -545,11 +567,7 @@ impl<'a> Codegen<'a> {
 
                     let return_type = m.return_type.as_ref().and_then(|ty| {
                         let mapped = self.map_type(ty);
-                        if mapped == "()" {
-                            None
-                        } else {
-                            Some(mapped)
-                        }
+                        if mapped == "()" { None } else { Some(mapped) }
                     });
 
                     methods.push(GeneratedMethod {
@@ -590,11 +608,10 @@ impl<'a> Codegen<'a> {
                     }
 
                     // Generate getter method for property access
-                    let mapped_type = p
-                        .ty
-                        .as_ref()
-                        .map(|t| self.map_type(t))
-                        .unwrap_or_else(|| "JsValue".to_string());
+                    let mapped_type =
+                        p.ty.as_ref()
+                            .map(|t| self.map_type(t))
+                            .unwrap_or_else(|| "JsValue".to_string());
 
                     let return_type = if p.optional {
                         format!("Option<{}>", mapped_type)
@@ -644,7 +661,10 @@ impl<'a> Codegen<'a> {
                     }
                 }
                 ClassMember::IndexSignature(_) => {
-                    self.warn(WarningKind::Skipped, format!("Index signature on {} skipped", c.name));
+                    self.warn(
+                        WarningKind::Skipped,
+                        format!("Index signature on {} skipped", c.name),
+                    );
                 }
             }
         }
@@ -680,7 +700,10 @@ impl<'a> Codegen<'a> {
             DtsType::Primitive(p) => self.map_primitive(p),
             DtsType::Named { name, type_args } => self.map_named_type(name, type_args),
             DtsType::StringLiteral(_) => {
-                self.warn(WarningKind::Simplified, "String literal type mapped to String");
+                self.warn(
+                    WarningKind::Simplified,
+                    "String literal type mapped to String",
+                );
                 "String".to_string()
             }
             DtsType::NumberLiteral(_) => {
@@ -698,12 +721,18 @@ impl<'a> Codegen<'a> {
                         return mapped;
                     }
                 }
-                self.warn(WarningKind::Simplified, "Intersection type mapped to JsValue");
+                self.warn(
+                    WarningKind::Simplified,
+                    "Intersection type mapped to JsValue",
+                );
                 "JsValue".to_string()
             }
             DtsType::Function(f) => self.map_function_type(f),
             DtsType::Object(_) => {
-                self.warn(WarningKind::Simplified, "Object literal type mapped to JsValue");
+                self.warn(
+                    WarningKind::Simplified,
+                    "Object literal type mapped to JsValue",
+                );
                 "JsValue".to_string()
             }
             DtsType::Array(inner) => {
@@ -713,7 +742,8 @@ impl<'a> Codegen<'a> {
             DtsType::Tuple(elements) => {
                 // Map to tuple type if Husk supports it, otherwise JsValue
                 if elements.len() <= 4 {
-                    let mapped: Vec<String> = elements.iter().map(|e| self.map_type(&e.ty)).collect();
+                    let mapped: Vec<String> =
+                        elements.iter().map(|e| self.map_type(&e.ty)).collect();
                     format!("({})", mapped.join(", "))
                 } else {
                     self.warn(WarningKind::Simplified, "Large tuple mapped to JsValue");
@@ -745,13 +775,18 @@ impl<'a> Codegen<'a> {
                 "JsValue".to_string()
             }
             DtsType::TemplateLiteral(_) => {
-                self.warn(WarningKind::Simplified, "Template literal type mapped to String");
+                self.warn(
+                    WarningKind::Simplified,
+                    "Template literal type mapped to String",
+                );
                 "String".to_string()
             }
             DtsType::Parenthesized(inner) => self.map_type(inner),
             DtsType::This => {
                 // `this` type - use the current type name
-                self.current_type_name.clone().unwrap_or_else(|| "JsValue".to_string())
+                self.current_type_name
+                    .clone()
+                    .unwrap_or_else(|| "JsValue".to_string())
             }
         }
     }
@@ -782,7 +817,10 @@ impl<'a> Codegen<'a> {
         if self.method_type_params.contains(simple_name) {
             self.warn(
                 WarningKind::Simplified,
-                format!("Method-only type parameter `{}` mapped to JsValue", simple_name),
+                format!(
+                    "Method-only type parameter `{}` mapped to JsValue",
+                    simple_name
+                ),
             );
             return "JsValue".to_string();
         }
@@ -798,7 +836,10 @@ impl<'a> Codegen<'a> {
             // and since Husk extern structs don't support generics, simplify to JsValue
             self.warn(
                 WarningKind::Simplified,
-                format!("Struct-level type parameter `{}` mapped to JsValue", simple_name),
+                format!(
+                    "Struct-level type parameter `{}` mapped to JsValue",
+                    simple_name
+                ),
             );
             return "JsValue".to_string();
         }
@@ -862,7 +903,9 @@ impl<'a> Codegen<'a> {
                         if let DtsType::Named { name, type_args } = arg {
                             let arg_simple = name.split('.').last().unwrap_or(name);
                             self.method_type_params.contains(arg_simple)
-                                || type_args.iter().any(|inner| self.type_uses_method_param(inner))
+                                || type_args
+                                    .iter()
+                                    .any(|inner| self.type_uses_method_param(inner))
                         } else {
                             self.type_uses_method_param(arg)
                         }
@@ -881,7 +924,10 @@ impl<'a> Codegen<'a> {
                     if !is_known_struct {
                         self.warn(
                             WarningKind::Simplified,
-                            format!("Unknown generic type `{}<...>` mapped to JsValue", simple_name),
+                            format!(
+                                "Unknown generic type `{}<...>` mapped to JsValue",
+                                simple_name
+                            ),
                         );
                         return "JsValue".to_string();
                     }
@@ -899,7 +945,9 @@ impl<'a> Codegen<'a> {
             DtsType::Named { name, type_args } => {
                 let simple_name = name.split('.').last().unwrap_or(name);
                 self.method_type_params.contains(simple_name)
-                    || type_args.iter().any(|inner| self.type_uses_method_param(inner))
+                    || type_args
+                        .iter()
+                        .any(|inner| self.type_uses_method_param(inner))
             }
             DtsType::Array(inner) => self.type_uses_method_param(inner),
             DtsType::Tuple(elements) => elements.iter().any(|e| self.type_uses_method_param(&e.ty)),
@@ -910,7 +958,12 @@ impl<'a> Codegen<'a> {
                 f.params.iter().any(|p| self.type_uses_method_param(&p.ty))
                     || self.type_uses_method_param(&f.return_type)
             }
-            DtsType::Conditional { check, extends, true_type, false_type } => {
+            DtsType::Conditional {
+                check,
+                extends,
+                true_type,
+                false_type,
+            } => {
                 self.type_uses_method_param(check)
                     || self.type_uses_method_param(extends)
                     || self.type_uses_method_param(true_type)
@@ -945,8 +998,12 @@ impl<'a> Codegen<'a> {
 
         // Check for boolean union
         if types.len() == 2 {
-            let has_true = types.iter().any(|t| matches!(t, DtsType::BooleanLiteral(true)));
-            let has_false = types.iter().any(|t| matches!(t, DtsType::BooleanLiteral(false)));
+            let has_true = types
+                .iter()
+                .any(|t| matches!(t, DtsType::BooleanLiteral(true)));
+            let has_false = types
+                .iter()
+                .any(|t| matches!(t, DtsType::BooleanLiteral(false)));
             if has_true && has_false {
                 return "bool".to_string();
             }
@@ -954,18 +1011,27 @@ impl<'a> Codegen<'a> {
 
         // General union - if all are string literals, use String
         if types.iter().all(|t| matches!(t, DtsType::StringLiteral(_))) {
-            self.warn(WarningKind::Simplified, "String literal union mapped to String");
+            self.warn(
+                WarningKind::Simplified,
+                "String literal union mapped to String",
+            );
             return "String".to_string();
         }
 
         // If all are number literals, use f64
         if types.iter().all(|t| matches!(t, DtsType::NumberLiteral(_))) {
-            self.warn(WarningKind::Simplified, "Number literal union mapped to f64");
+            self.warn(
+                WarningKind::Simplified,
+                "Number literal union mapped to f64",
+            );
             return "f64".to_string();
         }
 
         // Complex union - fallback to JsValue
-        self.warn(WarningKind::Simplified, "Complex union type mapped to JsValue");
+        self.warn(
+            WarningKind::Simplified,
+            "Complex union type mapped to JsValue",
+        );
         "JsValue".to_string()
     }
 
@@ -999,7 +1065,11 @@ impl<'a> Codegen<'a> {
 
     fn emit_header(&mut self) {
         writeln!(self.output, "// Auto-generated from .d.ts file").unwrap();
-        writeln!(self.output, "// Some types may be simplified - see warnings below").unwrap();
+        writeln!(
+            self.output,
+            "// Some types may be simplified - see warnings below"
+        )
+        .unwrap();
         writeln!(self.output).unwrap();
     }
 
@@ -1069,8 +1139,16 @@ impl<'a> Codegen<'a> {
         sorted_types.sort();
 
         for type_name in sorted_types {
-            let methods = self.impls.get(type_name).map(|v| v.as_slice()).unwrap_or(&[]);
-            let properties = self.properties.get(type_name).map(|v| v.as_slice()).unwrap_or(&[]);
+            let methods = self
+                .impls
+                .get(type_name)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            let properties = self
+                .properties
+                .get(type_name)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             if methods.is_empty() && properties.is_empty() {
                 continue;
@@ -1274,7 +1352,11 @@ mod tests {
 
         assert!(result.code.contains("struct Server;"));
         assert!(result.code.contains("impl Server {"));
-        assert!(result.code.contains("extern \"js\" fn listen(self, port: f64);"));
+        assert!(
+            result
+                .code
+                .contains("extern \"js\" fn listen(self, port: f64);")
+        );
         assert!(result.code.contains("extern \"js\" fn close(self);"));
     }
 
@@ -1302,7 +1384,11 @@ mod tests {
         let file = parse(src).unwrap();
         let result = generate(&file, &CodegenOptions::default());
 
-        assert!(result.code.contains("fn setTimeout(callback: fn() -> (), ms: f64) -> f64;"));
+        assert!(
+            result
+                .code
+                .contains("fn setTimeout(callback: fn() -> (), ms: f64) -> f64;")
+        );
     }
 
     #[test]
@@ -1335,7 +1421,11 @@ mod tests {
         let file = parse(src).unwrap();
         let result = generate(&file, &CodegenOptions::default());
 
-        assert!(result.code.contains("fn fetch(url: String) -> JsPromise<Response>;"));
+        assert!(
+            result
+                .code
+                .contains("fn fetch(url: String) -> JsPromise<Response>;")
+        );
     }
 
     #[test]
