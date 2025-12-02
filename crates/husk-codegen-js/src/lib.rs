@@ -14,6 +14,7 @@ use husk_ast::{
 use husk_runtime_js::std_preamble_js;
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Convert snake_case to camelCase.
 /// Examples:
@@ -50,6 +51,90 @@ struct PropertyAccessors {
     /// Maps (type_name, method_name) -> property_name for setters
     /// e.g., ("Request", "set_body") -> "body"
     setters: HashMap<(String, String), String>,
+}
+
+/// Context for code generation, carrying compile-time state.
+///
+/// This struct is threaded through all lowering functions to provide:
+/// - Property accessors for extern type method rewrites
+/// - Source file path for compile-time operations like include_str
+#[derive(Debug, Clone)]
+struct CodegenContext<'a> {
+    /// Property accessors for extern types
+    accessors: &'a PropertyAccessors,
+    /// Path to the current source file being compiled (for include_str, etc.)
+    source_path: Option<&'a Path>,
+}
+
+impl<'a> CodegenContext<'a> {
+    fn new(accessors: &'a PropertyAccessors) -> Self {
+        Self {
+            accessors,
+            source_path: None,
+        }
+    }
+
+    fn with_source_path(accessors: &'a PropertyAccessors, source_path: &'a Path) -> Self {
+        Self {
+            accessors,
+            source_path: Some(source_path),
+        }
+    }
+}
+
+/// Handle include_str("path") - reads file at compile time and returns contents as string literal.
+///
+/// The path is resolved relative to the source file being compiled.
+/// Panics with a clear error message if the file cannot be read.
+fn handle_include_str(args: &[Expr], ctx: &CodegenContext) -> JsExpr {
+    // Validate: exactly one argument
+    if args.len() != 1 {
+        panic!(
+            "include_str: expected 1 argument, got {}",
+            args.len()
+        );
+    }
+
+    // Extract the path argument (must be a string literal)
+    let path_arg = match &args[0].kind {
+        ExprKind::Literal(lit) => match &lit.kind {
+            LiteralKind::String(s) => s.clone(),
+            _ => {
+                panic!("include_str: argument must be a string literal");
+            }
+        },
+        _ => {
+            panic!("include_str: argument must be a string literal");
+        }
+    };
+
+    // Get the source path from context
+    let source_path = match ctx.source_path {
+        Some(path) => path,
+        None => {
+            panic!(
+                "include_str: source file path not available. \
+                 This is required to resolve the relative path '{}'",
+                path_arg
+            );
+        }
+    };
+
+    // Resolve path relative to current source file
+    let base_dir = source_path.parent().unwrap_or(Path::new("."));
+    let full_path = base_dir.join(&path_arg);
+
+    // Read file contents
+    match std::fs::read_to_string(&full_path) {
+        Ok(contents) => JsExpr::String(contents),
+        Err(e) => {
+            panic!(
+                "include_str: failed to read '{}': {}",
+                full_path.display(),
+                e
+            );
+        }
+    }
 }
 
 /// A JavaScript module (ES module) consisting of a list of statements.
@@ -216,17 +301,20 @@ pub enum JsTarget {
 /// consumers should set this to `false` so `main` can be called
 /// explicitly by a host.
 pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsModule {
-    lower_file_to_js_with_source(file, call_main, target, None)
+    lower_file_to_js_with_source(file, call_main, target, None, None)
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
 ///
 /// When `source` is provided, source spans will have accurate line/column info.
+/// When `source_path` is provided, compile-time operations like `include_str` can resolve
+/// relative file paths.
 pub fn lower_file_to_js_with_source(
     file: &File,
     call_main: bool,
     target: JsTarget,
     source: Option<&str>,
+    source_path: Option<&Path>,
 ) -> JsModule {
     use std::collections::HashSet;
 
@@ -329,6 +417,12 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
+    // Create codegen context with accessors and optional source path
+    let ctx = match source_path {
+        Some(path) => CodegenContext::with_source_path(&accessors, path),
+        None => CodegenContext::new(&accessors),
+    };
+
     // First pass: collect module imports
     for item in &file.items {
         if let ItemKind::ExternBlock { abi, items } = &item.kind {
@@ -399,7 +493,7 @@ pub fn lower_file_to_js_with_source(
                 ..
             } => {
                 body.push(lower_fn_with_span(
-                    &name.name, params, fn_body, &item.span, source, &accessors,
+                    &name.name, params, fn_body, &item.span, source, &ctx,
                 ));
                 fn_names.push(name.name.clone());
                 if name.name == "main" && params.is_empty() {
@@ -467,7 +561,7 @@ pub fn lower_file_to_js_with_source(
                             method,
                             &impl_item.span,
                             source,
-                            &accessors,
+                            &ctx,
                         ));
                     }
                 }
@@ -521,16 +615,16 @@ fn lower_fn_with_span(
     body: &[Stmt],
     span: &Span,
     source: Option<&str>,
-    accessors: &PropertyAccessors,
+    ctx: &CodegenContext,
 ) -> JsStmt {
     let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
     let mut js_body = Vec::new();
     for (i, stmt) in body.iter().enumerate() {
         let is_last = i + 1 == body.len();
         if is_last {
-            js_body.push(lower_tail_stmt(stmt, accessors));
+            js_body.push(lower_tail_stmt(stmt, ctx));
         } else {
-            js_body.push(lower_stmt(stmt, accessors));
+            js_body.push(lower_stmt(stmt, ctx));
         }
     }
 
@@ -603,7 +697,7 @@ fn lower_impl_method(
     method: &husk_ast::ImplMethod,
     span: &Span,
     source: Option<&str>,
-    accessors: &PropertyAccessors,
+    ctx: &CodegenContext,
 ) -> JsStmt {
     let method_name = &method.name.name;
 
@@ -616,9 +710,9 @@ fn lower_impl_method(
     for (i, stmt) in method.body.iter().enumerate() {
         let is_last = i + 1 == method.body.len();
         if is_last {
-            js_body.push(lower_tail_stmt(stmt, accessors));
+            js_body.push(lower_tail_stmt(stmt, ctx));
         } else {
-            js_body.push(lower_stmt(stmt, accessors));
+            js_body.push(lower_stmt(stmt, ctx));
         }
     }
 
@@ -660,27 +754,27 @@ fn lower_impl_method(
     })
 }
 
-fn lower_tail_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
+fn lower_tail_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
     match &stmt.kind {
         // Treat a trailing expression statement as an implicit `return expr;`,
         // to mirror Rust-style expression-bodied functions.
-        StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr, accessors)),
+        StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr, ctx)),
         // For if statements in tail position, wrap branch results in returns.
         StmtKind::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            let js_cond = lower_expr(cond, accessors);
+            let js_cond = lower_expr(cond, ctx);
             let then_block: Vec<JsStmt> = then_branch
                 .stmts
                 .iter()
                 .enumerate()
                 .map(|(i, s)| {
                     if i + 1 == then_branch.stmts.len() {
-                        lower_tail_stmt(s, accessors)
+                        lower_tail_stmt(s, ctx)
                     } else {
-                        lower_stmt(s, accessors)
+                        lower_stmt(s, ctx)
                     }
                 })
                 .collect();
@@ -693,14 +787,14 @@ fn lower_tail_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
                         .enumerate()
                         .map(|(i, s)| {
                             if i + 1 == block.stmts.len() {
-                                lower_tail_stmt(s, accessors)
+                                lower_tail_stmt(s, ctx)
                             } else {
-                                lower_stmt(s, accessors)
+                                lower_stmt(s, ctx)
                             }
                         })
                         .collect(),
-                    StmtKind::If { .. } => vec![lower_tail_stmt(else_stmt, accessors)],
-                    _ => vec![lower_tail_stmt(else_stmt, accessors)],
+                    StmtKind::If { .. } => vec![lower_tail_stmt(else_stmt, ctx)],
+                    _ => vec![lower_tail_stmt(else_stmt, ctx)],
                 }
             });
             JsStmt::If {
@@ -709,7 +803,7 @@ fn lower_tail_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
                 else_block,
             }
         }
-        _ => lower_stmt(stmt, accessors),
+        _ => lower_stmt(stmt, ctx),
     }
 }
 
@@ -779,7 +873,7 @@ fn lower_extern_body(
     }
 }
 
-fn lower_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
+fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
     match &stmt.kind {
         StmtKind::Let {
             mutable: _,
@@ -788,13 +882,13 @@ fn lower_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
             value,
         } => JsStmt::Let {
             name: name.name.clone(),
-            init: value.as_ref().map(|e| lower_expr(e, accessors)),
+            init: value.as_ref().map(|e| lower_expr(e, ctx)),
         },
-        StmtKind::Expr(expr) | StmtKind::Semi(expr) => JsStmt::Expr(lower_expr(expr, accessors)),
+        StmtKind::Expr(expr) | StmtKind::Semi(expr) => JsStmt::Expr(lower_expr(expr, ctx)),
         StmtKind::Return { value } => {
             let expr = value
                 .as_ref()
-                .map(|e| lower_expr(e, accessors))
+                .map(|e| lower_expr(e, ctx))
                 // Represent `return;` as `return undefined;` for now.
                 .unwrap_or_else(|| JsExpr::Ident("undefined".to_string()));
             JsStmt::Return(expr)
@@ -805,7 +899,7 @@ fn lower_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
             // expression, discarding internal structure. This is a placeholder
             // until we add proper JS block statements.
             if let Some(last) = block.stmts.last() {
-                lower_stmt(last, accessors)
+                lower_stmt(last, ctx)
             } else {
                 JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
             }
@@ -815,11 +909,11 @@ fn lower_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
             then_branch,
             else_branch,
         } => {
-            let js_cond = lower_expr(cond, accessors);
+            let js_cond = lower_expr(cond, ctx);
             let then_block: Vec<JsStmt> = then_branch
                 .stmts
                 .iter()
-                .map(|s| lower_stmt(s, accessors))
+                .map(|s| lower_stmt(s, ctx))
                 .collect();
             let else_block = else_branch.as_ref().map(|else_stmt| {
                 // else_branch is a Box<Stmt>, which may be another If or a Block
@@ -827,10 +921,10 @@ fn lower_stmt(stmt: &Stmt, accessors: &PropertyAccessors) -> JsStmt {
                     StmtKind::Block(block) => block
                         .stmts
                         .iter()
-                        .map(|s| lower_stmt(s, accessors))
+                        .map(|s| lower_stmt(s, ctx))
                         .collect(),
-                    StmtKind::If { .. } => vec![lower_stmt(else_stmt, accessors)],
-                    _ => vec![lower_stmt(else_stmt, accessors)],
+                    StmtKind::If { .. } => vec![lower_stmt(else_stmt, ctx)],
+                    _ => vec![lower_stmt(else_stmt, ctx)],
                 }
             });
             JsStmt::If {
@@ -869,7 +963,7 @@ fn strip_variadic_suffix(method_name: &str) -> String {
     }
 }
 
-fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
+fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
     match &expr.kind {
         ExprKind::Literal(lit) => match &lit.kind {
             LiteralKind::Int(n) => JsExpr::Number(*n),
@@ -897,7 +991,8 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
         ExprKind::Field { base, member } => {
             let field_name = &member.name;
             // Check if this field is an extern property (look up by field name across all types)
-            let js_property = accessors
+            let js_property = ctx
+                .accessors
                 .getters
                 .iter()
                 .find(|((_, prop_name), _)| prop_name == field_name)
@@ -905,7 +1000,7 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
                 .unwrap_or_else(|| field_name.clone());
 
             JsExpr::Member {
-                object: Box::new(lower_expr(base, accessors)),
+                object: Box::new(lower_expr(base, ctx)),
                 property: js_property,
             }
         }
@@ -922,11 +1017,11 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             // Check if this is a getter (no args, matches getter pattern)
             if args.is_empty() {
                 // Search for any type that has this method as a getter
-                for ((_, m), prop) in &accessors.getters {
+                for ((_, m), prop) in &ctx.accessors.getters {
                     if m == method_name {
                         // Found a getter! Emit property access instead of method call.
                         return JsExpr::Member {
-                            object: Box::new(lower_expr(receiver, accessors)),
+                            object: Box::new(lower_expr(receiver, ctx)),
                             property: prop.clone(),
                         };
                     }
@@ -936,15 +1031,15 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             // Check if this is a setter (one arg, method starts with "set_")
             if args.len() == 1 && method_name.starts_with("set_") {
                 // Search for any type that has this method as a setter
-                for ((_, m), prop) in &accessors.setters {
+                for ((_, m), prop) in &ctx.accessors.setters {
                     if m == method_name {
                         // Found a setter! Emit property assignment instead of method call.
                         return JsExpr::Assignment {
                             left: Box::new(JsExpr::Member {
-                                object: Box::new(lower_expr(receiver, accessors)),
+                                object: Box::new(lower_expr(receiver, ctx)),
                                 property: prop.clone(),
                             }),
-                            right: Box::new(lower_expr(&args[0], accessors)),
+                            right: Box::new(lower_expr(&args[0], ctx)),
                         };
                     }
                 }
@@ -955,10 +1050,10 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             let js_method_name = strip_variadic_suffix(&method.name);
             JsExpr::Call {
                 callee: Box::new(JsExpr::Member {
-                    object: Box::new(lower_expr(receiver, accessors)),
+                    object: Box::new(lower_expr(receiver, ctx)),
                     property: js_method_name,
                 }),
-                args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
+                args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
             }
         }
         ExprKind::Call { callee, args } => {
@@ -970,20 +1065,25 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
                             object: Box::new(JsExpr::Ident("console".to_string())),
                             property: "log".to_string(),
                         }),
-                        args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
+                        args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
                     };
                 }
                 // Rewrite express() to __husk_express() to patch use -> use_middleware
                 if id.name == "express" {
                     return JsExpr::Call {
                         callee: Box::new(JsExpr::Ident("__husk_express".to_string())),
-                        args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
+                        args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
                     };
+                }
+
+                // Handle include_str("path") - compile-time file inclusion
+                if id.name == "include_str" {
+                    return handle_include_str(args, ctx);
                 }
             }
             JsExpr::Call {
-                callee: Box::new(lower_expr(callee, accessors)),
-                args: args.iter().map(|a| lower_expr(a, accessors)).collect(),
+                callee: Box::new(lower_expr(callee, ctx)),
+                args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
             }
         }
         ExprKind::Binary { op, left, right } => {
@@ -1008,11 +1108,11 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             };
             JsExpr::Binary {
                 op: js_op,
-                left: Box::new(lower_expr(left, accessors)),
-                right: Box::new(lower_expr(right, accessors)),
+                left: Box::new(lower_expr(left, ctx)),
+                right: Box::new(lower_expr(right, ctx)),
             }
         }
-        ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms, accessors),
+        ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms, ctx),
         ExprKind::Struct { name, fields } => {
             // Lower struct instantiation to a constructor call.
             // `Point { x: 1, y: 2 }` -> `new Point(1, 2)`
@@ -1020,7 +1120,7 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             // For now, we pass them in the order they appear in the instantiation.
             let args: Vec<JsExpr> = fields
                 .iter()
-                .map(|f| lower_expr(&f.value, accessors))
+                .map(|f| lower_expr(&f.value, ctx))
                 .collect();
             // name is a Vec<Ident> representing the path (e.g., ["Point"] or ["module", "Point"])
             let constructor_name = name
@@ -1038,7 +1138,7 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
             let mut body: Vec<JsStmt> = block
                 .stmts
                 .iter()
-                .map(|s| lower_stmt(s, accessors))
+                .map(|s| lower_stmt(s, ctx))
                 .collect();
             // Wrap the last statement in a return if it's an expression.
             if let Some(last) = body.pop() {
@@ -1054,11 +1154,11 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
         ExprKind::FormatPrint { format, args } => {
             // Generate console.log with string concatenation for format string.
             // Build the formatted string by concatenating literal segments and formatted args.
-            lower_format_print(&format.segments, args, accessors)
+            lower_format_print(&format.segments, args, ctx)
         }
         ExprKind::Format { format, args } => {
             // Generate the formatted string (without console.log).
-            lower_format_string(&format.segments, args, accessors)
+            lower_format_string(&format.segments, args, ctx)
         }
         ExprKind::Closure {
             params,
@@ -1078,16 +1178,16 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
                     for (i, stmt) in block.stmts.iter().enumerate() {
                         let is_last = i + 1 == block.stmts.len();
                         if is_last {
-                            stmts.push(lower_tail_stmt(stmt, accessors));
+                            stmts.push(lower_tail_stmt(stmt, ctx));
                         } else {
-                            stmts.push(lower_stmt(stmt, accessors));
+                            stmts.push(lower_stmt(stmt, ctx));
                         }
                     }
                     stmts
                 }
                 _ => {
                     // For expression bodies, wrap in a return statement
-                    vec![JsStmt::Return(lower_expr(body, accessors))]
+                    vec![JsStmt::Return(lower_expr(body, ctx))]
                 }
             };
 
@@ -1103,7 +1203,7 @@ fn lower_expr(expr: &Expr, accessors: &PropertyAccessors) -> JsExpr {
 fn lower_format_print(
     segments: &[FormatSegment],
     args: &[Expr],
-    accessors: &PropertyAccessors,
+    ctx: &CodegenContext,
 ) -> JsExpr {
     // Track which argument we're using for implicit positioning
     let mut implicit_index = 0;
@@ -1125,7 +1225,7 @@ fn lower_format_print(
                 });
 
                 if let Some(arg) = args.get(arg_index) {
-                    let arg_js = lower_expr(arg, accessors);
+                    let arg_js = lower_expr(arg, ctx);
                     let formatted = format_arg(arg_js, &ph.spec);
                     parts.push(formatted);
                 }
@@ -1167,7 +1267,7 @@ fn lower_format_print(
 fn lower_format_string(
     segments: &[FormatSegment],
     args: &[Expr],
-    accessors: &PropertyAccessors,
+    ctx: &CodegenContext,
 ) -> JsExpr {
     // Track which argument we're using for implicit positioning
     let mut implicit_index = 0;
@@ -1189,7 +1289,7 @@ fn lower_format_string(
                 });
 
                 if let Some(arg) = args.get(arg_index) {
-                    let arg_js = lower_expr(arg, accessors);
+                    let arg_js = lower_expr(arg, ctx);
                     let formatted = format_arg(arg_js, &ph.spec);
                     parts.push(formatted);
                 }
@@ -1351,11 +1451,11 @@ fn has_formatting(spec: &FormatSpec) -> bool {
 fn lower_match_expr(
     scrutinee: &Expr,
     arms: &[husk_ast::MatchArm],
-    accessors: &PropertyAccessors,
+    ctx: &CodegenContext,
 ) -> JsExpr {
     use husk_ast::PatternKind;
 
-    let scrutinee_js = lower_expr(scrutinee, accessors);
+    let scrutinee_js = lower_expr(scrutinee, ctx);
 
     // Build nested conditional expression from the arms, folding from the end.
     // For a catch-all (wildcard or binding) arm, we treat its body as the final `else`.
@@ -1390,11 +1490,11 @@ fn lower_match_expr(
     // Start from the last arm as the innermost expression.
     let mut iter = arms.iter().rev();
     let last_arm = iter.next().unwrap();
-    let mut acc = lower_expr(&last_arm.expr, accessors);
+    let mut acc = lower_expr(&last_arm.expr, ctx);
 
     for arm in iter {
         if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
-            let then_expr = lower_expr(&arm.expr, accessors);
+            let then_expr = lower_expr(&arm.expr, ctx);
             acc = JsExpr::Conditional {
                 test: Box::new(test),
                 then_branch: Box::new(then_expr),
@@ -1402,7 +1502,7 @@ fn lower_match_expr(
             };
         } else {
             // Catch-all arm: replace accumulator with its expression.
-            acc = lower_expr(&arm.expr, accessors);
+            acc = lower_expr(&arm.expr, ctx);
         }
     }
 

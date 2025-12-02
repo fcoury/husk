@@ -22,3 +22,11 @@ enum Result<T, E> {
 extern "js" {
     fn println(s: String);
 }
+
+// Compile-time functions.
+// These are evaluated at compile time and inlined into the generated JavaScript.
+extern "js" {
+    /// Reads a file at compile time and embeds its contents as a string literal.
+    /// The path is resolved relative to the source file.
+    fn include_str(path: String) -> String;
+}
