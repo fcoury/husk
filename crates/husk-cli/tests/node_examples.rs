@@ -34,6 +34,8 @@ fn husk_example_files() -> Vec<PathBuf> {
         .filter(|p| !p.to_string_lossy().contains("bindings"))
         // Skip express_sqlite directory - requires npm packages (express, better-sqlite3)
         .filter(|p| !p.to_string_lossy().contains("express_sqlite"))
+        // Skip advent2025 directory - requires external input files
+        .filter(|p| !p.to_string_lossy().contains("advent2025"))
         .collect()
 }
 

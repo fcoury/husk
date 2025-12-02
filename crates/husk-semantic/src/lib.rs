@@ -27,6 +27,7 @@ pub enum SymbolKind {
     TypeAlias,
     ExternFn,
     ExternMod,
+    ExternStatic,
     Trait,
     Impl,
 }
@@ -254,6 +255,8 @@ struct TypeEnv {
     traits: HashMap<String, TraitInfo>,
     /// Impl blocks (can have multiple impls for the same type)
     impls: Vec<ImplInfo>,
+    /// Static/global variables (from `static name: Type;` in extern blocks)
+    statics: HashMap<String, TypeExpr>,
 }
 
 /// Extract a simple type name from a TypeExpr (for impl/trait lookups).
@@ -397,6 +400,10 @@ impl TypeChecker {
                                     fields: HashMap::new(), // Extern structs are opaque
                                 };
                                 self.env.structs.insert(name.name.clone(), def);
+                            }
+                            husk_ast::ExternItemKind::Static { name, ty } => {
+                                // Register extern static variable
+                                self.env.statics.insert(name.name.clone(), ty.clone());
                             }
                         }
                     }
@@ -984,6 +991,11 @@ impl<'a> FnContext<'a> {
                     };
                 }
 
+                // Try extern static variable (from `static name: Type;` in extern block).
+                if let Some(ty_expr) = self.tcx.env.statics.get(&id.name).cloned() {
+                    return self.tcx.resolve_type_expr(&ty_expr, &[]);
+                }
+
                 self.tcx.errors.push(SemanticError {
                     message: format!("unknown identifier `{}`", id.name),
                     span: id.span.clone(),
@@ -1378,6 +1390,91 @@ impl<'a> FnContext<'a> {
                 // println returns unit
                 Type::Primitive(PrimitiveType::Unit)
             }
+            ExprKind::Format { format, args } => {
+                // Same validation as FormatPrint
+                let mut placeholders: Vec<&husk_ast::FormatPlaceholder> = Vec::new();
+                for segment in &format.segments {
+                    if let FormatSegment::Placeholder(ph) = segment {
+                        placeholders.push(ph);
+                    }
+                }
+
+                let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
+                let has_implicit_position = placeholders
+                    .iter()
+                    .any(|ph| ph.position.is_none() && ph.name.is_none());
+
+                if has_explicit_position && has_implicit_position {
+                    self.tcx.errors.push(SemanticError {
+                        message: "cannot mix positional and implicit argument indexing".to_string(),
+                        span: format.span.clone(),
+                    });
+                }
+
+                let has_named = placeholders.iter().any(|ph| ph.name.is_some());
+                if has_named {
+                    self.tcx.errors.push(SemanticError {
+                        message: "named format arguments are not yet supported".to_string(),
+                        span: format.span.clone(),
+                    });
+                }
+
+                if has_explicit_position {
+                    for ph in &placeholders {
+                        if let Some(pos) = ph.position {
+                            if pos >= args.len() {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "positional argument {} is out of range (only {} argument(s) provided)",
+                                        pos,
+                                        args.len()
+                                    ),
+                                    span: ph.span.clone(),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    let placeholder_count = placeholders.len();
+                    if placeholder_count != args.len() {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "format string requires {} argument(s), but {} provided",
+                                placeholder_count,
+                                args.len()
+                            ),
+                            span: expr.span.clone(),
+                        });
+                    }
+                }
+
+                let arg_types: Vec<Type> = args.iter().map(|arg| self.check_expr(arg)).collect();
+
+                for (i, ph) in placeholders.iter().enumerate() {
+                    let arg_index = ph.position.unwrap_or(i);
+                    if let Some(arg_ty) = arg_types.get(arg_index) {
+                        if let Some(ty_char) = ph.spec.ty {
+                            match ty_char {
+                                'x' | 'X' | 'b' | 'o' => {
+                                    if !matches!(arg_ty, Type::Primitive(PrimitiveType::I32)) {
+                                        self.tcx.errors.push(SemanticError {
+                                            message: format!(
+                                                "format specifier `:{ty_char}` requires numeric type, found `{arg_ty:?}`"
+                                            ),
+                                            span: ph.span.clone(),
+                                        });
+                                    }
+                                }
+                                '?' => {}
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                // format returns String
+                Type::Primitive(PrimitiveType::String)
+            }
             ExprKind::Closure {
                 params,
                 ret_type,
@@ -1703,6 +1800,9 @@ impl Resolver {
                         }
                         husk_ast::ExternItemKind::Struct { name, .. } => {
                             self.add_symbol(name, SymbolKind::Struct);
+                        }
+                        husk_ast::ExternItemKind::Static { name, .. } => {
+                            self.add_symbol(name, SymbolKind::ExternStatic);
                         }
                     }
                 }
