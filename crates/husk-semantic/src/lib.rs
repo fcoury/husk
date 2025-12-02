@@ -8,8 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use husk_ast::{
-    Block, ClosureParam, Expr, ExprKind, File, FormatSegment, Ident, Item, ItemKind, LiteralKind,
-    MatchArm, Param, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
+    Block, CfgPredicate, ClosureParam, Expr, ExprKind, File, FormatSegment, Ident, Item, ItemKind,
+    LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr,
+    TypeExprKind,
 };
 use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
@@ -79,29 +80,87 @@ pub struct SemanticResult {
 }
 
 /// Options controlling semantic analysis.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Default)]
 pub struct SemanticOptions {
     /// If true, inject the stdlib prelude (Option/Result) into the type environment.
     pub prelude: bool,
+    /// Cfg flags that are currently enabled (e.g., "test" for test mode).
+    pub cfg_flags: HashSet<String>,
 }
 
-impl Default for SemanticOptions {
-    fn default() -> Self {
-        Self { prelude: true }
+impl SemanticOptions {
+    /// Create options with prelude enabled (default behavior).
+    pub fn with_prelude() -> Self {
+        Self {
+            prelude: true,
+            cfg_flags: HashSet::new(),
+        }
+    }
+
+    /// Create options with the test cfg flag enabled.
+    pub fn with_test() -> Self {
+        let mut flags = HashSet::new();
+        flags.insert("test".to_string());
+        Self {
+            prelude: true,
+            cfg_flags: flags,
+        }
+    }
+}
+
+/// Evaluate a cfg predicate against a set of enabled flags.
+fn evaluate_cfg(predicate: &CfgPredicate, flags: &HashSet<String>) -> bool {
+    match predicate {
+        CfgPredicate::Flag(name) => flags.contains(name),
+        CfgPredicate::KeyValue { key, value } => {
+            // For key-value predicates like cfg(feature = "foo"),
+            // check if the flag "feature=foo" is enabled
+            let combined = format!("{}={}", key, value);
+            flags.contains(&combined)
+        }
+        CfgPredicate::All(predicates) => predicates.iter().all(|p| evaluate_cfg(p, flags)),
+        CfgPredicate::Any(predicates) => predicates.iter().any(|p| evaluate_cfg(p, flags)),
+        CfgPredicate::Not(predicate) => !evaluate_cfg(predicate, flags),
+    }
+}
+
+/// Check if an item should be included based on its cfg attributes.
+fn item_passes_cfg(item: &Item, flags: &HashSet<String>) -> bool {
+    // If the item has a cfg predicate, evaluate it
+    if let Some(predicate) = item.cfg_predicate() {
+        evaluate_cfg(predicate, flags)
+    } else {
+        // No cfg attribute means always include
+        true
+    }
+}
+
+/// Filter a file's items based on cfg predicates.
+pub fn filter_items_by_cfg(file: &File, flags: &HashSet<String>) -> File {
+    File {
+        items: file
+            .items
+            .iter()
+            .filter(|item| item_passes_cfg(item, flags))
+            .cloned()
+            .collect(),
     }
 }
 
 /// Run semantic analysis (name resolution + type checking) over the given file with options.
 pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> SemanticResult {
-    let symbols = ModuleSymbols::from_file(file);
+    // Filter items based on cfg predicates
+    let filtered_file = filter_items_by_cfg(file, &opts.cfg_flags);
+
+    let symbols = ModuleSymbols::from_file(&filtered_file);
 
     let mut checker = TypeChecker::new();
     if opts.prelude {
         checker.build_type_env(prelude_file());
         checker.build_type_env(js_globals_file());
     }
-    checker.build_type_env(file);
-    let type_errors = checker.check_file(file);
+    checker.build_type_env(&filtered_file);
+    let type_errors = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
@@ -110,12 +169,18 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
 
 /// Run full semantic analysis with the stdlib prelude enabled (default).
 pub fn analyze_file(file: &File) -> SemanticResult {
-    analyze_file_with_options(file, SemanticOptions::default())
+    analyze_file_with_options(file, SemanticOptions::with_prelude())
 }
 
 /// Run semantic analysis without injecting the stdlib prelude.
 pub fn analyze_file_without_prelude(file: &File) -> SemanticResult {
-    analyze_file_with_options(file, SemanticOptions { prelude: false })
+    analyze_file_with_options(
+        file,
+        SemanticOptions {
+            prelude: false,
+            cfg_flags: HashSet::new(),
+        },
+    )
 }
 
 static PRELUDE_SRC: &str = include_str!("../../../stdlib/core.hk");
@@ -2125,6 +2190,7 @@ mod tests {
         let f = File {
             items: vec![
                 Item {
+                    attributes: Vec::new(),
                     visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Fn {
                         name: ident("foo", 0),
@@ -2136,6 +2202,7 @@ mod tests {
                     span: Span { range: 0..3 },
                 },
                 Item {
+                    attributes: Vec::new(),
                     visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Struct {
                         name: ident("Bar", 10),
@@ -2159,6 +2226,7 @@ mod tests {
         let f = File {
             items: vec![
                 Item {
+                    attributes: Vec::new(),
                     visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Fn {
                         name: ident("foo", 0),
@@ -2170,6 +2238,7 @@ mod tests {
                     span: Span { range: 0..3 },
                 },
                 Item {
+                    attributes: Vec::new(),
                     visibility: husk_ast::Visibility::Private,
                     kind: ItemKind::Struct {
                         name: ident("foo", 10),
@@ -2231,6 +2300,7 @@ mod tests {
 
         let file = File {
             items: vec![Item {
+                attributes: Vec::new(),
                 visibility: husk_ast::Visibility::Private,
                 kind: ItemKind::Fn {
                     name: ident("main", 0),
@@ -2280,6 +2350,7 @@ mod tests {
         };
         let file = File {
             items: vec![Item {
+                attributes: Vec::new(),
                 visibility: husk_ast::Visibility::Private,
                 kind: ItemKind::Fn {
                     name: ident("main", 0),
@@ -2309,6 +2380,7 @@ mod tests {
         // fn make_red() -> Color { Color::Red }
         let color_ident = ident("Color", 0);
         let enum_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name: color_ident.clone(),
@@ -2340,6 +2412,7 @@ mod tests {
             span: Span { range: 30..50 },
         };
         let fn_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("make_red", 30),
@@ -2374,6 +2447,7 @@ mod tests {
         // }
         let color_ident = ident("Color", 0);
         let enum_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name: color_ident.clone(),
@@ -2447,6 +2521,7 @@ mod tests {
             span: Span { range: 50..105 },
         };
         let fn_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("f", 40),
@@ -2480,6 +2555,7 @@ mod tests {
         // }
         let color_ident = ident("Color", 0);
         let enum_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name: color_ident.clone(),
@@ -2537,6 +2613,7 @@ mod tests {
             span: Span { range: 50..105 },
         };
         let fn_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("f", 40),
@@ -2581,6 +2658,7 @@ mod tests {
             span: Span { range: 0..15 },
         };
         let extern_block = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::ExternBlock {
                 abi: "js".to_string(),
@@ -2681,6 +2759,7 @@ mod tests {
         };
 
         let fn_item = Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name: ident("main", 100),

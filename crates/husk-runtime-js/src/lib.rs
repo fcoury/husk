@@ -321,6 +321,65 @@ function __husk_express() {
     }
     return app;
 }
+
+// ========== Test assertion helpers ==========
+
+// Deep equality comparison for assert_eq/assert_ne
+function __husk_eq(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return a === b;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== "object") return a === b;
+
+    // Handle arrays
+    if (Array.isArray(a)) {
+        if (!Array.isArray(b) || a.length !== b.length) return false;
+        for (var i = 0; i < a.length; i++) {
+            if (!__husk_eq(a[i], b[i])) return false;
+        }
+        return true;
+    }
+
+    // Handle objects (including tagged enums)
+    var keysA = Object.keys(a);
+    var keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    for (var i = 0; i < keysA.length; i++) {
+        var key = keysA[i];
+        if (!b.hasOwnProperty(key) || !__husk_eq(a[key], b[key])) return false;
+    }
+    return true;
+}
+
+// Basic assert - panics if condition is false
+function assert(condition, message) {
+    if (!condition) {
+        var msg = message ? "assertion failed: " + message : "assertion failed";
+        throw new Error("[Husk assertion] " + msg);
+    }
+}
+
+// Assert equality - panics with detailed message if values are not equal
+function assert_eq(left, right, message) {
+    if (!__husk_eq(left, right)) {
+        var msg = message ? message + "\n" : "";
+        msg += "assertion `left == right` failed\n";
+        msg += "  left: " + __husk_fmt_debug(left) + "\n";
+        msg += " right: " + __husk_fmt_debug(right);
+        throw new Error("[Husk assertion] " + msg);
+    }
+}
+
+// Assert inequality - panics with detailed message if values are equal
+function assert_ne(left, right, message) {
+    if (__husk_eq(left, right)) {
+        var msg = message ? message + "\n" : "";
+        msg += "assertion `left != right` failed\n";
+        msg += "  left: " + __husk_fmt_debug(left) + "\n";
+        msg += " right: " + __husk_fmt_debug(right);
+        throw new Error("[Husk assertion] " + msg);
+    }
+}
 "#
 }
 
@@ -345,5 +404,14 @@ mod tests {
         assert!(src.contains("function __husk_fmt_debug("));
         assert!(src.contains("function __husk_fmt_num("));
         assert!(src.contains("function __husk_fmt_pad("));
+    }
+
+    #[test]
+    fn preamble_contains_assertion_helpers() {
+        let src = std_preamble_js();
+        assert!(src.contains("function __husk_eq("));
+        assert!(src.contains("function assert("));
+        assert!(src.contains("function assert_eq("));
+        assert!(src.contains("function assert_ne("));
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -144,6 +145,20 @@ enum Command {
         #[command(subcommand)]
         action: DtsAction,
     },
+    /// Run tests
+    Test {
+        /// Source file containing tests (default: auto-detect)
+        file: Option<String>,
+        /// Filter tests by name pattern
+        #[arg(long)]
+        filter: Option<String>,
+        /// Disable stdlib prelude injection (Option/Result)
+        #[arg(long)]
+        no_prelude: bool,
+        /// Suppress non-error output
+        #[arg(short, long)]
+        quiet: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -251,6 +266,12 @@ fn main() {
             no_prelude,
         }) => run_watch(&file, &output, target, lib, no_prelude, &config),
         Some(Command::Dts { action }) => run_dts(action, &config),
+        Some(Command::Test {
+            file,
+            filter,
+            no_prelude,
+            quiet,
+        }) => run_test(file.as_deref(), filter.as_deref(), no_prelude, quiet, &config),
         None => {
             // Default: just parse the file if provided.
             let file = match &cli.file {
@@ -344,6 +365,7 @@ fn run_check(path: &str, no_prelude: bool, config: &HuskConfig) {
         &file,
         SemanticOptions {
             prelude: use_prelude,
+            cfg_flags: HashSet::new(),
         },
     );
 
@@ -416,6 +438,7 @@ fn run_compile(
         &file,
         SemanticOptions {
             prelude: !no_prelude,
+            cfg_flags: HashSet::new(),
         },
     );
 
@@ -814,6 +837,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         &file,
         SemanticOptions {
             prelude: !no_prelude,
+            cfg_flags: HashSet::new(),
         },
     );
 
@@ -1023,6 +1047,7 @@ fn run_build(
         &file_ast,
         SemanticOptions {
             prelude: use_prelude,
+            cfg_flags: HashSet::new(),
         },
     );
 
@@ -1202,6 +1227,255 @@ fn run_run(file: Option<&str>, target: Option<Target>, no_prelude: bool, args: &
                 eprintln!("Failed to execute node: {err}");
                 std::process::exit(3);
             }
+        }
+    }
+}
+
+// ========== Test runner ==========
+
+/// Discover test functions from an AST file.
+/// Returns a list of (test_name, is_ignored, expected_panic_message) tuples.
+fn discover_tests(file: &husk_ast::File) -> Vec<(String, bool, Option<String>)> {
+    let mut tests = Vec::new();
+    for item in &file.items {
+        if item.is_test() {
+            if let husk_ast::ItemKind::Fn { name, .. } = &item.kind {
+                let is_ignored = item.is_ignored();
+                let expected_panic = item.expected_panic_message().map(|s| s.to_string());
+                tests.push((name.name.clone(), is_ignored, expected_panic));
+            }
+        }
+    }
+    tests
+}
+
+fn run_test(
+    file: Option<&str>,
+    filter: Option<&str>,
+    no_prelude: bool,
+    quiet: bool,
+    config: &HuskConfig,
+) {
+    // Find entry point
+    let path = if let Some(f) = file {
+        f.to_string()
+    } else {
+        // Auto-detect: look for src/main.hk, main.hk, or src/lib.hk
+        if Path::new("src/main.hk").exists() {
+            "src/main.hk".to_string()
+        } else if Path::new("main.hk").exists() {
+            "main.hk".to_string()
+        } else if Path::new("src/lib.hk").exists() {
+            "src/lib.hk".to_string()
+        } else {
+            eprintln!("No source file found. Please specify a file or create src/main.hk");
+            std::process::exit(1);
+        }
+    };
+
+    if !quiet {
+        let file_display = Path::new(&path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&path);
+        println!("   Running tests in {file_display}");
+        println!();
+    }
+
+    // Resolve prelude setting
+    let use_prelude = if no_prelude {
+        false
+    } else {
+        config.build.prelude()
+    };
+
+    // Read the source
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", path);
+            std::process::exit(1);
+        }
+    };
+
+    // Parse
+    let result = parse_str(&content);
+    if !result.errors.is_empty() {
+        let source_db = SourceDb::new(path.clone(), content);
+        for err in &result.errors {
+            source_db.report_parse_error(&err.message, err.span.range.clone());
+        }
+        std::process::exit(1);
+    }
+
+    let mut file_ast = match result.file {
+        Some(f) => f,
+        None => {
+            eprintln!("No AST produced for {}", path);
+            std::process::exit(1);
+        }
+    };
+
+    // Enable test cfg flag for semantic analysis
+    let mut cfg_flags = HashSet::new();
+    cfg_flags.insert("test".to_string());
+
+    // Semantic analysis with test flag
+    let semantic = analyze_file_with_options(
+        &file_ast,
+        SemanticOptions {
+            prelude: use_prelude,
+            cfg_flags: cfg_flags.clone(),
+        },
+    );
+
+    let errors: Vec<_> = semantic
+        .symbols
+        .errors
+        .iter()
+        .chain(semantic.type_errors.iter())
+        .collect();
+
+    if !errors.is_empty() {
+        let source_db = SourceDb::new(path.clone(), content.clone());
+        for err in &errors {
+            source_db.report_parse_error(&err.message, err.span.range.clone());
+        }
+        std::process::exit(1);
+    }
+
+    // Filter items for test mode (include #[cfg(test)] items)
+    file_ast = husk_semantic::filter_items_by_cfg(&file_ast, &cfg_flags);
+
+    // Discover tests
+    let all_tests = discover_tests(&file_ast);
+
+    // Apply filter if provided
+    let tests: Vec<_> = if let Some(pattern) = filter {
+        all_tests
+            .into_iter()
+            .filter(|(name, _, _)| name.contains(pattern))
+            .collect()
+    } else {
+        all_tests
+    };
+
+    if tests.is_empty() {
+        if !quiet {
+            println!("running 0 tests");
+            println!();
+            println!("test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out");
+        }
+        return;
+    }
+
+    if !quiet {
+        println!("running {} test{}", tests.len(), if tests.len() == 1 { "" } else { "s" });
+    }
+
+    // Compile to JS with lib mode (don't auto-call main)
+    let module = lower_file_to_js(&file_ast, false, JsTarget::Cjs);
+    let js_code = module.to_source_with_preamble();
+
+    // Build test harness that runs each test
+    let mut harness = String::new();
+    harness.push_str(&js_code);
+    harness.push_str("\n\n// Test harness\n");
+    harness.push_str("const __husk_test_results = [];\n");
+
+    for (test_name, is_ignored, expected_panic) in &tests {
+        if *is_ignored {
+            harness.push_str(&format!(
+                r#"__husk_test_results.push({{ name: "{}", status: "ignored" }});
+"#,
+                test_name
+            ));
+        } else if let Some(expected) = expected_panic {
+            // Test should panic with expected message
+            harness.push_str(&format!(
+                r#"try {{
+    {}();
+    __husk_test_results.push({{ name: "{}", status: "failed", message: "expected panic but test completed normally" }});
+}} catch (e) {{
+    if (e.message && e.message.includes("{}")) {{
+        __husk_test_results.push({{ name: "{}", status: "ok" }});
+    }} else {{
+        __husk_test_results.push({{ name: "{}", status: "failed", message: "panic message mismatch: " + e.message }});
+    }}
+}}
+"#,
+                test_name, test_name, expected, test_name, test_name
+            ));
+        } else {
+            // Normal test - should not panic
+            harness.push_str(&format!(
+                r#"try {{
+    {}();
+    __husk_test_results.push({{ name: "{}", status: "ok" }});
+}} catch (e) {{
+    __husk_test_results.push({{ name: "{}", status: "failed", message: e.message }});
+}}
+"#,
+                test_name, test_name, test_name
+            ));
+        }
+    }
+
+    // Print results
+    harness.push_str(r#"
+let passed = 0, failed = 0, ignored = 0;
+for (const r of __husk_test_results) {
+    if (r.status === "ok") {
+        console.log("test " + r.name + " ... ok");
+        passed++;
+    } else if (r.status === "ignored") {
+        console.log("test " + r.name + " ... ignored");
+        ignored++;
+    } else {
+        console.log("test " + r.name + " ... FAILED");
+        failed++;
+    }
+}
+console.log("");
+if (failed > 0) {
+    console.log("failures:");
+    console.log("");
+    for (const r of __husk_test_results) {
+        if (r.status === "failed") {
+            console.log("---- " + r.name + " ----");
+            console.log(r.message);
+            console.log("");
+        }
+    }
+    console.log("failures:");
+    for (const r of __husk_test_results) {
+        if (r.status === "failed") {
+            console.log("    " + r.name);
+        }
+    }
+    console.log("");
+}
+console.log("test result: " + (failed === 0 ? "ok" : "FAILED") + ". " + passed + " passed; " + failed + " failed; " + ignored + " ignored; 0 measured; 0 filtered out");
+process.exit(failed > 0 ? 1 : 0);
+"#);
+
+    // Run with Node.js
+    let node_cmd = env::var("HUSK_NODE").unwrap_or_else(|_| "node".to_string());
+    let result = ProcessCommand::new(&node_cmd)
+        .arg("-e")
+        .arg(&harness)
+        .stdin(Stdio::null())
+        .status();
+
+    match result {
+        Ok(status) => {
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to run tests with node: {err}");
+            std::process::exit(1);
         }
     }
 }

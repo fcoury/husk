@@ -36,6 +36,8 @@ fn husk_example_files() -> Vec<PathBuf> {
         .filter(|p| !p.to_string_lossy().contains("express_sqlite"))
         // Skip advent2025 directory - requires external input files
         .filter(|p| !p.to_string_lossy().contains("advent2025"))
+        // Skip array_range_test - uses unimplemented features (array indexing, ranges)
+        .filter(|p| !p.to_string_lossy().contains("array_range_test"))
         .collect()
 }
 

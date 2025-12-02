@@ -3,11 +3,11 @@
 //! This is a hand-written recursive-descent parser for the MVP syntax.
 
 use husk_ast::{
-    AssignOp, Attribute, BinaryOp, Block, ClosureParam, EnumVariant, EnumVariantFields, Expr,
-    ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment, FormatSpec, FormatString,
-    Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind,
-    MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField,
-    TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    AssignOp, Attribute, BinaryOp, Block, CfgPredicate, ClosureParam, EnumVariant,
+    EnumVariantFields, Expr, ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment,
+    FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind,
+    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind,
+    StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -180,6 +180,9 @@ impl Parser {
     }
 
     fn parse_item(&mut self) -> Option<Item> {
+        // Parse any leading attributes (e.g., #[test], #[cfg(test)], #[ignore])
+        let attributes = self.parse_attributes();
+
         let mut visibility = husk_ast::Visibility::Private;
         if self.matches_keyword(Keyword::Pub) {
             visibility = husk_ast::Visibility::Public;
@@ -203,6 +206,7 @@ impl Parser {
             }
         }?;
 
+        item.attributes = attributes;
         item.visibility = visibility;
         Some(item)
     }
@@ -233,6 +237,7 @@ impl Parser {
         };
 
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Fn {
                 name,
@@ -278,6 +283,7 @@ impl Parser {
         };
 
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Struct {
                 name,
@@ -356,6 +362,7 @@ impl Parser {
         };
 
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Enum {
                 name,
@@ -383,6 +390,7 @@ impl Parser {
             range: type_tok.span.range.start..end,
         };
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::TypeAlias { name, ty },
             span,
@@ -664,6 +672,7 @@ impl Parser {
         };
 
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::ExternBlock { abi, items },
             span,
@@ -698,6 +707,7 @@ impl Parser {
         };
 
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Trait(TraitDef {
                 name,
@@ -798,6 +808,7 @@ impl Parser {
         };
 
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Impl(ImplBlock {
                 type_params,
@@ -810,7 +821,7 @@ impl Parser {
         })
     }
 
-    /// Parse a single attribute like `#[getter]` or `#[js_name = "innerHTML"]`.
+    /// Parse a single attribute like `#[getter]`, `#[js_name = "innerHTML"]`, or `#[cfg(test)]`.
     /// Returns None if no attribute is found (not an error).
     fn parse_attribute(&mut self) -> Option<Attribute> {
         if !self.matches_token(&TokenKind::Hash) {
@@ -825,18 +836,66 @@ impl Parser {
 
         let name = self.parse_ident("expected attribute name")?;
 
-        // Check for `= "value"` syntax
-        let value = if self.matches_token(&TokenKind::Eq) {
+        // Check for `(...)` syntax (cfg predicates or should_panic(expected = "..."))
+        let (cfg_predicate, value) = if self.matches_token(&TokenKind::LParen) {
+            if name.name == "cfg" {
+                // Parse cfg predicate
+                let pred = self.parse_cfg_predicate()?;
+                if !self.matches_token(&TokenKind::RParen) {
+                    self.error_here("expected `)` to close cfg predicate");
+                    return None;
+                }
+                (Some(pred), None)
+            } else if name.name == "should_panic" {
+                // Parse optional expected = "message"
+                let val = if matches!(&self.current().kind, TokenKind::Ident(s) if s == "expected") {
+                    self.advance(); // consume `expected`
+                    if !self.matches_token(&TokenKind::Eq) {
+                        self.error_here("expected `=` after `expected`");
+                        return None;
+                    }
+                    if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                        let val = s.clone();
+                        self.advance();
+                        Some(val)
+                    } else {
+                        self.error_here("expected string literal after `expected =`");
+                        None
+                    }
+                } else {
+                    None
+                };
+                if !self.matches_token(&TokenKind::RParen) {
+                    self.error_here("expected `)` to close should_panic attribute");
+                    return None;
+                }
+                (None, val)
+            } else {
+                // Unknown attribute with parentheses, skip contents
+                let mut depth = 1;
+                while depth > 0 && !self.is_at_end() {
+                    if self.matches_token(&TokenKind::LParen) {
+                        depth += 1;
+                    } else if self.matches_token(&TokenKind::RParen) {
+                        depth -= 1;
+                    } else {
+                        self.advance();
+                    }
+                }
+                (None, None)
+            }
+        } else if self.matches_token(&TokenKind::Eq) {
+            // Check for `= "value"` syntax
             if let TokenKind::StringLiteral(ref s) = self.current().kind {
                 let val = s.clone();
                 self.advance();
-                Some(val)
+                (None, Some(val))
             } else {
                 self.error_here("expected string literal after `=` in attribute");
-                None
+                (None, None)
             }
         } else {
-            None
+            (None, None)
         };
 
         if !self.matches_token(&TokenKind::RBracket) {
@@ -848,8 +907,95 @@ impl Parser {
         Some(Attribute {
             name,
             value,
+            cfg_predicate,
             span: Span { range: start..end },
         })
+    }
+
+    /// Parse a cfg predicate like `test`, `not(test)`, `all(test, debug)`, `any(node, bun)`.
+    fn parse_cfg_predicate(&mut self) -> Option<CfgPredicate> {
+        // Check for combinators: all(...), any(...), not(...)
+        if let TokenKind::Ident(ref name) = self.current().kind.clone() {
+            match name.as_str() {
+                "all" => {
+                    self.advance();
+                    if !self.matches_token(&TokenKind::LParen) {
+                        self.error_here("expected `(` after `all`");
+                        return None;
+                    }
+                    let predicates = self.parse_cfg_predicate_list()?;
+                    if !self.matches_token(&TokenKind::RParen) {
+                        self.error_here("expected `)` to close `all(...)`");
+                        return None;
+                    }
+                    return Some(CfgPredicate::All(predicates));
+                }
+                "any" => {
+                    self.advance();
+                    if !self.matches_token(&TokenKind::LParen) {
+                        self.error_here("expected `(` after `any`");
+                        return None;
+                    }
+                    let predicates = self.parse_cfg_predicate_list()?;
+                    if !self.matches_token(&TokenKind::RParen) {
+                        self.error_here("expected `)` to close `any(...)`");
+                        return None;
+                    }
+                    return Some(CfgPredicate::Any(predicates));
+                }
+                "not" => {
+                    self.advance();
+                    if !self.matches_token(&TokenKind::LParen) {
+                        self.error_here("expected `(` after `not`");
+                        return None;
+                    }
+                    let inner = self.parse_cfg_predicate()?;
+                    if !self.matches_token(&TokenKind::RParen) {
+                        self.error_here("expected `)` to close `not(...)`");
+                        return None;
+                    }
+                    return Some(CfgPredicate::Not(Box::new(inner)));
+                }
+                _ => {}
+            }
+        }
+
+        // Simple flag or key-value
+        let key = self.parse_ident("expected cfg predicate name")?;
+
+        if self.matches_token(&TokenKind::Eq) {
+            // Key-value: target = "esm"
+            if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                let val = s.clone();
+                self.advance();
+                Some(CfgPredicate::KeyValue {
+                    key: key.name,
+                    value: val,
+                })
+            } else {
+                self.error_here("expected string literal value in cfg predicate");
+                None
+            }
+        } else {
+            // Simple flag: test, debug
+            Some(CfgPredicate::Flag(key.name))
+        }
+    }
+
+    /// Parse a comma-separated list of cfg predicates.
+    fn parse_cfg_predicate_list(&mut self) -> Option<Vec<CfgPredicate>> {
+        let mut predicates = Vec::new();
+        loop {
+            // Check for empty or end
+            if matches!(self.current().kind, TokenKind::RParen) {
+                break;
+            }
+            predicates.push(self.parse_cfg_predicate()?);
+            if !self.matches_token(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Some(predicates)
     }
 
     /// Parse zero or more attributes: `#[getter] #[setter] #[js_name = "foo"]`
@@ -1369,6 +1515,7 @@ impl Parser {
         }
         let end = self.previous().span.range.end;
         Some(Item {
+            attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Use { path },
             span: Span {
