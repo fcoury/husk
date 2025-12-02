@@ -215,6 +215,14 @@ pub enum JsStmt {
         iterable: JsExpr,
         body: Vec<JsStmt>,
     },
+    /// C-style for loop: `for (let binding = start; binding < end; binding++)`
+    For {
+        binding: String,
+        start: JsExpr,
+        end: JsExpr,
+        inclusive: bool,
+        body: Vec<JsStmt>,
+    },
 }
 
 /// JavaScript expressions (subset).
@@ -273,6 +281,11 @@ pub enum JsExpr {
     },
     /// Array literal: `[elem1, elem2, ...]`.
     Array(Vec<JsExpr>),
+    /// Computed member access (indexing): `object[index]`.
+    Index {
+        object: Box<JsExpr>,
+        index: Box<JsExpr>,
+    },
 }
 
 /// Binary operators in JS (subset we need).
@@ -690,6 +703,9 @@ fn type_expr_to_js_name(ty: &TypeExpr) -> String {
             let param_names: Vec<String> = params.iter().map(type_expr_to_js_name).collect();
             format!("(({}) => {})", param_names.join(", "), type_expr_to_js_name(ret))
         }
+        TypeExprKind::Array(elem) => {
+            format!("{}[]", type_expr_to_js_name(elem))
+        }
     }
 }
 
@@ -946,12 +962,32 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             iterable,
             body,
         } => {
-            let js_iterable = lower_expr(iterable, ctx);
-            let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
-            JsStmt::ForOf {
-                binding: binding.name.clone(),
-                iterable: js_iterable,
-                body: js_body,
+            // Check if iterable is a range expression
+            if let ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } = &iterable.kind
+            {
+                let js_start = lower_expr(start, ctx);
+                let js_end = lower_expr(end, ctx);
+                let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+
+                JsStmt::For {
+                    binding: binding.name.clone(),
+                    start: js_start,
+                    end: js_end,
+                    inclusive: *inclusive,
+                    body: js_body,
+                }
+            } else {
+                let js_iterable = lower_expr(iterable, ctx);
+                let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+                JsStmt::ForOf {
+                    binding: binding.name.clone(),
+                    iterable: js_iterable,
+                    body: js_body,
+                }
             }
         }
         // While/Break/Continue not yet supported in codegen.
@@ -1220,6 +1256,19 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
         ExprKind::Array { elements } => {
             let js_elements: Vec<JsExpr> = elements.iter().map(|e| lower_expr(e, ctx)).collect();
             JsExpr::Array(js_elements)
+        }
+        ExprKind::Index { base, index } => JsExpr::Index {
+            object: Box::new(lower_expr(base, ctx)),
+            index: Box::new(lower_expr(index, ctx)),
+        },
+        ExprKind::Range { .. } => {
+            // Range expressions are handled specially in ForIn lowering.
+            // If we encounter a standalone range, just return a placeholder.
+            // In practice, ranges should only appear in for-in loops.
+            JsExpr::Object(vec![
+                ("start".to_string(), JsExpr::Number(0)),
+                ("end".to_string(), JsExpr::Number(0)),
+            ])
         }
     }
 }
@@ -1925,6 +1974,36 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
+        JsStmt::For {
+            binding,
+            start,
+            end,
+            inclusive,
+            body,
+        } => {
+            indent(indent_level, out);
+            out.push_str("for (let ");
+            out.push_str(binding);
+            out.push_str(" = ");
+            write_expr(start, out);
+            out.push_str("; ");
+            out.push_str(binding);
+            if *inclusive {
+                out.push_str(" <= ");
+            } else {
+                out.push_str(" < ");
+            }
+            write_expr(end, out);
+            out.push_str("; ");
+            out.push_str(binding);
+            out.push_str("++) {\n");
+            for s in body {
+                write_stmt(s, indent_level + 1, out);
+                out.push('\n');
+            }
+            indent(indent_level, out);
+            out.push('}');
+        }
     }
 }
 
@@ -2086,6 +2165,12 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
                 }
                 write_expr(elem, out);
             }
+            out.push(']');
+        }
+        JsExpr::Index { object, index } => {
+            write_expr(object, out);
+            out.push('[');
+            write_expr(index, out);
             out.push(']');
         }
     }
@@ -2271,6 +2356,11 @@ fn write_type_expr(ty: &TypeExpr, out: &mut String) {
             }
             out.push_str(") => ");
             write_type_expr(ret, out);
+        }
+        TypeExprKind::Array(elem) => {
+            // Generate TypeScript array type: T[]
+            write_type_expr(elem, out);
+            out.push_str("[]");
         }
     }
 }
