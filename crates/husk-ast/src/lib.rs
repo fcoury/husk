@@ -138,6 +138,8 @@ pub enum ExprKind {
         ret_type: Option<TypeExpr>,
         body: Box<Expr>,
     },
+    /// Array literal expression: `[1, 2, 3]` or `[]`
+    Array { elements: Vec<Expr> },
 }
 
 // ============================================================================
@@ -283,6 +285,12 @@ pub enum StmtKind {
     },
     While {
         cond: Expr,
+        body: Block,
+    },
+    /// For-in loop: `for item in collection { body }`
+    ForIn {
+        binding: Ident,
+        iterable: Expr,
         body: Block,
     },
     Break,

@@ -1,5 +1,6 @@
 //! Rich error reporting using codespan-reporting.
 
+use crate::load::LoadError;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term;
@@ -42,5 +43,22 @@ impl SourceDb {
         let writer = StandardStream::stderr(ColorChoice::Auto);
         let config = term::Config::default();
         let _ = term::emit(&mut writer.lock(), &config, &self.files, diagnostic);
+    }
+}
+
+/// Report a LoadError with pretty formatting for parse errors.
+pub fn report_load_error(err: &LoadError) {
+    match err {
+        LoadError::Parse {
+            path,
+            source_code,
+            errors,
+        } => {
+            let source_db = SourceDb::new(path.clone(), source_code.clone());
+            for e in errors {
+                source_db.report_parse_error(&e.message, e.span.range.clone());
+            }
+        }
+        _ => eprintln!("{err}"),
     }
 }
