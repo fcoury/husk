@@ -2755,18 +2755,15 @@ mod tests {
                 assert_eq!(package, "nanoid");
                 assert_eq!(binding.name, "nanoid");
                 assert_eq!(items.len(), 1);
-                if let husk_ast::ModItemKind::Fn {
+                // ModItemKind has only Fn variant (MVP scope)
+                let husk_ast::ModItemKind::Fn {
                     name,
                     params,
                     ret_type,
-                } = &items[0].kind
-                {
-                    assert_eq!(name.name, "nanoid");
-                    assert!(params.is_empty());
-                    assert!(ret_type.is_some());
-                } else {
-                    panic!("expected Fn item in mod block");
-                }
+                } = &items[0].kind;
+                assert_eq!(name.name, "nanoid");
+                assert!(params.is_empty());
+                assert!(ret_type.is_some());
             } else {
                 panic!("expected Mod item");
             }

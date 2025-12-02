@@ -1157,9 +1157,25 @@ impl<'a> Codegen<'a> {
             writeln!(self.output).unwrap();
             writeln!(self.output, "impl {} {{", type_name).unwrap();
 
-            // Emit properties first with #[getter] syntax
+            // Emit properties with appropriate attributes
             for p in properties {
+                // Always add getter
                 writeln!(self.output, "    #[getter]").unwrap();
+
+                // Add setter for writable (non-readonly) properties
+                if !p.is_readonly {
+                    writeln!(self.output, "    #[setter]").unwrap();
+                }
+
+                // Static properties need special handling
+                if p.is_static {
+                    writeln!(
+                        self.output,
+                        "    // TODO: static property - may need manual adjustment"
+                    )
+                    .unwrap();
+                }
+
                 writeln!(self.output, "    extern \"js\" {}: {};", p.name, p.ty).unwrap();
             }
 
