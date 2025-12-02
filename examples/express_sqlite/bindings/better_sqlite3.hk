@@ -1,0 +1,188 @@
+// Auto-generated from .d.ts file
+// Some types may be simplified - see warnings below
+
+extern "js" {
+    mod "better-sqlite3" as better_sqlite3;
+
+    struct BackupMetadata;
+    struct BackupOptions;
+    struct ColumnDefinition;
+    struct Database;
+    struct DatabaseConstructor;
+    struct Options;
+    struct PragmaOptions;
+    struct RegistrationOptions;
+    struct RunResult;
+    struct SerializeOptions;
+    struct SqliteErrorClass;
+    struct Statement;
+    struct Transaction;
+    struct VirtualTableOptions;
+
+    // constant - renamed to avoid conflict with struct Database
+    fn create_database() -> DatabaseConstructor;
+}
+
+impl BackupMetadata {
+    #[getter]
+    extern "js" totalPages: f64;
+    #[getter]
+    extern "js" remainingPages: f64;
+}
+
+impl BackupOptions {
+    // function property
+    extern "js" fn progress(self) -> fn(BackupMetadata) -> f64;
+}
+
+impl ColumnDefinition {
+    #[getter]
+    extern "js" name: String;
+    #[getter]
+    extern "js" column: Option<String>;
+    #[getter]
+    extern "js" table: Option<String>;
+    #[getter]
+    extern "js" database: Option<String>;
+    #[getter]
+    extern "js" type_: Option<String>;
+}
+
+impl Database {
+    #[getter]
+    extern "js" memory: bool;
+    #[getter]
+    extern "js" readonly_: bool;
+    #[getter]
+    extern "js" name: String;
+    #[getter]
+    extern "js" open: bool;
+    #[getter]
+    extern "js" inTransaction: bool;
+
+    extern "js" fn serialize(self, options: Option<SerializeOptions>) -> JsValue;
+    extern "js" fn unsafeMode(self, unsafe: Option<bool>) -> Database;
+    extern "js" fn backup(self, destinationFile: String, options: Option<BackupOptions>) -> JsPromise<BackupMetadata>;
+    extern "js" fn exec(self, source: String) -> Database;
+    extern "js" fn aggregate(self, name: String, options: RegistrationOptions) -> Database;
+    extern "js" fn pragma(self, source: String, options: Option<PragmaOptions>) -> JsValue;
+    extern "js" fn close(self) -> Database;
+    extern "js" fn loadExtension(self, path: String) -> Database;
+    extern "js" fn prepare(self, source: String) -> JsValue;
+    extern "js" fn defaultSafeIntegers(self, toggleState: Option<bool>) -> Database;
+    // merged from 2 overloads
+    extern "js" fn function_(self, name: String, options: RegistrationOptions, cb: Option<fn(JsArray<JsValue>) -> JsValue>) -> Database;
+    extern "js" fn transaction(self, fn_: JsValue) -> JsValue;
+    extern "js" fn table(self, name: String, options: VirtualTableOptions) -> Database;
+}
+
+impl DatabaseConstructor {
+    #[getter]
+    extern "js" prototype: Database;
+    #[getter]
+    extern "js" SqliteError: JsValue;
+
+    extern "js" fn new_(self, filename: Option<JsValue>, options: Option<Options>) -> Database;
+}
+
+impl Options {
+    #[getter]
+    extern "js" readonly_: Option<Option<bool>>;
+    #[getter]
+    extern "js" fileMustExist: Option<Option<bool>>;
+    #[getter]
+    extern "js" timeout: Option<Option<f64>>;
+    #[getter]
+    extern "js" verbose: Option<Option<fn(JsValue, JsArray<JsValue>) -> ()>>;
+    #[getter]
+    extern "js" nativeBinding: Option<Option<String>>;
+}
+
+impl PragmaOptions {
+    #[getter]
+    extern "js" simple: Option<Option<bool>>;
+}
+
+impl RegistrationOptions {
+    #[getter]
+    extern "js" varargs: Option<Option<bool>>;
+    #[getter]
+    extern "js" deterministic: Option<Option<bool>>;
+    #[getter]
+    extern "js" safeIntegers: Option<Option<bool>>;
+    #[getter]
+    extern "js" directOnly: Option<Option<bool>>;
+}
+
+impl RunResult {
+    #[getter]
+    extern "js" changes: f64;
+    #[getter]
+    extern "js" lastInsertRowid: JsValue;
+}
+
+impl SerializeOptions {
+    #[getter]
+    extern "js" attached: Option<String>;
+}
+
+impl SqliteErrorClass {
+    // property setter
+    extern "js" fn set_code(self, value: String);
+    // property getter
+    extern "js" fn name(self) -> String;
+    // property getter
+    extern "js" fn message(self) -> String;
+    extern "js" fn constructor(self, message: String, code: String);
+    // property setter
+    extern "js" fn set_name(self, value: String);
+    // property setter
+    extern "js" fn set_message(self, value: String);
+    // property getter
+    extern "js" fn code(self) -> String;
+}
+
+impl Statement {
+    #[getter]
+    extern "js" database: Database;
+    #[getter]
+    extern "js" source: String;
+    #[getter]
+    extern "js" reader: bool;
+    #[getter]
+    extern "js" readonly_: bool;
+    #[getter]
+    extern "js" busy: bool;
+
+    extern "js" fn pluck(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn raw(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn run(self, params: JsValue) -> RunResult;
+    extern "js" fn iterate(self, params: JsValue) -> JsValue;
+    extern "js" fn expand(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn bind(self, params: JsValue) -> Statement;
+    extern "js" fn get(self, params: JsValue) -> Option<JsValue>;
+    extern "js" fn safeIntegers(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn all(self, params: JsValue) -> JsArray<JsValue>;
+    extern "js" fn columns(self) -> JsArray<ColumnDefinition>;
+}
+
+impl Transaction {
+    extern "js" fn default_(self, params: JsValue) -> JsValue;
+    extern "js" fn deferred(self, params: JsValue) -> JsValue;
+    extern "js" fn immediate(self, params: JsValue) -> JsValue;
+    extern "js" fn exclusive(self, params: JsValue) -> JsValue;
+}
+
+impl VirtualTableOptions {
+    #[getter]
+    extern "js" columns: JsArray<String>;
+    #[getter]
+    extern "js" parameters: Option<Option<JsArray<String>>>;
+    #[getter]
+    extern "js" safeIntegers: Option<Option<bool>>;
+    #[getter]
+    extern "js" directOnly: Option<Option<bool>>;
+
+    // function property
+    extern "js" fn rows(self) -> fn(JsArray<JsValue>) -> JsValue;
+}

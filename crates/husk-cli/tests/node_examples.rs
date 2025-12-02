@@ -30,6 +30,10 @@ fn husk_example_files() -> Vec<PathBuf> {
         .filter_map(Result::ok)
         // Skip demo_npm files - they require actual npm packages installed
         .filter(|p| !p.to_string_lossy().contains("demo_npm"))
+        // Skip bindings directories - they're library modules, not runnable examples
+        .filter(|p| !p.to_string_lossy().contains("bindings"))
+        // Skip express_sqlite directory - requires npm packages (express, better-sqlite3)
+        .filter(|p| !p.to_string_lossy().contains("express_sqlite"))
         .collect()
 }
 
