@@ -98,6 +98,8 @@ pub enum TokenKind {
     ColonColon,
     Semicolon,
     Dot,
+    DotDot,   // ..  (exclusive range)
+    DotDotEq, // ..= (inclusive range)
     Arrow,    // ->
     FatArrow, // =>
     Eq,       // =
@@ -395,10 +397,29 @@ impl<'src> Iterator for Lexer<'src> {
                 kind: TokenKind::Semicolon,
                 span: Span::new(start, start + 1),
             },
-            '.' => Token {
-                kind: TokenKind::Dot,
-                span: Span::new(start, start + 1),
-            },
+            '.' => {
+                if let Some((idx2, '.')) = self.peek() {
+                    self.bump(); // consume second '.'
+
+                    if let Some((idx3, '=')) = self.peek() {
+                        self.bump(); // consume '='
+                        Token {
+                            kind: TokenKind::DotDotEq,
+                            span: Span::new(start, idx3 + 1),
+                        }
+                    } else {
+                        Token {
+                            kind: TokenKind::DotDot,
+                            span: Span::new(start, idx2 + 1),
+                        }
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Dot,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
             '-' => {
                 if let Some((idx2, '>')) = self.peek() {
                     // consume '>'

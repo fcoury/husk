@@ -1235,6 +1235,25 @@ impl Parser {
                     span: Span { range: start..end },
                 })
             }
+            // Array type: `[ElementType]`
+            TokenKind::LBracket => {
+                let start = tok.span.range.start;
+                self.advance(); // consume '['
+
+                let elem_type = self.parse_type_expr()?;
+
+                if !self.matches_token(&TokenKind::RBracket) {
+                    self.error_here("expected `]` after array element type");
+                    return None;
+                }
+
+                let end = self.previous().span.range.end;
+
+                Some(TypeExpr {
+                    kind: TypeExprKind::Array(Box::new(elem_type)),
+                    span: Span { range: start..end },
+                })
+            }
             TokenKind::Ident(ref name) => {
                 self.advance();
                 let ident = Ident {
@@ -1622,10 +1641,10 @@ impl Parser {
     }
 
     fn parse_equality(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_comparison()?;
+        let mut expr = self.parse_range()?;
         loop {
             if self.matches_token(&TokenKind::EqEq) {
-                let right = self.parse_comparison()?;
+                let right = self.parse_range()?;
                 let span = Span {
                     range: expr.span.range.start..right.span.range.end,
                 };
@@ -1638,7 +1657,7 @@ impl Parser {
                     span,
                 };
             } else if self.matches_token(&TokenKind::BangEq) {
-                let right = self.parse_comparison()?;
+                let right = self.parse_range()?;
                 let span = Span {
                     range: expr.span.range.start..right.span.range.end,
                 };
@@ -1654,6 +1673,40 @@ impl Parser {
                 break;
             }
         }
+        Some(expr)
+    }
+
+    fn parse_range(&mut self) -> Option<Expr> {
+        let expr = self.parse_comparison()?;
+
+        if self.matches_token(&TokenKind::DotDot) {
+            let end = self.parse_comparison()?;
+            let span = Span {
+                range: expr.span.range.start..end.span.range.end,
+            };
+            return Some(Expr {
+                kind: ExprKind::Range {
+                    start: Box::new(expr),
+                    end: Box::new(end),
+                    inclusive: false,
+                },
+                span,
+            });
+        } else if self.matches_token(&TokenKind::DotDotEq) {
+            let end = self.parse_comparison()?;
+            let span = Span {
+                range: expr.span.range.start..end.span.range.end,
+            };
+            return Some(Expr {
+                kind: ExprKind::Range {
+                    start: Box::new(expr),
+                    end: Box::new(end),
+                    inclusive: true,
+                },
+                span,
+            });
+        }
+
         Some(expr)
     }
 
@@ -1861,6 +1914,23 @@ impl Parser {
                         span,
                     };
                 }
+            } else if self.matches_token(&TokenKind::LBracket) {
+                // Array indexing: expr[index]
+                let index_expr = self.parse_expr()?;
+                if !self.matches_token(&TokenKind::RBracket) {
+                    self.error_here("expected `]` after array index");
+                    return None;
+                }
+                let span = Span {
+                    range: expr.span.range.start..self.previous().span.range.end,
+                };
+                expr = Expr {
+                    kind: ExprKind::Index {
+                        base: Box::new(expr),
+                        index: Box::new(index_expr),
+                    },
+                    span,
+                };
             } else {
                 break;
             }

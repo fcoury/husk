@@ -32,6 +32,8 @@ pub enum Type {
     Function { params: Vec<Type>, ret: Box<Type> },
     /// A type variable introduced during type checking.
     Var(TypeVarId),
+    /// An array type: `[T]`.
+    Array(Box<Type>),
 }
 
 impl Type {

@@ -140,6 +140,17 @@ pub enum ExprKind {
     },
     /// Array literal expression: `[1, 2, 3]` or `[]`
     Array { elements: Vec<Expr> },
+    /// Array index expression: `array[index]`
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
+    /// Range expression: `start..end` or `start..=end`
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+    },
 }
 
 // ============================================================================
@@ -311,6 +322,8 @@ pub enum TypeExprKind {
     Generic { name: Ident, args: Vec<TypeExpr> },
     /// Function type: `fn(T, U) -> V` or `fn() -> T`
     Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
+    /// Array type: `[ElementType]`
+    Array(Box<TypeExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

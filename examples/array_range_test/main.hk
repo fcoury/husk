@@ -1,0 +1,39 @@
+// Test file for array indexing, array type syntax, and range expressions
+
+fn get_numbers() -> [i32] {
+    let result: [i32] = [1, 2, 3];
+    result
+}
+
+fn main() {
+    // Test array indexing
+    let items = [10, 20, 30, 40, 50];
+    println("First: {}", items[0]);
+    println("Third: {}", items[2]);
+
+    // Test range iteration (exclusive)
+    println("Exclusive range 0..5:");
+    for i in 0..5 {
+        println("  Index {}: {}", i, items[i]);
+    }
+
+    // Test range iteration (inclusive)
+    println("Inclusive range 1..=3:");
+    for i in 1..=3 {
+        println("  Range value: {}", i);
+    }
+
+    // Test for-in over array
+    println("For-in over array:");
+    for item in items {
+        println("  Item: {}", item);
+    }
+
+    // Test nested indexing
+    let matrix = [[1, 2, 3], [4, 5, 6]];
+    println("Matrix[0][1]: {}", matrix[0][1]);
+
+    // Test function returning [i32]
+    let nums = get_numbers();
+    println("First from function: {}", nums[0]);
+}

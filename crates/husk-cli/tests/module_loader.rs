@@ -12,6 +12,7 @@ fn type_expr_to_name(ty: &husk_ast::TypeExpr) -> String {
         TypeExprKind::Named(ident) => ident.name.clone(),
         TypeExprKind::Generic { name, .. } => name.name.clone(),
         TypeExprKind::Function { .. } => String::new(),
+        TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_name(elem)),
     }
 }
 

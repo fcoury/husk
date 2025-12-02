@@ -8,8 +8,6 @@ use husk_parser::parse_str;
 #[derive(Debug, Clone)]
 pub struct Module {
     pub file: File,
-    /// Original source file path (for resolving relative paths in include_str, etc.)
-    pub source_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -103,7 +101,6 @@ fn dfs_load(
         module_path.clone(),
         Module {
             file: file.clone(),
-            source_path: path.to_path_buf(),
         },
     );
     order.push(module_path.clone());
@@ -397,6 +394,7 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
         TypeExprKind::Named(ident) => ident.name.clone(),
         TypeExprKind::Generic { name, .. } => name.name.clone(),
         TypeExprKind::Function { .. } => String::new(),
+        TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_name(elem)),
     }
 }
 

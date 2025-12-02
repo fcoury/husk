@@ -267,6 +267,7 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
         TypeExprKind::Named(ident) => ident.name.clone(),
         TypeExprKind::Generic { name, .. } => name.name.clone(),
         TypeExprKind::Function { .. } => "<fn>".to_string(),
+        TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_name(elem)),
     }
 }
 
@@ -598,6 +599,10 @@ impl TypeChecker {
                     params: param_types,
                     ret: Box::new(ret_type),
                 }
+            }
+            TypeExprKind::Array(elem_ty) => {
+                let elem = self.resolve_type_expr(elem_ty, generic_params);
+                Type::Array(Box::new(elem))
             }
         }
     }
@@ -957,10 +962,14 @@ impl<'a> FnContext<'a> {
             } => {
                 let iter_ty = self.check_expr(iterable);
 
-                // Extract element type from iterable (Vec<T> or similar)
+                // Extract element type from iterable ([T], Vec<T>, Range<T>, String)
                 let elem_ty = match &iter_ty {
+                    Type::Array(elem) => (**elem).clone(),
                     Type::Named { name, args } if name == "Vec" && !args.is_empty() => {
                         args[0].clone()
+                    }
+                    Type::Named { name, args } if name == "Range" && !args.is_empty() => {
+                        args[0].clone() // Range<i32> yields i32
                     }
                     // Also allow String iteration (iterates over chars as strings)
                     Type::Primitive(PrimitiveType::String) => {
@@ -1561,10 +1570,7 @@ impl<'a> FnContext<'a> {
                 if elements.is_empty() {
                     // Empty array - for now, allow it with unit element type
                     // A more complete implementation would require type annotation
-                    Type::Named {
-                        name: "Vec".to_string(),
-                        args: vec![Type::unit()],
-                    }
+                    Type::Array(Box::new(Type::unit()))
                 } else {
                     // Infer element type from first element
                     let first_ty = self.check_expr(&elements[0]);
@@ -1584,10 +1590,70 @@ impl<'a> FnContext<'a> {
                         }
                     }
 
-                    Type::Named {
-                        name: "Vec".to_string(),
-                        args: vec![first_ty],
+                    Type::Array(Box::new(first_ty))
+                }
+            }
+            ExprKind::Index { base, index } => {
+                let base_ty = self.check_expr(base);
+                let index_ty = self.check_expr(index);
+
+                // Verify index is integer
+                let is_valid_index = matches!(index_ty, Type::Primitive(PrimitiveType::I32))
+                    || matches!(&index_ty, Type::Named { name, .. } if name == "number");
+                if !is_valid_index {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!("array index must be integer, found {:?}", index_ty),
+                        span: index.span.clone(),
+                    });
+                }
+
+                // Extract element type from [T]
+                match base_ty {
+                    Type::Array(elem_ty) => (*elem_ty).clone(),
+                    // Also accept Vec<T> for backwards compat
+                    Type::Named { ref name, ref args } if name == "Vec" && !args.is_empty() => {
+                        args[0].clone()
                     }
+                    // Allow indexing any type that we don't know (e.g. extern types, JsValue)
+                    Type::Named { .. } => Type::Named {
+                        name: "JsValue".to_string(),
+                        args: vec![],
+                    },
+                    _ => {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!("cannot index into type {:?}", base_ty),
+                            span: base.span.clone(),
+                        });
+                        Type::unit()
+                    }
+                }
+            }
+            ExprKind::Range {
+                start,
+                end,
+                inclusive: _,
+            } => {
+                let start_ty = self.check_expr(start);
+                let end_ty = self.check_expr(end);
+
+                // Verify both are integers
+                if !matches!(start_ty, Type::Primitive(PrimitiveType::I32)) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!("range start must be i32, found {:?}", start_ty),
+                        span: start.span.clone(),
+                    });
+                }
+                if !matches!(end_ty, Type::Primitive(PrimitiveType::I32)) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!("range end must be i32, found {:?}", end_ty),
+                        span: end.span.clone(),
+                    });
+                }
+
+                // Range type - acts like an iterable of i32
+                Type::Named {
+                    name: "Range".to_string(),
+                    args: vec![Type::Primitive(PrimitiveType::I32)],
                 }
             }
         }
