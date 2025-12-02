@@ -877,6 +877,10 @@ impl<'src> Parser<'src> {
             if !self.matches(&TokenKind::Comma) {
                 break;
             }
+            // Handle trailing comma: `<T, U,>` - if we see >, break without parsing another param
+            if self.check(&TokenKind::RAngle) {
+                break;
+            }
         }
 
         self.expect(&TokenKind::RAngle)?;
@@ -949,6 +953,9 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_intersection_type(&mut self) -> ParseResult<DtsType> {
+        // Handle leading ampersand (TypeScript allows this for intersection types)
+        self.matches(&TokenKind::Amp);
+
         let mut types = vec![self.parse_postfix_type()?];
 
         while self.matches(&TokenKind::Amp) {
@@ -1112,6 +1119,9 @@ impl<'src> Parser<'src> {
             // Function type with type params: <T>(x: T) => T
             TokenKind::LAngle => self.parse_generic_function_type(),
 
+            // Template literal type: `${string}` or `prefix${T}suffix`
+            TokenKind::Backtick => self.parse_template_literal_type(),
+
             // Conditional type prefix handled after primary parsing
             _ => Err(ParseError {
                 message: format!("unexpected token in type position: {:?}", self.peek()),
@@ -1140,8 +1150,9 @@ impl<'src> Parser<'src> {
         };
 
         // Check for conditional type: T extends U ? X : Y
+        // Use parse_postfix_type to handle array suffixes like `T extends unknown[] ? ...`
         if self.matches(&TokenKind::Extends) {
-            let extends = self.parse_primary_type()?;
+            let extends = self.parse_postfix_type()?;
             self.expect(&TokenKind::Question)?;
             let true_type = self.parse_type()?;
             self.expect(&TokenKind::Colon)?;
@@ -1472,6 +1483,108 @@ impl<'src> Parser<'src> {
 
         self.expect(&TokenKind::RBracket)?;
         Ok(DtsType::Tuple(elements))
+    }
+
+    /// Parse a template literal type: `prefix${Type}suffix`
+    ///
+    /// Template literal types in TypeScript look like:
+    /// - `` `hello` `` - simple string
+    /// - `` `${string}` `` - single type interpolation
+    /// - `` `prefix${string}suffix` `` - mixed
+    /// - `` `${infer T}/${infer U}` `` - multiple interpolations
+    fn parse_template_literal_type(&mut self) -> ParseResult<DtsType> {
+        // Consume the opening backtick
+        let start_token = self.advance();
+        let start_pos = start_token.end;
+
+        let mut parts = Vec::new();
+        let mut current_string = String::new();
+
+        // Read directly from source, character by character
+        let src_bytes = self.src.as_bytes();
+        let mut pos = start_pos;
+
+        while pos < src_bytes.len() {
+            let ch = src_bytes[pos] as char;
+
+            if ch == '`' {
+                // End of template literal
+                pos += 1;
+                break;
+            } else if ch == '$' && pos + 1 < src_bytes.len() && src_bytes[pos + 1] == b'{' {
+                // Interpolation start: ${
+                if !current_string.is_empty() {
+                    parts.push(TemplateLiteralPart::String(current_string.clone()));
+                    current_string.clear();
+                }
+
+                pos += 2; // Skip ${
+
+                // Find matching }
+                // We need to handle nested braces
+                let mut brace_depth = 1;
+                let type_start = pos;
+                while pos < src_bytes.len() && brace_depth > 0 {
+                    match src_bytes[pos] as char {
+                        '{' => brace_depth += 1,
+                        '}' => brace_depth -= 1,
+                        _ => {}
+                    }
+                    if brace_depth > 0 {
+                        pos += 1;
+                    }
+                }
+                let type_end = pos;
+                pos += 1; // Skip closing }
+
+                // Parse the type inside the interpolation
+                let type_src = &self.src[type_start..type_end];
+                let inner_type = if let Ok(file) = crate::parse(&format!("type T = {};", type_src)) {
+                    if let Some(DtsItem::TypeAlias(ta)) = file.items.into_iter().next() {
+                        ta.ty
+                    } else {
+                        // Fallback: just treat as unknown
+                        DtsType::Primitive(Primitive::Unknown)
+                    }
+                } else {
+                    // If parsing fails, treat as unknown
+                    DtsType::Primitive(Primitive::Unknown)
+                };
+
+                parts.push(TemplateLiteralPart::Type(inner_type));
+            } else if ch == '\\' && pos + 1 < src_bytes.len() {
+                // Escape sequence
+                pos += 1;
+                let escaped = src_bytes[pos] as char;
+                current_string.push(escaped);
+                pos += 1;
+            } else {
+                current_string.push(ch);
+                pos += 1;
+            }
+        }
+
+        // Add any remaining string part
+        if !current_string.is_empty() {
+            parts.push(TemplateLiteralPart::String(current_string));
+        }
+
+        // Advance the parser's token position to skip past the template literal
+        // We need to find the position of the closing backtick in the token stream
+        while self.pos < self.tokens.len() && !matches!(self.peek(), TokenKind::Backtick | TokenKind::Eof) {
+            // Skip tokens that are part of the template literal content
+            // (these were consumed by our character-by-character parsing)
+            if self.current().start >= pos {
+                break;
+            }
+            self.pos += 1;
+        }
+        // Consume the closing backtick token if present
+        if matches!(self.peek(), TokenKind::Backtick) {
+            self.advance();
+        }
+
+        Ok(DtsType::TemplateLiteral(parts))
     }
 }
 

@@ -50,14 +50,22 @@ struct Codegen<'a> {
     warnings: Vec<Warning>,
     /// Collected struct names (from interfaces and classes).
     structs: HashSet<String>,
-    /// Collected functions.
+    /// Collected functions (before overload merging).
     functions: Vec<GeneratedFn>,
-    /// Collected impl blocks: type name -> methods.
+    /// Collected impl blocks: type name -> methods (before overload merging).
     impls: HashMap<String, Vec<GeneratedMethod>>,
+    /// Collected properties: type name -> properties with #[getter] syntax.
+    properties: HashMap<String, Vec<GeneratedProperty>>,
     /// Type aliases (for reference, not always generated).
     type_aliases: HashMap<String, DtsType>,
-    /// Known generic types.
+    /// Known generic types (struct-level type parameters).
     known_generics: HashSet<String>,
+    /// Method-level type parameters (for the current method being processed).
+    method_type_params: HashSet<String>,
+    /// Whether we're currently processing an interface or class (vs a function).
+    in_struct_context: bool,
+    /// The name of the current struct/interface being processed (for `this` type).
+    current_type_name: Option<String>,
 }
 
 struct GeneratedFn {
@@ -77,6 +85,14 @@ struct GeneratedMethod {
     comment: Option<String>,
 }
 
+/// A generated property with #[getter] attribute.
+struct GeneratedProperty {
+    name: String,
+    ty: String,
+    is_readonly: bool,
+    is_static: bool,
+}
+
 impl<'a> Codegen<'a> {
     fn new(options: &'a CodegenOptions) -> Self {
         Self {
@@ -86,8 +102,12 @@ impl<'a> Codegen<'a> {
             structs: HashSet::new(),
             functions: Vec::new(),
             impls: HashMap::new(),
+            properties: HashMap::new(),
             type_aliases: HashMap::new(),
             known_generics: HashSet::new(),
+            method_type_params: HashSet::new(),
+            in_struct_context: false,
+            current_type_name: None,
         }
     }
 
@@ -99,16 +119,196 @@ impl<'a> Codegen<'a> {
     }
 
     fn generate_file(&mut self, file: &DtsFile) {
-        // First pass: collect all declarations
+        // Pre-pass: collect all struct names first so type mapping knows what's defined
+        for item in &file.items {
+            self.collect_struct_names(item);
+        }
+
+        // First pass: collect all declarations with proper type mapping
         for item in &file.items {
             self.collect_item(item);
         }
+
+        // Merge overloaded functions and methods
+        self.merge_function_overloads();
+        self.merge_method_overloads();
 
         // Second pass: generate code
         self.emit_header();
         self.emit_extern_block();
         self.emit_impl_blocks();
         self.emit_warnings();
+    }
+
+    /// Merge overloaded top-level functions into single signatures.
+    fn merge_function_overloads(&mut self) {
+        let mut merged: HashMap<String, Vec<GeneratedFn>> = HashMap::new();
+
+        // Group functions by name
+        for f in std::mem::take(&mut self.functions) {
+            merged.entry(f.name.clone()).or_default().push(f);
+        }
+
+        // Merge each group
+        for (name, overloads) in merged {
+            if overloads.len() == 1 {
+                self.functions.push(overloads.into_iter().next().unwrap());
+            } else {
+                if let Some(merged_fn) = self.merge_fn_overloads(&name, overloads) {
+                    self.functions.push(merged_fn);
+                }
+            }
+        }
+    }
+
+    /// Merge overloaded methods in impl blocks into single signatures.
+    fn merge_method_overloads(&mut self) {
+        // Process each impl block
+        let type_names: Vec<String> = self.impls.keys().cloned().collect();
+        for type_name in type_names {
+            let methods = self.impls.remove(&type_name).unwrap_or_default();
+            // Group by (name, is_static) to keep static and instance methods separate
+            let mut merged_groups: HashMap<(String, bool), Vec<GeneratedMethod>> = HashMap::new();
+
+            // Group methods by name AND is_static flag
+            for m in methods {
+                merged_groups.entry((m.name.clone(), m.is_static)).or_default().push(m);
+            }
+
+            // Merge each group
+            let mut final_methods = Vec::new();
+            for ((name, _is_static), overloads) in merged_groups {
+                if overloads.len() == 1 {
+                    final_methods.push(overloads.into_iter().next().unwrap());
+                } else {
+                    if let Some(merged_method) = self.merge_method_group(&name, overloads) {
+                        final_methods.push(merged_method);
+                    }
+                }
+            }
+
+            self.impls.insert(type_name, final_methods);
+        }
+    }
+
+    /// Merge a group of function overloads into a single signature.
+    fn merge_fn_overloads(&mut self, name: &str, mut overloads: Vec<GeneratedFn>) -> Option<GeneratedFn> {
+        if overloads.is_empty() {
+            return None;
+        }
+
+        // Sort by param count descending - take the one with most params as base
+        overloads.sort_by(|a, b| b.params.len().cmp(&a.params.len()));
+        let base = overloads.remove(0);
+
+        // Find which params are optional (present in base but not in all overloads)
+        let min_params = overloads.iter().map(|o| o.params.len()).min().unwrap_or(base.params.len());
+
+        let merged_params: Vec<(String, String)> = base
+            .params
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, ty))| {
+                if i >= min_params {
+                    // This param doesn't exist in shorter overloads, make it optional
+                    let optional_ty = if ty.starts_with("Option<") {
+                        ty
+                    } else {
+                        format!("Option<{}>", ty)
+                    };
+                    (name, optional_ty)
+                } else {
+                    (name, ty)
+                }
+            })
+            .collect();
+
+        if overloads.len() > 0 {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Merged {} overloads of function `{}`", overloads.len() + 1, name),
+            );
+        }
+
+        Some(GeneratedFn {
+            name: base.name,
+            type_params: base.type_params,
+            params: merged_params,
+            return_type: base.return_type,
+            comment: Some(format!("merged from {} overloads", overloads.len() + 1)),
+        })
+    }
+
+    /// Merge a group of method overloads into a single signature.
+    fn merge_method_group(&mut self, name: &str, mut overloads: Vec<GeneratedMethod>) -> Option<GeneratedMethod> {
+        if overloads.is_empty() {
+            return None;
+        }
+
+        // Sort by param count descending - take the one with most params as base
+        overloads.sort_by(|a, b| b.params.len().cmp(&a.params.len()));
+        let base = overloads.remove(0);
+
+        // Find which params are optional (present in base but not in all overloads)
+        let min_params = overloads.iter().map(|o| o.params.len()).min().unwrap_or(base.params.len());
+
+        let merged_params: Vec<(String, String)> = base
+            .params
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, ty))| {
+                if i >= min_params {
+                    // This param doesn't exist in shorter overloads, make it optional
+                    let optional_ty = if ty.starts_with("Option<") {
+                        ty
+                    } else {
+                        format!("Option<{}>", ty)
+                    };
+                    (name, optional_ty)
+                } else {
+                    (name, ty)
+                }
+            })
+            .collect();
+
+        if overloads.len() > 0 {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Merged {} overloads of method `{}`", overloads.len() + 1, name),
+            );
+        }
+
+        Some(GeneratedMethod {
+            name: base.name,
+            type_params: base.type_params,
+            params: merged_params,
+            return_type: base.return_type,
+            is_static: base.is_static,
+            comment: Some(format!("merged from {} overloads", overloads.len() + 1)),
+        })
+    }
+
+    /// Pre-pass: collect struct names from interfaces and classes so type mapping knows what's defined.
+    fn collect_struct_names(&mut self, item: &DtsItem) {
+        match item {
+            DtsItem::Interface(i) => {
+                self.structs.insert(i.name.clone());
+            }
+            DtsItem::Class(c) => {
+                self.structs.insert(c.name.clone());
+            }
+            DtsItem::Namespace(ns) => {
+                for item in &ns.items {
+                    self.collect_struct_names(item);
+                }
+            }
+            DtsItem::Module(m) => {
+                for item in &m.items {
+                    self.collect_struct_names(item);
+                }
+            }
+            _ => {} // Other items don't define structs
+        }
     }
 
     fn collect_item(&mut self, item: &DtsItem) {
@@ -181,6 +381,8 @@ impl<'a> Codegen<'a> {
 
     fn collect_interface(&mut self, i: &DtsInterface) {
         self.structs.insert(i.name.clone());
+        self.in_struct_context = true;
+        self.current_type_name = Some(i.name.clone());
 
         let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
         self.known_generics = type_params.iter().cloned().collect();
@@ -190,14 +392,22 @@ impl<'a> Codegen<'a> {
         for member in &i.members {
             match member {
                 InterfaceMember::Method(m) => {
-                    let method_type_params: Vec<String> = type_params
+                    // Track method-only type params (not in struct-level params)
+                    let method_only_params: HashSet<String> = m
+                        .type_params
                         .iter()
-                        .chain(m.type_params.iter().map(|p| &p.name))
-                        .cloned()
+                        .map(|p| p.name.clone())
                         .collect();
 
-                    // Temporarily add method type params to known generics
+                    // Only keep struct-level type params for generated method
+                    // Method-only type params will be simplified to JsValue
+                    let method_type_params: Vec<String> = type_params.clone();
+
+                    // Save old state and set up for type mapping
                     let old_generics = self.known_generics.clone();
+                    let old_method_params = std::mem::replace(&mut self.method_type_params, method_only_params.clone());
+
+                    // Add method type params to known generics for mapping
                     for tp in &m.type_params {
                         self.known_generics.insert(tp.name.clone());
                     }
@@ -230,46 +440,48 @@ impl<'a> Codegen<'a> {
                     });
 
                     self.known_generics = old_generics;
+                    self.method_type_params = old_method_params;
                 }
                 InterfaceMember::Property(p) => {
-                    let mapped_type = self.map_type(&p.ty);
+                    // Check if this is a function-typed property (callback)
+                    // Function-typed properties are treated as methods for better ergonomics
+                    let is_function_property = matches!(p.ty, DtsType::Function(_));
 
-                    // Generate getter method for property access
-                    let return_type = if p.optional {
-                        format!("Option<{}>", mapped_type)
-                    } else {
-                        mapped_type.clone()
-                    };
-
-                    methods.push(GeneratedMethod {
-                        name: escape_keyword(&p.name),
-                        type_params: Vec::new(),
-                        params: Vec::new(),
-                        return_type: Some(return_type),
-                        is_static: false,
-                        comment: if p.readonly {
-                            Some("property (readonly)".to_string())
-                        } else {
-                            Some("property getter".to_string())
-                        },
-                    });
-
-                    // Generate setter method for non-readonly properties
-                    if !p.readonly {
-                        let setter_param_type = if p.optional {
+                    if is_function_property {
+                        // Generate as method for function-typed properties
+                        let mapped_type = self.map_type(&p.ty);
+                        let return_type = if p.optional {
                             format!("Option<{}>", mapped_type)
                         } else {
                             mapped_type
                         };
 
                         methods.push(GeneratedMethod {
-                            name: format!("set_{}", escape_keyword(&p.name)),
+                            name: escape_keyword(&p.name),
                             type_params: Vec::new(),
-                            params: vec![("value".to_string(), setter_param_type)],
-                            return_type: None,
+                            params: Vec::new(),
+                            return_type: Some(return_type),
                             is_static: false,
-                            comment: Some("property setter".to_string()),
+                            comment: Some("function property".to_string()),
                         });
+                    } else {
+                        // Generate as #[getter] property for non-function properties
+                        let mapped_type = self.map_type(&p.ty);
+                        let final_type = if p.optional {
+                            format!("Option<{}>", mapped_type)
+                        } else {
+                            mapped_type
+                        };
+
+                        self.properties
+                            .entry(i.name.clone())
+                            .or_default()
+                            .push(GeneratedProperty {
+                                name: escape_keyword(&p.name),
+                                ty: final_type,
+                                is_readonly: p.readonly,
+                                is_static: false,
+                            });
                     }
                 }
                 InterfaceMember::CallSignature(_) => {
@@ -289,10 +501,14 @@ impl<'a> Codegen<'a> {
         }
 
         self.known_generics.clear();
+        self.in_struct_context = false;
+        self.current_type_name = None;
     }
 
     fn collect_class(&mut self, c: &DtsClass) {
         self.structs.insert(c.name.clone());
+        self.in_struct_context = true;
+        self.current_type_name = Some(c.name.clone());
 
         let type_params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
         self.known_generics = type_params.iter().cloned().collect();
@@ -438,6 +654,8 @@ impl<'a> Codegen<'a> {
         }
 
         self.known_generics.clear();
+        self.in_struct_context = false;
+        self.current_type_name = None;
     }
 
     fn collect_type_alias(&mut self, t: &DtsTypeAlias) {
@@ -532,8 +750,8 @@ impl<'a> Codegen<'a> {
             }
             DtsType::Parenthesized(inner) => self.map_type(inner),
             DtsType::This => {
-                // `this` type - use Self if available
-                "Self".to_string()
+                // `this` type - use the current type name
+                self.current_type_name.clone().unwrap_or_else(|| "JsValue".to_string())
             }
         }
     }
@@ -560,9 +778,29 @@ impl<'a> Codegen<'a> {
         // e.g., "Database.RunResult" -> "RunResult"
         let simple_name = name.split('.').last().unwrap_or(name);
 
-        // Check if it's a known generic
+        // Check if it's a method-only type parameter - these get simplified to JsValue
+        if self.method_type_params.contains(simple_name) {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Method-only type parameter `{}` mapped to JsValue", simple_name),
+            );
+            return "JsValue".to_string();
+        }
+
+        // Check if it's a known generic type parameter
         if self.known_generics.contains(simple_name) {
-            return simple_name.to_string();
+            // If we're NOT in struct/interface context, this is a function-level generic
+            // and can be preserved in the generated code
+            if !self.in_struct_context {
+                return simple_name.to_string();
+            }
+            // Otherwise, it's a struct-level generic used in a method,
+            // and since Husk extern structs don't support generics, simplify to JsValue
+            self.warn(
+                WarningKind::Simplified,
+                format!("Struct-level type parameter `{}` mapped to JsValue", simple_name),
+            );
+            return "JsValue".to_string();
         }
 
         // Map well-known types using simple name
@@ -598,13 +836,92 @@ impl<'a> Codegen<'a> {
             }
             _ => {
                 // User-defined type - use simple name (last segment of qualified name)
+                // Check if this is a type alias we know about
+                if let Some(alias_ty) = self.type_aliases.get(simple_name).cloned() {
+                    // Resolve type alias to its underlying type
+                    return self.map_type(&alias_ty);
+                }
+
+                // Check if this type is defined in the current file
+                let is_known_struct = self.structs.contains(simple_name);
+
                 if type_args.is_empty() {
-                    simple_name.to_string()
+                    if is_known_struct {
+                        simple_name.to_string()
+                    } else {
+                        // Unknown type - simplify to JsValue
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!("Unknown type `{}` mapped to JsValue", simple_name),
+                        );
+                        "JsValue".to_string()
+                    }
                 } else {
+                    // Check if any type args use method-only type parameters
+                    let has_method_only_param = type_args.iter().any(|arg| {
+                        if let DtsType::Named { name, type_args } = arg {
+                            let arg_simple = name.split('.').last().unwrap_or(name);
+                            self.method_type_params.contains(arg_simple)
+                                || type_args.iter().any(|inner| self.type_uses_method_param(inner))
+                        } else {
+                            self.type_uses_method_param(arg)
+                        }
+                    });
+
+                    if has_method_only_param {
+                        // Simplify the entire generic type to JsValue
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!("Generic type `{}<...>` with method-only params simplified to JsValue", simple_name),
+                        );
+                        return "JsValue".to_string();
+                    }
+
+                    // If the base type is unknown, simplify to JsValue
+                    if !is_known_struct {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!("Unknown generic type `{}<...>` mapped to JsValue", simple_name),
+                        );
+                        return "JsValue".to_string();
+                    }
+
                     let args: Vec<String> = type_args.iter().map(|a| self.map_type(a)).collect();
                     format!("{}<{}>", simple_name, args.join(", "))
                 }
             }
+        }
+    }
+
+    /// Check if a type uses any method-only type parameters.
+    fn type_uses_method_param(&self, ty: &DtsType) -> bool {
+        match ty {
+            DtsType::Named { name, type_args } => {
+                let simple_name = name.split('.').last().unwrap_or(name);
+                self.method_type_params.contains(simple_name)
+                    || type_args.iter().any(|inner| self.type_uses_method_param(inner))
+            }
+            DtsType::Array(inner) => self.type_uses_method_param(inner),
+            DtsType::Tuple(elements) => elements.iter().any(|e| self.type_uses_method_param(&e.ty)),
+            DtsType::Union(types) | DtsType::Intersection(types) => {
+                types.iter().any(|t| self.type_uses_method_param(t))
+            }
+            DtsType::Function(f) => {
+                f.params.iter().any(|p| self.type_uses_method_param(&p.ty))
+                    || self.type_uses_method_param(&f.return_type)
+            }
+            DtsType::Conditional { check, extends, true_type, false_type } => {
+                self.type_uses_method_param(check)
+                    || self.type_uses_method_param(extends)
+                    || self.type_uses_method_param(true_type)
+                    || self.type_uses_method_param(false_type)
+            }
+            DtsType::IndexAccess { object, index } => {
+                self.type_uses_method_param(object) || self.type_uses_method_param(index)
+            }
+            DtsType::KeyOf(inner) => self.type_uses_method_param(inner),
+            DtsType::Parenthesized(inner) => self.type_uses_method_param(inner),
+            _ => false,
         }
     }
 
@@ -743,17 +1060,37 @@ impl<'a> Codegen<'a> {
     }
 
     fn emit_impl_blocks(&mut self) {
-        let mut sorted_impls: Vec<(&String, &Vec<GeneratedMethod>)> = self.impls.iter().collect();
-        sorted_impls.sort_by_key(|(k, _)| *k);
+        // Collect all type names that have either methods or properties
+        let mut all_type_names: HashSet<&String> = HashSet::new();
+        all_type_names.extend(self.impls.keys());
+        all_type_names.extend(self.properties.keys());
 
-        for (type_name, methods) in sorted_impls {
-            if methods.is_empty() {
+        let mut sorted_types: Vec<&String> = all_type_names.into_iter().collect();
+        sorted_types.sort();
+
+        for type_name in sorted_types {
+            let methods = self.impls.get(type_name).map(|v| v.as_slice()).unwrap_or(&[]);
+            let properties = self.properties.get(type_name).map(|v| v.as_slice()).unwrap_or(&[]);
+
+            if methods.is_empty() && properties.is_empty() {
                 continue;
             }
 
             writeln!(self.output).unwrap();
             writeln!(self.output, "impl {} {{", type_name).unwrap();
 
+            // Emit properties first with #[getter] syntax
+            for p in properties {
+                writeln!(self.output, "    #[getter]").unwrap();
+                writeln!(self.output, "    extern \"js\" {}: {};", p.name, p.ty).unwrap();
+            }
+
+            // Add blank line between properties and methods if both exist
+            if !properties.is_empty() && !methods.is_empty() {
+                writeln!(self.output).unwrap();
+            }
+
+            // Emit methods
             for m in methods {
                 if let Some(comment) = &m.comment {
                     writeln!(self.output, "    // {}", comment).unwrap();
@@ -970,7 +1307,10 @@ mod tests {
 
     #[test]
     fn test_generate_nullable_type() {
-        let src = "declare function find(id: string): User | null;";
+        let src = r#"
+            interface User {}
+            declare function find(id: string): User | null;
+        "#;
         let file = parse(src).unwrap();
         let result = generate(&file, &CodegenOptions::default());
 
@@ -988,7 +1328,10 @@ mod tests {
 
     #[test]
     fn test_generate_promise_type() {
-        let src = "declare function fetch(url: string): Promise<Response>;";
+        let src = r#"
+            interface Response {}
+            declare function fetch(url: string): Promise<Response>;
+        "#;
         let file = parse(src).unwrap();
         let result = generate(&file, &CodegenOptions::default());
 
