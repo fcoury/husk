@@ -21,8 +21,12 @@ pub struct ModuleGraph {
 pub enum LoadError {
     #[error("failed to resolve {0}: {1}")]
     Io(String, String),
-    #[error("parse errors in {0}: {1:?}")]
-    Parse(String, Vec<husk_parser::ParseError>),
+    #[error("parse errors in {path}")]
+    Parse {
+        path: String,
+        source_code: String,
+        errors: Vec<husk_parser::ParseError>,
+    },
     #[error("cycle detected involving {0}")]
     Cycle(String),
     #[error("missing module {0}")]
@@ -73,11 +77,17 @@ fn dfs_load(
         .map_err(|e| LoadError::Io(path.display().to_string(), e.to_string()))?;
     let parsed = parse_str(&src);
     if !parsed.errors.is_empty() {
-        return Err(LoadError::Parse(path.display().to_string(), parsed.errors));
+        return Err(LoadError::Parse {
+            path: path.display().to_string(),
+            source_code: src.clone(),
+            errors: parsed.errors,
+        });
     }
-    let file = parsed
-        .file
-        .ok_or_else(|| LoadError::Parse(path.display().to_string(), Vec::new()))?;
+    let file = parsed.file.ok_or_else(|| LoadError::Parse {
+        path: path.display().to_string(),
+        source_code: src.clone(),
+        errors: Vec::new(),
+    })?;
 
     // Recurse into module deps discovered via `use crate::foo::...`
     for dep_mod_path in discover_module_paths(&file) {

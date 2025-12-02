@@ -209,6 +209,12 @@ pub enum JsStmt {
         then_block: Vec<JsStmt>,
         else_block: Option<Vec<JsStmt>>,
     },
+    /// `for (const binding of iterable) { body }`
+    ForOf {
+        binding: String,
+        iterable: JsExpr,
+        body: Vec<JsStmt>,
+    },
 }
 
 /// JavaScript expressions (subset).
@@ -265,6 +271,8 @@ pub enum JsExpr {
         params: Vec<String>,
         body: Vec<JsStmt>,
     },
+    /// Array literal: `[elem1, elem2, ...]`.
+    Array(Vec<JsExpr>),
 }
 
 /// Binary operators in JS (subset we need).
@@ -933,6 +941,19 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 else_block,
             }
         }
+        StmtKind::ForIn {
+            binding,
+            iterable,
+            body,
+        } => {
+            let js_iterable = lower_expr(iterable, ctx);
+            let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+            JsStmt::ForOf {
+                binding: binding.name.clone(),
+                iterable: js_iterable,
+                body: js_body,
+            }
+        }
         // While/Break/Continue not yet supported in codegen.
         StmtKind::While { .. } | StmtKind::Break | StmtKind::Continue => {
             JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
@@ -1195,6 +1216,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 params: js_params,
                 body: js_body,
             }
+        }
+        ExprKind::Array { elements } => {
+            let js_elements: Vec<JsExpr> = elements.iter().map(|e| lower_expr(e, ctx)).collect();
+            JsExpr::Array(js_elements)
         }
     }
 }
@@ -1882,6 +1907,24 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
                 out.push('}');
             }
         }
+        JsStmt::ForOf {
+            binding,
+            iterable,
+            body,
+        } => {
+            indent(indent_level, out);
+            out.push_str("for (const ");
+            out.push_str(binding);
+            out.push_str(" of ");
+            write_expr(iterable, out);
+            out.push_str(") {\n");
+            for s in body {
+                write_stmt(s, indent_level + 1, out);
+                out.push('\n');
+            }
+            indent(indent_level, out);
+            out.push('}');
+        }
     }
 }
 
@@ -2034,6 +2077,16 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
                 out.push('\n');
             }
             out.push('}');
+        }
+        JsExpr::Array(elements) => {
+            out.push('[');
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_expr(elem, out);
+            }
+            out.push(']');
         }
     }
 }
@@ -2392,7 +2445,7 @@ mod tests {
             span: span(0, 60),
         };
 
-        let js = lower_expr(&match_expr, &PropertyAccessors::default());
+        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default()));
         let mut out = String::new();
         write_expr(&js, &mut out);
 
@@ -2822,7 +2875,8 @@ mod tests {
         };
 
         let accessors = PropertyAccessors::default();
-        let js_expr = lower_expr(&format_expr, &accessors);
+        let ctx = CodegenContext::new(&accessors);
+        let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
 
@@ -2884,7 +2938,8 @@ mod tests {
         };
 
         let accessors = PropertyAccessors::default();
-        let js_expr = lower_expr(&format_expr, &accessors);
+        let ctx = CodegenContext::new(&accessors);
+        let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
 
@@ -2918,7 +2973,8 @@ mod tests {
         };
 
         let accessors = PropertyAccessors::default();
-        let js_expr = lower_expr(&format_expr, &accessors);
+        let ctx = CodegenContext::new(&accessors);
+        let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
 

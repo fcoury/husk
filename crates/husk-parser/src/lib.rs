@@ -1364,6 +1364,7 @@ impl Parser {
             TokenKind::Keyword(Keyword::Return) => self.parse_return_stmt(),
             TokenKind::Keyword(Keyword::If) => self.parse_if_stmt(),
             TokenKind::Keyword(Keyword::While) => self.parse_while_stmt(),
+            TokenKind::Keyword(Keyword::For) => self.parse_for_in_stmt(),
             TokenKind::Keyword(Keyword::Break) => self.parse_break_stmt(),
             TokenKind::Keyword(Keyword::Continue) => self.parse_continue_stmt(),
             TokenKind::LBrace => {
@@ -1492,6 +1493,36 @@ impl Parser {
             kind: StmtKind::While { cond, body },
             span: Span {
                 range: while_tok.span.range.start..end,
+            },
+        })
+    }
+
+    fn parse_for_in_stmt(&mut self) -> Option<Stmt> {
+        let for_tok = self.advance().clone(); // consume `for`
+        let binding = self.parse_ident("expected binding name after `for`")?;
+
+        if !self.matches_keyword(Keyword::In) {
+            self.error_here("expected `in` after for loop binding");
+            return None;
+        }
+
+        // Use parse_expr_no_struct so that `for x in arr { ... }` doesn't try to
+        // parse `arr { ... }` as a struct literal.
+        let iterable = self.parse_expr_no_struct()?;
+        let body = self.parse_block().unwrap_or(Block {
+            stmts: Vec::new(),
+            span: self.ast_span_from(&for_tok.span),
+        });
+
+        let end = body.span.range.end;
+        Some(Stmt {
+            kind: StmtKind::ForIn {
+                binding,
+                iterable,
+                body,
+            },
+            span: Span {
+                range: for_tok.span.range.start..end,
             },
         })
     }
@@ -2459,12 +2490,47 @@ impl Parser {
                 }
                 Some(expr)
             }
+            TokenKind::LBracket => self.parse_array_expr(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expr(),
             _ => {
                 self.error_at_token(&tok, "expected expression");
                 None
             }
         }
+    }
+
+    fn parse_array_expr(&mut self) -> Option<Expr> {
+        let start = self.current().span.range.start;
+        self.advance(); // consume '['
+
+        let mut elements = Vec::new();
+
+        // Handle empty array or elements
+        if self.current().kind != TokenKind::RBracket {
+            loop {
+                elements.push(self.parse_expr()?);
+
+                if !self.matches_token(&TokenKind::Comma) {
+                    break;
+                }
+
+                // Allow trailing comma
+                if self.current().kind == TokenKind::RBracket {
+                    break;
+                }
+            }
+        }
+
+        let end = self.current().span.range.end;
+        if !self.matches_token(&TokenKind::RBracket) {
+            self.error_here("expected `]` after array elements");
+            return None;
+        }
+
+        Some(Expr {
+            kind: ExprKind::Array { elements },
+            span: Span { range: start..end },
+        })
     }
 
     /// Parse a struct instantiation expression: `Name { field: value, ... }`.

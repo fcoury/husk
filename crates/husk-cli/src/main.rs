@@ -10,7 +10,7 @@ mod config;
 mod diagnostic;
 mod load;
 use config::HuskConfig;
-use diagnostic::SourceDb;
+use diagnostic::{report_load_error, SourceDb};
 use husk_parser::parse_str;
 use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
@@ -327,14 +327,14 @@ fn run_check(path: &str, no_prelude: bool, config: &HuskConfig) {
     let graph = match load::load_graph(Path::new(path)) {
         Ok(g) => g,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             std::process::exit(1);
         }
     };
     let file = match load::assemble_root(&graph) {
         Ok(f) => f,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             std::process::exit(1);
         }
     };
@@ -399,14 +399,14 @@ fn run_compile(
     let graph = match load::load_graph(Path::new(path)) {
         Ok(g) => g,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             std::process::exit(1);
         }
     };
     let file = match load::assemble_root(&graph) {
         Ok(f) => f,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             std::process::exit(1);
         }
     };
@@ -797,7 +797,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
     let graph = match load::load_graph(Path::new(path)) {
         Ok(g) => g,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             return;
         }
     };
@@ -805,7 +805,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
     let file = match load::assemble_root(&graph) {
         Ok(f) => f,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             return;
         }
     };
@@ -997,7 +997,7 @@ fn run_build(
     let graph = match load::load_graph(&entry_path) {
         Ok(g) => g,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             std::process::exit(1);
         }
     };
@@ -1005,7 +1005,7 @@ fn run_build(
     let file_ast = match load::assemble_root(&graph) {
         Ok(f) => f,
         Err(err) => {
-            eprintln!("{err}");
+            report_load_error(&err);
             std::process::exit(1);
         }
     };

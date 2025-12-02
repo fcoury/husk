@@ -917,6 +917,50 @@ impl<'a> FnContext<'a> {
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
             }
+            StmtKind::ForIn {
+                binding,
+                iterable,
+                body,
+            } => {
+                let iter_ty = self.check_expr(iterable);
+
+                // Extract element type from iterable (Vec<T> or similar)
+                let elem_ty = match &iter_ty {
+                    Type::Named { name, args } if name == "Vec" && !args.is_empty() => {
+                        args[0].clone()
+                    }
+                    // Also allow String iteration (iterates over chars as strings)
+                    Type::Primitive(PrimitiveType::String) => {
+                        Type::Primitive(PrimitiveType::String)
+                    }
+                    _ => {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "for-in loop requires iterable collection, found `{:?}`",
+                                iter_ty
+                            ),
+                            span: iterable.span.clone(),
+                        });
+                        Type::unit()
+                    }
+                };
+
+                // Bind loop variable in scope
+                let old_binding = self.locals.insert(binding.name.clone(), elem_ty);
+
+                // Check body in loop context
+                let prev_in_loop = self.in_loop;
+                self.in_loop = true;
+                self.check_block(body);
+                self.in_loop = prev_in_loop;
+
+                // Restore previous binding if any
+                if let Some(old_ty) = old_binding {
+                    self.locals.insert(binding.name.clone(), old_ty);
+                } else {
+                    self.locals.remove(&binding.name);
+                }
+            }
             StmtKind::Break | StmtKind::Continue => {
                 if !self.in_loop {
                     self.tcx.errors.push(SemanticError {
@@ -1480,6 +1524,39 @@ impl<'a> FnContext<'a> {
                 ret_type,
                 body,
             } => self.check_closure_expr(expr, params, ret_type.as_ref(), body, None),
+            ExprKind::Array { elements } => {
+                if elements.is_empty() {
+                    // Empty array - for now, allow it with unit element type
+                    // A more complete implementation would require type annotation
+                    Type::Named {
+                        name: "Vec".to_string(),
+                        args: vec![Type::unit()],
+                    }
+                } else {
+                    // Infer element type from first element
+                    let first_ty = self.check_expr(&elements[0]);
+
+                    // Check all elements have compatible types
+                    for (i, elem) in elements.iter().enumerate().skip(1) {
+                        let elem_ty = self.check_expr(elem);
+                        // For now, just check they match (could be smarter about unions/coercion)
+                        if elem_ty != first_ty {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "array element {} has type `{:?}`, expected `{:?}`",
+                                    i, elem_ty, first_ty
+                                ),
+                                span: elem.span.clone(),
+                            });
+                        }
+                    }
+
+                    Type::Named {
+                        name: "Vec".to_string(),
+                        args: vec![first_ty],
+                    }
+                }
+            }
         }
     }
 
