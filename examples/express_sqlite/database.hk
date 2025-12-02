@@ -7,27 +7,37 @@ extern "js" {
     struct Database;
     struct Statement;
     struct RunResult;
-
-    // Constructor function comes from the default export of better-sqlite3
 }
 
 impl Database {
-    extern "js" fn exec(self, sql: String);
-    extern "js" fn prepare(self, sql: String) -> Statement;
-    extern "js" fn close(self);
-
-    // Property getters - use natural property access syntax
     #[getter]
-    extern "js" open: bool;
-
+    extern "js" memory: bool;
     #[getter]
-    extern "js" in_transaction: bool;
-
+    extern "js" readonly_: bool;
     #[getter]
     extern "js" name: String;
+    #[getter]
+    extern "js" open: bool;
+    #[getter]
+    extern "js" inTransaction: bool;
+
+    extern "js" fn exec(self, source: String) -> Database;
+    extern "js" fn prepare(self, source: String) -> Statement;
+    extern "js" fn close(self) -> Database;
 }
 
 impl Statement {
+    #[getter]
+    extern "js" database: Database;
+    #[getter]
+    extern "js" source: String;
+    #[getter]
+    extern "js" reader: bool;
+    #[getter]
+    extern "js" readonly_: bool;
+    #[getter]
+    extern "js" busy: bool;
+
     // Run with no parameters
     extern "js" fn run(self) -> RunResult;
     // Run with 1 parameter
@@ -40,10 +50,10 @@ impl Statement {
     extern "js" fn get(self, p1: f64) -> JsValue;
     // Get all rows
     extern "js" fn all(self) -> JsValue;
+    extern "js" fn columns(self) -> JsValue;
 }
 
 impl RunResult {
-    // Property getters - these generate property access (result.changes) not method calls
     #[getter]
     extern "js" changes: f64;
 

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use husk_ast::{File, Ident, Item, ItemKind, Visibility};
+use husk_ast::{ExternItemKind, File, Ident, Item, ItemKind, TypeExpr, TypeExprKind, Visibility};
 use husk_parser::parse_str;
 
 #[derive(Debug, Clone)]
@@ -138,9 +138,11 @@ fn discover_module_paths(file: &File) -> Vec<Vec<String>> {
 }
 
 /// Assemble a single `File` with resolved `use` items applied (namespace-aware).
-/// - Keeps the root module’s items
+/// - Keeps the root module's items
 /// - For `use crate::foo::Bar;`, injects a synthetic alias Item for Bar into root
 /// - Respects `pub`: only imports public items from other modules
+/// - Automatically includes impl blocks for imported types
+/// - Automatically includes extern blocks that declare imported types
 pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
     let root_mod = graph
         .modules
@@ -148,7 +150,10 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
         .ok_or_else(|| LoadError::Missing("crate".into()))?;
     let mut items = Vec::new();
     let mut seen_names = HashSet::new();
+    let mut imported_types = HashSet::new(); // Track imported type names
+    let mut included_extern_blocks = HashSet::new(); // Track which extern blocks we've added
 
+    // Phase 1: Process use statements and root items
     for item in root_mod.file.items.iter() {
         match &item.kind {
             ItemKind::Use { path } => {
@@ -168,13 +173,56 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                         module_path.join("::")
                     ))
                 })?;
+
+                // Track if this is a type (for impl block inclusion)
+                match &export.kind {
+                    ItemKind::Struct { name, .. } | ItemKind::Enum { name, .. } => {
+                        imported_types.insert(name.name.clone());
+                    }
+                    ItemKind::ExternBlock { items: ext_items, .. } => {
+                        // If we're importing from an extern block, track the type
+                        for ext in ext_items {
+                            if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                                if name.name == item_name {
+                                    imported_types.insert(name.name.clone());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
                 if !seen_names.insert(item_name.clone()) {
                     return Err(LoadError::Missing(format!(
                         "conflicting import `{}` in root module",
                         item_name
                     )));
                 }
-                items.push(export.clone());
+
+                // For extern blocks, avoid adding the same block multiple times
+                // (e.g., when importing multiple items from the same extern block)
+                if let ItemKind::ExternBlock { items: ext_items, .. } = &export.kind {
+                    // Check if all structs in this block have already been included
+                    let all_structs_included = ext_items.iter().all(|ext| {
+                        if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                            included_extern_blocks.contains(&name.name)
+                        } else {
+                            true
+                        }
+                    });
+
+                    if !all_structs_included {
+                        // Mark all structs as included
+                        for ext in ext_items {
+                            if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                                included_extern_blocks.insert(name.name.clone());
+                            }
+                        }
+                        items.push(export.clone());
+                    }
+                } else {
+                    items.push(export.clone());
+                }
             }
             _ => {
                 if let Some(name) = top_level_name(item) {
@@ -193,6 +241,79 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
         }
     }
 
+    // Phase 2: Include extern blocks and impl blocks for imported types from all modules
+    for (module_path, module) in &graph.modules {
+        // Skip root module (already processed)
+        if module_path == &vec!["crate".to_string()] {
+            continue;
+        }
+
+        for item in &module.file.items {
+            match &item.kind {
+                // Include extern blocks that declare imported types
+                ItemKind::ExternBlock { items: ext_items, .. } => {
+                    let has_imported_type = ext_items.iter().any(|ext| {
+                        if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                            imported_types.contains(&name.name)
+                        } else {
+                            false
+                        }
+                    });
+
+                    if has_imported_type {
+                        // Track extern structs to avoid duplicates
+                        let mut should_include = false;
+                        for ext in ext_items {
+                            if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                                if !included_extern_blocks.contains(&name.name) {
+                                    included_extern_blocks.insert(name.name.clone());
+                                    should_include = true;
+                                }
+                            }
+                        }
+                        // Only include if we haven't already included these structs
+                        if should_include {
+                            // Check if this exact block is already in items (from find_pub_item)
+                            let already_included = items.iter().any(|existing| {
+                                if let ItemKind::ExternBlock {
+                                    items: existing_items,
+                                    ..
+                                } = &existing.kind
+                                {
+                                    // Same items means same block
+                                    existing_items.len() == ext_items.len()
+                                        && existing_items.iter().zip(ext_items.iter()).all(
+                                            |(a, b)| match (&a.kind, &b.kind) {
+                                                (
+                                                    ExternItemKind::Struct { name: n1, .. },
+                                                    ExternItemKind::Struct { name: n2, .. },
+                                                ) => n1.name == n2.name,
+                                                _ => false,
+                                            },
+                                        )
+                                } else {
+                                    false
+                                }
+                            });
+
+                            if !already_included {
+                                items.push(item.clone());
+                            }
+                        }
+                    }
+                }
+                // Include impl blocks for imported types
+                ItemKind::Impl(impl_block) => {
+                    let self_ty_name = type_expr_to_name(&impl_block.self_ty);
+                    if imported_types.contains(&self_ty_name) {
+                        items.push(item.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     Ok(File { items })
 }
 
@@ -205,9 +326,28 @@ fn module_path_from_use(path: &[Ident]) -> Vec<String> {
 }
 
 fn find_pub_item<'a>(file: &'a File, name: &str) -> Option<&'a Item> {
-    file.items
+    // First, check regular public items
+    if let Some(item) = file
+        .items
         .iter()
         .find(|it| it.visibility == Visibility::Public && matches_name(it, name))
+    {
+        return Some(item);
+    }
+
+    // Then, check extern block items (they don't have explicit visibility on individual items)
+    for item in &file.items {
+        if let ItemKind::ExternBlock { items: ext_items, .. } = &item.kind {
+            for ext in ext_items {
+                if matches_extern_item_name(&ext.kind, name) {
+                    // Return the extern block containing this item
+                    return Some(item);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn matches_name(item: &Item, name: &str) -> bool {
@@ -230,5 +370,23 @@ fn top_level_name(item: &Item) -> Option<String> {
         ItemKind::Enum { name, .. } => Some(name.name.clone()),
         ItemKind::TypeAlias { name, .. } => Some(name.name.clone()),
         _ => None,
+    }
+}
+
+/// Extract the type name from a TypeExpr (for impl block self_ty).
+fn type_expr_to_name(ty: &TypeExpr) -> String {
+    match &ty.kind {
+        TypeExprKind::Named(ident) => ident.name.clone(),
+        TypeExprKind::Generic { name, .. } => name.name.clone(),
+        TypeExprKind::Function { .. } => String::new(),
+    }
+}
+
+/// Check if an extern item matches the given name.
+fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
+    match kind {
+        ExternItemKind::Struct { name: n, .. } => n.name == name,
+        ExternItemKind::Fn { name: n, .. } => n.name == name,
+        ExternItemKind::Mod { binding, .. } => binding.name == name,
     }
 }

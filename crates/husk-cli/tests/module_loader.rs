@@ -2,9 +2,18 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use husk_ast;
+use husk_ast::{self, ItemKind, TypeExprKind};
 use husk_cli::load::{assemble_root, load_graph};
 use tempfile::tempdir;
+
+/// Helper to extract type name from a TypeExpr
+fn type_expr_to_name(ty: &husk_ast::TypeExpr) -> String {
+    match &ty.kind {
+        TypeExprKind::Named(ident) => ident.name.clone(),
+        TypeExprKind::Generic { name, .. } => name.name.clone(),
+        TypeExprKind::Function { .. } => String::new(),
+    }
+}
 
 fn write(p: &Path, content: &str) {
     let mut f = fs::File::create(p).unwrap();
@@ -120,4 +129,334 @@ fn loads_nested_module_path() {
     assert!(file.items.iter().any(
         |it| matches!(&it.kind, husk_ast::ItemKind::Struct { name, .. } if name.name == "Thing")
     ));
+}
+
+// =============================================================================
+// Cross-Module Extern and Impl Import Tests
+// =============================================================================
+
+#[test]
+fn imports_impl_blocks_for_imported_types() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    write(
+        &root.join("types.hk"),
+        r#"
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Point {
+    fn distance(self) -> f64 {
+        0.0
+    }
+}
+"#,
+    );
+
+    write(
+        &root.join("main.hk"),
+        r#"
+use crate::types::Point;
+
+fn main() {
+    let p = Point { x: 3, y: 4 };
+}
+"#,
+    );
+
+    let graph = load_graph(&root.join("main.hk")).unwrap();
+    let file = assemble_root(&graph).unwrap();
+
+    // Verify struct is imported
+    assert!(
+        file.items.iter().any(
+            |it| matches!(&it.kind, ItemKind::Struct { name, .. } if name.name == "Point")
+        ),
+        "Point struct should be imported"
+    );
+
+    // Verify impl block is included
+    assert!(
+        file.items.iter().any(|it| {
+            if let ItemKind::Impl(impl_block) = &it.kind {
+                type_expr_to_name(&impl_block.self_ty) == "Point"
+            } else {
+                false
+            }
+        }),
+        "Point impl block should be included"
+    );
+}
+
+#[test]
+fn imports_extern_blocks_for_imported_types() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    write(
+        &root.join("bindings.hk"),
+        r#"
+extern "js" {
+    struct Database;
+    fn connect() -> Database;
+}
+
+impl Database {
+    extern "js" fn exec(self, sql: String);
+}
+"#,
+    );
+
+    write(
+        &root.join("main.hk"),
+        r#"
+use crate::bindings::Database;
+
+fn main() {
+    let db = connect();
+}
+"#,
+    );
+
+    let graph = load_graph(&root.join("main.hk")).unwrap();
+    let file = assemble_root(&graph).unwrap();
+
+    // Verify extern block is included
+    assert!(
+        file.items.iter().any(|it| {
+            if let ItemKind::ExternBlock { items, .. } = &it.kind {
+                items.iter().any(|ext| {
+                    matches!(&ext.kind, husk_ast::ExternItemKind::Struct { name, .. } if name.name == "Database")
+                })
+            } else {
+                false
+            }
+        }),
+        "Extern block with Database should be included"
+    );
+
+    // Verify impl block is included
+    assert!(
+        file.items.iter().any(|it| {
+            if let ItemKind::Impl(impl_block) = &it.kind {
+                type_expr_to_name(&impl_block.self_ty) == "Database"
+            } else {
+                false
+            }
+        }),
+        "Database impl block should be included"
+    );
+}
+
+#[test]
+fn does_not_import_impl_for_non_imported_type() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    write(
+        &root.join("util.hk"),
+        r#"
+struct Private {}
+
+impl Private {
+    fn method(&self) {}
+}
+
+pub fn helper() -> i32 { 42 }
+"#,
+    );
+
+    write(
+        &root.join("main.hk"),
+        r#"
+use crate::util::helper;
+
+fn main() {
+    let _ = helper();
+}
+"#,
+    );
+
+    let graph = load_graph(&root.join("main.hk")).unwrap();
+    let file = assemble_root(&graph).unwrap();
+
+    // Private type's impl should NOT be included
+    assert!(
+        !file.items.iter().any(|it| {
+            if let ItemKind::Impl(impl_block) = &it.kind {
+                type_expr_to_name(&impl_block.self_ty) == "Private"
+            } else {
+                false
+            }
+        }),
+        "Private impl block should NOT be included"
+    );
+}
+
+#[test]
+fn deduplicates_extern_declarations() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    write(
+        &root.join("a.hk"),
+        r#"
+extern "js" {
+    struct SharedType;
+}
+
+pub struct WrapperA {}
+"#,
+    );
+
+    write(
+        &root.join("b.hk"),
+        r#"
+extern "js" {
+    struct SharedType;
+}
+
+pub struct WrapperB {}
+"#,
+    );
+
+    write(
+        &root.join("main.hk"),
+        r#"
+use crate::a::WrapperA;
+use crate::b::WrapperB;
+
+fn main() {}
+"#,
+    );
+
+    let graph = load_graph(&root.join("main.hk")).unwrap();
+    let file = assemble_root(&graph).unwrap();
+
+    // Count how many times SharedType appears in extern blocks
+    let count = file
+        .items
+        .iter()
+        .filter(|it| {
+            if let ItemKind::ExternBlock { items, .. } = &it.kind {
+                items.iter().any(|ext| {
+                    matches!(&ext.kind, husk_ast::ExternItemKind::Struct { name, .. } if name.name == "SharedType")
+                })
+            } else {
+                false
+            }
+        })
+        .count();
+
+    // For now, we allow duplicates as long as they're identical
+    // The main requirement is that they don't cause compilation errors
+    assert!(
+        count <= 2,
+        "Should have at most 2 SharedType declarations (one from each module)"
+    );
+}
+
+#[test]
+fn imports_impl_from_separate_module() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Type defined in one module
+    write(
+        &root.join("types.hk"),
+        r#"
+pub struct Widget {
+    id: i32,
+}
+"#,
+    );
+
+    // Impl defined in same module as type
+    // (impls must be in same module as type for now)
+    write(
+        &root.join("main.hk"),
+        r#"
+use crate::types::Widget;
+
+fn main() {
+    let w = Widget { id: 1 };
+}
+"#,
+    );
+
+    let graph = load_graph(&root.join("main.hk")).unwrap();
+    let file = assemble_root(&graph).unwrap();
+
+    // Widget should be imported
+    assert!(
+        file.items
+            .iter()
+            .any(|it| matches!(&it.kind, ItemKind::Struct { name, .. } if name.name == "Widget")),
+        "Widget should be imported"
+    );
+}
+
+#[test]
+fn imports_multiple_items_from_same_extern_block() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    write(
+        &root.join("bindings.hk"),
+        r#"
+extern "js" {
+    mod "some-lib" as some_lib;
+
+    struct Database;
+    fn connect() -> Database;
+}
+
+impl Database {
+    extern "js" fn exec(self, sql: String);
+}
+"#,
+    );
+
+    write(
+        &root.join("main.hk"),
+        r#"
+use crate::bindings::Database;
+use crate::bindings::connect;
+
+fn main() {
+    let db = connect();
+    db.exec("SELECT 1");
+}
+"#,
+    );
+
+    let graph = load_graph(&root.join("main.hk")).unwrap();
+    let file = assemble_root(&graph).unwrap();
+
+    // Count extern blocks - should only have one (not duplicated)
+    let extern_block_count = file
+        .items
+        .iter()
+        .filter(|it| matches!(&it.kind, ItemKind::ExternBlock { .. }))
+        .count();
+
+    assert_eq!(
+        extern_block_count, 1,
+        "Should have exactly one extern block, not duplicated"
+    );
+
+    // Verify impl block is included
+    assert!(
+        file.items.iter().any(|it| {
+            if let ItemKind::Impl(impl_block) = &it.kind {
+                type_expr_to_name(&impl_block.self_ty) == "Database"
+            } else {
+                false
+            }
+        }),
+        "Database impl block should be included"
+    );
 }

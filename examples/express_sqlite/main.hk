@@ -1,94 +1,23 @@
 // Express.js + SQLite Todo API in Husk
 //
 // This example demonstrates:
+// - Cross-module imports of extern blocks and impl blocks
 // - First-class property declarations with #[getter] attribute
-// - Natural property access: req.body, req.params, result.changes (no method call syntax)
-// - Automatic snake_case -> camelCase conversion: last_insert_rowid -> lastInsertRowid
+// - Natural property access: req.body, req.params, result.changes
 // - JsValue null checking: jsvalue_isNull() for checking missing values
 // - JsObject construction: JsObject_new().setString()
 // - npm package integration with extern "js" blocks
-//
-// Note: JsValue, JsObject, and helper functions (jsvalue_get, jsvalue_isNull, etc.)
-// are automatically available from the standard library prelude.
 
-// Express.js bindings
-extern "js" {
-    mod express;
+// Import Express.js bindings
+use crate::express::Express;
+use crate::express::Request;
+use crate::express::Response;
+use crate::express::express_json;
 
-    struct Express;
-    struct Request;
-    struct Response;
-
-    // Note: express() function comes from `mod express;` - it's callable directly
-    // express_json() is express.json() middleware
-    fn express_json() -> JsValue;
-}
-
-impl Express {
-    extern "js" fn use_middleware(self, middleware: JsValue);
-    extern "js" fn get(self, path: String, handler: fn(Request, Response) -> ());
-    extern "js" fn post(self, path: String, handler: fn(Request, Response) -> ());
-    extern "js" fn put(self, path: String, handler: fn(Request, Response) -> ());
-    extern "js" fn delete(self, path: String, handler: fn(Request, Response) -> ());
-    extern "js" fn listen(self, port: f64, callback: fn() -> ());
-}
-
-impl Request {
-    #[getter]
-    extern "js" body: JsValue;
-
-    #[getter]
-    extern "js" params: JsValue;
-
-    #[getter]
-    extern "js" query: JsValue;
-
-    #[getter]
-    extern "js" path: String;
-}
-
-impl Response {
-    extern "js" fn status(self, code: f64) -> Response;
-    extern "js" fn json(self, data: JsValue);
-    extern "js" fn send(self, body: String);
-}
-
-// better-sqlite3 bindings
-extern "js" {
-    mod "better-sqlite3" as better_sqlite3;
-
-    struct Database;
-    struct Statement;
-    struct RunResult;
-
-    // Note: better_sqlite3() function comes from `mod ... as better_sqlite3;`
-}
-
-impl Database {
-    extern "js" fn exec(self, sql: String);
-    extern "js" fn prepare(self, sql: String) -> Statement;
-    extern "js" fn close(self);
-    extern "js" fn open(self) -> bool;
-    extern "js" fn inTransaction(self) -> bool;
-    extern "js" fn name(self) -> String;
-}
-
-impl Statement {
-    extern "js" fn run(self) -> RunResult;
-    extern "js" fn run1(self, p1: f64) -> RunResult;
-    extern "js" fn run2(self, p1: String, p2: f64) -> RunResult;
-    extern "js" fn run3(self, p1: String, p2: f64, p3: f64) -> RunResult;
-    extern "js" fn get(self, p1: f64) -> JsValue;
-    extern "js" fn all(self) -> JsValue;
-}
-
-impl RunResult {
-    #[getter]
-    extern "js" changes: f64;
-
-    #[getter]
-    extern "js" last_insert_rowid: f64;
-}
+// Import better-sqlite3 bindings
+use crate::database::Database;
+use crate::database::Statement;
+use crate::database::RunResult;
 
 // Helper to extract string from JsValue, returns empty string if not found
 fn get_string_or_empty(obj: JsValue, key: String) -> String {
