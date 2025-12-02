@@ -208,8 +208,8 @@ struct MethodSig {
 /// Information about an impl block.
 #[derive(Debug, Clone)]
 struct ImplInfo {
-    /// The trait being implemented (None for inherent impl)
-    #[allow(dead_code)]
+    /// The trait being implemented (None for inherent impl).
+    /// Used by `verify_trait_impls` to check method completeness.
     trait_name: Option<String>,
     /// The type this impl is for
     self_ty_name: String,
@@ -217,6 +217,8 @@ struct ImplInfo {
     methods: HashMap<String, MethodInfo>,
     /// Extern properties defined in this impl
     properties: HashMap<String, PropertyInfo>,
+    /// Location of the impl block for error reporting
+    span: Span,
 }
 
 /// Information about an extern property in an impl block.
@@ -377,19 +379,18 @@ impl TypeChecker {
                                 } else {
                                     // Mod block with functions - register each function.
                                     for mod_item in mod_items {
-                                        if let husk_ast::ModItemKind::Fn {
+                                        // ModItemKind has only Fn variant (MVP scope)
+                                        let husk_ast::ModItemKind::Fn {
                                             name,
                                             params,
                                             ret_type,
-                                        } = &mod_item.kind
-                                        {
-                                            let def = FnDef {
-                                                type_params: Vec::new(), // Mod functions don't have generics
-                                                params: params.clone(),
-                                                ret_type: ret_type.clone(),
-                                            };
-                                            self.env.functions.insert(name.name.clone(), def);
-                                        }
+                                        } = &mod_item.kind;
+                                        let def = FnDef {
+                                            type_params: Vec::new(), // Mod functions don't have generics
+                                            params: params.clone(),
+                                            ret_type: ret_type.clone(),
+                                        };
+                                        self.env.functions.insert(name.name.clone(), def);
                                     }
                                 }
                             }
@@ -412,16 +413,16 @@ impl TypeChecker {
                 ItemKind::Trait(trait_def) => {
                     let mut methods = HashMap::new();
                     for item in &trait_def.items {
-                        if let husk_ast::TraitItemKind::Method(method) = &item.kind {
-                            methods.insert(
-                                method.name.name.clone(),
-                                MethodSig {
-                                    receiver: method.receiver,
-                                    params: method.params.clone(),
-                                    ret_type: method.ret_type.clone(),
-                                },
-                            );
-                        }
+                        // TraitItemKind has only Method variant (MVP scope)
+                        let husk_ast::TraitItemKind::Method(method) = &item.kind;
+                        methods.insert(
+                            method.name.name.clone(),
+                            MethodSig {
+                                receiver: method.receiver,
+                                params: method.params.clone(),
+                                ret_type: method.ret_type.clone(),
+                            },
+                        );
                     }
                     let info = TraitInfo {
                         type_params: trait_def
@@ -468,6 +469,35 @@ impl TypeChecker {
                         self_ty_name,
                         methods,
                         properties,
+                        span: impl_block.span.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Verify that all trait implementations provide required methods.
+    fn verify_trait_impls(&mut self) {
+        for impl_info in &self.env.impls {
+            // Only check trait impls (skip inherent impls)
+            let Some(trait_name) = &impl_info.trait_name else {
+                continue;
+            };
+
+            let Some(trait_info) = self.env.traits.get(trait_name) else {
+                // Unknown trait - could report error, but may be external
+                continue;
+            };
+
+            // Check all required trait methods are implemented
+            for method_name in trait_info.methods.keys() {
+                if !impl_info.methods.contains_key(method_name) {
+                    self.errors.push(SemanticError {
+                        message: format!(
+                            "impl of trait `{}` for `{}` is missing method `{}`",
+                            trait_name, impl_info.self_ty_name, method_name
+                        ),
+                        span: impl_info.span.clone(),
                     });
                 }
             }
@@ -475,6 +505,9 @@ impl TypeChecker {
     }
 
     fn check_file(&mut self, file: &File) -> Vec<SemanticError> {
+        // Verify trait implementations
+        self.verify_trait_impls();
+
         // Type check each function body independently.
         for item in &file.items {
             if let ItemKind::Fn {
@@ -1869,9 +1902,9 @@ impl Resolver {
                             } else {
                                 // Register functions from mod block
                                 for mod_item in items {
-                                    if let husk_ast::ModItemKind::Fn { name, .. } = &mod_item.kind {
-                                        self.add_symbol(name, SymbolKind::ExternFn);
-                                    }
+                                    // ModItemKind has only Fn variant (MVP scope)
+                                    let husk_ast::ModItemKind::Fn { name, .. } = &mod_item.kind;
+                                    self.add_symbol(name, SymbolKind::ExternFn);
                                 }
                             }
                         }
