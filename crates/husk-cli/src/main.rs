@@ -1374,7 +1374,8 @@ fn run_test(
     }
 
     // Compile to JS with lib mode (don't auto-call main)
-    let module = lower_file_to_js(&file_ast, false, JsTarget::Cjs);
+    let source_path = Path::new(&path);
+    let module = lower_file_to_js_with_source(&file_ast, false, JsTarget::Cjs, None, Some(source_path));
     let js_code = module.to_source_with_preamble();
 
     // Build test harness that runs each test
