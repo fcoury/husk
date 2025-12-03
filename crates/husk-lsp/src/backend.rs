@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
+use tracing::{debug, info, instrument, warn};
 
 use crate::diagnostics::analyze_and_publish_diagnostics;
 use crate::document::Document;
@@ -22,7 +23,10 @@ impl HuskBackend {
         }
     }
 
+    #[instrument(skip(self, text), fields(uri = %uri, version = version, text_len = text.len()))]
     async fn on_document_change(&self, uri: Url, text: String, version: i32) {
+        debug!("Document changed");
+
         // Store the document
         self.documents
             .insert(uri.clone(), Document::new(text.clone(), version));
@@ -53,6 +57,7 @@ impl LanguageServer for HuskBackend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        info!("Husk LSP server initialized");
         self.client
             .log_message(MessageType::INFO, "Husk LSP server initialized")
             .await;
@@ -118,6 +123,11 @@ impl LanguageServer for HuskBackend {
         }
     }
 
+    #[instrument(skip(self, params), fields(
+        uri = %params.text_document_position_params.text_document.uri,
+        line = params.text_document_position_params.position.line,
+        character = params.text_document_position_params.position.character
+    ))]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -125,72 +135,103 @@ impl LanguageServer for HuskBackend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
+        debug!("goto_definition request");
+
         // Get the document
         let doc = match self.documents.get(uri) {
             Some(doc) => doc,
-            None => return Ok(None),
+            None => {
+                warn!("Document not found in store");
+                return Ok(None);
+            }
         };
 
         // Find the word at the position
         let offset = doc.position_to_offset(position);
+        debug!(offset = offset, "Computed byte offset");
+
         let word = match doc.word_at_offset(offset) {
-            Some(w) => w,
-            None => return Ok(None),
+            Some(w) => {
+                debug!(word = %w, "Found word at cursor");
+                w
+            }
+            None => {
+                debug!("No word found at cursor position");
+                return Ok(None);
+            }
         };
 
         // Parse and analyze to find definitions
         let text = doc.text();
         let parse_result = husk_parser::parse_str(&text);
 
-        if let Some(file) = parse_result.file {
-            // Look for function/struct definitions matching the word
-            for item in &file.items {
-                match &item.kind {
-                    husk_ast::ItemKind::Fn { name, .. } if name.name == word => {
-                        let start = doc.offset_to_position(name.span.range.start);
-                        let end = doc.offset_to_position(name.span.range.end);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range: Range { start, end },
-                        })));
-                    }
-                    husk_ast::ItemKind::Struct { name, .. } if name.name == word => {
-                        let start = doc.offset_to_position(name.span.range.start);
-                        let end = doc.offset_to_position(name.span.range.end);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range: Range { start, end },
-                        })));
-                    }
-                    husk_ast::ItemKind::Enum { name, .. } if name.name == word => {
-                        let start = doc.offset_to_position(name.span.range.start);
-                        let end = doc.offset_to_position(name.span.range.end);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range: Range { start, end },
-                        })));
-                    }
-                    husk_ast::ItemKind::TypeAlias { name, .. } if name.name == word => {
-                        let start = doc.offset_to_position(name.span.range.start);
-                        let end = doc.offset_to_position(name.span.range.end);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range: Range { start, end },
-                        })));
-                    }
-                    husk_ast::ItemKind::Trait(t) if t.name.name == word => {
-                        let start = doc.offset_to_position(t.name.span.range.start);
-                        let end = doc.offset_to_position(t.name.span.range.end);
-                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                            uri: uri.clone(),
-                            range: Range { start, end },
-                        })));
-                    }
-                    _ => {}
+        if parse_result.file.is_none() {
+            warn!(
+                errors = parse_result.errors.len(),
+                "Parse failed, no AST available"
+            );
+            for err in &parse_result.errors {
+                debug!(error = ?err, "Parse error");
+            }
+            return Ok(None);
+        }
+
+        let file = parse_result.file.unwrap();
+        debug!(item_count = file.items.len(), "Parsed file, searching for '{}'", word);
+
+        // Look for function/struct definitions matching the word
+        for item in &file.items {
+            match &item.kind {
+                husk_ast::ItemKind::Fn { name, .. } if name.name == word => {
+                    debug!(name = %name.name, "Found matching function definition");
+                    let start = doc.offset_to_position(name.span.range.start);
+                    let end = doc.offset_to_position(name.span.range.end);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range: Range { start, end },
+                    })));
                 }
+                husk_ast::ItemKind::Struct { name, .. } if name.name == word => {
+                    debug!(name = %name.name, "Found matching struct definition");
+                    let start = doc.offset_to_position(name.span.range.start);
+                    let end = doc.offset_to_position(name.span.range.end);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range: Range { start, end },
+                    })));
+                }
+                husk_ast::ItemKind::Enum { name, .. } if name.name == word => {
+                    debug!(name = %name.name, "Found matching enum definition");
+                    let start = doc.offset_to_position(name.span.range.start);
+                    let end = doc.offset_to_position(name.span.range.end);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range: Range { start, end },
+                    })));
+                }
+                husk_ast::ItemKind::TypeAlias { name, .. } if name.name == word => {
+                    debug!(name = %name.name, "Found matching type alias definition");
+                    let start = doc.offset_to_position(name.span.range.start);
+                    let end = doc.offset_to_position(name.span.range.end);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range: Range { start, end },
+                    })));
+                }
+                husk_ast::ItemKind::Trait(t) if t.name.name == word => {
+                    debug!(name = %t.name.name, "Found matching trait definition");
+                    let start = doc.offset_to_position(t.name.span.range.start);
+                    let end = doc.offset_to_position(t.name.span.range.end);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: uri.clone(),
+                        range: Range { start, end },
+                    })));
+                }
+                _ => {}
             }
         }
 
+        debug!("No definition found for '{}'", word);
         Ok(None)
     }
 
