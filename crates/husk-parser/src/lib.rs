@@ -3,11 +3,11 @@
 //! This is a hand-written recursive-descent parser for the MVP syntax.
 
 use husk_ast::{
-    Attribute, BinaryOp, Block, ClosureParam, EnumVariant, EnumVariantFields, Expr, ExprKind,
-    ExternProperty, File, FormatPlaceholder, FormatSegment, FormatSpec, FormatString, Ident,
-    ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind, MatchArm,
-    Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField, TraitDef,
-    TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    AssignOp, Attribute, BinaryOp, Block, ClosureParam, EnumVariant, EnumVariantFields, Expr,
+    ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment, FormatSpec, FormatString,
+    Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind,
+    MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField,
+    TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -1575,7 +1575,38 @@ impl Parser {
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
+        let start = self.current().span.range.start;
         let expr = self.parse_expr()?;
+
+        // Check for assignment operators
+        let assign_op = match self.current().kind {
+            TokenKind::Eq => Some(AssignOp::Assign),
+            TokenKind::PlusEq => Some(AssignOp::AddAssign),
+            TokenKind::MinusEq => Some(AssignOp::SubAssign),
+            TokenKind::PercentEq => Some(AssignOp::ModAssign),
+            _ => None,
+        };
+
+        if let Some(op) = assign_op {
+            self.advance(); // consume assignment operator
+            let value = self.parse_expr()?;
+
+            if !self.matches_token(&TokenKind::Semicolon) {
+                self.error_here("expected `;` after assignment");
+            }
+
+            let end = self.previous().span.range.end;
+            return Some(Stmt {
+                kind: StmtKind::Assign {
+                    target: expr,
+                    op,
+                    value,
+                },
+                span: Span { range: start..end },
+            });
+        }
+
+        // Regular expression statement
         let mut span = expr.span.clone();
         let kind = if self.matches_token(&TokenKind::Semicolon) {
             span.range.end = self.previous().span.range.end;
@@ -1783,6 +1814,8 @@ impl Parser {
                 Some(BinaryOp::Mul)
             } else if self.matches_token(&TokenKind::Slash) {
                 Some(BinaryOp::Div)
+            } else if self.matches_token(&TokenKind::Percent) {
+                Some(BinaryOp::Mod)
             } else {
                 None
             };

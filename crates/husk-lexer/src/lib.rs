@@ -115,9 +115,13 @@ pub enum TokenKind {
     OrOr,     // ||
     Pipe,     // | (single pipe for closures)
     Plus,
+    PlusEq,   // +=
     Minus,
+    MinusEq,  // -=
     Star,
     Slash,
+    Percent,   // %
+    PercentEq, // %=
     // Attribute-related tokens
     Hash,      // #
     LBracket,  // [
@@ -428,6 +432,12 @@ impl<'src> Iterator for Lexer<'src> {
                         kind: TokenKind::Arrow,
                         span: Span::new(start, idx2 + 1),
                     }
+                } else if let Some((idx2, '=')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::MinusEq,
+                        span: Span::new(start, idx2 + 1),
+                    }
                 } else {
                     Token {
                         kind: TokenKind::Minus,
@@ -464,10 +474,20 @@ impl<'src> Iterator for Lexer<'src> {
                     }
                 }
             }
-            '+' => Token {
-                kind: TokenKind::Plus,
-                span: Span::new(start, start + 1),
-            },
+            '+' => {
+                if let Some((idx2, '=')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::PlusEq,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Plus,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
             '*' => Token {
                 kind: TokenKind::Star,
                 span: Span::new(start, start + 1),
@@ -476,6 +496,20 @@ impl<'src> Iterator for Lexer<'src> {
                 kind: TokenKind::Slash,
                 span: Span::new(start, start + 1),
             },
+            '%' => {
+                if let Some((idx2, '=')) = self.peek() {
+                    self.bump();
+                    Token {
+                        kind: TokenKind::PercentEq,
+                        span: Span::new(start, idx2 + 1),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Percent,
+                        span: Span::new(start, start + 1),
+                    }
+                }
+            }
             '!' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();

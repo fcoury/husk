@@ -223,6 +223,21 @@ pub enum JsStmt {
         inclusive: bool,
         body: Vec<JsStmt>,
     },
+    /// Assignment statement: `target = value`, `target += value`, etc.
+    Assign {
+        target: JsExpr,
+        op: JsAssignOp,
+        value: JsExpr,
+    },
+}
+
+/// Assignment operators in JS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsAssignOp {
+    Assign,    // =
+    AddAssign, // +=
+    SubAssign, // -=
+    ModAssign, // %=
 }
 
 /// JavaScript expressions (subset).
@@ -295,6 +310,7 @@ pub enum JsBinaryOp {
     Sub,
     Mul,
     Div,
+    Mod,
     EqEq,
     NotEq,
     Lt,
@@ -994,6 +1010,19 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
         StmtKind::While { .. } | StmtKind::Break | StmtKind::Continue => {
             JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
         }
+        StmtKind::Assign { target, op, value } => {
+            let js_op = match op {
+                husk_ast::AssignOp::Assign => JsAssignOp::Assign,
+                husk_ast::AssignOp::AddAssign => JsAssignOp::AddAssign,
+                husk_ast::AssignOp::SubAssign => JsAssignOp::SubAssign,
+                husk_ast::AssignOp::ModAssign => JsAssignOp::ModAssign,
+            };
+            JsStmt::Assign {
+                target: lower_expr(target, ctx),
+                op: js_op,
+                value: lower_expr(value, ctx),
+            }
+        }
     }
 }
 
@@ -1150,6 +1179,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 Sub => JsBinaryOp::Sub,
                 Mul => JsBinaryOp::Mul,
                 Div => JsBinaryOp::Div,
+                Mod => JsBinaryOp::Mod,
                 Eq => JsBinaryOp::EqEq,
                 NotEq => JsBinaryOp::NotEq,
                 Lt => JsBinaryOp::Lt,
@@ -2004,6 +2034,18 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
+        JsStmt::Assign { target, op, value } => {
+            indent(indent_level, out);
+            write_expr(target, out);
+            out.push_str(match op {
+                JsAssignOp::Assign => " = ",
+                JsAssignOp::AddAssign => " += ",
+                JsAssignOp::SubAssign => " -= ",
+                JsAssignOp::ModAssign => " %= ",
+            });
+            write_expr(value, out);
+            out.push(';');
+        }
     }
 }
 
@@ -2085,6 +2127,7 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
                 JsBinaryOp::Sub => "-",
                 JsBinaryOp::Mul => "*",
                 JsBinaryOp::Div => "/",
+                JsBinaryOp::Mod => "%",
                 JsBinaryOp::EqEq => "==",
                 JsBinaryOp::NotEq => "!=",
                 JsBinaryOp::Lt => "<",
