@@ -1938,6 +1938,14 @@ impl<'a> FnContext<'a> {
                 // Assignment expression returns the assigned value
                 value_ty
             }
+            ExprKind::JsLiteral { .. } => {
+                // Raw JavaScript literals are treated as dynamically typed (JsValue)
+                // They can evaluate to any JavaScript value at runtime.
+                Type::Named {
+                    name: "JsValue".to_string(),
+                    args: Vec::new(),
+                }
+            }
         }
     }
 

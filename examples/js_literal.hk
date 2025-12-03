@@ -1,0 +1,60 @@
+// Example: Embedded JavaScript literals using `js { ... }` syntax
+//
+// This demonstrates embedding raw JavaScript code in Husk programs.
+
+fn main() {
+    // Simple expression - access Math.PI directly
+    let pi = js { Math.PI };
+    println("Pi: {}", pi);
+
+    // Object literal with nested braces
+    let obj = js { { name: "test", value: 42 } };
+    println("Object name: {}", js { obj.name });
+
+    // Function expression as callback
+    let double = js { function(x) { return x * 2; } };
+    let result = js { double(21) };
+    println("Double of 21: {}", result);
+
+    // Multi-line IIFE (Immediately Invoked Function Expression)
+    let computed = js {
+        (function() {
+            const items = [1, 2, 3, 4, 5];
+            return items.reduce((a, b) => a + b, 0);
+        })()
+    };
+    println("Sum of 1-5: {}", computed);
+
+    // Braces in strings are handled correctly
+    let json_str = js { JSON.stringify({ key: "value with } brace" }) };
+    println("JSON: {}", json_str);
+
+    // Comments with braces are handled correctly
+    let with_comment = js {
+        // This comment has a } brace
+        /* And this block comment has { braces } too */
+        42
+    };
+    println("With comment: {}", with_comment);
+
+    // Template literals are handled correctly
+    let greeting = js { `Hello, ${"World"}!` };
+    println("Greeting: {}", greeting);
+
+    // Arrow functions
+    let arr = js { [1, 2, 3, 4, 5] };
+    let mapped = js { arr.map(x => x * x) };
+    println("Squares: {}", js { mapped.join(", ") });
+
+    // Use js block with IIFE for multi-statement code
+    // (JsValue types aren't directly usable in Husk if conditions)
+    js {
+        (function() {
+            if (typeof window !== "undefined") {
+                console.log("Running in browser");
+            } else {
+                console.log("Running in Node.js");
+            }
+        })()
+    };
+}

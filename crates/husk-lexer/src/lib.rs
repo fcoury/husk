@@ -6,7 +6,7 @@ use std::ops::Range;
 pub const KEYWORDS: &[&str] = &[
     "as", "pub", "use", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern", "if",
     "else", "while", "match", "return", "true", "false", "break", "continue", "trait", "impl",
-    "for", "Self", "static", "in", "global",
+    "for", "Self", "static", "in", "global", "js",
 ];
 
 /// Check if a string is a Husk reserved keyword.
@@ -79,6 +79,7 @@ pub enum Keyword {
     SelfType, // `Self` keyword (capital S)
     Static,
     Global,
+    Js, // `js` keyword for embedded JavaScript blocks
 }
 
 /// Token kinds produced by the lexer.
@@ -265,6 +266,7 @@ impl<'src> Lexer<'src> {
             "Self" => TokenKind::Keyword(Keyword::SelfType),
             "static" => TokenKind::Keyword(Keyword::Static),
             "global" => TokenKind::Keyword(Keyword::Global),
+            "js" => TokenKind::Keyword(Keyword::Js),
             _ => TokenKind::Ident(text.to_string()),
         };
         Token { kind, span }
