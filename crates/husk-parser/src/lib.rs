@@ -1864,8 +1864,8 @@ impl Parser {
             };
             return Some(Expr {
                 kind: ExprKind::Range {
-                    start: Box::new(expr),
-                    end: Box::new(end),
+                    start: Some(Box::new(expr)),
+                    end: Some(Box::new(end)),
                     inclusive: false,
                 },
                 span,
@@ -1877,8 +1877,8 @@ impl Parser {
             };
             return Some(Expr {
                 kind: ExprKind::Range {
-                    start: Box::new(expr),
-                    end: Box::new(end),
+                    start: Some(Box::new(expr)),
+                    end: Some(Box::new(end)),
                     inclusive: true,
                 },
                 span,
@@ -2095,22 +2095,153 @@ impl Parser {
                     };
                 }
             } else if self.matches_token(&TokenKind::LBracket) {
-                // Array indexing: expr[index]
-                let index_expr = self.parse_expr()?;
-                if !self.matches_token(&TokenKind::RBracket) {
-                    self.error_here("expected `]` after array index");
-                    return None;
+                // Array indexing or slicing: expr[index] or expr[start..end] etc.
+                let bracket_start = self.previous().span.range.start;
+
+                // Check for slice syntax starting with `..` (no start bound)
+                if self.matches_token(&TokenKind::DotDot) {
+                    // Slice with no start: arr[..end] or arr[..]
+                    let (end_expr, inclusive) = if matches!(self.current().kind, TokenKind::RBracket) {
+                        // arr[..] - full slice
+                        (None, false)
+                    } else {
+                        // arr[..end]
+                        (Some(Box::new(self.parse_comparison()?)), false)
+                    };
+                    if !self.matches_token(&TokenKind::RBracket) {
+                        self.error_here("expected `]` after slice expression");
+                        return None;
+                    }
+                    let span = Span {
+                        range: expr.span.range.start..self.previous().span.range.end,
+                    };
+                    let range_span = Span {
+                        range: bracket_start..self.previous().span.range.end,
+                    };
+                    expr = Expr {
+                        kind: ExprKind::Index {
+                            base: Box::new(expr),
+                            index: Box::new(Expr {
+                                kind: ExprKind::Range {
+                                    start: None,
+                                    end: end_expr,
+                                    inclusive,
+                                },
+                                span: range_span,
+                            }),
+                        },
+                        span,
+                    };
+                } else if self.matches_token(&TokenKind::DotDotEq) {
+                    // Slice with no start but inclusive: arr[..=end]
+                    let end_expr = Some(Box::new(self.parse_comparison()?));
+                    if !self.matches_token(&TokenKind::RBracket) {
+                        self.error_here("expected `]` after slice expression");
+                        return None;
+                    }
+                    let span = Span {
+                        range: expr.span.range.start..self.previous().span.range.end,
+                    };
+                    let range_span = Span {
+                        range: bracket_start..self.previous().span.range.end,
+                    };
+                    expr = Expr {
+                        kind: ExprKind::Index {
+                            base: Box::new(expr),
+                            index: Box::new(Expr {
+                                kind: ExprKind::Range {
+                                    start: None,
+                                    end: end_expr,
+                                    inclusive: true,
+                                },
+                                span: range_span,
+                            }),
+                        },
+                        span,
+                    };
+                } else {
+                    // Parse the first expression (could be simple index or start of range)
+                    let first_expr = self.parse_comparison()?;
+
+                    // Check if this is a range slice
+                    if self.matches_token(&TokenKind::DotDot) {
+                        // Slice: arr[start..end] or arr[start..]
+                        let end_expr = if matches!(self.current().kind, TokenKind::RBracket) {
+                            // arr[start..] - slice from start to end
+                            None
+                        } else {
+                            // arr[start..end]
+                            Some(Box::new(self.parse_comparison()?))
+                        };
+                        if !self.matches_token(&TokenKind::RBracket) {
+                            self.error_here("expected `]` after slice expression");
+                            return None;
+                        }
+                        let span = Span {
+                            range: expr.span.range.start..self.previous().span.range.end,
+                        };
+                        let range_span = Span {
+                            range: first_expr.span.range.start..self.previous().span.range.end,
+                        };
+                        expr = Expr {
+                            kind: ExprKind::Index {
+                                base: Box::new(expr),
+                                index: Box::new(Expr {
+                                    kind: ExprKind::Range {
+                                        start: Some(Box::new(first_expr)),
+                                        end: end_expr,
+                                        inclusive: false,
+                                    },
+                                    span: range_span,
+                                }),
+                            },
+                            span,
+                        };
+                    } else if self.matches_token(&TokenKind::DotDotEq) {
+                        // Inclusive slice: arr[start..=end]
+                        let end_expr = Some(Box::new(self.parse_comparison()?));
+                        if !self.matches_token(&TokenKind::RBracket) {
+                            self.error_here("expected `]` after slice expression");
+                            return None;
+                        }
+                        let span = Span {
+                            range: expr.span.range.start..self.previous().span.range.end,
+                        };
+                        let range_span = Span {
+                            range: first_expr.span.range.start..self.previous().span.range.end,
+                        };
+                        expr = Expr {
+                            kind: ExprKind::Index {
+                                base: Box::new(expr),
+                                index: Box::new(Expr {
+                                    kind: ExprKind::Range {
+                                        start: Some(Box::new(first_expr)),
+                                        end: end_expr,
+                                        inclusive: true,
+                                    },
+                                    span: range_span,
+                                }),
+                            },
+                            span,
+                        };
+                    } else {
+                        // Simple index: arr[index]
+                        if !self.matches_token(&TokenKind::RBracket) {
+                            self.error_here("expected `]` after array index");
+                            return None;
+                        }
+                        let span = Span {
+                            range: expr.span.range.start..self.previous().span.range.end,
+                        };
+                        expr = Expr {
+                            kind: ExprKind::Index {
+                                base: Box::new(expr),
+                                index: Box::new(first_expr),
+                            },
+                            span,
+                        };
+                    }
                 }
-                let span = Span {
-                    range: expr.span.range.start..self.previous().span.range.end,
-                };
-                expr = Expr {
-                    kind: ExprKind::Index {
-                        base: Box::new(expr),
-                        index: Box::new(index_expr),
-                    },
-                    span,
-                };
             } else {
                 break;
             }

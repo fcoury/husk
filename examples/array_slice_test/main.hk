@@ -1,0 +1,114 @@
+// Test file for array slicing syntax (Rust-like)
+// Run with: huskc test examples/array_slice_test/main.hk
+
+fn main() {
+    let items = [10, 20, 30, 40, 50];
+
+    // Test full slice: arr[..] - copies the entire array
+    println("Full slice arr[..]:");
+    let full = items[..];
+    for item in full {
+        println("  {}", item);
+    }
+
+    // Test slice from start: arr[..3] - first 3 elements
+    println("From start arr[..3]:");
+    let first_three = items[..3];
+    for item in first_three {
+        println("  {}", item);
+    }
+
+    // Test slice to end: arr[2..] - from index 2 to end
+    println("To end arr[2..]:");
+    let from_two = items[2..];
+    for item in from_two {
+        println("  {}", item);
+    }
+
+    // Test slice with both bounds: arr[1..4]
+    println("Middle slice arr[1..4]:");
+    let middle = items[1..4];
+    for item in middle {
+        println("  {}", item);
+    }
+
+    // Test inclusive slice: arr[1..=3]
+    println("Inclusive slice arr[1..=3]:");
+    let inclusive = items[1..=3];
+    for item in inclusive {
+        println("  {}", item);
+    }
+
+    // Test variable bounds
+    let start = 1;
+    let end = 4;
+    println("Variable bounds arr[start..end]:");
+    let variable = items[start..end];
+    for item in variable {
+        println("  {}", item);
+    }
+}
+
+// Test functions using the Husk test framework
+
+#[cfg(test)]
+#[test]
+fn test_full_slice() {
+    let items = [10, 20, 30, 40, 50];
+    let full = items[..];
+    assert(full[0] == 10);
+    assert(full[4] == 50);
+}
+
+#[cfg(test)]
+#[test]
+fn test_slice_from_start() {
+    let items = [10, 20, 30, 40, 50];
+    let first_three = items[..3];
+    assert(first_three[0] == 10);
+    assert(first_three[1] == 20);
+    assert(first_three[2] == 30);
+}
+
+#[cfg(test)]
+#[test]
+fn test_slice_to_end() {
+    let items = [10, 20, 30, 40, 50];
+    let from_two = items[2..];
+    assert(from_two[0] == 30);
+    assert(from_two[1] == 40);
+    assert(from_two[2] == 50);
+}
+
+#[cfg(test)]
+#[test]
+fn test_slice_both_bounds() {
+    let items = [10, 20, 30, 40, 50];
+    let middle = items[1..4];
+    assert(middle[0] == 20);
+    assert(middle[1] == 30);
+    assert(middle[2] == 40);
+}
+
+#[cfg(test)]
+#[test]
+fn test_slice_inclusive() {
+    let items = [10, 20, 30, 40, 50];
+    // arr[1..=3] includes elements at indices 1, 2, and 3
+    let inclusive = items[1..=3];
+    assert(inclusive[0] == 20);
+    assert(inclusive[1] == 30);
+    assert(inclusive[2] == 40);
+}
+
+#[cfg(test)]
+#[test]
+fn test_slice_with_variables() {
+    let items = [10, 20, 30, 40, 50];
+    let start = 1;
+    let end = 4;
+    let sliced = items[start..end];
+    assert(sliced[0] == 20);
+    assert(sliced[1] == 30);
+    assert(sliced[2] == 40);
+}

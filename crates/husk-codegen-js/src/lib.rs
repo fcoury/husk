@@ -978,10 +978,10 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             iterable,
             body,
         } => {
-            // Check if iterable is a range expression
+            // Check if iterable is a range expression with both bounds
             if let ExprKind::Range {
-                start,
-                end,
+                start: Some(start),
+                end: Some(end),
                 inclusive,
             } = &iterable.kind
             {
@@ -1287,10 +1287,56 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             let js_elements: Vec<JsExpr> = elements.iter().map(|e| lower_expr(e, ctx)).collect();
             JsExpr::Array(js_elements)
         }
-        ExprKind::Index { base, index } => JsExpr::Index {
-            object: Box::new(lower_expr(base, ctx)),
-            index: Box::new(lower_expr(index, ctx)),
-        },
+        ExprKind::Index { base, index } => {
+            // Check if this is a slice operation (index is a Range)
+            if let ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } = &index.kind
+            {
+                // Generate arr.slice(start, end) call
+                let base_js = lower_expr(base, ctx);
+                let slice_callee = JsExpr::Member {
+                    object: Box::new(base_js),
+                    property: "slice".to_string(),
+                };
+
+                let mut args = Vec::new();
+
+                // Start argument: default to 0 if not present
+                match start {
+                    Some(s) => args.push(lower_expr(s, ctx)),
+                    None => args.push(JsExpr::Number(0)),
+                }
+
+                // End argument: omit for arr[start..] (slice to end), or adjust for inclusive
+                if let Some(e) = end {
+                    if *inclusive {
+                        // For inclusive range, add 1 to the end
+                        args.push(JsExpr::Binary {
+                            op: JsBinaryOp::Add,
+                            left: Box::new(lower_expr(e, ctx)),
+                            right: Box::new(JsExpr::Number(1)),
+                        });
+                    } else {
+                        args.push(lower_expr(e, ctx));
+                    }
+                }
+                // If end is None, we don't add a second argument - slice(start) goes to the end
+
+                JsExpr::Call {
+                    callee: Box::new(slice_callee),
+                    args,
+                }
+            } else {
+                // Simple index: arr[i]
+                JsExpr::Index {
+                    object: Box::new(lower_expr(base, ctx)),
+                    index: Box::new(lower_expr(index, ctx)),
+                }
+            }
+        }
         ExprKind::Range { .. } => {
             // Range expressions are handled specially in ForIn lowering.
             // If we encounter a standalone range, just return a placeholder.
