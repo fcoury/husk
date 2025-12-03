@@ -159,6 +159,24 @@ enum Command {
         #[arg(short, long)]
         quiet: bool,
     },
+    /// Format Husk source files
+    Fmt {
+        /// Files or directories to format (default: current directory)
+        #[arg(default_value = ".")]
+        paths: Vec<PathBuf>,
+        /// Check if files are formatted without modifying
+        #[arg(long)]
+        check: bool,
+        /// Write formatted output to stdout instead of file
+        #[arg(long)]
+        print: bool,
+        /// Maximum line length
+        #[arg(long, default_value = "100")]
+        max_width: usize,
+        /// Indent size in spaces
+        #[arg(long, default_value = "4")]
+        indent_size: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -272,6 +290,13 @@ fn main() {
             no_prelude,
             quiet,
         }) => run_test(file.as_deref(), filter.as_deref(), no_prelude, quiet, &config),
+        Some(Command::Fmt {
+            paths,
+            check,
+            print,
+            max_width,
+            indent_size,
+        }) => run_fmt(&paths, check, print, max_width, indent_size),
         None => {
             // Default: just parse the file if provided.
             let file = match &cli.file {
@@ -1788,4 +1813,133 @@ fn run_dts_remove(package: &str) {
     } else {
         eprintln!("No dts entry found for '{package}'");
     }
+}
+
+// ============================================================================
+// Format command
+// ============================================================================
+
+fn run_fmt(paths: &[PathBuf], check: bool, print: bool, max_width: usize, indent_size: usize) {
+    let config = husk_fmt::FormatConfig::default()
+        .with_line_length(max_width)
+        .with_indent_size(indent_size);
+
+    let files = match discover_husk_files(paths) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error discovering files: {e}");
+            std::process::exit(2);
+        }
+    };
+
+    if files.is_empty() {
+        eprintln!("No .hk files found");
+        std::process::exit(0);
+    }
+
+    let mut unformatted = Vec::new();
+    let mut had_errors = false;
+
+    for file in &files {
+        let source = match fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error reading {}: {e}", file.display());
+                had_errors = true;
+                continue;
+            }
+        };
+
+        let formatted = match husk_fmt::format_str(&source, &config) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Error formatting {}: {e}", file.display());
+                had_errors = true;
+                continue;
+            }
+        };
+
+        if source != formatted {
+            if check {
+                unformatted.push(file.clone());
+            } else if print {
+                println!("{formatted}");
+            } else {
+                // Atomic write: write to temp file then rename
+                let temp = file.with_extension("hk.tmp");
+                if let Err(e) = fs::write(&temp, &formatted) {
+                    eprintln!("Error writing {}: {e}", temp.display());
+                    had_errors = true;
+                    continue;
+                }
+                if let Err(e) = fs::rename(&temp, file) {
+                    eprintln!("Error renaming {} to {}: {e}", temp.display(), file.display());
+                    // Try to clean up temp file
+                    let _ = fs::remove_file(&temp);
+                    had_errors = true;
+                    continue;
+                }
+                debug_log(&format!("[huskc fmt] formatted {}", file.display()));
+            }
+        }
+    }
+
+    if had_errors {
+        std::process::exit(2);
+    }
+
+    if check && !unformatted.is_empty() {
+        eprintln!("The following files need formatting:");
+        for f in &unformatted {
+            eprintln!("  {}", f.display());
+        }
+        std::process::exit(1);
+    }
+
+    if !check && !print {
+        println!(
+            "Formatted {} file{}",
+            files.len(),
+            if files.len() == 1 { "" } else { "s" }
+        );
+    }
+}
+
+/// Discover all .hk files in the given paths.
+fn discover_husk_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, std::io::Error> {
+    let mut files = Vec::new();
+    let excluded_dirs: HashSet<&str> = ["node_modules", "target", ".git", "dist"].into_iter().collect();
+
+    for path in paths {
+        if path.is_file() {
+            if path.extension().is_some_and(|e| e == "hk") {
+                files.push(path.clone());
+            }
+        } else if path.is_dir() {
+            discover_husk_files_recursive(path, &excluded_dirs, &mut files)?;
+        }
+    }
+
+    Ok(files)
+}
+
+fn discover_husk_files_recursive(
+    dir: &Path,
+    excluded: &HashSet<&str>,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), std::io::Error> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        if path.is_dir() {
+            if !excluded.contains(file_name) && !file_name.starts_with('.') {
+                discover_husk_files_recursive(&path, excluded, files)?;
+            }
+        } else if path.extension().is_some_and(|e| e == "hk") {
+            files.push(path);
+        }
+    }
+    Ok(())
 }

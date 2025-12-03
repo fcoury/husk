@@ -2,6 +2,34 @@
 
 use std::ops::Range;
 
+// ============================================================================
+// Trivia (for formatter support)
+// ============================================================================
+
+/// Trivia represents non-semantic content: whitespace and comments.
+/// Used by the formatter to preserve comments and intentional blank lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Trivia {
+    /// Horizontal whitespace (spaces and tabs)
+    Whitespace(String),
+    /// Line endings (\n or \r\n) - tracked separately for blank line detection
+    Newline(String),
+    /// Line comment including the `//` prefix
+    LineComment(String),
+}
+
+impl Trivia {
+    /// Returns true if this trivia is a newline
+    pub fn is_newline(&self) -> bool {
+        matches!(self, Trivia::Newline(_))
+    }
+
+    /// Returns true if this trivia is a line comment
+    pub fn is_comment(&self) -> bool {
+        matches!(self, Trivia::LineComment(_))
+    }
+}
+
 /// List of all Husk keywords.
 pub const KEYWORDS: &[&str] = &[
     "as", "pub", "use", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern", "if",
@@ -132,11 +160,59 @@ pub enum TokenKind {
     Eof,
 }
 
-/// A token with its kind and source span.
+/// A token with its kind, source span, and associated trivia.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
+    /// Trivia (whitespace, newlines, comments) that appears before this token
+    pub leading_trivia: Vec<Trivia>,
+    /// Trivia that appears after this token on the same line (typically trailing comments)
+    pub trailing_trivia: Vec<Trivia>,
+}
+
+impl Token {
+    /// Create a new token with no trivia (for backwards compatibility)
+    pub fn new(kind: TokenKind, span: Span) -> Self {
+        Self {
+            kind,
+            span,
+            leading_trivia: Vec::new(),
+            trailing_trivia: Vec::new(),
+        }
+    }
+
+    /// Create a new token with trivia
+    pub fn with_trivia(
+        kind: TokenKind,
+        span: Span,
+        leading_trivia: Vec<Trivia>,
+        trailing_trivia: Vec<Trivia>,
+    ) -> Self {
+        Self {
+            kind,
+            span,
+            leading_trivia,
+            trailing_trivia,
+        }
+    }
+
+    /// Returns true if this token has any leading comments
+    pub fn has_leading_comments(&self) -> bool {
+        self.leading_trivia.iter().any(|t| t.is_comment())
+    }
+
+    /// Returns true if this token has a trailing comment
+    pub fn has_trailing_comment(&self) -> bool {
+        self.trailing_trivia.iter().any(|t| t.is_comment())
+    }
+
+    /// Count consecutive newlines in leading trivia (for blank line detection)
+    pub fn leading_blank_lines(&self) -> usize {
+        let newline_count = self.leading_trivia.iter().filter(|t| t.is_newline()).count();
+        // 2 newlines = 1 blank line, 3 newlines = 2 blank lines, etc.
+        newline_count.saturating_sub(1)
+    }
 }
 
 /// Simple lexer over a UTF-8 string.
@@ -199,46 +275,131 @@ impl<'src> Lexer<'src> {
         (span, lexeme)
     }
 
-    fn skip_whitespace_and_comments(&mut self) {
+    /// Collect leading trivia: whitespace, newlines, and comments before a token.
+    fn collect_leading_trivia(&mut self) -> Vec<Trivia> {
+        let mut trivia = Vec::new();
         loop {
-            let mut progressed = false;
-            while let Some((_, ch)) = self.peek() {
-                if ch.is_whitespace() {
-                    progressed = true;
+            match self.peek() {
+                Some((_, ' ')) | Some((_, '\t')) => {
+                    // Collect horizontal whitespace
+                    let mut ws = String::new();
+                    while let Some((_, ch)) = self.peek() {
+                        if ch == ' ' || ch == '\t' {
+                            ws.push(ch);
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                    if !ws.is_empty() {
+                        trivia.push(Trivia::Whitespace(ws));
+                    }
+                }
+                Some((_, '\n')) => {
                     self.bump();
-                } else {
+                    trivia.push(Trivia::Newline("\n".to_string()));
+                }
+                Some((_, '\r')) => {
+                    self.bump();
+                    if let Some((_, '\n')) = self.peek() {
+                        self.bump();
+                        trivia.push(Trivia::Newline("\r\n".to_string()));
+                    } else {
+                        // Standalone \r - treat as newline
+                        trivia.push(Trivia::Newline("\r".to_string()));
+                    }
+                }
+                Some((start, '/')) => {
+                    // Check if this is a line comment
+                    let mut clone = self.chars.clone();
+                    if let Some((_, '/')) = clone.next() {
+                        // It's a line comment
+                        let comment_start = start;
+                        self.bump(); // consume first '/'
+                        self.bump(); // consume second '/'
+
+                        // Collect until end of line
+                        while let Some((_, ch)) = self.peek() {
+                            if ch == '\n' {
+                                break;
+                            }
+                            self.bump();
+                        }
+
+                        // Extract the comment text from source
+                        let comment_end = self.peek().map(|(i, _)| i).unwrap_or(self.end);
+                        let comment = &self.src[comment_start..comment_end];
+                        trivia.push(Trivia::LineComment(comment.to_string()));
+                    } else {
+                        // Not a comment, done collecting trivia
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+        trivia
+    }
+
+    /// Collect trailing trivia: whitespace and comments on the same line after a token.
+    fn collect_trailing_trivia(&mut self) -> Vec<Trivia> {
+        let mut trivia = Vec::new();
+        loop {
+            match self.peek() {
+                Some((_, ' ')) | Some((_, '\t')) => {
+                    // Collect horizontal whitespace
+                    let mut ws = String::new();
+                    while let Some((_, ch)) = self.peek() {
+                        if ch == ' ' || ch == '\t' {
+                            ws.push(ch);
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                    if !ws.is_empty() {
+                        trivia.push(Trivia::Whitespace(ws));
+                    }
+                }
+                Some((start, '/')) => {
+                    // Check if this is a line comment
+                    let mut clone = self.chars.clone();
+                    if let Some((_, '/')) = clone.next() {
+                        // It's a trailing line comment
+                        let comment_start = start;
+                        self.bump(); // consume first '/'
+                        self.bump(); // consume second '/'
+
+                        // Collect until end of line
+                        while let Some((_, ch)) = self.peek() {
+                            if ch == '\n' {
+                                break;
+                            }
+                            self.bump();
+                        }
+
+                        // Extract the comment text from source
+                        let comment_end = self.peek().map(|(i, _)| i).unwrap_or(self.end);
+                        let comment = &self.src[comment_start..comment_end];
+                        trivia.push(Trivia::LineComment(comment.to_string()));
+                        // After a line comment, stop collecting trailing trivia
+                        break;
+                    } else {
+                        // Not a comment, done collecting trailing trivia
+                        break;
+                    }
+                }
+                _ => {
+                    // Newline or other character - stop collecting trailing trivia
                     break;
                 }
             }
-            // Line comment: //
-            if let Some((start, '/')) = self.peek() {
-                let mut clone = self.chars.clone();
-                if let Some((_, '/')) = clone.next() {
-                    // consume the first '/'
-                    self.bump();
-                    // consume the second '/'
-                    self.bump();
-                    // consume until end of line
-                    while let Some((_, ch)) = self.peek() {
-                        if ch == '\n' {
-                            break;
-                        }
-                        self.bump();
-                    }
-                    continue;
-                } else {
-                    // not actually a comment
-                    let _ = start;
-                }
-            }
-            if !progressed {
-                break;
-            }
         }
+        trivia
     }
 
-    fn classify_ident_or_keyword(&self, span: Span, text: &str) -> Token {
-        let kind = match text {
+    fn classify_ident_or_keyword(&self, _span: Span, text: &str) -> TokenKind {
+        match text {
             "as" => TokenKind::Keyword(Keyword::As),
             "pub" => TokenKind::Keyword(Keyword::Pub),
             "use" => TokenKind::Keyword(Keyword::Use),
@@ -268,11 +429,10 @@ impl<'src> Lexer<'src> {
             "global" => TokenKind::Keyword(Keyword::Global),
             "js" => TokenKind::Keyword(Keyword::Js),
             _ => TokenKind::Ident(text.to_string()),
-        };
-        Token { kind, span }
+        }
     }
 
-    fn lex_number(&mut self, start: usize, first_ch: char) -> Token {
+    fn lex_number(&mut self, start: usize, first_ch: char) -> (TokenKind, Span) {
         let (span, _text) = self.consume_while(start, |c| c.is_ascii_digit());
         let mut end = if span.range.start == span.range.end {
             // only first_ch
@@ -303,22 +463,21 @@ impl<'src> Lexer<'src> {
 
         let full_span = Span::new(start, end);
         let lexeme = &self.src[full_span.range.clone()];
-        Token {
-            kind: if is_float {
-                TokenKind::FloatLiteral(lexeme.to_string())
-            } else {
-                TokenKind::IntLiteral(lexeme.to_string())
-            },
-            span: full_span,
-        }
+        let kind = if is_float {
+            TokenKind::FloatLiteral(lexeme.to_string())
+        } else {
+            TokenKind::IntLiteral(lexeme.to_string())
+        };
+        (kind, full_span)
     }
 
-    fn lex_ident_or_keyword(&mut self, start: usize) -> Token {
+    fn lex_ident_or_keyword(&mut self, start: usize) -> (TokenKind, Span) {
         let (span, text) = self.consume_while(start, |c| c.is_alphanumeric() || c == '_');
-        self.classify_ident_or_keyword(span, text)
+        let kind = self.classify_ident_or_keyword(span.clone(), text);
+        (kind, span)
     }
 
-    fn lex_string(&mut self, start: usize) -> Token {
+    fn lex_string(&mut self, start: usize) -> (TokenKind, Span) {
         // Assumes opening quote has already been consumed.
         let mut end = start;
         while let Some((idx, ch)) = self.bump() {
@@ -335,10 +494,7 @@ impl<'src> Lexer<'src> {
             .and_then(|s| s.strip_suffix('"'))
             .unwrap_or("")
             .to_string();
-        Token {
-            kind: TokenKind::StringLiteral(value),
-            span,
-        }
+        (TokenKind::StringLiteral(value), span)
     }
 }
 
@@ -349,104 +505,66 @@ impl<'src> Iterator for Lexer<'src> {
         if self.finished {
             return None;
         }
-        self.skip_whitespace_and_comments();
+
+        // Collect leading trivia (whitespace, newlines, comments before this token)
+        let leading_trivia = self.collect_leading_trivia();
+
         let (start, ch) = match self.bump() {
             Some(pair) => pair,
             None => {
                 let span = Span::new(self.end, self.end);
                 self.finished = true;
-                return Some(Token {
-                    kind: TokenKind::Eof,
+                return Some(Token::with_trivia(
+                    TokenKind::Eof,
                     span,
-                });
+                    leading_trivia,
+                    Vec::new(),
+                ));
             }
         };
 
-        let token = match ch {
+        // Get the token kind and span
+        let (kind, span) = match ch {
             c if c.is_ascii_alphabetic() || c == '_' => self.lex_ident_or_keyword(start),
             c if c.is_ascii_digit() => self.lex_number(start, c),
             '"' => self.lex_string(start),
-            '(' => Token {
-                kind: TokenKind::LParen,
-                span: Span::new(start, start + 1),
-            },
-            ')' => Token {
-                kind: TokenKind::RParen,
-                span: Span::new(start, start + 1),
-            },
-            '{' => Token {
-                kind: TokenKind::LBrace,
-                span: Span::new(start, start + 1),
-            },
-            '}' => Token {
-                kind: TokenKind::RBrace,
-                span: Span::new(start, start + 1),
-            },
-            ',' => Token {
-                kind: TokenKind::Comma,
-                span: Span::new(start, start + 1),
-            },
+            '(' => (TokenKind::LParen, Span::new(start, start + 1)),
+            ')' => (TokenKind::RParen, Span::new(start, start + 1)),
+            '{' => (TokenKind::LBrace, Span::new(start, start + 1)),
+            '}' => (TokenKind::RBrace, Span::new(start, start + 1)),
+            ',' => (TokenKind::Comma, Span::new(start, start + 1)),
             ':' => {
                 if let Some((idx2, ':')) = self.peek() {
-                    // consume second ':'
                     self.bump();
-                    Token {
-                        kind: TokenKind::ColonColon,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::ColonColon, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Colon,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Colon, Span::new(start, start + 1))
                 }
             }
-            ';' => Token {
-                kind: TokenKind::Semicolon,
-                span: Span::new(start, start + 1),
-            },
+            ';' => (TokenKind::Semicolon, Span::new(start, start + 1)),
             '.' => {
                 if let Some((idx2, '.')) = self.peek() {
                     self.bump(); // consume second '.'
 
                     if let Some((idx3, '=')) = self.peek() {
                         self.bump(); // consume '='
-                        Token {
-                            kind: TokenKind::DotDotEq,
-                            span: Span::new(start, idx3 + 1),
-                        }
+                        (TokenKind::DotDotEq, Span::new(start, idx3 + 1))
                     } else {
-                        Token {
-                            kind: TokenKind::DotDot,
-                            span: Span::new(start, idx2 + 1),
-                        }
+                        (TokenKind::DotDot, Span::new(start, idx2 + 1))
                     }
                 } else {
-                    Token {
-                        kind: TokenKind::Dot,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Dot, Span::new(start, start + 1))
                 }
             }
             '-' => {
                 if let Some((idx2, '>')) = self.peek() {
-                    // consume '>'
                     self.bump();
-                    Token {
-                        kind: TokenKind::Arrow,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::Arrow, Span::new(start, idx2 + 1))
                 } else if let Some((idx2, '=')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::MinusEq,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::MinusEq, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Minus,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Minus, Span::new(start, start + 1))
                 }
             }
             '=' => {
@@ -454,159 +572,241 @@ impl<'src> Iterator for Lexer<'src> {
                     match next {
                         '>' => {
                             self.bump();
-                            Token {
-                                kind: TokenKind::FatArrow,
-                                span: Span::new(start, idx2 + 1),
-                            }
+                            (TokenKind::FatArrow, Span::new(start, idx2 + 1))
                         }
                         '=' => {
                             self.bump();
-                            Token {
-                                kind: TokenKind::EqEq,
-                                span: Span::new(start, idx2 + 1),
-                            }
+                            (TokenKind::EqEq, Span::new(start, idx2 + 1))
                         }
-                        _ => Token {
-                            kind: TokenKind::Eq,
-                            span: Span::new(start, start + 1),
-                        },
+                        _ => (TokenKind::Eq, Span::new(start, start + 1)),
                     }
                 } else {
-                    Token {
-                        kind: TokenKind::Eq,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Eq, Span::new(start, start + 1))
                 }
             }
             '+' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::PlusEq,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::PlusEq, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Plus,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Plus, Span::new(start, start + 1))
                 }
             }
-            '*' => Token {
-                kind: TokenKind::Star,
-                span: Span::new(start, start + 1),
-            },
-            '/' => Token {
-                kind: TokenKind::Slash,
-                span: Span::new(start, start + 1),
-            },
+            '*' => (TokenKind::Star, Span::new(start, start + 1)),
+            '/' => (TokenKind::Slash, Span::new(start, start + 1)),
             '%' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::PercentEq,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::PercentEq, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Percent,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Percent, Span::new(start, start + 1))
                 }
             }
             '!' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::BangEq,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::BangEq, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Bang,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Bang, Span::new(start, start + 1))
                 }
             }
             '<' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::Le,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::Le, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Lt,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Lt, Span::new(start, start + 1))
                 }
             }
             '>' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::Ge,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::Ge, Span::new(start, idx2 + 1))
                 } else {
-                    Token {
-                        kind: TokenKind::Gt,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Gt, Span::new(start, start + 1))
                 }
             }
             '&' => {
                 if let Some((idx2, '&')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::AndAnd,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::AndAnd, Span::new(start, idx2 + 1))
                 } else {
-                    // Single '&' for references and self receivers
-                    Token {
-                        kind: TokenKind::Amp,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Amp, Span::new(start, start + 1))
                 }
             }
             '|' => {
                 if let Some((idx2, '|')) = self.peek() {
                     self.bump();
-                    Token {
-                        kind: TokenKind::OrOr,
-                        span: Span::new(start, idx2 + 1),
-                    }
+                    (TokenKind::OrOr, Span::new(start, idx2 + 1))
                 } else {
-                    // Single '|' for closure parameter delimiters
-                    Token {
-                        kind: TokenKind::Pipe,
-                        span: Span::new(start, start + 1),
-                    }
+                    (TokenKind::Pipe, Span::new(start, start + 1))
                 }
             }
-            '#' => Token {
-                kind: TokenKind::Hash,
-                span: Span::new(start, start + 1),
-            },
-            '[' => Token {
-                kind: TokenKind::LBracket,
-                span: Span::new(start, start + 1),
-            },
-            ']' => Token {
-                kind: TokenKind::RBracket,
-                span: Span::new(start, start + 1),
-            },
+            '#' => (TokenKind::Hash, Span::new(start, start + 1)),
+            '[' => (TokenKind::LBracket, Span::new(start, start + 1)),
+            ']' => (TokenKind::RBracket, Span::new(start, start + 1)),
             _ => {
                 // Unknown character, skip for now; in the future we will emit diagnostics.
-                Token {
-                    kind: TokenKind::Eof,
-                    span: Span::new(start, start + 1),
-                }
+                (TokenKind::Eof, Span::new(start, start + 1))
             }
         };
 
-        Some(token)
+        // Collect trailing trivia (whitespace and comments on the same line after the token)
+        let trailing_trivia = self.collect_trailing_trivia();
+
+        Some(Token::with_trivia(kind, span, leading_trivia, trailing_trivia))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_trivia_leading_whitespace() {
+        let src = "   foo";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(matches!(token.kind, TokenKind::Ident(ref s) if s == "foo"));
+        assert_eq!(token.leading_trivia.len(), 1);
+        assert!(matches!(&token.leading_trivia[0], Trivia::Whitespace(ws) if ws == "   "));
+    }
+
+    #[test]
+    fn test_trivia_leading_newlines() {
+        let src = "\n\nfoo";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(matches!(token.kind, TokenKind::Ident(ref s) if s == "foo"));
+        assert_eq!(token.leading_trivia.len(), 2);
+        assert!(matches!(&token.leading_trivia[0], Trivia::Newline(nl) if nl == "\n"));
+        assert!(matches!(&token.leading_trivia[1], Trivia::Newline(nl) if nl == "\n"));
+    }
+
+    #[test]
+    fn test_trivia_leading_comment() {
+        let src = "// this is a comment\nfoo";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(matches!(token.kind, TokenKind::Ident(ref s) if s == "foo"));
+        assert_eq!(token.leading_trivia.len(), 2);
+        assert!(
+            matches!(&token.leading_trivia[0], Trivia::LineComment(c) if c == "// this is a comment")
+        );
+        assert!(matches!(&token.leading_trivia[1], Trivia::Newline(nl) if nl == "\n"));
+    }
+
+    #[test]
+    fn test_trivia_trailing_comment() {
+        let src = "foo // trailing\nbar";
+        let mut lexer = Lexer::new(src);
+
+        let foo = lexer.next().unwrap();
+        assert!(matches!(foo.kind, TokenKind::Ident(ref s) if s == "foo"));
+        assert_eq!(foo.trailing_trivia.len(), 2);
+        assert!(matches!(&foo.trailing_trivia[0], Trivia::Whitespace(ws) if ws == " "));
+        assert!(
+            matches!(&foo.trailing_trivia[1], Trivia::LineComment(c) if c == "// trailing")
+        );
+
+        let bar = lexer.next().unwrap();
+        assert!(matches!(bar.kind, TokenKind::Ident(ref s) if s == "bar"));
+        assert_eq!(bar.leading_trivia.len(), 1);
+        assert!(matches!(&bar.leading_trivia[0], Trivia::Newline(nl) if nl == "\n"));
+    }
+
+    #[test]
+    fn test_trivia_blank_lines() {
+        let src = "\n\n\nfoo";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(matches!(token.kind, TokenKind::Ident(ref s) if s == "foo"));
+        // 3 newlines = 2 blank lines
+        assert_eq!(token.leading_blank_lines(), 2);
+    }
+
+    #[test]
+    fn test_trivia_has_leading_comments() {
+        let src = "// comment\nfoo";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(token.has_leading_comments());
+    }
+
+    #[test]
+    fn test_trivia_has_trailing_comment() {
+        let src = "foo // comment\n";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(token.has_trailing_comment());
+    }
+
+    #[test]
+    fn test_trivia_complex_mixed() {
+        let src = "  // header comment\n\n  fn main() {}";
+        let mut lexer = Lexer::new(src);
+
+        // First token: 'fn'
+        let fn_token = lexer.next().unwrap();
+        assert!(matches!(fn_token.kind, TokenKind::Keyword(Keyword::Fn)));
+        // Leading: whitespace, comment, newline, newline, whitespace
+        assert_eq!(fn_token.leading_trivia.len(), 5);
+        assert!(matches!(&fn_token.leading_trivia[0], Trivia::Whitespace(_)));
+        assert!(matches!(&fn_token.leading_trivia[1], Trivia::LineComment(_)));
+        assert!(matches!(&fn_token.leading_trivia[2], Trivia::Newline(_)));
+        assert!(matches!(&fn_token.leading_trivia[3], Trivia::Newline(_)));
+        assert!(matches!(&fn_token.leading_trivia[4], Trivia::Whitespace(_)));
+    }
+
+    #[test]
+    fn test_trivia_no_trivia() {
+        let src = "foo";
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+
+        assert!(matches!(token.kind, TokenKind::Ident(ref s) if s == "foo"));
+        assert!(token.leading_trivia.is_empty());
+        assert!(token.trailing_trivia.is_empty());
+    }
+
+    #[test]
+    fn test_trivia_eof_preserves_trivia() {
+        let src = "foo\n// final comment\n";
+        let mut lexer = Lexer::new(src);
+
+        let foo = lexer.next().unwrap();
+        assert!(matches!(foo.kind, TokenKind::Ident(ref s) if s == "foo"));
+
+        let eof = lexer.next().unwrap();
+        assert!(matches!(eof.kind, TokenKind::Eof));
+        // EOF should have the trailing comment as leading trivia
+        assert!(eof.has_leading_comments());
+    }
+
+    #[test]
+    fn test_trivia_between_tokens() {
+        let src = "a + b";
+        let mut lexer = Lexer::new(src);
+
+        let a = lexer.next().unwrap();
+        assert!(matches!(a.kind, TokenKind::Ident(ref s) if s == "a"));
+        assert_eq!(a.trailing_trivia.len(), 1);
+        assert!(matches!(&a.trailing_trivia[0], Trivia::Whitespace(ws) if ws == " "));
+
+        let plus = lexer.next().unwrap();
+        assert!(matches!(plus.kind, TokenKind::Plus));
+        assert!(plus.leading_trivia.is_empty()); // trailing of 'a' consumed it
+        assert_eq!(plus.trailing_trivia.len(), 1);
+        assert!(matches!(&plus.trailing_trivia[0], Trivia::Whitespace(ws) if ws == " "));
+
+        let b = lexer.next().unwrap();
+        assert!(matches!(b.kind, TokenKind::Ident(ref s) if s == "b"));
+        assert!(b.leading_trivia.is_empty()); // trailing of '+' consumed it
     }
 }
