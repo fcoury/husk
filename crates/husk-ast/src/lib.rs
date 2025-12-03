@@ -150,12 +150,14 @@ pub enum ExprKind {
         /// Field initializers.
         fields: Vec<FieldInit>,
     },
-    /// println!-style formatted output: `println("Value: {}", x)`
+    /// println/print-style formatted output: `println("Value: {}", x)` or `print("Value: {}", x)`
     FormatPrint {
         /// The parsed format string with placeholders
         format: FormatString,
         /// Arguments to substitute into placeholders
         args: Vec<Expr>,
+        /// Whether to append a newline (true for println, false for print)
+        newline: bool,
     },
     /// format!-style string formatting: `format("Value: {}", x)` -> String
     Format {

@@ -2062,10 +2062,15 @@ impl Parser {
         let mut expr = self.parse_primary()?;
         loop {
             if self.matches_token(&TokenKind::LParen) {
-                // Function call - check if it's a println or format with format string
+                // Function call - check if it's a println, print, or format with format string
                 if let ExprKind::Ident(ref id) = expr.kind {
                     if id.name == "println" {
-                        if let Some(format_expr) = self.try_parse_format_print(&expr) {
+                        if let Some(format_expr) = self.try_parse_format_print(&expr, true) {
+                            expr = format_expr;
+                            continue;
+                        }
+                    } else if id.name == "print" {
+                        if let Some(format_expr) = self.try_parse_format_print(&expr, false) {
                             expr = format_expr;
                             continue;
                         }
@@ -2306,11 +2311,11 @@ impl Parser {
         args
     }
 
-    /// Try to parse a println call as a FormatPrint expression.
+    /// Try to parse a println/print call as a FormatPrint expression.
     /// Returns None if first argument is not a string literal with format placeholders,
     /// in which case it falls back to a regular Call.
-    /// We're positioned right after the `(` of `println(...)`.
-    fn try_parse_format_print(&mut self, callee_expr: &Expr) -> Option<Expr> {
+    /// We're positioned right after the `(` of `println(...)` or `print(...)`.
+    fn try_parse_format_print(&mut self, callee_expr: &Expr, newline: bool) -> Option<Expr> {
         let start = callee_expr.span.range.start;
 
         // Check if first token is a string literal
@@ -2353,6 +2358,7 @@ impl Parser {
             kind: ExprKind::FormatPrint {
                 format: parsed_format,
                 args,
+                newline,
             },
             span: Span { range: start..end },
         })
