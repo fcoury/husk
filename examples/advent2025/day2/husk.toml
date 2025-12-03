@@ -1,0 +1,10 @@
+[package]
+name = "advent2025-day2"
+version = "0.0.1"
+description = "Advent of Code 2025 - Day 2 Solution in Husk"
+
+[build]
+entry = "main.hk"
+output = "dist"
+target = "cjs"
+source_maps = true
