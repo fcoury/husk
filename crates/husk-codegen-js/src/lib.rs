@@ -324,6 +324,18 @@ pub enum JsExpr {
     },
     /// Raw JavaScript code, emitted directly (wrapped in parentheses for safety).
     Raw(String),
+    /// Unary expression: `!expr` or `-expr`.
+    Unary {
+        op: JsUnaryOp,
+        expr: Box<JsExpr>,
+    },
+}
+
+/// Unary operators in JS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsUnaryOp {
+    Not,  // !
+    Neg,  // -
 }
 
 /// Binary operators in JS (subset we need).
@@ -1176,6 +1188,22 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
             }
 
+            // Handle Result/Option unwrap and expect methods
+            if method_name == "unwrap" && args.is_empty() {
+                // result.unwrap() -> __husk_unwrap(result)
+                return JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("__husk_unwrap".to_string())),
+                    args: vec![lower_expr(receiver, ctx)],
+                };
+            }
+            if method_name == "expect" && args.len() == 1 {
+                // result.expect("msg") -> __husk_expect(result, "msg")
+                return JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("__husk_expect".to_string())),
+                    args: vec![lower_expr(receiver, ctx), lower_expr(&args[0], ctx)],
+                };
+            }
+
             // Default: emit as a regular method call
             // Strip numeric suffix for variadic function emulation (run1, run2, run3 -> run)
             let js_method_name = strip_variadic_suffix(&method.name);
@@ -1240,14 +1268,35 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
         }
         ExprKind::Binary { op, left, right } => {
             use husk_ast::BinaryOp::*;
+
+            // Use deep equality for == and != to handle arrays and objects
+            match op {
+                Eq => {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_eq".to_string())),
+                        args: vec![lower_expr(left, ctx), lower_expr(right, ctx)],
+                    };
+                }
+                NotEq => {
+                    // !__husk_eq(left, right)
+                    return JsExpr::Unary {
+                        op: JsUnaryOp::Not,
+                        expr: Box::new(JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_eq".to_string())),
+                            args: vec![lower_expr(left, ctx), lower_expr(right, ctx)],
+                        }),
+                    };
+                }
+                _ => {}
+            }
+
             let js_op = match op {
                 Add => JsBinaryOp::Add,
                 Sub => JsBinaryOp::Sub,
                 Mul => JsBinaryOp::Mul,
                 Div => JsBinaryOp::Div,
                 Mod => JsBinaryOp::Mod,
-                Eq => JsBinaryOp::EqEq,
-                NotEq => JsBinaryOp::NotEq,
+                Eq | NotEq => unreachable!(), // handled above
                 Lt => JsBinaryOp::Lt,
                 Gt => JsBinaryOp::Gt,
                 Le => JsBinaryOp::Le,
@@ -1302,8 +1351,16 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             }
             JsExpr::Iife { body }
         }
-        // Unary operators not yet supported in codegen.
-        ExprKind::Unary { .. } => JsExpr::Ident("undefined".to_string()),
+        ExprKind::Unary { op, expr: inner } => {
+            let js_op = match op {
+                husk_ast::UnaryOp::Not => JsUnaryOp::Not,
+                husk_ast::UnaryOp::Neg => JsUnaryOp::Neg,
+            };
+            JsExpr::Unary {
+                op: js_op,
+                expr: Box::new(lower_expr(inner, ctx)),
+            }
+        }
         ExprKind::FormatPrint { format, args, newline } => {
             // Generate console.log (with newline) or process.stdout.write (without newline)
             // Build the formatted string by concatenating literal segments and formatted args.
@@ -2372,6 +2429,17 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
         JsExpr::Raw(code) => {
             // Emit raw JavaScript code directly (already wrapped in parentheses)
             out.push_str(code);
+        }
+        JsExpr::Unary { op, expr } => {
+            let op_str = match op {
+                JsUnaryOp::Not => "!",
+                JsUnaryOp::Neg => "-",
+            };
+            out.push_str(op_str);
+            // Wrap in parens for safety with complex expressions
+            out.push('(');
+            write_expr(expr, out);
+            out.push(')');
         }
     }
 }
