@@ -198,6 +198,9 @@ impl<'src> Parser<'src> {
         // Parse any leading attributes (e.g., #[test], #[cfg(test)], #[ignore])
         let attributes = self.parse_attributes();
 
+        // Capture start position before visibility for span calculation
+        let item_start = self.current().span.range.start;
+
         let mut visibility = husk_ast::Visibility::Private;
         if self.matches_keyword(Keyword::Pub) {
             visibility = husk_ast::Visibility::Public;
@@ -220,6 +223,13 @@ impl<'src> Parser<'src> {
                 None
             }
         }?;
+
+        // Update span to start from visibility keyword if present
+        if visibility == husk_ast::Visibility::Public {
+            item.span = Span {
+                range: item_start..item.span.range.end,
+            };
+        }
 
         item.attributes = attributes;
         item.visibility = visibility;
@@ -1039,6 +1049,9 @@ impl<'src> Parser<'src> {
         // First, parse any attributes
         let attributes = self.parse_attributes();
 
+        // Capture start position for span (before extern or fn keyword)
+        let item_start = self.current().span.range.start;
+
         // Check for extern "js" (could be method or property)
         let is_extern = if self.matches_keyword(Keyword::Extern) {
             // Expect "js" string literal
@@ -1065,7 +1078,6 @@ impl<'src> Parser<'src> {
             self.error_here("expected `fn` inside impl");
             return None;
         }
-        let fn_start = self.previous().span.range.start;
         let name = self.parse_ident("expected method name after `fn`")?;
 
         if !self.matches_token(&TokenKind::LParen) {
@@ -1100,7 +1112,7 @@ impl<'src> Parser<'src> {
                     is_extern: true,
                 }),
                 span: Span {
-                    range: fn_start..end,
+                    range: item_start..end,
                 },
             })
         } else {
@@ -1117,7 +1129,7 @@ impl<'src> Parser<'src> {
                     is_extern: false,
                 }),
                 span: Span {
-                    range: fn_start..end,
+                    range: item_start..end,
                 },
             })
         }

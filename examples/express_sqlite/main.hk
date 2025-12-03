@@ -33,12 +33,12 @@ fn get_string_or_empty(obj: JsValue, key: String) -> String {
 fn get_bool_as_number(obj: JsValue, key: String) -> f64 {
     let val = jsvalue_get(obj, key);
     if jsvalue_isNull(val) {
-        0.0
+        0
     } else {
         if jsvalue_toBool(val) {
-            1.0
+            1
         } else {
-            0.0
+            0
         }
     }
 }
@@ -71,13 +71,13 @@ fn main() {
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400.0).json(err);
+            res.status(400).json(err);
         } else {
             let id = parseFloat(id_str);
             let todo = select_one_stmt.get(id);
             if jsvalue_isNull(todo) {
                 let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                res.status(404.0).json(err);
+                res.status(404).json(err);
             } else {
                 res.json(todo);
             }
@@ -90,12 +90,12 @@ fn main() {
         let title = get_string_or_empty(body, "title");
         if title == "" {
             let err = JsObject_new().setString("error", "Title is required").toJsValue();
-            res.status(400.0).json(err);
+            res.status(400).json(err);
         } else {
-            let result = insert_stmt.run2(title, 0.0);
+            let result = insert_stmt.run2(title, 0);
             let id = result.last_insert_rowid;
             let response = JsObject_new().setNumber("id", id).toJsValue();
-            res.status(201.0).json(response);
+            res.status(201).json(response);
         }
     });
 
@@ -106,23 +106,23 @@ fn main() {
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400.0).json(err);
+            res.status(400).json(err);
         } else {
             let id = parseFloat(id_str);
             let title = get_string_or_empty(body, "title");
             if title == "" {
                 let err = JsObject_new().setString("error", "Title is required").toJsValue();
-                res.status(400.0).json(err);
+                res.status(400).json(err);
             } else {
                 let completed_int = get_bool_as_number(body, "completed");
                 let result = update_stmt.run3(title, completed_int, id);
                 let changes = result.changes;
-                if changes > 0.0 {
+                if changes > 0 {
                     let response = JsObject_new().setNumber("id", id).toJsValue();
                     res.json(response);
                 } else {
                     let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                    res.status(404.0).json(err);
+                    res.status(404).json(err);
                 }
             }
         }
@@ -134,22 +134,22 @@ fn main() {
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400.0).json(err);
+            res.status(400).json(err);
         } else {
             let id = parseFloat(id_str);
             let result = delete_stmt.run1(id);
             let changes = result.changes;
-            if changes > 0.0 {
-                res.status(204.0).send("");
+            if changes > 0 {
+                res.status(204).send("");
             } else {
                 let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                res.status(404.0).json(err);
+                res.status(404).json(err);
             }
         }
     });
 
     // Start server
-    app.listen(3000.0, || {
+    app.listen(3000, || {
         println("Server running at http://localhost:3000");
     });
 }

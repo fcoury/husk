@@ -17,31 +17,31 @@ fn first<T>(a: T, b: T) -> T {
 
 // Test basic type inference
 fn test_basic_inference() -> i32 {
-    let x = identity(42);  // T inferred as i32
+    let x = identity(42); // T inferred as i32
     x
 }
 
 // Test string inference
 fn test_string_inference() -> String {
-    let s = identity("hello");  // T inferred as String
+    let s = identity("hello"); // T inferred as String
     s
 }
 
 // Test higher-order with closure (explicit param types)
 fn test_higher_order() -> i32 {
-    let doubled = apply(21, |x: i32| x * 2);  // T = i32, U = i32
+    let doubled = apply(21, |x: i32| x * 2); // T = i32, U = i32
     doubled
 }
 
 // Test chained generic calls
 fn test_chained() -> i32 {
-    let x = identity(identity(42));  // Nested identity calls
+    let x = identity(identity(42)); // Nested identity calls
     x
 }
 
 // Test first function with same types
 fn test_first() -> i32 {
-    let x = first(1, 2);  // Both args are i32, T = i32
+    let x = first(1, 2); // Both args are i32, T = i32
     x
 }
 

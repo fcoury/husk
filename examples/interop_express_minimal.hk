@@ -12,9 +12,12 @@ extern "js" {
     fn express() -> ExpressApp;
 }
 
-struct ExpressApp {}
-struct Request {}
-struct Response {}
+struct ExpressApp {
+}
+struct Request {
+}
+struct Response {
+}
 
 fn handler(_req: Request, res: Response) {
     res.send("Hello from Husk + Express");
@@ -24,4 +27,3 @@ fn main() {
     let app = express();
     app.get("/hello", handler);
 }
-

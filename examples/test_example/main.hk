@@ -51,7 +51,7 @@ fn test_ignored() {
 
 #[cfg(test)]
 #[test]
-#[should_panic(expected = "Husk assertion")]
+#[should_panic = "Husk assertion"]
 fn test_should_panic() {
     assert(false);
 }

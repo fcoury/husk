@@ -17,12 +17,10 @@ fn main() {
     println("Double of 21: {}", result);
 
     // Multi-line IIFE (Immediately Invoked Function Expression)
-    let computed = js {
-        (function() {
+    let computed = js { (function() {
             const items = [1, 2, 3, 4, 5];
             return items.reduce((a, b) => a + b, 0);
-        })()
-    };
+        })() };
     println("Sum of 1-5: {}", computed);
 
     // Braces in strings are handled correctly
@@ -30,11 +28,9 @@ fn main() {
     println("JSON: {}", json_str);
 
     // Comments with braces are handled correctly
-    let with_comment = js {
-        // This comment has a } brace
+    let with_comment = js { // This comment has a } brace
         /* And this block comment has { braces } too */
-        42
-    };
+        42 };
     println("With comment: {}", with_comment);
 
     // Template literals are handled correctly
@@ -48,13 +44,11 @@ fn main() {
 
     // Use js block with IIFE for multi-statement code
     // (JsValue types aren't directly usable in Husk if conditions)
-    js {
-        (function() {
+    js { (function() {
             if (typeof window !== "undefined") {
                 console.log("Running in browser");
             } else {
                 console.log("Running in Node.js");
             }
-        })()
-    };
+        })() };
 }

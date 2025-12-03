@@ -7,6 +7,6 @@ fn main() {
     let y = x + 3;
     println("x: {}, y: {}", x, y);
     if y > 3 {
-      println("y is greater than 3");
+        println("y is greater than 3");
     }
 }
