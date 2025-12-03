@@ -26,6 +26,18 @@ pub struct ParseError {
     pub span: Span,
 }
 
+/// State machine for parsing JavaScript content with proper handling of
+/// strings, comments, and nested braces.
+#[derive(Debug, Clone, Copy)]
+enum JsParseState {
+    Normal,
+    InSingleQuoteString,
+    InDoubleQuoteString,
+    InTemplateString { template_depth: usize },
+    InSingleLineComment,
+    InMultiLineComment,
+}
+
 #[derive(Debug)]
 pub struct ParseResult {
     pub file: Option<File>,
@@ -37,7 +49,7 @@ pub fn parse_str(source: &str) -> ParseResult {
     debug_log("[huskc-parser] lexing");
     let tokens: Vec<Token> = Lexer::new(source).collect();
     debug_log(&format!("[huskc-parser] lexed {} tokens", tokens.len()));
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, source);
     let file = parser.parse_file();
     ParseResult {
         file: Some(file),
@@ -45,7 +57,7 @@ pub fn parse_str(source: &str) -> ParseResult {
     }
 }
 
-struct Parser {
+struct Parser<'src> {
     tokens: Vec<Token>,
     pos: usize,
     pub errors: Vec<ParseError>,
@@ -53,15 +65,18 @@ struct Parser {
     /// This is set to false when parsing contexts where `{` has special meaning
     /// (e.g., match/if/while scrutinee).
     allow_struct_expr: bool,
+    /// The original source text, used for extracting raw content (e.g., js blocks).
+    source: &'src str,
 }
 
-impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
+impl<'src> Parser<'src> {
+    fn new(tokens: Vec<Token>, source: &'src str) -> Self {
         Self {
             tokens,
             pos: 0,
             errors: Vec::new(),
             allow_struct_expr: true,
+            source,
         }
     }
 
@@ -2918,11 +2933,163 @@ impl Parser {
             }
             TokenKind::LBracket => self.parse_array_expr(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expr(),
+            TokenKind::Keyword(Keyword::Js) => self.parse_js_literal(),
             _ => {
                 self.error_at_token(&tok, "expected expression");
                 None
             }
         }
+    }
+
+    /// Parse a `js { ... }` literal expression for embedding raw JavaScript.
+    ///
+    /// Handles:
+    /// - Nested braces in object literals: `js { { a: { b: 1 } } }`
+    /// - Braces in strings: `js { "text } here" }`
+    /// - Braces in comments: `js { /* } */ code }`
+    /// - Template literals: `` js { `${x}` } ``
+    fn parse_js_literal(&mut self) -> Option<Expr> {
+        let start_tok = self.advance().clone(); // consume `js`
+
+        if !self.matches_token(&TokenKind::LBrace) {
+            self.error_here("expected `{` after `js`");
+            return None;
+        }
+
+        // The opening brace was just consumed. Its position marks the start of content.
+        let content_start = self.previous().span.range.end;
+
+        // Extract the raw content between braces using a state machine
+        let code = self.extract_js_block_content(content_start)?;
+
+        let end = self.previous().span.range.end;
+        Some(Expr {
+            kind: ExprKind::JsLiteral { code },
+            span: Span::new(start_tok.span.range.start, end),
+        })
+    }
+
+    /// Extract JavaScript content between braces, tracking depth and handling
+    /// strings/comments to avoid false matches on braces within them.
+    fn extract_js_block_content(&mut self, content_start: usize) -> Option<String> {
+        use JsParseState::*;
+
+        let mut depth = 1usize; // Already consumed opening {
+        let mut state = Normal;
+        let mut pos = content_start;
+        let source_bytes = self.source.as_bytes();
+        let source_len = source_bytes.len();
+
+        while depth > 0 && pos < source_len {
+            let ch = source_bytes[pos] as char;
+            let prev_ch = if pos > 0 {
+                source_bytes[pos - 1] as char
+            } else {
+                '\0'
+            };
+            let next_ch = if pos + 1 < source_len {
+                source_bytes[pos + 1] as char
+            } else {
+                '\0'
+            };
+
+            match state {
+                Normal => match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            // Don't include the closing brace
+                            break;
+                        }
+                    }
+                    '"' => state = InDoubleQuoteString,
+                    '\'' => state = InSingleQuoteString,
+                    '`' => state = InTemplateString { template_depth: 0 },
+                    '/' if next_ch == '/' => {
+                        state = InSingleLineComment;
+                        pos += 1; // skip second /
+                    }
+                    '/' if next_ch == '*' => {
+                        state = InMultiLineComment;
+                        pos += 1; // skip *
+                    }
+                    _ => {}
+                },
+                InDoubleQuoteString => {
+                    if ch == '"' && prev_ch != '\\' {
+                        state = Normal;
+                    }
+                }
+                InSingleQuoteString => {
+                    if ch == '\'' && prev_ch != '\\' {
+                        state = Normal;
+                    }
+                }
+                InTemplateString { template_depth } => match ch {
+                    '`' if prev_ch != '\\' => {
+                        if template_depth == 0 {
+                            state = Normal;
+                        }
+                    }
+                    '$' if next_ch == '{' => {
+                        pos += 1; // skip {
+                        state = InTemplateString {
+                            template_depth: template_depth + 1,
+                        };
+                    }
+                    '{' if template_depth > 0 => {
+                        state = InTemplateString {
+                            template_depth: template_depth + 1,
+                        };
+                    }
+                    '}' if template_depth > 0 => {
+                        state = InTemplateString {
+                            template_depth: template_depth - 1,
+                        };
+                    }
+                    _ => {}
+                },
+                InSingleLineComment => {
+                    if ch == '\n' {
+                        state = Normal;
+                    }
+                }
+                InMultiLineComment => {
+                    if ch == '*' && next_ch == '/' {
+                        pos += 1; // skip /
+                        state = Normal;
+                    }
+                }
+            }
+            pos += 1;
+        }
+
+        if depth != 0 {
+            self.error_here("unclosed `js` block");
+            return None;
+        }
+
+        // Extract the content (excluding the closing brace)
+        let content = &self.source[content_start..pos];
+        let trimmed = content.trim().to_string();
+
+        // Advance the token position past the closing brace
+        // Find the token that contains or follows pos
+        while self.pos < self.tokens.len() {
+            let tok = &self.tokens[self.pos];
+            if tok.span.range.start >= pos {
+                break;
+            }
+            self.pos += 1;
+        }
+
+        // Consume the closing brace token
+        if self.current().kind == TokenKind::RBrace {
+            self.advance();
+        }
+
+        Some(trimmed)
     }
 
     fn parse_array_expr(&mut self) -> Option<Expr> {
