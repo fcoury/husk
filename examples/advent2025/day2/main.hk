@@ -1,22 +1,22 @@
-  extern "js" {
-      mod fs {
-          fn readFileSync(path: String, encoding: String) -> String;
-      }
+extern "js" {
+    mod fs {
+        fn readFileSync(path: String, encoding: String) -> String;
+    }
 
-      mod global Array {
-          fn from(arrayLike: ArrayFromArgs, mapFn: JsValue) -> [[String]];
-      }
+    mod global Array {
+        fn from(arrayLike: ArrayFromArgs, mapFn: JsValue) -> [[String]];
+    }
 
-      mod global Math {
-          fn ceil(x: i32) -> i32;
-      }
+    mod global Math {
+        fn ceil(x: i32) -> i32;
+    }
 
-      static __dirname: String;
-  }
+    static __dirname: String;
+}
 
 fn main() {
-  let ranges = include_str("ranges.txt").split(",");
-  println("{}", sum_invalid_ids(ranges));
+    let ranges = include_str("ranges.txt").split(",");
+    println("{}", sum_invalid_ids(ranges));
 }
 
 fn sum_invalid_ids(ranges: [String]) -> Result<i32, String> {
