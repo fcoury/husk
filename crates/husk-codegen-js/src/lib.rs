@@ -470,8 +470,14 @@ pub fn lower_file_to_js_with_source(
                         package,
                         binding,
                         items: mod_items,
+                        is_global,
                     } = &ext.kind
                     {
+                        // Skip import/require for global JS objects (Array, Math, JSON, etc.)
+                        if *is_global {
+                            continue;
+                        }
+
                         if mod_items.is_empty() {
                             // Simple default import: import binding from "package";
                             match target {
@@ -1170,6 +1176,14 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 // Handle include_str("path") - compile-time file inclusion
                 if id.name == "include_str" {
                     return handle_include_str(args, ctx);
+                }
+
+                // Handle parse_int -> parseInt
+                if id.name == "parse_int" {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("parseInt".to_string())),
+                        args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+                    };
                 }
             }
             JsExpr::Call {
