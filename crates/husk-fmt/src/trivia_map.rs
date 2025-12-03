@@ -1,6 +1,6 @@
 //! TriviaMap: span-based lookup for comments and whitespace.
 
-use husk_lexer::{Token, Trivia};
+use husk_lexer::{Token, TokenKind, Trivia};
 use std::collections::HashMap;
 
 /// Maps AST spans to their associated trivia (comments, blank lines).
@@ -13,6 +13,8 @@ pub struct TriviaMap {
     leading: HashMap<usize, Vec<Trivia>>,
     /// Maps span end position to trailing trivia
     trailing: HashMap<usize, Vec<Trivia>>,
+    /// Maps closing brace end position to start position (for block-end trivia lookup)
+    brace_end_to_start: HashMap<usize, usize>,
 }
 
 impl TriviaMap {
@@ -28,6 +30,12 @@ impl TriviaMap {
             if !token.trailing_trivia.is_empty() {
                 map.trailing
                     .insert(token.span.range.end, token.trailing_trivia.clone());
+            }
+            // Track closing braces for block-end trivia lookup
+            // Block span ends at rbrace_span.end, but comments are at rbrace_span.start
+            if token.kind == TokenKind::RBrace {
+                map.brace_end_to_start
+                    .insert(token.span.range.end, token.span.range.start);
             }
         }
 
@@ -59,6 +67,19 @@ impl TriviaMap {
         let newline_count = self.leading_at(start).iter().filter(|t| t.is_newline()).count();
         // 2 newlines = 1 blank line, 3 = 2, etc.
         newline_count.saturating_sub(1)
+    }
+
+    /// Get leading trivia for a closing brace, given the block's end position.
+    ///
+    /// Block spans end at the closing brace's end position, but comments before
+    /// the brace are stored as leading trivia at the brace's start position.
+    /// This method bridges that gap.
+    pub fn leading_before_close(&self, block_end: usize) -> &[Trivia] {
+        self.brace_end_to_start
+            .get(&block_end)
+            .and_then(|start| self.leading.get(start))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 }
 
