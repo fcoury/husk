@@ -70,4 +70,43 @@ mod tests {
         let result = format_str(source, &FormatConfig::default()).unwrap();
         assert!(result.contains("// comment"));
     }
+
+    #[test]
+    fn test_trailing_comment_does_not_eat_next_statement() {
+        // Regression test: trailing comments were being placed after the newline,
+        // causing them to concatenate with the next statement
+        let source = r#"fn main() {
+    let x = 10;  // comment
+    assert(x == 10);
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        // The comment should stay on the same line as the let statement
+        assert!(result.contains("let x = 10; // comment"), "Trailing comment should be on same line as statement. Got:\n{}", result);
+        // The assert should be on its own line, not concatenated with the comment
+        assert!(result.contains("\n    assert(x == 10);"), "assert should be on its own line. Got:\n{}", result);
+    }
+
+    #[test]
+    fn test_leading_comment_before_attributed_item() {
+        // Regression test: leading comments before items with attributes were being lost
+        // because trivia was attached to the first attribute's token, not the item's span
+        let source = r#"// Test comment
+#[test]
+fn foo() {}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("// Test comment"), "Leading comment should be preserved. Got:\n{}", result);
+        assert!(result.starts_with("// Test comment"), "Leading comment should be at the start. Got:\n{}", result);
+    }
+
+    #[test]
+    fn test_doc_comment_in_extern_block() {
+        // Regression test: doc comments inside extern blocks were being lost
+        // because ExternItem span started at the identifier, not the fn keyword
+        let source = r#"extern "js" {
+    /// Doc comment
+    fn foo();
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("/// Doc comment"), "Doc comment should be preserved. Got:\n{}", result);
+    }
 }

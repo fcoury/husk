@@ -29,16 +29,25 @@ impl<'a> Formatter<'a> {
 
     pub fn format_file(mut self, file: &File) -> String {
         for (i, item) in file.items.iter().enumerate() {
-            // Emit leading trivia (comments, blank lines before this item)
-            self.emit_leading_trivia(&item.span);
+            // Determine trivia span - if item has attributes, trivia is attached to first attribute
+            let trivia_span = if let Some(first_attr) = item.attributes.first() {
+                &first_attr.span
+            } else {
+                &item.span
+            };
+            let has_leading_trivia = !self.trivia_map.leading_at(trivia_span.range.start).is_empty();
 
             // Add blank line between items (except for the first)
-            if i > 0 && !self.output.ends_with("\n\n") {
+            // Only add if there's no leading trivia - trivia will provide its own spacing
+            if i > 0 && !has_leading_trivia && !self.output.ends_with("\n\n") {
                 if !self.output.ends_with('\n') {
                     self.newline();
                 }
                 self.newline();
             }
+
+            // Emit leading trivia (comments, blank lines before this item)
+            self.emit_leading_trivia(trivia_span);
 
             self.format_item(item);
 
@@ -389,7 +398,9 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         for item in items {
+            self.emit_leading_trivia(&item.span);
             self.format_extern_item(item);
+            self.emit_trailing_trivia(&item.span);
         }
         self.indent -= 1;
         self.write_indent();
@@ -448,7 +459,9 @@ impl<'a> Formatter<'a> {
                     self.newline();
                     self.indent += 1;
                     for mod_item in items {
+                        self.emit_leading_trivia(&mod_item.span);
                         self.format_mod_item(mod_item);
+                        self.emit_trailing_trivia(&mod_item.span);
                     }
                     self.indent -= 1;
                     self.write_indent();
@@ -561,7 +574,9 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         for item in &trait_def.items {
+            self.emit_leading_trivia(&item.span);
             self.format_trait_item(item);
+            self.emit_trailing_trivia(&item.span);
         }
         self.indent -= 1;
         self.write_indent();
@@ -650,7 +665,9 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         for item in &impl_block.items {
+            self.emit_leading_trivia(&item.span);
             self.format_impl_item(item);
+            self.emit_trailing_trivia(&item.span);
         }
         self.indent -= 1;
         self.write_indent();
@@ -759,6 +776,7 @@ impl<'a> Formatter<'a> {
             self.emit_leading_trivia(&stmt.span);
             self.format_stmt(stmt);
             self.emit_trailing_trivia(&stmt.span);
+            self.newline();
         }
     }
 
@@ -785,7 +803,6 @@ impl<'a> Formatter<'a> {
                     self.format_expr(val);
                 }
                 self.write(";");
-                self.newline();
             }
             StmtKind::Assign { target, op, value } => {
                 self.write_indent();
@@ -800,18 +817,15 @@ impl<'a> Formatter<'a> {
                 self.write(" ");
                 self.format_expr(value);
                 self.write(";");
-                self.newline();
             }
             StmtKind::Expr(expr) => {
                 self.write_indent();
                 self.format_expr(expr);
-                self.newline();
             }
             StmtKind::Semi(expr) => {
                 self.write_indent();
                 self.format_expr(expr);
                 self.write(";");
-                self.newline();
             }
             StmtKind::Return { value } => {
                 self.write_indent();
@@ -821,7 +835,6 @@ impl<'a> Formatter<'a> {
                     self.format_expr(val);
                 }
                 self.write(";");
-                self.newline();
             }
             StmtKind::If {
                 cond,
@@ -842,7 +855,7 @@ impl<'a> Formatter<'a> {
                     self.write(" else ");
                     // Check if it's an else-if
                     if let StmtKind::If { .. } = &else_stmt.kind {
-                        // Don't add newline, format_stmt will handle the if
+                        // Don't add newline, format_stmt_inline will handle the if
                         self.at_line_start = false;
                         self.format_stmt_inline(else_stmt);
                     } else if let StmtKind::Block(block) = &else_stmt.kind {
@@ -853,12 +866,7 @@ impl<'a> Formatter<'a> {
                         self.indent -= 1;
                         self.write_indent();
                         self.write("}");
-                        self.newline();
-                    } else {
-                        self.newline();
                     }
-                } else {
-                    self.newline();
                 }
             }
             StmtKind::While { cond, body } => {
@@ -872,7 +880,6 @@ impl<'a> Formatter<'a> {
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
-                self.newline();
             }
             StmtKind::ForIn {
                 binding,
@@ -891,17 +898,14 @@ impl<'a> Formatter<'a> {
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
-                self.newline();
             }
             StmtKind::Break => {
                 self.write_indent();
                 self.write("break;");
-                self.newline();
             }
             StmtKind::Continue => {
                 self.write_indent();
                 self.write("continue;");
-                self.newline();
             }
             StmtKind::Block(block) => {
                 self.write_indent();
@@ -912,7 +916,6 @@ impl<'a> Formatter<'a> {
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
-                self.newline();
             }
         }
     }
@@ -946,10 +949,7 @@ impl<'a> Formatter<'a> {
                     self.indent -= 1;
                     self.write_indent();
                     self.write("}");
-                    self.newline();
                 }
-            } else {
-                self.newline();
             }
         }
     }
