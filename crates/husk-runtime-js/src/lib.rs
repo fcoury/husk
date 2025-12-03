@@ -380,6 +380,54 @@ function assert_ne(left, right, message) {
         throw new Error("[Husk assertion] " + msg);
     }
 }
+
+// ========== Result/Option unwrap helpers ==========
+
+// Unwrap a Result or Option, panicking if Err/None
+function __husk_unwrap(value) {
+    if (value === null || value === undefined) {
+        throw new Error("[Husk panic] called unwrap on None value");
+    }
+    if (typeof value === "object" && value.tag !== undefined) {
+        if (value.tag === "Ok") {
+            return value.value;
+        }
+        if (value.tag === "Err") {
+            throw new Error("[Husk panic] called unwrap on Err: " + __husk_fmt_debug(value.error));
+        }
+        if (value.tag === "Some") {
+            return value.value;
+        }
+        if (value.tag === "None") {
+            throw new Error("[Husk panic] called unwrap on None");
+        }
+    }
+    // Not a Result/Option, return as-is
+    return value;
+}
+
+// Unwrap a Result or Option with custom error message
+function __husk_expect(value, message) {
+    if (value === null || value === undefined) {
+        throw new Error("[Husk panic] " + message);
+    }
+    if (typeof value === "object" && value.tag !== undefined) {
+        if (value.tag === "Ok") {
+            return value.value;
+        }
+        if (value.tag === "Err") {
+            throw new Error("[Husk panic] " + message + ": " + __husk_fmt_debug(value.error));
+        }
+        if (value.tag === "Some") {
+            return value.value;
+        }
+        if (value.tag === "None") {
+            throw new Error("[Husk panic] " + message);
+        }
+    }
+    // Not a Result/Option, return as-is
+    return value;
+}
 "#
 }
 
