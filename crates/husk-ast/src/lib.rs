@@ -64,6 +64,7 @@ pub enum BinaryOp {
     Sub,
     Mul,
     Div,
+    Mod, // % modulo/remainder
     Eq,
     NotEq,
     Lt,
@@ -72,6 +73,15 @@ pub enum BinaryOp {
     Ge,
     And,
     Or,
+}
+
+/// Assignment operators for compound assignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignOp {
+    Assign,    // =
+    AddAssign, // +=
+    SubAssign, // -=
+    ModAssign, // %=
 }
 
 /// Expressions.
@@ -283,6 +293,12 @@ pub enum StmtKind {
         name: Ident,
         ty: Option<TypeExpr>,
         value: Option<Expr>,
+    },
+    /// Assignment statement: `target = value` or `target += value` etc.
+    Assign {
+        target: Expr,
+        op: AssignOp,
+        value: Expr,
     },
     Expr(Expr),
     Semi(Expr),

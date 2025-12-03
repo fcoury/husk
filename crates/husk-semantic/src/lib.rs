@@ -904,6 +904,56 @@ impl<'a> FnContext<'a> {
                     });
                 }
             }
+            StmtKind::Assign { target, op, value } => {
+                // Validate target is assignable (lvalue: ident, field, or index)
+                if !self.is_lvalue(target) {
+                    self.tcx.errors.push(SemanticError {
+                        message: "invalid assignment target".to_string(),
+                        span: target.span.clone(),
+                    });
+                    return;
+                }
+
+                let target_ty = self.check_expr(target);
+                let value_ty = self.check_expr(value);
+
+                match op {
+                    husk_ast::AssignOp::Assign => {
+                        if !self.types_compatible(&target_ty, &value_ty) {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "type mismatch: cannot assign `{:?}` to `{:?}`",
+                                    value_ty, target_ty
+                                ),
+                                span: value.span.clone(),
+                            });
+                        }
+                    }
+                    husk_ast::AssignOp::AddAssign
+                    | husk_ast::AssignOp::SubAssign
+                    | husk_ast::AssignOp::ModAssign => {
+                        // Compound assignment requires numeric types
+                        if !self.is_numeric(&target_ty) {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "compound assignment requires numeric type, found `{:?}`",
+                                    target_ty
+                                ),
+                                span: target.span.clone(),
+                            });
+                        }
+                        if !self.types_compatible(&target_ty, &value_ty) {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "type mismatch in compound assignment: `{:?}` vs `{:?}`",
+                                    target_ty, value_ty
+                                ),
+                                span: value.span.clone(),
+                            });
+                        }
+                    }
+                }
+            }
             StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
                 let _ = self.check_expr(expr);
             }
@@ -1328,7 +1378,7 @@ impl<'a> FnContext<'a> {
                             Type::Primitive(PrimitiveType::I32)
                         }
                     }
-                    Sub | Mul | Div => {
+                    Sub | Mul | Div | Mod => {
                         if !matches!(left_ty, Type::Primitive(PrimitiveType::I32))
                             || !matches!(right_ty, Type::Primitive(PrimitiveType::I32))
                         {
@@ -1840,6 +1890,24 @@ impl<'a> FnContext<'a> {
         }
 
         expected == actual
+    }
+
+    /// Check if an expression is a valid assignment target (lvalue).
+    fn is_lvalue(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Ident(_) => true,
+            ExprKind::Field { .. } => true,
+            ExprKind::Index { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Check if a type is numeric (supports arithmetic operations).
+    fn is_numeric(&self, ty: &Type) -> bool {
+        matches!(
+            ty,
+            Type::Primitive(PrimitiveType::I32) | Type::Primitive(PrimitiveType::F64)
+        )
     }
 
     /// Unify a parameter type with a concrete argument type, collecting substitutions
