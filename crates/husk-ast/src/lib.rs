@@ -193,6 +193,13 @@ pub enum ExprKind {
         op: AssignOp,
         value: Box<Expr>,
     },
+    /// Embedded JavaScript literal: `js { console.log("hi"); }`
+    /// The code field contains the raw JavaScript between the braces,
+    /// with leading/trailing whitespace trimmed but internal structure preserved.
+    JsLiteral {
+        /// The raw JavaScript code (content between braces, trimmed)
+        code: String,
+    },
 }
 
 // ============================================================================

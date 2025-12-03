@@ -302,6 +302,8 @@ pub enum JsExpr {
         object: Box<JsExpr>,
         index: Box<JsExpr>,
     },
+    /// Raw JavaScript code, emitted directly (wrapped in parentheses for safety).
+    Raw(String),
 }
 
 /// Binary operators in JS (subset we need).
@@ -1391,6 +1393,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 right: Box::new(lower_expr(value, ctx)),
             }
         }
+        ExprKind::JsLiteral { code } => {
+            // Emit raw JavaScript code wrapped in parentheses for safe precedence
+            JsExpr::Raw(format!("({})", code))
+        }
     }
 }
 
@@ -2327,6 +2333,10 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             out.push('[');
             write_expr(index, out);
             out.push(']');
+        }
+        JsExpr::Raw(code) => {
+            // Emit raw JavaScript code directly (already wrapped in parentheses)
+            out.push_str(code);
         }
     }
 }
