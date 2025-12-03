@@ -139,6 +139,15 @@ enum Command {
         /// Disable stdlib prelude injection (Option/Result)
         #[arg(long)]
         no_prelude: bool,
+        /// Run the compiled output after each change
+        #[arg(long, short = 'r')]
+        run: bool,
+        /// Custom command to execute after compilation
+        #[arg(long, short = 'x')]
+        exec: Option<String>,
+        /// Arguments to pass to the executed program
+        #[arg(last = true)]
+        args: Vec<String>,
     },
     /// Manage TypeScript definition (.d.ts) imports
     Dts {
@@ -282,7 +291,10 @@ fn main() {
             target,
             lib,
             no_prelude,
-        }) => run_watch(&file, &output, target, lib, no_prelude, &config),
+            run,
+            exec,
+            args,
+        }) => run_watch(&file, &output, target, lib, no_prelude, run, exec.as_deref(), &args, &config),
         Some(Command::Dts { action }) => run_dts(action, &config),
         Some(Command::Test {
             file,
@@ -730,8 +742,19 @@ node_modules/
     println!("  npm start");
 }
 
-fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bool, config: &HuskConfig) {
+fn run_watch(
+    path: &str,
+    output: &str,
+    target: Target,
+    lib: bool,
+    no_prelude: bool,
+    run_after: bool,
+    exec_cmd: Option<&str>,
+    args: &[String],
+    config: &HuskConfig,
+) {
     use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
+    use std::process::Child;
     use std::sync::mpsc::channel;
     use std::time::Duration;
 
@@ -756,15 +779,112 @@ fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bo
         .map(|v| v.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
 
+    // Determine run mode from CLI args or config
+    let should_run = run_after
+        || config
+            .watch
+            .as_ref()
+            .and_then(|w| w.run)
+            .unwrap_or(false);
+    let effective_exec = exec_cmd.or_else(|| {
+        config
+            .watch
+            .as_ref()
+            .and_then(|w| w.exec.as_deref())
+    });
+
     println!("Watching {} for changes...", watch_dir.display());
     println!("Output: {}", output_path.display());
     if !ignore_patterns.is_empty() {
         println!("Ignoring: {:?}", ignore_patterns);
     }
+    if effective_exec.is_some() {
+        println!("Exec: {}", effective_exec.unwrap());
+    } else if should_run {
+        println!("Mode: compile + run");
+    }
     println!("Press Ctrl+C to stop.\n");
 
+    // Track the running child process
+    let mut child_process: Option<Child> = None;
+
+    // Helper to kill existing process
+    let kill_child = |child: &mut Option<Child>| {
+        if let Some(mut c) = child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    };
+
+    // Helper to spawn run command (node with output file)
+    let spawn_run = |output: &str, args: &[String], config: &HuskConfig| -> Option<Child> {
+        let default_node_args = vec!["--enable-source-maps".to_string()];
+        let node_args = config
+            .run
+            .as_ref()
+            .and_then(|r| r.node_args.as_ref())
+            .unwrap_or(&default_node_args);
+
+        let mut cmd = ProcessCommand::new("node");
+        cmd.args(node_args)
+            .arg(output)
+            .args(args)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+
+        // Set env vars from config
+        if let Some(ref run_config) = config.run {
+            if let Some(ref env_vars) = run_config.env {
+                for (key, value) in env_vars {
+                    cmd.env(key, value);
+                }
+            }
+        }
+
+        match cmd.spawn() {
+            Ok(child) => Some(child),
+            Err(e) => {
+                eprintln!("Failed to run: {e}");
+                None
+            }
+        }
+    };
+
+    // Helper to spawn custom exec command
+    let spawn_exec = |exec_cmd: &str, args: &[String]| -> Option<Child> {
+        let parts: Vec<&str> = exec_cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            return None;
+        }
+
+        let mut cmd = ProcessCommand::new(parts[0]);
+        cmd.args(&parts[1..])
+            .args(args)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+
+        match cmd.spawn() {
+            Ok(child) => Some(child),
+            Err(e) => {
+                eprintln!("Failed to execute '{}': {e}", exec_cmd);
+                None
+            }
+        }
+    };
+
     // Initial compile
-    compile_to_file(path, output, target, lib, no_prelude);
+    let compile_success = compile_to_file(path, output, target, lib, no_prelude);
+
+    // Initial run if compile succeeded
+    if compile_success {
+        if let Some(exec) = effective_exec {
+            child_process = spawn_exec(exec, args);
+        } else if should_run {
+            child_process = spawn_run(output, args, config);
+        }
+    }
 
     // Set up file watcher
     let (tx, rx) = channel();
@@ -804,8 +924,20 @@ fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bo
                 });
 
                 if hk_changed {
+                    // Kill existing process before recompiling
+                    kill_child(&mut child_process);
+
                     println!("\n[{}] File changed, recompiling...", chrono_lite_time());
-                    compile_to_file(path, output, target, lib, no_prelude);
+                    let compile_success = compile_to_file(path, output, target, lib, no_prelude);
+
+                    // Run after compile if successful
+                    if compile_success {
+                        if let Some(exec) = effective_exec {
+                            child_process = spawn_exec(exec, args);
+                        } else if should_run {
+                            child_process = spawn_run(output, args, config);
+                        }
+                    }
                 }
             }
             Ok(Err(errs)) => {
@@ -817,6 +949,9 @@ fn run_watch(path: &str, output: &str, target: Target, lib: bool, no_prelude: bo
             }
         }
     }
+
+    // Cleanup on exit
+    kill_child(&mut child_process);
 }
 
 /// Simple time formatting without external crate
@@ -832,13 +967,14 @@ fn chrono_lite_time() -> String {
     format!("{:02}:{:02}:{:02}", hours, mins, secs)
 }
 
-/// Compile and write to file, reporting errors but not exiting
-fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelude: bool) {
+/// Compile and write to file, reporting errors but not exiting.
+/// Returns true if compilation succeeded, false otherwise.
+fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelude: bool) -> bool {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(err) => {
             eprintln!("Failed to read {}: {err}", path);
-            return;
+            return false;
         }
     };
 
@@ -846,7 +982,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         Ok(g) => g,
         Err(err) => {
             report_load_error(&err);
-            return;
+            return false;
         }
     };
 
@@ -854,7 +990,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         Ok(f) => f,
         Err(err) => {
             report_load_error(&err);
-            return;
+            return false;
         }
     };
 
@@ -878,7 +1014,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         for err in errors {
             source_db.report_semantic_error(&err.message, err.span.range.clone());
         }
-        return;
+        return false;
     }
 
     let js_target = match target {
@@ -893,17 +1029,18 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         if !parent.as_os_str().is_empty() {
             if let Err(err) = fs::create_dir_all(parent) {
                 eprintln!("Failed to create output directory: {err}");
-                return;
+                return false;
             }
         }
     }
 
     if let Err(err) = fs::write(output, js) {
         eprintln!("Failed to write {}: {err}", output);
-        return;
+        return false;
     }
 
     println!("Compiled {} -> {}", path, output);
+    true
 }
 
 fn debug_log(msg: &str) {

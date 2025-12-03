@@ -105,6 +105,10 @@ pub struct WatchConfig {
     pub debounce_ms: Option<u64>,
     /// Glob patterns to ignore.
     pub ignore: Option<Vec<String>>,
+    /// Run the compiled output after each change.
+    pub run: Option<bool>,
+    /// Custom command to execute after compilation.
+    pub exec: Option<String>,
 }
 
 impl HuskConfig {
