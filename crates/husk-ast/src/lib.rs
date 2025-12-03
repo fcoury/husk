@@ -177,10 +177,11 @@ pub enum ExprKind {
         base: Box<Expr>,
         index: Box<Expr>,
     },
-    /// Range expression: `start..end` or `start..=end`
+    /// Range expression: `start..end`, `start..=end`, `start..`, `..end`, or `..`
+    /// When used as slice syntax in index expressions, start/end can be omitted.
     Range {
-        start: Box<Expr>,
-        end: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
         inclusive: bool,
     },
     /// Assignment expression: `target = value` or `target += value` etc.
