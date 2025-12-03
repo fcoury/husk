@@ -1226,6 +1226,13 @@ impl<'a> FnContext<'a> {
                             ret: Box::new(Type::Primitive(PrimitiveType::I32)),
                         };
                     }
+                    "assert" => {
+                        // assert(condition: bool) -> ()
+                        return Type::Function {
+                            params: vec![Type::Primitive(PrimitiveType::Bool)],
+                            ret: Box::new(Type::Primitive(PrimitiveType::Unit)),
+                        };
+                    }
                     _ => {}
                 }
 
@@ -1448,6 +1455,25 @@ impl<'a> FnContext<'a> {
                     _ => {}
                 }
 
+                // Handle Result/Option unwrap methods specially to extract inner type
+                if let Type::Named { name, args } = &receiver_ty {
+                    match (name.as_str(), method_name.as_str()) {
+                        ("Result", "unwrap") | ("Result", "expect") => {
+                            // Result<T, E>.unwrap() returns T
+                            if let Some(ok_type) = args.first() {
+                                return ok_type.clone();
+                            }
+                        }
+                        ("Option", "unwrap") | ("Option", "expect") => {
+                            // Option<T>.unwrap() returns T
+                            if let Some(inner_type) = args.first() {
+                                return inner_type.clone();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Try to resolve the method's return type from impl blocks
                 let receiver_type_name = match &receiver_ty {
                     Type::Named { name, .. } => Some(name.clone()),
@@ -1552,8 +1578,11 @@ impl<'a> FnContext<'a> {
                     Eq | NotEq | Lt | Gt | Le | Ge => {
                         if !self.types_compatible(&left_ty, &right_ty) {
                             self.tcx.errors.push(SemanticError {
-                                message: "comparison operators require operands of the same type"
-                                    .to_string(),
+                                message: format!(
+                                    "cannot compare `{}` with `{}`",
+                                    self.format_type(&left_ty),
+                                    self.format_type(&right_ty)
+                                ),
                                 span: expr.span.clone(),
                             });
                         }
@@ -2053,11 +2082,51 @@ impl<'a> FnContext<'a> {
         }
     }
 
+    fn format_type(&self, ty: &Type) -> String {
+        match ty {
+            Type::Primitive(p) => match p {
+                PrimitiveType::I32 => "i32".to_string(),
+                PrimitiveType::F64 => "f64".to_string(),
+                PrimitiveType::Bool => "bool".to_string(),
+                PrimitiveType::String => "String".to_string(),
+                PrimitiveType::Unit => "()".to_string(),
+            },
+            Type::Array(inner) => format!("[{}]", self.format_type(inner)),
+            Type::Named { name, args } if args.is_empty() => name.clone(),
+            Type::Named { name, args } => {
+                let args_str = args.iter()
+                    .map(|a| self.format_type(a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}<{}>", name, args_str)
+            }
+            Type::Function { params, ret } => {
+                let params_str = params.iter()
+                    .map(|p| self.format_type(p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("fn({}) -> {}", params_str, self.format_type(ret))
+            }
+            Type::Var(id) => format!("?{}", id.0),
+        }
+    }
+
     fn types_compatible(&self, expected: &Type, actual: &Type) -> bool {
         self.types_compatible_inner(expected, actual)
     }
 
     fn types_compatible_inner(&self, expected: &Type, actual: &Type) -> bool {
+        // Empty array [()] is compatible with any array type
+        // This allows `[] == [1, 2, 3]` without explicit type annotation
+        if let (Type::Array(expected_elem), Type::Array(actual_elem)) = (expected, actual) {
+            if matches!(actual_elem.as_ref(), Type::Primitive(PrimitiveType::Unit)) {
+                return true;
+            }
+            if matches!(expected_elem.as_ref(), Type::Primitive(PrimitiveType::Unit)) {
+                return true;
+            }
+        }
+
         // Generic type parameters (like T, U) are compatible with any type
         // This enables type inference to work with explicit closure annotations
         if let Type::Named { name, args } = expected {
