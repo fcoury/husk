@@ -121,4 +121,60 @@ pub struct User {
         let result = format_str(source, &FormatConfig::default()).unwrap();
         assert!(result.contains("/// A user struct"), "Doc comment should be preserved. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_standalone_comment_before_closing_brace() {
+        // Regression test: standalone comments at end of blocks were being lost
+        // because comments before `}` are attached to the RBrace token, not any statement
+        let source = r#"fn main() {
+    let x = 5;
+    // standalone comment
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("// standalone comment"),
+            "Standalone comment before closing brace should be preserved. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_multiple_comments_before_closing_brace() {
+        let source = r#"fn main() {
+    for i in 0..10 {
+        println(i);
+        // comment one
+        // comment two
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("// comment one"), "First comment lost. Got:\n{}", result);
+        assert!(result.contains("// comment two"), "Second comment lost. Got:\n{}", result);
+    }
+
+    #[test]
+    fn test_empty_block_with_comment() {
+        let source = r#"fn empty() {
+    // TODO: implement
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("// TODO: implement"),
+            "Comment in empty block lost. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_nested_blocks_with_comments() {
+        let source = r#"fn nested() {
+    if true {
+        // if comment
+    }
+    // outer comment
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("// if comment"), "If block comment lost. Got:\n{}", result);
+        assert!(result.contains("// outer comment"), "Outer comment lost. Got:\n{}", result);
+    }
 }

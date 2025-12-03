@@ -104,6 +104,34 @@ impl<'a> Formatter<'a> {
         }
     }
 
+    /// Emit any comments/trivia that appear before a closing brace.
+    /// Call this before writing `}` for any block that may have standalone comments.
+    fn emit_block_end_trivia(&mut self, block_end: usize) {
+        let trivia = self.trivia_map.leading_before_close(block_end);
+        let mut consecutive_newlines = 0;
+
+        for t in trivia {
+            match t {
+                Trivia::LineComment(text) => {
+                    // Preserve one blank line before comment if there were multiple newlines
+                    if consecutive_newlines > 1 && !self.output.is_empty() {
+                        self.newline();
+                    }
+                    consecutive_newlines = 0;
+                    self.write_indent();
+                    self.write(text);
+                    self.newline();
+                }
+                Trivia::Newline(_) => {
+                    consecutive_newlines += 1;
+                }
+                Trivia::Whitespace(_) => {
+                    // Normalize whitespace - don't preserve original
+                }
+            }
+        }
+    }
+
     fn format_item(&mut self, item: &Item) {
         // Format attributes
         for attr in &item.attributes {
@@ -125,36 +153,36 @@ impl<'a> Formatter<'a> {
                 ret_type,
                 body,
             } => {
-                self.format_fn(name, type_params, params, ret_type, body, item.visibility == Visibility::Public);
+                self.format_fn(name, type_params, params, ret_type, body, item.visibility == Visibility::Public, item.span.range.end);
             }
             ItemKind::Struct {
                 name,
                 type_params,
                 fields,
             } => {
-                self.format_struct(name, type_params, fields, item.visibility == Visibility::Public);
+                self.format_struct(name, type_params, fields, item.visibility == Visibility::Public, item.span.range.end);
             }
             ItemKind::Enum {
                 name,
                 type_params,
                 variants,
             } => {
-                self.format_enum(name, type_params, variants, item.visibility == Visibility::Public);
+                self.format_enum(name, type_params, variants, item.visibility == Visibility::Public, item.span.range.end);
             }
             ItemKind::TypeAlias { name, ty } => {
                 self.format_type_alias(name, ty, item.visibility == Visibility::Public);
             }
             ItemKind::ExternBlock { abi, items } => {
-                self.format_extern_block(abi, items);
+                self.format_extern_block(abi, items, item.span.range.end);
             }
             ItemKind::Use { path } => {
                 self.format_use(path, item.visibility == Visibility::Public);
             }
             ItemKind::Trait(trait_def) => {
-                self.format_trait(trait_def, item.visibility == Visibility::Public);
+                self.format_trait(trait_def, item.visibility == Visibility::Public, item.span.range.end);
             }
             ItemKind::Impl(impl_block) => {
-                self.format_impl(impl_block);
+                self.format_impl(impl_block, item.span.range.end);
             }
         }
     }
@@ -221,6 +249,7 @@ impl<'a> Formatter<'a> {
         ret_type: &Option<TypeExpr>,
         body: &[Stmt],
         has_visibility: bool,
+        span_end: usize,
     ) {
         if !has_visibility {
             self.write_indent();
@@ -263,6 +292,7 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         self.format_stmts(body);
+        self.emit_block_end_trivia(span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
@@ -275,6 +305,7 @@ impl<'a> Formatter<'a> {
         type_params: &[Ident],
         fields: &[StructField],
         has_visibility: bool,
+        span_end: usize,
     ) {
         if !has_visibility {
             self.write_indent();
@@ -304,6 +335,7 @@ impl<'a> Formatter<'a> {
             self.write(",");
             self.newline();
         }
+        self.emit_block_end_trivia(span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
@@ -316,6 +348,7 @@ impl<'a> Formatter<'a> {
         type_params: &[Ident],
         variants: &[EnumVariant],
         has_visibility: bool,
+        span_end: usize,
     ) {
         if !has_visibility {
             self.write_indent();
@@ -372,6 +405,7 @@ impl<'a> Formatter<'a> {
             self.write(",");
             self.newline();
         }
+        self.emit_block_end_trivia(span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
@@ -390,7 +424,7 @@ impl<'a> Formatter<'a> {
         self.newline();
     }
 
-    fn format_extern_block(&mut self, abi: &str, items: &[ExternItem]) {
+    fn format_extern_block(&mut self, abi: &str, items: &[ExternItem], span_end: usize) {
         self.write_indent();
         self.write("extern \"");
         self.write(abi);
@@ -402,6 +436,7 @@ impl<'a> Formatter<'a> {
             self.format_extern_item(item);
             self.emit_trailing_trivia(&item.span);
         }
+        self.emit_block_end_trivia(span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
@@ -543,7 +578,7 @@ impl<'a> Formatter<'a> {
         self.newline();
     }
 
-    fn format_trait(&mut self, trait_def: &TraitDef, has_visibility: bool) {
+    fn format_trait(&mut self, trait_def: &TraitDef, has_visibility: bool, span_end: usize) {
         if !has_visibility {
             self.write_indent();
         }
@@ -575,16 +610,17 @@ impl<'a> Formatter<'a> {
         self.indent += 1;
         for item in &trait_def.items {
             self.emit_leading_trivia(&item.span);
-            self.format_trait_item(item);
+            self.format_trait_item(item, item.span.range.end);
             self.emit_trailing_trivia(&item.span);
         }
+        self.emit_block_end_trivia(span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
         self.newline();
     }
 
-    fn format_trait_item(&mut self, item: &TraitItem) {
+    fn format_trait_item(&mut self, item: &TraitItem, span_end: usize) {
         match &item.kind {
             TraitItemKind::Method(method) => {
                 self.write_indent();
@@ -614,11 +650,12 @@ impl<'a> Formatter<'a> {
                     self.write(" -> ");
                     self.format_type(ret);
                 }
-                if let Some(body) = &method.default_body {
+                if method.default_body.is_some() {
                     self.write(" {");
                     self.newline();
                     self.indent += 1;
-                    self.format_stmts(body);
+                    self.format_stmts(method.default_body.as_ref().unwrap());
+                    self.emit_block_end_trivia(span_end);
                     self.indent -= 1;
                     self.write_indent();
                     self.write("}");
@@ -630,7 +667,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn format_impl(&mut self, impl_block: &ImplBlock) {
+    fn format_impl(&mut self, impl_block: &ImplBlock, span_end: usize) {
         self.write_indent();
         self.write("impl");
 
@@ -666,16 +703,17 @@ impl<'a> Formatter<'a> {
         self.indent += 1;
         for item in &impl_block.items {
             self.emit_leading_trivia(&item.span);
-            self.format_impl_item(item);
+            self.format_impl_item(item, item.span.range.end);
             self.emit_trailing_trivia(&item.span);
         }
+        self.emit_block_end_trivia(span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
         self.newline();
     }
 
-    fn format_impl_item(&mut self, item: &ImplItem) {
+    fn format_impl_item(&mut self, item: &ImplItem, span_end: usize) {
         match &item.kind {
             ImplItemKind::Method(method) => {
                 self.write_indent();
@@ -715,6 +753,7 @@ impl<'a> Formatter<'a> {
                     self.newline();
                     self.indent += 1;
                     self.format_stmts(&method.body);
+                    self.emit_block_end_trivia(span_end);
                     self.indent -= 1;
                     self.write_indent();
                     self.write("}");
@@ -848,6 +887,7 @@ impl<'a> Formatter<'a> {
                 self.newline();
                 self.indent += 1;
                 self.format_stmts(&then_branch.stmts);
+                self.emit_block_end_trivia(then_branch.span.range.end);
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
@@ -863,6 +903,7 @@ impl<'a> Formatter<'a> {
                         self.newline();
                         self.indent += 1;
                         self.format_stmts(&block.stmts);
+                        self.emit_block_end_trivia(block.span.range.end);
                         self.indent -= 1;
                         self.write_indent();
                         self.write("}");
@@ -877,6 +918,7 @@ impl<'a> Formatter<'a> {
                 self.newline();
                 self.indent += 1;
                 self.format_stmts(&body.stmts);
+                self.emit_block_end_trivia(body.span.range.end);
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
@@ -895,6 +937,7 @@ impl<'a> Formatter<'a> {
                 self.newline();
                 self.indent += 1;
                 self.format_stmts(&body.stmts);
+                self.emit_block_end_trivia(body.span.range.end);
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
@@ -913,6 +956,7 @@ impl<'a> Formatter<'a> {
                 self.newline();
                 self.indent += 1;
                 self.format_stmts(&block.stmts);
+                self.emit_block_end_trivia(block.span.range.end);
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
@@ -934,6 +978,7 @@ impl<'a> Formatter<'a> {
             self.newline();
             self.indent += 1;
             self.format_stmts(&then_branch.stmts);
+            self.emit_block_end_trivia(then_branch.span.range.end);
             self.indent -= 1;
             self.write_indent();
             self.write("}");
@@ -946,6 +991,7 @@ impl<'a> Formatter<'a> {
                     self.newline();
                     self.indent += 1;
                     self.format_stmts(&block.stmts);
+                    self.emit_block_end_trivia(block.span.range.end);
                     self.indent -= 1;
                     self.write_indent();
                     self.write("}");
@@ -1063,6 +1109,7 @@ impl<'a> Formatter<'a> {
                 self.newline();
                 self.indent += 1;
                 self.format_stmts(&block.stmts);
+                self.emit_block_end_trivia(block.span.range.end);
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");
