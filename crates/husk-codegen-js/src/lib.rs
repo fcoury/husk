@@ -255,9 +255,10 @@ pub enum JsExpr {
         object: Box<JsExpr>,
         property: String,
     },
-    /// Assignment expression: `left = right`.
+    /// Assignment expression: `left = right` or `left += right` etc.
     Assignment {
         left: Box<JsExpr>,
+        op: JsAssignOp,
         right: Box<JsExpr>,
     },
     /// Conditional (ternary) expression: `test ? then_branch : else_branch`.
@@ -632,6 +633,7 @@ pub fn lower_file_to_js_with_source(
                         object: Box::new(JsExpr::Ident("module".to_string())),
                         property: "exports".to_string(),
                     }),
+                    op: JsAssignOp::Assign,
                     right: Box::new(exports_obj),
                 };
                 body.push(JsStmt::Expr(assign));
@@ -697,6 +699,7 @@ fn lower_struct_constructor(name: &str, fields: &[StructField]) -> JsStmt {
                 object: Box::new(JsExpr::Ident("this".to_string())),
                 property: field_name.clone(),
             }),
+            op: JsAssignOp::Assign,
             right: Box::new(JsExpr::Ident(field_name)),
         }));
     }
@@ -790,6 +793,7 @@ fn lower_impl_method(
     // Generate assignment: target = function(...) { ... }
     JsStmt::Expr(JsExpr::Assignment {
         left: Box::new(target),
+        op: JsAssignOp::Assign,
         right: Box::new(func_expr),
     })
 }
@@ -1125,6 +1129,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                                 object: Box::new(lower_expr(receiver, ctx)),
                                 property: prop.clone(),
                             }),
+                            op: JsAssignOp::Assign,
                             right: Box::new(lower_expr(&args[0], ctx)),
                         };
                     }
@@ -1299,6 +1304,19 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 ("start".to_string(), JsExpr::Number(0)),
                 ("end".to_string(), JsExpr::Number(0)),
             ])
+        }
+        ExprKind::Assign { target, op, value } => {
+            let js_op = match op {
+                husk_ast::AssignOp::Assign => JsAssignOp::Assign,
+                husk_ast::AssignOp::AddAssign => JsAssignOp::AddAssign,
+                husk_ast::AssignOp::SubAssign => JsAssignOp::SubAssign,
+                husk_ast::AssignOp::ModAssign => JsAssignOp::ModAssign,
+            };
+            JsExpr::Assignment {
+                left: Box::new(lower_expr(target, ctx)),
+                op: js_op,
+                right: Box::new(lower_expr(value, ctx)),
+            }
         }
     }
 }
@@ -2090,9 +2108,14 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             }
             out.push('"');
         }
-        JsExpr::Assignment { left, right } => {
+        JsExpr::Assignment { left, op, right } => {
             write_expr(left, out);
-            out.push_str(" = ");
+            match op {
+                JsAssignOp::Assign => out.push_str(" = "),
+                JsAssignOp::AddAssign => out.push_str(" += "),
+                JsAssignOp::SubAssign => out.push_str(" -= "),
+                JsAssignOp::ModAssign => out.push_str(" %= "),
+            }
             write_expr(right, out);
         }
         JsExpr::Call { callee, args } => {

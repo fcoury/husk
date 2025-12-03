@@ -1767,7 +1767,41 @@ impl Parser {
     // ---------------- Expressions ----------------
 
     fn parse_expr(&mut self) -> Option<Expr> {
-        self.parse_logical_or()
+        self.parse_assignment_expr()
+    }
+
+    /// Parse assignment expressions (lowest precedence, right-associative).
+    /// `target = value` or `target += value` etc.
+    fn parse_assignment_expr(&mut self) -> Option<Expr> {
+        let expr = self.parse_logical_or()?;
+
+        // Check for assignment operators
+        let assign_op = match self.current().kind {
+            TokenKind::Eq => Some(AssignOp::Assign),
+            TokenKind::PlusEq => Some(AssignOp::AddAssign),
+            TokenKind::MinusEq => Some(AssignOp::SubAssign),
+            TokenKind::PercentEq => Some(AssignOp::ModAssign),
+            _ => None,
+        };
+
+        if let Some(op) = assign_op {
+            self.advance(); // consume assignment operator
+            // Right-associative: parse the right side as another assignment
+            let value = self.parse_assignment_expr()?;
+            let span = Span {
+                range: expr.span.range.start..value.span.range.end,
+            };
+            Some(Expr {
+                kind: ExprKind::Assign {
+                    target: Box::new(expr),
+                    op,
+                    value: Box::new(value),
+                },
+                span,
+            })
+        } else {
+            Some(expr)
+        }
     }
 
     fn parse_logical_or(&mut self) -> Option<Expr> {

@@ -183,6 +183,13 @@ pub enum ExprKind {
         end: Box<Expr>,
         inclusive: bool,
     },
+    /// Assignment expression: `target = value` or `target += value` etc.
+    /// Returns the assigned value.
+    Assign {
+        target: Box<Expr>,
+        op: AssignOp,
+        value: Box<Expr>,
+    },
 }
 
 // ============================================================================

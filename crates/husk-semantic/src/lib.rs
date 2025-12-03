@@ -1771,6 +1771,14 @@ impl<'a> FnContext<'a> {
                     args: vec![Type::Primitive(PrimitiveType::I32)],
                 }
             }
+            ExprKind::Assign { target, op: _, value } => {
+                // Type check both sides
+                let _target_ty = self.check_expr(target);
+                let value_ty = self.check_expr(value);
+
+                // Assignment expression returns the assigned value
+                value_ty
+            }
         }
     }
 
