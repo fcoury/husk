@@ -12,6 +12,7 @@ use husk_ast::{
     TypeExprKind,
 };
 use husk_runtime_js::std_preamble_js;
+use husk_semantic::NameResolution;
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
@@ -58,27 +59,46 @@ struct PropertyAccessors {
 /// This struct is threaded through all lowering functions to provide:
 /// - Property accessors for extern type method rewrites
 /// - Source file path for compile-time operations like include_str
+/// - Name resolution for variable shadowing
 #[derive(Debug, Clone)]
 struct CodegenContext<'a> {
     /// Property accessors for extern types
     accessors: &'a PropertyAccessors,
     /// Path to the current source file being compiled (for include_str, etc.)
     source_path: Option<&'a Path>,
+    /// Name resolution map from semantic analysis for variable shadowing.
+    /// Maps (span_start, span_end) -> resolved_name (e.g., "x", "x$1", "x$2")
+    name_resolution: &'a NameResolution,
 }
 
 impl<'a> CodegenContext<'a> {
-    fn new(accessors: &'a PropertyAccessors) -> Self {
+    fn new(accessors: &'a PropertyAccessors, name_resolution: &'a NameResolution) -> Self {
         Self {
             accessors,
             source_path: None,
+            name_resolution,
         }
     }
 
-    fn with_source_path(accessors: &'a PropertyAccessors, source_path: &'a Path) -> Self {
+    fn with_source_path(
+        accessors: &'a PropertyAccessors,
+        source_path: &'a Path,
+        name_resolution: &'a NameResolution,
+    ) -> Self {
         Self {
             accessors,
             source_path: Some(source_path),
+            name_resolution,
         }
+    }
+
+    /// Get the resolved name for a variable at the given span.
+    /// Returns the original name if not found in resolution map.
+    fn resolve_name(&self, name: &str, span: &Span) -> String {
+        self.name_resolution
+            .get(&(span.range.start, span.range.end))
+            .cloned()
+            .unwrap_or_else(|| name.to_string())
     }
 }
 
@@ -338,8 +358,16 @@ pub enum JsTarget {
 /// automatically invoked at the end of the module. Library-style
 /// consumers should set this to `false` so `main` can be called
 /// explicitly by a host.
-pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsModule {
-    lower_file_to_js_with_source(file, call_main, target, None, None)
+///
+/// `name_resolution` provides the mapping from variable spans to resolved names
+/// for handling variable shadowing. Use an empty HashMap if shadowing is not needed.
+pub fn lower_file_to_js(
+    file: &File,
+    call_main: bool,
+    target: JsTarget,
+    name_resolution: &NameResolution,
+) -> JsModule {
+    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution)
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
@@ -347,12 +375,15 @@ pub fn lower_file_to_js(file: &File, call_main: bool, target: JsTarget) -> JsMod
 /// When `source` is provided, source spans will have accurate line/column info.
 /// When `source_path` is provided, compile-time operations like `include_str` can resolve
 /// relative file paths.
+/// `name_resolution` provides the mapping from variable spans to resolved names
+/// for handling variable shadowing.
 pub fn lower_file_to_js_with_source(
     file: &File,
     call_main: bool,
     target: JsTarget,
     source: Option<&str>,
     source_path: Option<&Path>,
+    name_resolution: &NameResolution,
 ) -> JsModule {
     use std::collections::HashSet;
 
@@ -455,10 +486,10 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
-    // Create codegen context with accessors and optional source path
+    // Create codegen context with accessors, optional source path, and name resolution
     let ctx = match source_path {
-        Some(path) => CodegenContext::with_source_path(&accessors, path),
-        None => CodegenContext::new(&accessors),
+        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution),
+        None => CodegenContext::new(&accessors, name_resolution),
     };
 
     // First pass: collect module imports
@@ -931,7 +962,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             ty: _,
             value,
         } => JsStmt::Let {
-            name: name.name.clone(),
+            name: ctx.resolve_name(&name.name, &name.span),
             init: value.as_ref().map(|e| lower_expr(e, ctx)),
         },
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => JsStmt::Expr(lower_expr(expr, ctx)),
@@ -1000,7 +1031,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
 
                 JsStmt::For {
-                    binding: binding.name.clone(),
+                    binding: ctx.resolve_name(&binding.name, &binding.span),
                     start: js_start,
                     end: js_end,
                     inclusive: *inclusive,
@@ -1010,7 +1041,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 let js_iterable = lower_expr(iterable, ctx);
                 let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
                 JsStmt::ForOf {
-                    binding: binding.name.clone(),
+                    binding: ctx.resolve_name(&binding.name, &binding.span),
                     iterable: js_iterable,
                     body: js_body,
                 }
@@ -1072,7 +1103,8 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             if id.name == "self" {
                 JsExpr::Ident("this".to_string())
             } else {
-                JsExpr::Ident(id.name.clone())
+                // Use resolved name from name_resolution if available
+                JsExpr::Ident(ctx.resolve_name(&id.name, &id.span))
             }
         }
         ExprKind::Path { segments } => {
@@ -1287,7 +1319,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Lower closure to JS arrow function.
             // `|x, y| x + y` -> `(x, y) => x + y`
             // `|x: i32| -> i32 { x + 1 }` -> `(x) => { return x + 1; }`
-            let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
+            let js_params: Vec<String> = params
+                .iter()
+                .map(|p| ctx.resolve_name(&p.name.name, &p.name.span))
+                .collect();
 
             // Check if the body is a block or a simple expression
             let js_body = match &body.kind {
@@ -2595,7 +2630,8 @@ mod tests {
             items: vec![main_fn, helper_fn],
         };
 
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -2692,7 +2728,8 @@ mod tests {
             span: span(0, 60),
         };
 
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default()));
+        let empty_resolution = HashMap::new();
+        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution));
         let mut out = String::new();
         write_expr(&js, &mut out);
 
@@ -2732,7 +2769,8 @@ mod tests {
             items: vec![fn_item],
         };
 
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -2929,7 +2967,8 @@ mod tests {
             }],
         };
 
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
         let src = module.to_source();
 
         assert!(src.contains("function parse"));
@@ -2959,6 +2998,7 @@ mod tests {
                 package: "express".to_string(),
                 binding: ident("express", 0),
                 items: Vec::new(),
+                is_global: false,
             },
             span: span(0, 10),
         };
@@ -2968,6 +3008,7 @@ mod tests {
                 package: "fs".to_string(),
                 binding: ident("fs", 20),
                 items: Vec::new(),
+                is_global: false,
             },
             span: span(20, 25),
         };
@@ -3000,7 +3041,8 @@ mod tests {
             ],
         };
 
-        let module = lower_file_to_js(&file, true, JsTarget::Esm);
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution);
         let src = module.to_source();
 
         // Check for ESM imports at the top
@@ -3036,7 +3078,8 @@ mod tests {
         let file = husk_ast::File {
             items: vec![main_fn],
         };
-        let module = lower_file_to_js(&file, true, JsTarget::Esm);
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution);
         let src = module.to_source();
 
         assert!(src.contains("export { main }"));
@@ -3058,6 +3101,7 @@ mod tests {
                 package: "express".to_string(),
                 binding: ident("express", 0),
                 items: Vec::new(),
+                is_global: false,
             },
             span: span(0, 10),
         };
@@ -3090,7 +3134,8 @@ mod tests {
             ],
         };
 
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs);
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
         let src = module.to_source();
 
         assert!(src.contains("const express = require(\"express\");"));
@@ -3132,7 +3177,8 @@ mod tests {
         };
 
         let accessors = PropertyAccessors::default();
-        let ctx = CodegenContext::new(&accessors);
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3195,7 +3241,8 @@ mod tests {
         };
 
         let accessors = PropertyAccessors::default();
-        let ctx = CodegenContext::new(&accessors);
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3230,7 +3277,8 @@ mod tests {
         };
 
         let accessors = PropertyAccessors::default();
-        let ctx = CodegenContext::new(&accessors);
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);

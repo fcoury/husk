@@ -460,6 +460,7 @@ version = "0.1.0"
 dependencies = [
  "husk-ast",
  "husk-runtime-js",
+ "husk-semantic",
  "sourcemap",
 ]
 

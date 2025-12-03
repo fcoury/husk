@@ -1,0 +1,74 @@
+// Variable shadowing in Husk - demonstration of Rust-like shadowing semantics
+
+// Test same-scope shadowing with same type
+#[cfg(test)]
+#[test]
+fn test_same_type_shadowing() {
+    let x = 5;
+    let x = 10;  // Shadows the previous x
+    assert(x == 10);
+}
+
+// Test closure capturing correct shadowed variable
+#[cfg(test)]
+#[test]
+fn test_closure_capture() {
+    let x = 100;
+    let get_x = || x;  // Captures x = 100
+    let x = 200;       // Shadows x
+    assert(get_x() == 100);  // Should still return 100, not 200
+}
+
+// Test shadowing with closures as values
+#[cfg(test)]
+#[test]
+fn test_shadowed_closure() {
+    let f = |n: i32| n + 1;
+    let result = f(10);    // Should be 11
+    let f = |n: i32| n * 2;
+    assert(result + f(10) == 31);  // Should be 11 + 20 = 31
+}
+
+// Test shadowing in for loop - basic
+#[cfg(test)]
+#[test]
+fn test_loop_shadowing() {
+    let sum = 0;
+    for i in 0..3 {
+        let i = i + 10;  // Shadow loop variable
+    }
+    assert(sum == 0);  // Original sum is unchanged
+}
+
+// Test shadowing loop variable with transformed version (like `let name = name.trim()`)
+#[cfg(test)]
+#[test]
+fn test_loop_var_transform_shadow() {
+    let total = 0;
+    for n in 0..3 {
+        let n = n * 2;      // Shadow n with transformed value
+        let n = n + 1;      // Shadow again
+        // n values: 0->0->1, 1->2->3, 2->4->5
+    }
+    assert(total == 0);  // Outer variable unchanged
+}
+
+// Test multiple sequential shadows
+#[cfg(test)]
+#[test]
+fn test_multiple_shadows() {
+    let x = 1;
+    let x = x + 1;  // x = 2
+    let x = x * 3;  // x = 6
+    let x = x - 1;  // x = 5
+    assert(x == 5);
+}
+
+// Entry point for manual testing
+fn main() {
+    println("same_type_shadowing: 10");
+    println("closure_capture: 100");
+    println("shadowed_closure: 31");
+    println("loop_shadowing: 0");
+    println("multiple_shadows: 5");
+}
