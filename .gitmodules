@@ -1,0 +1,3 @@
+[submodule "editors/husk.nvim"]
+	path = editors/husk.nvim
+	url = https://github.com/fcoury/husk.nvim
