@@ -480,20 +480,37 @@ impl<'src> Lexer<'src> {
     fn lex_string(&mut self, start: usize) -> (TokenKind, Span) {
         // Assumes opening quote has already been consumed.
         let mut end = start;
+        let mut value = String::new();
+
         while let Some((idx, ch)) = self.bump() {
             if ch == '"' {
                 end = idx + 1;
                 break;
+            } else if ch == '\\' {
+                // Handle escape sequences
+                if let Some((esc_idx, esc_ch)) = self.bump() {
+                    end = esc_idx + 1;
+                    match esc_ch {
+                        'n' => value.push('\n'),
+                        't' => value.push('\t'),
+                        'r' => value.push('\r'),
+                        '0' => value.push('\0'),
+                        '\\' => value.push('\\'),
+                        '"' => value.push('"'),
+                        // For unknown escapes, keep as-is
+                        other => {
+                            value.push('\\');
+                            value.push(other);
+                        }
+                    }
+                }
+            } else {
+                value.push(ch);
+                end = idx + 1;
             }
         }
+
         let span = self.make_span(start, end);
-        let text = &self.src[span.range.clone()];
-        // Strip quotes if present
-        let value = text
-            .strip_prefix('"')
-            .and_then(|s| s.strip_suffix('"'))
-            .unwrap_or("")
-            .to_string();
         (TokenKind::StringLiteral(value), span)
     }
 }
@@ -808,5 +825,78 @@ mod tests {
         let b = lexer.next().unwrap();
         assert!(matches!(b.kind, TokenKind::Ident(ref s) if s == "b"));
         assert!(b.leading_trivia.is_empty()); // trailing of '+' consumed it
+    }
+
+    #[test]
+    fn test_string_escape_sequences() {
+        // Test newline escape
+        let src = r#""\n""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "\n"),
+            "Expected newline character, got {:?}",
+            token.kind
+        );
+
+        // Test tab escape
+        let src = r#""\t""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "\t"),
+            "Expected tab character, got {:?}",
+            token.kind
+        );
+
+        // Test backslash escape
+        let src = r#""\\""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "\\"),
+            "Expected backslash character, got {:?}",
+            token.kind
+        );
+
+        // Test quote escape
+        let src = r#""\"""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "\""),
+            "Expected quote character, got {:?}",
+            token.kind
+        );
+
+        // Test carriage return escape
+        let src = r#""\r""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "\r"),
+            "Expected carriage return character, got {:?}",
+            token.kind
+        );
+
+        // Test null escape
+        let src = r#""\0""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "\0"),
+            "Expected null character, got {:?}",
+            token.kind
+        );
+
+        // Test mixed content with escapes
+        let src = r#""hello\nworld""#;
+        let mut lexer = Lexer::new(src);
+        let token = lexer.next().unwrap();
+        assert!(
+            matches!(token.kind, TokenKind::StringLiteral(ref s) if s == "hello\nworld"),
+            "Expected 'hello\\nworld', got {:?}",
+            token.kind
+        );
     }
 }
