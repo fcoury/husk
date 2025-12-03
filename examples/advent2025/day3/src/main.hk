@@ -1,0 +1,37 @@
+extern "js" {
+    mod global Math {
+        fn max(x: i32, y: i32) -> i32;
+    }
+}
+
+fn main() {
+    let banks = include_str("input.txt").trim().split("\n");
+
+    let total = 0;
+    for bank in banks {
+        let largest = find_largest(bank);
+        println("bank: {}", largest);
+        total += largest;
+    }
+
+    println("{}", total);
+}
+
+fn find_largest(s: String) -> i32 {
+    let bank = s.trim();
+
+    println("Processing bank: {}", bank);
+    let jolts = s.split("");
+
+    let max = 0;
+    for i in 0..jolts.length {
+        let first = jolts[i];
+        for j in i+1..jolts.length {
+            let second = jolts[j];
+            let val = parseInt(format("{}{}", first, second));
+            max = Math.max(max, val);
+        }
+    }
+
+    max
+}
