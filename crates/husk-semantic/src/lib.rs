@@ -1590,7 +1590,7 @@ impl<'a> FnContext<'a> {
                     args: Vec::new(),
                 }
             }
-            ExprKind::FormatPrint { format, args } => {
+            ExprKind::FormatPrint { format, args, newline: _ } => {
                 // Count placeholders (excluding escaped braces which are literals)
                 let mut placeholders: Vec<&husk_ast::FormatPlaceholder> = Vec::new();
                 for segment in &format.segments {

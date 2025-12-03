@@ -1165,6 +1165,19 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                         args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
                     };
                 }
+                // print -> process.stdout.write (no newline)
+                if id.name == "print" {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Member {
+                            object: Box::new(JsExpr::Member {
+                                object: Box::new(JsExpr::Ident("process".to_string())),
+                                property: "stdout".to_string(),
+                            }),
+                            property: "write".to_string(),
+                        }),
+                        args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+                    };
+                }
                 // Rewrite express() to __husk_express() to patch use -> use_middleware
                 if id.name == "express" {
                     return JsExpr::Call {
@@ -1257,10 +1270,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
         }
         // Unary operators not yet supported in codegen.
         ExprKind::Unary { .. } => JsExpr::Ident("undefined".to_string()),
-        ExprKind::FormatPrint { format, args } => {
-            // Generate console.log with string concatenation for format string.
+        ExprKind::FormatPrint { format, args, newline } => {
+            // Generate console.log (with newline) or process.stdout.write (without newline)
             // Build the formatted string by concatenating literal segments and formatted args.
-            lower_format_print(&format.segments, args, ctx)
+            lower_format_print(&format.segments, args, *newline, ctx)
         }
         ExprKind::Format { format, args } => {
             // Generate the formatted string (without console.log).
@@ -1381,10 +1394,11 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
     }
 }
 
-/// Lower a FormatPrint expression to a console.log call.
+/// Lower a FormatPrint expression to a console.log (println) or process.stdout.write (print) call.
 fn lower_format_print(
     segments: &[FormatSegment],
     args: &[Expr],
+    newline: bool,
     ctx: &CodegenContext,
 ) -> JsExpr {
     // Track which argument we're using for implicit positioning
@@ -1415,10 +1429,10 @@ fn lower_format_print(
         }
     }
 
-    // Build the console.log call
-    // If we only have one part, pass it directly
+    // Build the formatted string
+    // If we only have one part, use it directly
     // If we have multiple parts, concatenate them
-    let log_arg = if parts.is_empty() {
+    let output_arg = if parts.is_empty() {
         JsExpr::String(String::new())
     } else if parts.len() == 1 {
         parts.pop().unwrap()
@@ -1436,12 +1450,27 @@ fn lower_format_print(
         acc
     };
 
-    JsExpr::Call {
-        callee: Box::new(JsExpr::Member {
-            object: Box::new(JsExpr::Ident("console".to_string())),
-            property: "log".to_string(),
-        }),
-        args: vec![log_arg],
+    if newline {
+        // println -> console.log (adds newline automatically)
+        JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("console".to_string())),
+                property: "log".to_string(),
+            }),
+            args: vec![output_arg],
+        }
+    } else {
+        // print -> process.stdout.write (no newline)
+        JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Member {
+                    object: Box::new(JsExpr::Ident("process".to_string())),
+                    property: "stdout".to_string(),
+                }),
+                property: "write".to_string(),
+            }),
+            args: vec![output_arg],
+        }
     }
 }
 
