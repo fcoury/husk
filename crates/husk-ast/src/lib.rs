@@ -643,6 +643,7 @@ pub enum ExternItemKind {
     /// This declares a dependency on a JS module by package name.
     /// When `items` is empty, imports the default export.
     /// When `items` has functions, generates named imports for those functions.
+    /// Use `mod global Array { ... }` for JavaScript builtins that don't need require/import.
     Mod {
         /// The npm package name (e.g., "express", "@scope/pkg", "lodash-es")
         package: String,
@@ -651,6 +652,9 @@ pub enum ExternItemKind {
         /// Optional nested function declarations to import from this module.
         /// If non-empty, generates `import { fn1, fn2 } from "package";`
         items: Vec<ModItem>,
+        /// If true, this is a JavaScript global (e.g., Array, Math, JSON) that
+        /// doesn't need to be imported/required.
+        is_global: bool,
     },
     /// Extern struct declaration: `struct JsValue;`
     /// Declares an opaque JavaScript type. No constructor is generated.

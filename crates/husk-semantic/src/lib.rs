@@ -248,6 +248,8 @@ struct ModuleDef {
     /// Return type for calling this module as a function.
     /// Inferred from the first struct in the same extern block if not the capitalized name.
     ret_type: Option<String>,
+    /// Functions defined within this module (for extern mod blocks with functions).
+    functions: HashMap<String, FnDef>,
 }
 
 /// Information about a trait definition.
@@ -440,10 +442,12 @@ impl TypeChecker {
                                     let def = ModuleDef {
                                         name: binding.name.clone(),
                                         ret_type,
+                                        functions: HashMap::new(),
                                     };
                                     self.env.modules.insert(binding.name.clone(), def);
                                 } else {
-                                    // Mod block with functions - register each function.
+                                    // Mod block with functions - create module with its functions.
+                                    let mut functions = HashMap::new();
                                     for mod_item in mod_items {
                                         // ModItemKind has only Fn variant (MVP scope)
                                         let husk_ast::ModItemKind::Fn {
@@ -456,8 +460,14 @@ impl TypeChecker {
                                             params: params.clone(),
                                             ret_type: ret_type.clone(),
                                         };
-                                        self.env.functions.insert(name.name.clone(), def);
+                                        functions.insert(name.name.clone(), def);
                                     }
+                                    let module_def = ModuleDef {
+                                        name: binding.name.clone(),
+                                        ret_type: None,
+                                        functions,
+                                    };
+                                    self.env.modules.insert(binding.name.clone(), module_def);
                                 }
                             }
                             husk_ast::ExternItemKind::Struct { name, type_params } => {
@@ -769,7 +779,7 @@ struct FnContext<'a> {
 
 impl<'a> FnContext<'a> {
     fn check_path_expr(&mut self, expr: &Expr, segments: &[Ident]) -> Type {
-        // MVP: treat `Enum::Variant` as constructing a value of enum type `Enum`.
+        // MVP: treat `Enum::Variant` as a constructor function.
         if segments.len() >= 2 {
             let enum_name = &segments[0].name;
             let variant_name = &segments[segments.len() - 1].name;
@@ -784,10 +794,17 @@ impl<'a> FnContext<'a> {
                         span: expr.span.clone(),
                     });
                 }
-                // For now, generics are erased at runtime; we return the bare enum type.
-                return Type::Named {
+                // Return a function type that constructs the enum.
+                // For variants like Ok(T) or Err(E), we use a placeholder type parameter.
+                // This allows calling the constructor with any argument.
+                let enum_ty = Type::Named {
                     name: enum_name.clone(),
                     args: Vec::new(),
+                };
+                // Use a Named type "T" as a stand-in for any type (MVP approach)
+                return Type::Function {
+                    params: vec![Type::Named { name: "T".to_string(), args: Vec::new() }],
+                    ret: Box::new(enum_ty),
                 };
             }
             // Fallback: unknown enum name.
@@ -1197,6 +1214,21 @@ impl<'a> FnContext<'a> {
                     return self.tcx.resolve_type_expr(&ty_expr, &[]);
                 }
 
+                // Built-in functions
+                match id.name.as_str() {
+                    "parse_int" => {
+                        // parse_int(s: String, radix: i32) -> i32
+                        return Type::Function {
+                            params: vec![
+                                Type::Primitive(PrimitiveType::String),
+                                Type::Primitive(PrimitiveType::I32),
+                            ],
+                            ret: Box::new(Type::Primitive(PrimitiveType::I32)),
+                        };
+                    }
+                    _ => {}
+                }
+
                 self.tcx.errors.push(SemanticError {
                     message: format!("unknown identifier `{}`", id.name),
                     span: id.span.clone(),
@@ -1301,6 +1333,17 @@ impl<'a> FnContext<'a> {
             }
             ExprKind::Field { base, member } => {
                 let base_ty = self.check_expr(base);
+
+                // Handle .length on arrays and strings
+                if member.name == "length" {
+                    match &base_ty {
+                        Type::Array(_) | Type::Primitive(PrimitiveType::String) => {
+                            return Type::Primitive(PrimitiveType::I32);
+                        }
+                        _ => {}
+                    }
+                }
+
                 if let Type::Named { name, args } = base_ty {
                     // First, check regular struct fields
                     if let Some(def) = self.tcx.env.structs.get(&name).cloned() {
@@ -1347,14 +1390,65 @@ impl<'a> FnContext<'a> {
                 method,
                 args,
             } => {
+                let method_name = &method.name;
+
+                // Check if receiver is an extern module (e.g., Array.from, Math.ceil)
+                if let ExprKind::Ident(ref id) = receiver.kind {
+                    // Clone the return type to avoid borrow conflicts
+                    let module_fn_ret_type: Option<Option<TypeExpr>> = self
+                        .tcx
+                        .env
+                        .modules
+                        .get(&id.name)
+                        .and_then(|m| m.functions.get(method_name))
+                        .map(|fn_info| fn_info.ret_type.clone());
+
+                    if let Some(ret_type_opt) = module_fn_ret_type {
+                        // Type-check arguments
+                        for arg in args {
+                            let _ = self.check_expr(arg);
+                        }
+                        // Return the function's return type
+                        if let Some(ret_ty) = ret_type_opt {
+                            return self.tcx.resolve_type_expr(&ret_ty, &[]);
+                        }
+                        return Type::Primitive(PrimitiveType::Unit);
+                    }
+                }
+
                 // Type-check receiver and arguments
                 let receiver_ty = self.check_expr(receiver);
                 for arg in args {
                     let _ = self.check_expr(arg);
                 }
 
+                // Handle built-in methods on primitive types
+                match &receiver_ty {
+                    Type::Primitive(PrimitiveType::String) => {
+                        match method_name.as_str() {
+                            "split" => return Type::Array(Box::new(Type::Primitive(PrimitiveType::String))),
+                            "trim" => return Type::Primitive(PrimitiveType::String),
+                            "len" => return Type::Primitive(PrimitiveType::I32),
+                            "char_at" => return Type::Primitive(PrimitiveType::String),
+                            "slice" => return Type::Primitive(PrimitiveType::String),
+                            _ => {}
+                        }
+                    }
+                    Type::Array(elem_ty) => {
+                        match method_name.as_str() {
+                            "len" => return Type::Primitive(PrimitiveType::I32),
+                            "push" => return Type::Primitive(PrimitiveType::Unit),
+                            "slice" => return receiver_ty.clone(),
+                            "some" | "every" | "filter" => return Type::Primitive(PrimitiveType::Bool),
+                            "map" => return receiver_ty.clone(), // simplified - should infer from closure
+                            "reduce" => return (**elem_ty).clone(),
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+
                 // Try to resolve the method's return type from impl blocks
-                let method_name = &method.name;
                 let receiver_type_name = match &receiver_ty {
                     Type::Named { name, .. } => Some(name.clone()),
                     _ => None,
@@ -1996,6 +2090,20 @@ impl<'a> FnContext<'a> {
             }
             // Check return type is compatible
             return self.types_compatible_inner(expected_ret, actual_ret);
+        }
+
+        // Handle Named types: if both are the same enum/struct name, treat as compatible
+        // even if type args differ (MVP approach for generic enums like Result/Option)
+        if let (
+            Type::Named { name: expected_name, .. },
+            Type::Named { name: actual_name, args: actual_args }
+        ) = (expected, actual) {
+            if expected_name == actual_name {
+                // If actual has no type args (from enum constructor), allow it
+                if actual_args.is_empty() {
+                    return true;
+                }
+            }
         }
 
         expected == actual

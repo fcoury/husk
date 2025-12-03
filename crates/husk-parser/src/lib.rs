@@ -420,8 +420,12 @@ impl Parser {
             // - `mod identifier;` - identifier is both package and binding
             // - `mod "package-name";` - string literal, derive binding from package
             // - `mod "package-name" as alias;` - string literal with explicit alias
+            // - `mod global Name { ... }` - JS global object (no require/import)
             if self.matches_keyword(Keyword::Mod) {
                 let mod_start = self.previous().span.range.start;
+
+                // Check for `global` keyword (for JS builtins like Array, Math, JSON)
+                let is_global = self.matches_keyword(Keyword::Global);
 
                 // Parse package name (identifier or string literal)
                 let (package, default_binding) =
@@ -527,6 +531,7 @@ impl Parser {
                         package,
                         binding,
                         items: mod_items,
+                        is_global,
                     },
                     span,
                 });
