@@ -11,4 +11,5 @@ members = [
     "crates/husk-cli",
     "crates/husk-lsp",
     "crates/husk-dts-parser",
+    "crates/husk-fmt",
 ]
