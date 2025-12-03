@@ -641,6 +641,7 @@ impl<'src> Parser<'src> {
             }
 
             // Check for `fn` declaration
+            let fn_start = self.current().span.range.start;
             if !self.matches_keyword(Keyword::Fn) {
                 self.error_here("expected `fn`, `mod`, `struct`, or `static` inside extern block");
                 self.synchronize_item();
@@ -674,7 +675,7 @@ impl<'src> Parser<'src> {
             }
 
             let span = Span {
-                range: name.span.range.start..self.previous().span.range.end,
+                range: fn_start..self.previous().span.range.end,
             };
             items.push(husk_ast::ExternItem {
                 kind: husk_ast::ExternItemKind::Fn {
