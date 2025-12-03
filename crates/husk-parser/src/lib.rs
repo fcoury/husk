@@ -3266,6 +3266,7 @@ mod tests {
                 package,
                 binding,
                 items,
+                ..
             } = &items[0].kind
             {
                 assert_eq!(package, "express");
@@ -3290,6 +3291,7 @@ mod tests {
                 package,
                 binding,
                 items,
+                ..
             } = &items[0].kind
             {
                 assert_eq!(package, "lodash-es");
@@ -3314,6 +3316,7 @@ mod tests {
                 package,
                 binding,
                 items,
+                ..
             } = &items[0].kind
             {
                 assert_eq!(package, "@myorg/my-lib");
@@ -3343,6 +3346,7 @@ mod tests {
                 package,
                 binding,
                 items,
+                ..
             } = &items[0].kind
             {
                 assert_eq!(package, "nanoid");

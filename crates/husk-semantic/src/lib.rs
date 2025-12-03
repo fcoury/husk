@@ -72,11 +72,23 @@ pub struct SemanticError {
     pub span: Span,
 }
 
+/// Maps variable binding and usage spans to their resolved unique names.
+///
+/// During code generation, variable references need unique names to handle
+/// shadowing correctly. JavaScript doesn't allow redeclaring `let` in the
+/// same scope, so we use alpha-conversion (renaming) to generate unique names.
+///
+/// The map uses byte ranges (start, end) as keys since `Span` doesn't implement Hash.
+/// Values are the resolved names (e.g., "x", "x$1", "x$2").
+pub type NameResolution = HashMap<(usize, usize), String>;
+
 /// The result of running semantic analysis (name resolution + type checking) on a Husk file.
 #[derive(Debug)]
 pub struct SemanticResult {
     pub symbols: ModuleSymbols,
     pub type_errors: Vec<SemanticError>,
+    /// Maps variable spans to their resolved unique names for codegen.
+    pub name_resolution: NameResolution,
 }
 
 /// Options controlling semantic analysis.
@@ -160,10 +172,11 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let type_errors = checker.check_file(&filtered_file);
+    let (type_errors, name_resolution) = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
+        name_resolution,
     }
 }
 
@@ -341,6 +354,8 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
 struct TypeChecker {
     env: TypeEnv,
     errors: Vec<SemanticError>,
+    /// Maps variable spans to their resolved unique names for codegen.
+    name_resolution: NameResolution,
 }
 
 impl TypeChecker {
@@ -348,6 +363,7 @@ impl TypeChecker {
         Self {
             env: TypeEnv::default(),
             errors: Vec::new(),
+            name_resolution: HashMap::new(),
         }
     }
 
@@ -580,7 +596,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_file(&mut self, file: &File) -> Vec<SemanticError> {
+    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution) {
         // Verify trait implementations
         self.verify_trait_impls();
 
@@ -598,7 +614,7 @@ impl TypeChecker {
                 self.check_fn(name, type_params, params, ret_type.as_ref(), body, item.span.clone());
             }
         }
-        self.errors.clone()
+        (self.errors.clone(), std::mem::take(&mut self.name_resolution))
     }
 
     fn check_fn(
@@ -623,6 +639,8 @@ impl TypeChecker {
         };
 
         let mut locals: HashMap<String, Type> = HashMap::new();
+        let mut shadow_counts: HashMap<String, u32> = HashMap::new();
+        let mut resolved_names: HashMap<String, String> = HashMap::new();
 
         // Parameters must have explicit types.
         for param in params {
@@ -636,11 +654,21 @@ impl TypeChecker {
                     span: param.name.span.clone(),
                 });
             }
+            // Register parameter in name resolution (no shadowing for params)
+            let resolved = param.name.name.clone();
+            shadow_counts.insert(param.name.name.clone(), 0);
+            resolved_names.insert(param.name.name.clone(), resolved.clone());
+            self.name_resolution.insert(
+                (param.name.span.range.start, param.name.span.range.end),
+                resolved,
+            );
         }
 
         let mut ctx = FnContext {
             tcx: self,
             locals,
+            shadow_counts,
+            resolved_names,
             ret_ty,
             in_loop: false,
         };
@@ -773,11 +801,46 @@ impl TypeChecker {
 struct FnContext<'a> {
     tcx: &'a mut TypeChecker,
     locals: HashMap<String, Type>,
+    /// Maps variable names to their current shadow count.
+    /// When a variable is shadowed, we increment its count.
+    shadow_counts: HashMap<String, u32>,
+    /// Maps variable names to their current resolved name (e.g., "x" -> "x$1").
+    /// Used to resolve variable references to the correct shadowed version.
+    resolved_names: HashMap<String, String>,
     ret_ty: Type,
     in_loop: bool,
 }
 
 impl<'a> FnContext<'a> {
+    /// Bind a variable with shadowing support.
+    ///
+    /// Returns the resolved name (e.g., "x", "x$1", "x$2") and registers it
+    /// in the name resolution map.
+    fn bind_variable(&mut self, name: &str, ty: Type, span: &Span) -> String {
+        // Get or initialize the shadow count for this variable name
+        let count = self.shadow_counts.entry(name.to_string()).or_insert(0);
+        let resolved = if *count == 0 {
+            name.to_string()
+        } else {
+            format!("{}${}", name, count)
+        };
+        *count += 1;
+
+        // Update the current resolved name for this variable
+        self.resolved_names.insert(name.to_string(), resolved.clone());
+
+        // Add to locals for type checking
+        self.locals.insert(name.to_string(), ty);
+
+        // Register in name resolution map
+        self.tcx.name_resolution.insert(
+            (span.range.start, span.range.end),
+            resolved.clone(),
+        );
+
+        resolved
+    }
+
     fn check_path_expr(&mut self, expr: &Expr, segments: &[Ident]) -> Type {
         // MVP: treat `Enum::Variant` as a constructor function.
         if segments.len() >= 2 {
@@ -878,9 +941,14 @@ impl<'a> FnContext<'a> {
 
             // Type-check the arm expression in a fresh scope with any bindings from the pattern.
             let saved_locals = self.locals.clone();
-            self.bind_pattern_locals(&arm.pattern, &scrut_ty);
+            let saved_shadow_counts = self.shadow_counts.clone();
+            let saved_resolved_names = self.resolved_names.clone();
+            let mut pattern_bindings = HashSet::new();
+            self.bind_pattern_locals(&arm.pattern, &scrut_ty, &mut pattern_bindings);
             let arm_ty = self.check_expr(&arm.expr);
             self.locals = saved_locals;
+            self.shadow_counts = saved_shadow_counts;
+            self.resolved_names = saved_resolved_names;
 
             match &mut result_ty {
                 None => result_ty = Some(arm_ty),
@@ -918,20 +986,32 @@ impl<'a> FnContext<'a> {
         result_ty.unwrap_or(Type::Primitive(PrimitiveType::Unit))
     }
 
-    fn bind_pattern_locals(&mut self, pat: &Pattern, scrut_ty: &Type) {
+    /// Bind pattern locals with shadowing support.
+    ///
+    /// The `pattern_bindings` set tracks bindings within the current pattern
+    /// to detect duplicate bindings like `(x, x)` which should still be an error.
+    /// Shadowing outer variables is allowed.
+    fn bind_pattern_locals(
+        &mut self,
+        pat: &Pattern,
+        scrut_ty: &Type,
+        pattern_bindings: &mut HashSet<String>,
+    ) {
         match &pat.kind {
             PatternKind::Wildcard => {}
             PatternKind::Binding(id) => {
-                if self
-                    .locals
-                    .insert(id.name.clone(), scrut_ty.clone())
-                    .is_some()
-                {
+                // Check for duplicate binding within the same pattern (e.g., `(x, x)`)
+                if !pattern_bindings.insert(id.name.clone()) {
                     self.tcx.errors.push(SemanticError {
-                        message: format!("duplicate binding `{}` in pattern", id.name),
+                        message: format!(
+                            "identifier `{}` is bound more than once in the same pattern",
+                            id.name
+                        ),
                         span: id.span.clone(),
                     });
                 }
+                // Allow shadowing outer variables
+                self.bind_variable(&id.name, scrut_ty.clone(), &id.span);
             }
             PatternKind::EnumUnit { .. } => {}
             PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => {
@@ -979,12 +1059,8 @@ impl<'a> FnContext<'a> {
                     }
                 };
 
-                if self.locals.insert(name.name.clone(), final_ty).is_some() {
-                    self.tcx.errors.push(SemanticError {
-                        message: format!("duplicate local binding `{}`", name.name),
-                        span: name.span.clone(),
-                    });
-                }
+                // Bind the variable with shadowing support
+                self.bind_variable(&name.name, final_ty, &name.span);
             }
             StmtKind::Assign { target, op, value } => {
                 // Validate target is assignable (lvalue: ident, field, or index)
@@ -1119,8 +1195,13 @@ impl<'a> FnContext<'a> {
                     }
                 };
 
-                // Bind loop variable in scope
-                let old_binding = self.locals.insert(binding.name.clone(), elem_ty);
+                // Save current scope state
+                let old_locals = self.locals.clone();
+                let old_shadow_counts = self.shadow_counts.clone();
+                let old_resolved_names = self.resolved_names.clone();
+
+                // Bind loop variable with shadowing support
+                self.bind_variable(&binding.name, elem_ty, &binding.span);
 
                 // Check body in loop context
                 let prev_in_loop = self.in_loop;
@@ -1128,12 +1209,10 @@ impl<'a> FnContext<'a> {
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
 
-                // Restore previous binding if any
-                if let Some(old_ty) = old_binding {
-                    self.locals.insert(binding.name.clone(), old_ty);
-                } else {
-                    self.locals.remove(&binding.name);
-                }
+                // Restore scope state
+                self.locals = old_locals;
+                self.shadow_counts = old_shadow_counts;
+                self.resolved_names = old_resolved_names;
             }
             StmtKind::Break | StmtKind::Continue => {
                 if !self.in_loop {
@@ -1156,10 +1235,14 @@ impl<'a> FnContext<'a> {
 
     fn check_block(&mut self, block: &Block) {
         let old_locals = self.locals.clone();
+        let old_shadow_counts = self.shadow_counts.clone();
+        let old_resolved_names = self.resolved_names.clone();
         for stmt in &block.stmts {
             self.check_stmt(stmt);
         }
         self.locals = old_locals;
+        self.shadow_counts = old_shadow_counts;
+        self.resolved_names = old_resolved_names;
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Type {
@@ -1173,6 +1256,13 @@ impl<'a> FnContext<'a> {
             ExprKind::Path { segments } => self.check_path_expr(expr, segments),
             ExprKind::Ident(id) => {
                 if let Some(ty) = self.locals.get(&id.name) {
+                    // Register the resolved name for this variable usage
+                    if let Some(resolved) = self.resolved_names.get(&id.name) {
+                        self.tcx.name_resolution.insert(
+                            (id.span.range.start, id.span.range.end),
+                            resolved.clone(),
+                        );
+                    }
                     return ty.clone();
                 }
                 // Try top-level function.
@@ -1987,6 +2077,8 @@ impl<'a> FnContext<'a> {
         // Resolve parameter types
         let mut param_types = Vec::new();
         let mut closure_locals = self.locals.clone();
+        let mut closure_shadow_counts = self.shadow_counts.clone();
+        let mut closure_resolved_names = self.resolved_names.clone();
 
         for (i, param) in params.iter().enumerate() {
             let ty = if let Some(type_expr) = &param.ty {
@@ -2039,6 +2131,20 @@ impl<'a> FnContext<'a> {
 
             param_types.push(ty.clone());
             closure_locals.insert(param.name.name.clone(), ty);
+
+            // Register closure parameter in name resolution (may shadow outer variables)
+            let count = closure_shadow_counts.entry(param.name.name.clone()).or_insert(0);
+            let resolved = if *count == 0 {
+                param.name.name.clone()
+            } else {
+                format!("{}${}", param.name.name, count)
+            };
+            *count += 1;
+            closure_resolved_names.insert(param.name.name.clone(), resolved.clone());
+            self.tcx.name_resolution.insert(
+                (param.name.span.range.start, param.name.span.range.end),
+                resolved,
+            );
         }
 
         // Check arity mismatch (fewer params than expected)
@@ -2068,6 +2174,8 @@ impl<'a> FnContext<'a> {
 
         // Create a nested context for the closure body
         let old_locals = std::mem::replace(&mut self.locals, closure_locals);
+        let old_shadow_counts = std::mem::replace(&mut self.shadow_counts, closure_shadow_counts);
+        let old_resolved_names = std::mem::replace(&mut self.resolved_names, closure_resolved_names);
         let old_ret_ty = std::mem::replace(&mut self.ret_ty, expected_ret_ty.clone());
 
         // Check the body and infer return type
@@ -2075,6 +2183,8 @@ impl<'a> FnContext<'a> {
 
         // Restore the outer context
         self.locals = old_locals;
+        self.shadow_counts = old_shadow_counts;
+        self.resolved_names = old_resolved_names;
         self.ret_ty = old_ret_ty;
 
         // Use explicit return type if specified, otherwise infer from body
@@ -2883,6 +2993,7 @@ mod tests {
                 package: "express".to_string(),
                 binding: express_ident.clone(),
                 items: Vec::new(),
+                is_global: false,
             },
             span: Span { range: 0..15 },
         };
