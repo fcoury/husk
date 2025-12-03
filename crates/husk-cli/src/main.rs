@@ -125,14 +125,14 @@ enum Command {
     },
     /// Watch for file changes and recompile
     Watch {
-        /// Source file to watch (entry point)
-        file: String,
-        /// Output file path
+        /// Source file to watch (entry point). Detected from husk.toml or src/main.hk if not provided.
+        file: Option<String>,
+        /// Output file path. Defaults to dist/<entry>.js if not provided.
         #[arg(short, long)]
-        output: String,
+        output: Option<String>,
         /// JavaScript output target: esm or cjs
-        #[arg(long, value_enum, default_value = "esm")]
-        target: Target,
+        #[arg(long, value_enum)]
+        target: Option<Target>,
         /// Compile in library mode (do not auto-call `main`)
         #[arg(long)]
         lib: bool,
@@ -294,7 +294,7 @@ fn main() {
             run,
             exec,
             args,
-        }) => run_watch(&file, &output, target, lib, no_prelude, run, exec.as_deref(), &args, &config),
+        }) => run_watch(file.as_deref(), output.as_deref(), target, lib, no_prelude, run, exec.as_deref(), &args, &config),
         Some(Command::Dts { action }) => run_dts(action, &config),
         Some(Command::Test {
             file,
@@ -743,9 +743,9 @@ node_modules/
 }
 
 fn run_watch(
-    path: &str,
-    output: &str,
-    target: Target,
+    file: Option<&str>,
+    output: Option<&str>,
+    target: Option<Target>,
     lib: bool,
     no_prelude: bool,
     run_after: bool,
@@ -758,8 +758,38 @@ fn run_watch(
     use std::sync::mpsc::channel;
     use std::time::Duration;
 
-    let entry_path = Path::new(path);
-    let output_path = Path::new(output);
+    // Determine entry file (same logic as run command)
+    let entry_path = match file {
+        Some(f) => PathBuf::from(f),
+        None => {
+            if let Some(ref entry) = config.build.entry {
+                PathBuf::from(entry)
+            } else {
+                match detect_entry_point() {
+                    Ok(p) => p,
+                    Err(msg) => {
+                        eprintln!("Error: {msg}");
+                        std::process::exit(2);
+                    }
+                }
+            }
+        }
+    };
+
+    // Determine output file
+    let output_dir = config.build.output_dir();
+    let stem = entry_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("main");
+    let default_output = format!("{}/{}.js", output_dir, stem);
+    let output_str = output.map(|s| s.to_string()).unwrap_or(default_output);
+    let output_path = Path::new(&output_str);
+
+    // Determine target
+    let effective_target = target.unwrap_or(Target::Esm);
+
+    let path = entry_path.to_string_lossy().to_string();
 
     // Get the directory to watch (parent of entry file)
     let watch_dir = entry_path.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -875,14 +905,14 @@ fn run_watch(
     };
 
     // Initial compile
-    let compile_success = compile_to_file(path, output, target, lib, no_prelude);
+    let compile_success = compile_to_file(&path, &output_str, effective_target, lib, no_prelude);
 
     // Initial run if compile succeeded
     if compile_success {
         if let Some(exec) = effective_exec {
             child_process = spawn_exec(exec, args);
         } else if should_run {
-            child_process = spawn_run(output, args, config);
+            child_process = spawn_run(&output_str, args, config);
         }
     }
 
@@ -928,14 +958,14 @@ fn run_watch(
                     kill_child(&mut child_process);
 
                     println!("\n[{}] File changed, recompiling...", chrono_lite_time());
-                    let compile_success = compile_to_file(path, output, target, lib, no_prelude);
+                    let compile_success = compile_to_file(&path, &output_str, effective_target, lib, no_prelude);
 
                     // Run after compile if successful
                     if compile_success {
                         if let Some(exec) = effective_exec {
                             child_process = spawn_exec(exec, args);
                         } else if should_run {
-                            child_process = spawn_run(output, args, config);
+                            child_process = spawn_run(&output_str, args, config);
                         }
                     }
                 }
