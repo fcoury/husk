@@ -20,120 +20,117 @@ fn main() {
 }
 
 fn sum_invalid_ids(ranges: [String]) -> Result<i32, String> {
-  let invalid_ids = [];
-  for r in ranges {
-    let range_str = r.trim();
-    print("- {}", range_str);
-    let parts = range_str.split("-");
-    if parts.length != 2 {
-      return Result::Err(format("range '{}' is invalid", range_str));
+    let invalid_ids = [];
+    for r in ranges {
+        let range_str = r.trim();
+        print("- {}", range_str);
+        let parts = range_str.split("-");
+        if parts.length != 2 {
+            return Result::Err(format("range '{}' is invalid", range_str));
+        }
+
+        let start = parse_int(parts[0], 10);
+        let end = parse_int(parts[1], 10);
+
+        let this_invalid_ids = find_invalid_ids(start, end);
+        println(": {}", this_invalid_ids);
+        for invalid_id in this_invalid_ids {
+            invalid_ids.push(invalid_id);
+        }
     }
 
-    let start = parse_int(parts[0], 10);
-    let end = parse_int(parts[1], 10);
-
-    let this_invalid_ids = find_invalid_ids(start, end);
-    println(": {}", this_invalid_ids);
-    for invalid_id in this_invalid_ids {
-      invalid_ids.push(invalid_id);
-    }
-  }
-
-  invalid_ids.reduce(|acc: i32, val: i32| acc += val, 0)
+    invalid_ids.reduce(|acc: i32, val: i32| acc += val, 0)
 }
 
 fn find_invalid_ids(start: i32, end: i32) -> [i32] {
-  let invalid_ids = [];
-  for item in start..=end {
-    let item_str = format("{}", item);
-    if is_invalid(item_str) {
-      invalid_ids.push(item);
+    let invalid_ids = [];
+    for item in start..=end {
+        let item_str = format("{}", item);
+        if is_invalid(item_str) {
+            invalid_ids.push(item);
+        }
     }
-  }
 
-  invalid_ids
+    invalid_ids
 }
 
 fn is_invalid(id: String) -> bool {
-  let len = id.length;
-  for chunk_size in 1..id.length {
-    let is_divisible = len % chunk_size == 0;
-    if is_divisible {
-      continue;
+    let len = id.length;
+    for chunk_size in 1..id.length {
+        let is_divisible = len % chunk_size == 0;
+        if is_divisible {
+            continue;
+        }
+
+        let all_parts = string_chars(id);
+        let parts = chunks(all_parts, chunk_size);
+
+        let valid = parts[1..].some(|p: String| p != parts[0]);
+        if !valid {
+            return true;
+        }
     }
 
-    let all_parts = string_chars(id);
-    let parts = chunks(all_parts, chunk_size);
-
-    let valid = parts[1..].some(|p: String| p != parts[0]);
-    if !valid {
-      return true;
-    }
-  }
-
-  false
+    false
 }
 
 fn string_chars(s: String) -> [String] {
-  let chars = [];
-  for i in 0..s.length {
-    chars.push(s.charAt(i));
-  }
-  chars
+    let chars = [];
+    for i in 0..s.length {
+        chars.push(s.charAt(i));
+    }
+    chars
 }
 
 struct ArrayFromArgs {
-  length: i32,
+    length: i32,
 }
 
 impl ArrayFromArgs {
-  fn new(length: i32) -> ArrayFromArgs {
-    ArrayFrom { length: length }
-  }
+    fn new(length: i32) -> ArrayFromArgs {
+        ArrayFrom { length: length }
+    }
 }
 
 fn chunks(arr: [String], size: i32) -> [String] {
-  Array.from(
-    ArrayFromArgs { length: Math.ceil(arr.length / size) },
-    |_: (), i: i32| arr.slice(i * size, i * size + size)
-  )
+    Array.from(ArrayFromArgs { length: Math.ceil(arr.length / size) }, |_: (), i: i32| arr.slice(i * size, i * size + size))
 }
 
 #[cfg(test)]
 #[test]
 fn test_sum_for_range() {
-  let ranges = include_str("ranges-test.txt").split(",");
-  assert(4174379265 == sum_invalid_ids(ranges).unwrap());
+    let ranges = include_str("ranges-test.txt").split(",");
+    assert(4174379265 == sum_invalid_ids(ranges).unwrap());
 }
 
 #[cfg(test)]
 #[test]
 fn test_find_invalid_ids() {
-  assert(find_invalid_ids(11, 22) == [11, 22]);
-  assert(find_invalid_ids(99, 111) == [99, 111]);
-  assert(find_invalid_ids(999, 1010) == [999, 1010]);
-  assert(find_invalid_ids(1188511880, 1188511890) == [1188511885]);
-  assert(find_invalid_ids(222220, 222224) == [222222]);
-  assert(find_invalid_ids(1698522, 1698528) == []);
-  assert(find_invalid_ids(446443, 446449) == [446446]);
-  assert(find_invalid_ids(38593856, 38593862) == [38593859]);
-  assert(find_invalid_ids(565653, 565659) == [565656]);
-  assert(find_invalid_ids(824824821, 824824827) == [824824824]);
-  assert(find_invalid_ids(2121212118, 2121212124) == [2121212121]);
+    assert(find_invalid_ids(11, 22) == [11, 22]);
+    assert(find_invalid_ids(99, 111) == [99, 111]);
+    assert(find_invalid_ids(999, 1010) == [999, 1010]);
+    assert(find_invalid_ids(1188511880, 1188511890) == [1188511885]);
+    assert(find_invalid_ids(222220, 222224) == [222222]);
+    assert(find_invalid_ids(1698522, 1698528) == []);
+    assert(find_invalid_ids(446443, 446449) == [446446]);
+    assert(find_invalid_ids(38593856, 38593862) == [38593859]);
+    assert(find_invalid_ids(565653, 565659) == [565656]);
+    assert(find_invalid_ids(824824821, 824824827) == [824824824]);
+    assert(find_invalid_ids(2121212118, 2121212124) == [2121212121]);
 }
 
 #[cfg(test)]
 #[test]
 fn test_invalid() {
-  assert(is_invalid("11"));
-  assert(!is_invalid("12"));
-  assert(is_invalid("22"));
-  assert(is_invalid("99"));
-  assert(is_invalid("111"));
-  assert(!is_invalid("115"));
-  assert(is_invalid("999"));
-  assert(is_invalid("1010"));
-  assert(is_invalid("222222"));
-  assert(is_invalid("123123123"));
-  assert(is_invalid("1188511885"));
+    assert(is_invalid("11"));
+    assert(!is_invalid("12"));
+    assert(is_invalid("22"));
+    assert(is_invalid("99"));
+    assert(is_invalid("111"));
+    assert(!is_invalid("115"));
+    assert(is_invalid("999"));
+    assert(is_invalid("1010"));
+    assert(is_invalid("222222"));
+    assert(is_invalid("123123123"));
+    assert(is_invalid("1188511885"));
 }

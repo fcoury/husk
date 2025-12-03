@@ -109,4 +109,16 @@ fn foo() {}"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
         assert!(result.contains("/// Doc comment"), "Doc comment should be preserved. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_doc_comment_before_pub_item() {
+        // Regression test: doc comments before pub items were being lost
+        // because the item span started at struct/enum/fn, not at the pub keyword
+        let source = r#"/// A user struct
+pub struct User {
+    name: String,
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("/// A user struct"), "Doc comment should be preserved. Got:\n{}", result);
+    }
 }

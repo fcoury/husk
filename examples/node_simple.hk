@@ -21,4 +21,3 @@ fn main() {
     // codegen covers function calls, enums, and match.
     n;
 }
-

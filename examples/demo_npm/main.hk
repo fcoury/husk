@@ -83,10 +83,10 @@ fn try_create_user(name: String, email: String) {
                 ValidationError::None => {
                     let user = validate_and_create_user(name, email);
                     display_user(user);
-                }
+                },
                 _ => display_error(email_error),
             }
-        }
+        },
         _ => display_error(name_error),
     }
 }

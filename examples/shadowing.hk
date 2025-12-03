@@ -5,7 +5,7 @@
 #[test]
 fn test_same_type_shadowing() {
     let x = 5;
-    let x = 10;  // Shadows the previous x
+    let x = 10; // Shadows the previous x
     assert(x == 10);
 }
 
@@ -14,9 +14,9 @@ fn test_same_type_shadowing() {
 #[test]
 fn test_closure_capture() {
     let x = 100;
-    let get_x = || x;  // Captures x = 100
-    let x = 200;       // Shadows x
-    assert(get_x() == 100);  // Should still return 100, not 200
+    let get_x = || x; // Captures x = 100
+    let x = 200; // Shadows x
+    assert(get_x() == 100); // Should still return 100, not 200
 }
 
 // Test shadowing with closures as values
@@ -24,9 +24,9 @@ fn test_closure_capture() {
 #[test]
 fn test_shadowed_closure() {
     let f = |n: i32| n + 1;
-    let result = f(10);    // Should be 11
+    let result = f(10); // Should be 11
     let f = |n: i32| n * 2;
-    assert(result + f(10) == 31);  // Should be 11 + 20 = 31
+    assert(result + f(10) == 31); // Should be 11 + 20 = 31
 }
 
 // Test shadowing in for loop - basic
@@ -35,9 +35,9 @@ fn test_shadowed_closure() {
 fn test_loop_shadowing() {
     let sum = 0;
     for i in 0..3 {
-        let i = i + 10;  // Shadow loop variable
+        let i = i + 10; // Shadow loop variable
     }
-    assert(sum == 0);  // Original sum is unchanged
+    assert(sum == 0); // Original sum is unchanged
 }
 
 // Test shadowing loop variable with transformed version (like `let name = name.trim()`)
@@ -46,11 +46,10 @@ fn test_loop_shadowing() {
 fn test_loop_var_transform_shadow() {
     let total = 0;
     for n in 0..3 {
-        let n = n * 2;      // Shadow n with transformed value
-        let n = n + 1;      // Shadow again
-        // n values: 0->0->1, 1->2->3, 2->4->5
+        let n = n * 2; // Shadow n with transformed value
+        let n = n + 1; // Shadow again
     }
-    assert(total == 0);  // Outer variable unchanged
+    assert(total == 0); // Outer variable unchanged
 }
 
 // Test multiple sequential shadows
@@ -58,9 +57,9 @@ fn test_loop_var_transform_shadow() {
 #[test]
 fn test_multiple_shadows() {
     let x = 1;
-    let x = x + 1;  // x = 2
-    let x = x * 3;  // x = 6
-    let x = x - 1;  // x = 5
+    let x = x + 1; // x = 2
+    let x = x * 3; // x = 6
+    let x = x - 1; // x = 5
     assert(x == 5);
 }
 
