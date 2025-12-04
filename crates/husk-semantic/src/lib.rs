@@ -416,47 +416,6 @@ impl TypeEnv {
         false
     }
 
-    /// Check if a type satisfies all trait bounds for a trait (including transitive supertraits).
-    ///
-    /// For example, if Eq: PartialEq and PartialEq: SomeTrait, implementing Eq requires
-    /// implementing both PartialEq and SomeTrait.
-    ///
-    /// Uses a visited set to guard against cycles in supertrait chains.
-    fn type_satisfies_trait_bounds(&self, type_name: &str, trait_name: &str) -> bool {
-        let mut visited = std::collections::HashSet::new();
-        self.type_satisfies_trait_bounds_recursive(type_name, trait_name, &mut visited)
-    }
-
-    /// Recursive helper for type_satisfies_trait_bounds with cycle detection.
-    fn type_satisfies_trait_bounds_recursive(
-        &self,
-        type_name: &str,
-        trait_name: &str,
-        visited: &mut std::collections::HashSet<String>,
-    ) -> bool {
-        // Guard against cycles
-        if visited.contains(trait_name) {
-            return true; // Already checked this trait, assume satisfied to break cycle
-        }
-        visited.insert(trait_name.to_string());
-
-        // First check if the type implements the trait directly
-        if !self.type_implements_trait(type_name, trait_name) {
-            return false;
-        }
-
-        // Then recursively check that all supertraits are also satisfied
-        if let Some(trait_info) = self.traits.get(trait_name) {
-            for supertrait in &trait_info.supertraits {
-                if !self.type_satisfies_trait_bounds_recursive(type_name, supertrait, visited) {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
-
     /// Get the list of missing supertrait implementations for a type implementing a trait.
     ///
     /// Returns a list of all transitively missing supertraits that are required but not implemented.
