@@ -2496,6 +2496,14 @@ impl<'a> FnContext<'a> {
     }
 
     fn types_compatible_inner(&self, expected: &Type, actual: &Type) -> bool {
+        // JsValue is compatible with any type (it's JavaScript's dynamic "any" type)
+        // This allows passing primitives to functions expecting JsValue (e.g., assert_eq)
+        if let Type::Named { name, args } = expected {
+            if name == "JsValue" && args.is_empty() {
+                return true;
+            }
+        }
+
         // Empty array [()] is compatible with any array type
         // This allows `[] == [1, 2, 3]` without explicit type annotation
         if let (Type::Array(expected_elem), Type::Array(actual_elem)) = (expected, actual) {
