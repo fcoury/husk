@@ -3233,4 +3233,123 @@ fn main() {
             result.type_errors
         );
     }
+
+    #[test]
+    fn loop_allows_break_inside() {
+        let src = r#"
+fn main() {
+    loop {
+        break;
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn loop_allows_continue_inside() {
+        let src = r#"
+fn main() {
+    loop {
+        continue;
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn break_outside_loop_reports_error() {
+        let src = r#"
+fn main() {
+    break;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("`break` used outside of loop")),
+            "expected break outside loop error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn continue_outside_loop_reports_error() {
+        let src = r#"
+fn main() {
+    continue;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("`continue` used outside of loop")),
+            "expected continue outside loop error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn nested_loop_allows_break() {
+        let src = r#"
+fn main() {
+    loop {
+        loop {
+            break;
+        }
+        break;
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
 }

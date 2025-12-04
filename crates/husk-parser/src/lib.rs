@@ -3498,4 +3498,66 @@ mod tests {
             panic!("expected Fn item");
         }
     }
+
+    #[test]
+    fn parses_loop_statement() {
+        let src = r#"fn main() { loop { break; } }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            assert_eq!(body.len(), 1);
+            if let StmtKind::Loop { body: loop_body } = &body[0].kind {
+                assert_eq!(loop_body.stmts.len(), 1);
+                assert!(matches!(loop_body.stmts[0].kind, StmtKind::Break));
+            } else {
+                panic!("expected Loop statement, got {:?}", body[0].kind);
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_loop_with_continue() {
+        let src = r#"fn main() { loop { continue; } }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Loop { body: loop_body } = &body[0].kind {
+                assert_eq!(loop_body.stmts.len(), 1);
+                assert!(matches!(loop_body.stmts[0].kind, StmtKind::Continue));
+            } else {
+                panic!("expected Loop statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_loop_with_if_break() {
+        let src = r#"fn main() {
+            loop {
+                if true {
+                    break;
+                }
+            }
+        }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            assert_eq!(body.len(), 1);
+            if let StmtKind::Loop { body: loop_body } = &body[0].kind {
+                assert_eq!(loop_body.stmts.len(), 1);
+                assert!(matches!(loop_body.stmts[0].kind, StmtKind::If { .. }));
+            } else {
+                panic!("expected Loop statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
 }
