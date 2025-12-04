@@ -941,6 +941,17 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.write("}");
             }
+            StmtKind::Loop { body } => {
+                self.write_indent();
+                self.write("loop {");
+                self.newline();
+                self.indent += 1;
+                self.format_stmts(&body.stmts);
+                self.emit_block_end_trivia(body.span.range.end);
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+            }
             StmtKind::ForIn {
                 binding,
                 iterable,

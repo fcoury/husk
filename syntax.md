@@ -135,6 +135,13 @@ Inside function bodies and blocks:
       break;
       continue;
   }
+
+  loop {
+      // infinite loop, exit with break or return
+      if condition {
+          break;
+      }
+  }
   ```
 
 ## 8. Expressions

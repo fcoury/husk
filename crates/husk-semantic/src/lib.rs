@@ -1196,6 +1196,12 @@ impl<'a> FnContext<'a> {
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
             }
+            StmtKind::Loop { body } => {
+                let prev_in_loop = self.in_loop;
+                self.in_loop = true;
+                self.check_block(body);
+                self.in_loop = prev_in_loop;
+            }
             StmtKind::ForIn {
                 binding,
                 iterable,

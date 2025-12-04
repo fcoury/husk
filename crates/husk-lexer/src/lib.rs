@@ -33,8 +33,8 @@ impl Trivia {
 /// List of all Husk keywords.
 pub const KEYWORDS: &[&str] = &[
     "as", "pub", "use", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern", "if",
-    "else", "while", "match", "return", "true", "false", "break", "continue", "trait", "impl",
-    "for", "Self", "static", "in", "global", "js",
+    "else", "while", "loop", "match", "return", "true", "false", "break", "continue", "trait",
+    "impl", "for", "Self", "static", "in", "global", "js",
 ];
 
 /// Check if a string is a Husk reserved keyword.
@@ -94,6 +94,7 @@ pub enum Keyword {
     If,
     Else,
     While,
+    Loop,
     Match,
     Return,
     True,
@@ -414,6 +415,7 @@ impl<'src> Lexer<'src> {
             "if" => TokenKind::Keyword(Keyword::If),
             "else" => TokenKind::Keyword(Keyword::Else),
             "while" => TokenKind::Keyword(Keyword::While),
+            "loop" => TokenKind::Keyword(Keyword::Loop),
             "match" => TokenKind::Keyword(Keyword::Match),
             "break" => TokenKind::Keyword(Keyword::Break),
             "continue" => TokenKind::Keyword(Keyword::Continue),

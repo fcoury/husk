@@ -1563,6 +1563,7 @@ impl<'src> Parser<'src> {
             TokenKind::Keyword(Keyword::Return) => self.parse_return_stmt(),
             TokenKind::Keyword(Keyword::If) => self.parse_if_stmt(),
             TokenKind::Keyword(Keyword::While) => self.parse_while_stmt(),
+            TokenKind::Keyword(Keyword::Loop) => self.parse_loop_stmt(),
             TokenKind::Keyword(Keyword::For) => self.parse_for_in_stmt(),
             TokenKind::Keyword(Keyword::Break) => self.parse_break_stmt(),
             TokenKind::Keyword(Keyword::Continue) => self.parse_continue_stmt(),
@@ -1692,6 +1693,22 @@ impl<'src> Parser<'src> {
             kind: StmtKind::While { cond, body },
             span: Span {
                 range: while_tok.span.range.start..end,
+            },
+        })
+    }
+
+    fn parse_loop_stmt(&mut self) -> Option<Stmt> {
+        let loop_tok = self.advance().clone(); // consume `loop`
+        let body = self.parse_block().unwrap_or(Block {
+            stmts: Vec::new(),
+            span: self.ast_span_from(&loop_tok.span),
+        });
+
+        let end = body.span.range.end;
+        Some(Stmt {
+            kind: StmtKind::Loop { body },
+            span: Span {
+                range: loop_tok.span.range.start..end,
             },
         })
     }
