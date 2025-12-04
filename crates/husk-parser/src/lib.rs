@@ -4210,4 +4210,119 @@ mod tests {
             panic!("expected Fn item");
         }
     }
+
+    #[test]
+    fn parses_cast_with_unary_precedence() {
+        // Unary should have higher precedence than cast, so "-1 as f64" should parse as "(-1) as f64"
+        let src = r#"fn main() { let x = -1 as f64; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                // Should be: Cast(Unary(Neg, 1), f64)
+                if let ExprKind::Cast { expr, target_ty } = &val.kind {
+                    if let ExprKind::Unary { op, expr: inner } = &expr.kind {
+                        assert!(matches!(op, husk_ast::UnaryOp::Neg));
+                        if let ExprKind::Literal(lit) = &inner.kind {
+                            assert!(matches!(lit.kind, husk_ast::LiteralKind::Int(1)));
+                        } else {
+                            panic!("expected Literal 1 in unary");
+                        }
+                    } else {
+                        panic!("expected Unary expression in cast, got {:?}", expr.kind);
+                    }
+                    if let husk_ast::TypeExprKind::Named(ident) = &target_ty.kind {
+                        assert_eq!(ident.name, "f64");
+                    } else {
+                        panic!("expected type f64");
+                    }
+                } else {
+                    panic!("expected Cast expression, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_cast_with_call_precedence() {
+        // Function calls should have higher precedence than cast, so "foo() as i32" should parse as "(foo()) as i32"
+        let src = r#"fn main() { let x = foo() as i32; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                // Should be: Cast(Call(foo, []), i32)
+                if let ExprKind::Cast { expr, target_ty } = &val.kind {
+                    if let ExprKind::Call { callee, args } = &expr.kind {
+                        if let ExprKind::Ident(ident) = &callee.kind {
+                            assert_eq!(ident.name, "foo");
+                        } else {
+                            panic!("expected Ident foo as callee");
+                        }
+                        assert!(args.is_empty());
+                    } else {
+                        panic!("expected Call expression in cast, got {:?}", expr.kind);
+                    }
+                    if let husk_ast::TypeExprKind::Named(ident) = &target_ty.kind {
+                        assert_eq!(ident.name, "i32");
+                    } else {
+                        panic!("expected type i32");
+                    }
+                } else {
+                    panic!("expected Cast expression, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_cast_with_index_precedence() {
+        // Indexing should have higher precedence than cast, so "arr[0] as f64" should parse as "(arr[0]) as f64"
+        let src = r#"fn main() { let x = arr[0] as f64; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                // Should be: Cast(Index(arr, 0), f64)
+                if let ExprKind::Cast { expr, target_ty } = &val.kind {
+                    if let ExprKind::Index { base: arr, index } = &expr.kind {
+                        if let ExprKind::Ident(ident) = &arr.kind {
+                            assert_eq!(ident.name, "arr");
+                        } else {
+                            panic!("expected Ident arr");
+                        }
+                        if let ExprKind::Literal(lit) = &index.kind {
+                            assert!(matches!(lit.kind, husk_ast::LiteralKind::Int(0)));
+                        } else {
+                            panic!("expected Literal 0 as index");
+                        }
+                    } else {
+                        panic!("expected Index expression in cast, got {:?}", expr.kind);
+                    }
+                    if let husk_ast::TypeExprKind::Named(ident) = &target_ty.kind {
+                        assert_eq!(ident.name, "f64");
+                    } else {
+                        panic!("expected type f64");
+                    }
+                } else {
+                    panic!("expected Cast expression, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
 }
