@@ -35,8 +35,11 @@ extern "js" {
 // These are available in the runtime preamble and panic on failure.
 // Note: assert_eq and assert_ne use JsValue to accept any type.
 extern "js" {
-    /// Asserts that a condition is true. Panics with an optional message if false.
+    /// Asserts that a condition is true. Panics if false.
     fn assert(condition: bool);
+
+    /// Asserts that a condition is true. Panics with the given message if false.
+    fn assert_msg(condition: bool, message: String);
 
     /// Asserts that two values are equal. Panics with a detailed message if not.
     fn assert_eq(left: JsValue, right: JsValue);

@@ -359,6 +359,13 @@ function assert(condition, message) {
     }
 }
 
+// Assert with message - panics with the given message if condition is false
+function assert_msg(condition, message) {
+    if (!condition) {
+        throw new Error("[Husk assertion] assertion failed: " + message);
+    }
+}
+
 // Assert equality - panics with detailed message if values are not equal
 function assert_eq(left, right, message) {
     if (!__husk_eq(left, right)) {
