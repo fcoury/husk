@@ -353,6 +353,11 @@ pub enum StmtKind {
         cond: Expr,
         body: Block,
     },
+    /// Infinite loop: `loop { body }`
+    /// Can only be exited via `break` or `return`.
+    Loop {
+        body: Block,
+    },
     /// For-in loop: `for item in collection { body }`
     ForIn {
         binding: Ident,

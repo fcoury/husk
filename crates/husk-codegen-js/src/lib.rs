@@ -249,6 +249,12 @@ pub enum JsStmt {
         op: JsAssignOp,
         value: JsExpr,
     },
+    /// `while (cond) { body }`
+    While { cond: JsExpr, body: Vec<JsStmt> },
+    /// `break;`
+    Break,
+    /// `continue;`
+    Continue,
 }
 
 /// Assignment operators in JS.
@@ -1061,10 +1067,24 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 }
             }
         }
-        // While/Break/Continue not yet supported in codegen.
-        StmtKind::While { .. } | StmtKind::Break | StmtKind::Continue => {
-            JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
+        StmtKind::While { cond, body } => {
+            let js_cond = lower_expr(cond, ctx);
+            let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+            JsStmt::While {
+                cond: js_cond,
+                body: js_body,
+            }
         }
+        StmtKind::Loop { body } => {
+            // loop { ... } becomes while(true) { ... }
+            let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+            JsStmt::While {
+                cond: JsExpr::Bool(true),
+                body: js_body,
+            }
+        }
+        StmtKind::Break => JsStmt::Break,
+        StmtKind::Continue => JsStmt::Continue,
         StmtKind::Assign { target, op, value } => {
             let js_op = match op {
                 husk_ast::AssignOp::Assign => JsAssignOp::Assign,
@@ -2250,6 +2270,26 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             });
             write_expr(value, out);
             out.push(';');
+        }
+        JsStmt::While { cond, body } => {
+            indent(indent_level, out);
+            out.push_str("while (");
+            write_expr(cond, out);
+            out.push_str(") {\n");
+            for s in body {
+                write_stmt(s, indent_level + 1, out);
+                out.push('\n');
+            }
+            indent(indent_level, out);
+            out.push('}');
+        }
+        JsStmt::Break => {
+            indent(indent_level, out);
+            out.push_str("break;");
+        }
+        JsStmt::Continue => {
+            indent(indent_level, out);
+            out.push_str("continue;");
         }
     }
 }
