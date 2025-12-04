@@ -262,7 +262,7 @@ impl<'a> Formatter<'a> {
     fn format_fn(
         &mut self,
         name: &Ident,
-        type_params: &[Ident],
+        type_params: &[TypeParam],
         params: &[Param],
         ret_type: &Option<TypeExpr>,
         body: &[Stmt],
@@ -275,14 +275,24 @@ impl<'a> Formatter<'a> {
         self.write("fn ");
         self.write(&name.name);
 
-        // Type parameters
+        // Type parameters with optional bounds
         if !type_params.is_empty() {
             self.write("<");
             for (i, tp) in type_params.iter().enumerate() {
                 if i > 0 {
                     self.write(", ");
                 }
-                self.write(&tp.name);
+                self.write(&tp.name.name);
+                // Format trait bounds: `T: Foo + Bar`
+                if !tp.bounds.is_empty() {
+                    self.write(": ");
+                    for (j, bound) in tp.bounds.iter().enumerate() {
+                        if j > 0 {
+                            self.write(" + ");
+                        }
+                        self.format_type(bound);
+                    }
+                }
             }
             self.write(">");
         }
@@ -621,6 +631,17 @@ impl<'a> Formatter<'a> {
                 }
             }
             self.write(">");
+        }
+
+        // Format supertraits: `trait Eq: PartialEq + Clone`
+        if !trait_def.supertraits.is_empty() {
+            self.write(": ");
+            for (i, supertrait) in trait_def.supertraits.iter().enumerate() {
+                if i > 0 {
+                    self.write(" + ");
+                }
+                self.format_type(supertrait);
+            }
         }
 
         self.write(" {");

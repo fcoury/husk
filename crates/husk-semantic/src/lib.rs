@@ -251,12 +251,49 @@ struct EnumDef {
     variants: Vec<VariantDef>,
 }
 
+/// Information about a type parameter with optional trait bounds.
+#[derive(Debug, Clone, PartialEq)]
+struct TypeParamInfo {
+    name: String,
+    /// Trait bounds on this type parameter (e.g., `T: PartialEq + Clone`)
+    bounds: Vec<String>,
+}
+
 /// Information about a function type.
 #[derive(Debug, Clone)]
 struct FnDef {
-    type_params: Vec<String>,
+    type_params: Vec<TypeParamInfo>,
     params: Vec<Param>,
     ret_type: Option<TypeExpr>,
+}
+
+impl FnDef {
+    /// Get just the type parameter names (for use in type resolution).
+    fn type_param_names(&self) -> Vec<String> {
+        self.type_params.iter().map(|tp| tp.name.clone()).collect()
+    }
+}
+
+/// Convert an AST TypeParam to a TypeParamInfo.
+fn type_param_to_info(tp: &husk_ast::TypeParam) -> TypeParamInfo {
+    TypeParamInfo {
+        name: tp.name.name.clone(),
+        bounds: tp.bounds.iter().map(type_expr_to_trait_name).collect(),
+    }
+}
+
+/// Extract the trait name from a TypeExpr (for bounds).
+fn type_expr_to_trait_name(ty: &husk_ast::TypeExpr) -> String {
+    use husk_ast::TypeExprKind;
+    match &ty.kind {
+        TypeExprKind::Named(name) => name.name.clone(),
+        TypeExprKind::Generic { name, args } => {
+            let arg_strs: Vec<String> = args.iter().map(type_expr_to_trait_name).collect();
+            format!("{}<{}>", name.name, arg_strs.join(", "))
+        }
+        TypeExprKind::Function { .. } => "Fn".to_string(), // Simplified
+        TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_trait_name(elem)),
+    }
 }
 
 /// Information about an imported JS module.
@@ -277,6 +314,8 @@ struct ModuleDef {
 struct TraitInfo {
     #[allow(dead_code)]
     type_params: Vec<String>,
+    /// Supertraits that this trait requires (e.g., `Eq: PartialEq`)
+    supertraits: Vec<String>,
     /// Method signatures: name -> (params, return type)
     methods: HashMap<String, MethodSig>,
 }
@@ -346,6 +385,65 @@ struct TypeEnv {
     impls: Vec<ImplInfo>,
     /// Static/global variables (from `static name: Type;` in extern blocks)
     statics: HashMap<String, TypeExpr>,
+}
+
+impl TypeEnv {
+    /// Check if a type implements a trait (directly or through supertrait requirements).
+    ///
+    /// This performs the following checks:
+    /// 1. Looks for a direct `impl Trait for Type` block
+    /// 2. For supertraits, checks if all required supertraits are also implemented
+    ///
+    /// Returns true if the type implements the trait (including via supertrait satisfaction).
+    fn type_implements_trait(&self, type_name: &str, trait_name: &str) -> bool {
+        // Check for direct trait implementation
+        for impl_info in &self.impls {
+            if impl_info.self_ty_name == type_name {
+                if let Some(ref impl_trait) = impl_info.trait_name {
+                    if impl_trait == trait_name {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if a type satisfies all trait bounds for a trait (including supertraits).
+    ///
+    /// For example, if Eq: PartialEq, implementing Eq requires also implementing PartialEq.
+    fn type_satisfies_trait_bounds(&self, type_name: &str, trait_name: &str) -> bool {
+        // First check if the type implements the trait directly
+        if !self.type_implements_trait(type_name, trait_name) {
+            return false;
+        }
+
+        // Then check that all supertraits are also implemented
+        if let Some(trait_info) = self.traits.get(trait_name) {
+            for supertrait in &trait_info.supertraits {
+                if !self.type_implements_trait(type_name, supertrait) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Get the list of missing supertrait implementations for a type implementing a trait.
+    ///
+    /// Returns a list of (supertrait_name) that are required but not implemented.
+    fn missing_supertraits(&self, type_name: &str, trait_name: &str) -> Vec<String> {
+        let mut missing = Vec::new();
+        if let Some(trait_info) = self.traits.get(trait_name) {
+            for supertrait in &trait_info.supertraits {
+                if !self.type_implements_trait(type_name, supertrait) {
+                    missing.push(supertrait.clone());
+                }
+            }
+        }
+        missing
+    }
 }
 
 /// Extract a simple type name from a TypeExpr (for impl/trait lookups).
@@ -419,7 +517,7 @@ impl TypeChecker {
                     ..
                 } => {
                     let def = FnDef {
-                        type_params: type_params.iter().map(|id| id.name.clone()).collect(),
+                        type_params: type_params.iter().map(type_param_to_info).collect(),
                         params: params.clone(),
                         ret_type: ret_type.clone(),
                     };
@@ -535,6 +633,11 @@ impl TypeChecker {
                             .iter()
                             .map(|p| p.name.name.clone())
                             .collect(),
+                        supertraits: trait_def
+                            .supertraits
+                            .iter()
+                            .map(type_expr_to_name)
+                            .collect(),
                         methods,
                     };
                     self.env.traits.insert(trait_def.name.name.clone(), info);
@@ -581,8 +684,11 @@ impl TypeChecker {
         }
     }
 
-    /// Verify that all trait implementations provide required methods.
+    /// Verify that all trait implementations provide required methods and supertraits.
     fn verify_trait_impls(&mut self) {
+        // Collect supertrait errors separately to avoid borrow issues
+        let mut supertrait_errors: Vec<(String, String, Vec<String>, Span)> = Vec::new();
+
         for impl_info in &self.env.impls {
             // Only check trait impls (skip inherent impls)
             let Some(trait_name) = &impl_info.trait_name else {
@@ -606,6 +712,33 @@ impl TypeChecker {
                     });
                 }
             }
+
+            // Check that all supertraits are also implemented
+            // For example, `impl Eq for Foo` requires `impl PartialEq for Foo`
+            let missing = self.env.missing_supertraits(&impl_info.self_ty_name, trait_name);
+            if !missing.is_empty() {
+                supertrait_errors.push((
+                    trait_name.clone(),
+                    impl_info.self_ty_name.clone(),
+                    missing,
+                    impl_info.span.clone(),
+                ));
+            }
+        }
+
+        // Report supertrait errors
+        for (trait_name, type_name, missing, span) in supertrait_errors {
+            let missing_list = missing.join("`, `");
+            self.errors.push(SemanticError {
+                message: format!(
+                    "the trait bound `{}: {}` is not satisfied: missing implementation of supertrait{} `{}`",
+                    type_name,
+                    trait_name,
+                    if missing.len() > 1 { "s" } else { "" },
+                    missing_list
+                ),
+                span,
+            });
         }
     }
 
@@ -633,7 +766,7 @@ impl TypeChecker {
     fn check_fn(
         &mut self,
         name: &Ident,
-        type_params: &[Ident],
+        type_params: &[husk_ast::TypeParam],
         params: &[Param],
         ret_type_expr: Option<&TypeExpr>,
         body: &[Stmt],
@@ -642,7 +775,7 @@ impl TypeChecker {
         // Convert type_params to Vec<String> for resolve_type_expr
         let generic_params: Vec<String> = type_params
             .iter()
-            .map(|id| id.name.clone())
+            .map(|tp| tp.name.name.clone())
             .collect();
 
         let ret_ty = if let Some(ty_expr) = ret_type_expr {
@@ -1309,13 +1442,14 @@ impl<'a> FnContext<'a> {
                 // Try top-level function.
                 if let Some(fn_def) = self.tcx.env.functions.get(&id.name).cloned() {
                     // Pass the function's type params so generic types like T are recognized
+                    let type_param_names = fn_def.type_param_names();
                     let param_types: Vec<Type> = fn_def
                         .params
                         .iter()
-                        .map(|p| self.tcx.resolve_type_expr(&p.ty, &fn_def.type_params))
+                        .map(|p| self.tcx.resolve_type_expr(&p.ty, &type_param_names))
                         .collect();
                     let ret_ty = if let Some(ret_expr) = fn_def.ret_type.as_ref() {
-                        self.tcx.resolve_type_expr(ret_expr, &fn_def.type_params)
+                        self.tcx.resolve_type_expr(ret_expr, &type_param_names)
                     } else {
                         Type::Primitive(PrimitiveType::Unit)
                     };
@@ -1417,9 +1551,9 @@ impl<'a> FnContext<'a> {
 
                 // Collect type substitutions for generic functions
                 let mut substitutions = std::collections::HashMap::new();
-                let type_params = fn_def.as_ref()
-                    .map(|d| d.type_params.as_slice())
-                    .unwrap_or(&[]);
+                let type_param_names: Vec<String> = fn_def.as_ref()
+                    .map(|d| d.type_param_names())
+                    .unwrap_or_default();
 
                 // Type-check arguments with expected types for closure inference
                 // (skip for module calls since we don't know the signature)
@@ -1431,7 +1565,7 @@ impl<'a> FnContext<'a> {
 
                         // Collect substitutions for generic type parameters
                         if let Some(param_ty) = expected {
-                            self.unify_types(param_ty, &arg_ty, type_params, &mut substitutions);
+                            self.unify_types(param_ty, &arg_ty, &type_param_names, &mut substitutions);
                         }
 
                         // For generic functions, we skip strict type checking since types
@@ -1440,7 +1574,7 @@ impl<'a> FnContext<'a> {
                             // Only check compatibility for non-generic parameter types
                             let is_generic_param = match expected {
                                 Type::Named { name, args } if args.is_empty() => {
-                                    type_params.contains(name)
+                                    type_param_names.contains(name)
                                 }
                                 _ => false,
                             };
@@ -1462,8 +1596,60 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
+                // Verify trait bounds for generic type parameters
+                if let Some(ref fn_def) = fn_def {
+                    for type_param in &fn_def.type_params {
+                        if !type_param.bounds.is_empty() {
+                            // Get the substituted type for this type parameter
+                            if let Some(concrete_type) = substitutions.get(&type_param.name) {
+                                // Extract the type name for trait lookup
+                                let concrete_type_name = self.type_to_name(concrete_type);
+
+                                // Check each trait bound
+                                for bound in &type_param.bounds {
+                                    if !self.tcx.env.type_implements_trait(&concrete_type_name, bound) {
+                                        self.tcx.errors.push(SemanticError {
+                                            message: format!(
+                                                "the trait bound `{}: {}` is not satisfied",
+                                                concrete_type_name, bound
+                                            ),
+                                            span: expr.span.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Special handling for assert_eq and assert_ne: enforce PartialEq on arguments
+                // These are extern "js" functions that accept JsValue, but semantically we want
+                // to require PartialEq on the types being compared.
+                if let Some(ref name) = fn_name {
+                    if name == "assert_eq" || name == "assert_ne" {
+                        // Check first two arguments for PartialEq
+                        for (i, arg) in args.iter().take(2).enumerate() {
+                            let arg_ty = self.check_expr(arg);
+                            let arg_type_name = self.type_to_name(&arg_ty);
+
+                            // Skip if type is JsValue or an extern type (already opaque)
+                            if arg_type_name != "JsValue" && !arg_type_name.starts_with('?') {
+                                if !self.tcx.env.type_implements_trait(&arg_type_name, "PartialEq") {
+                                    self.tcx.errors.push(SemanticError {
+                                        message: format!(
+                                            "the trait bound `{}: PartialEq` is not satisfied",
+                                            arg_type_name
+                                        ),
+                                        span: args.get(i).map(|a| a.span.clone()).unwrap_or_else(|| expr.span.clone()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Apply substitutions to the return type for generic functions
-                if !type_params.is_empty() {
+                if !type_param_names.is_empty() {
                     self.apply_substitutions(&ret_ty, &substitutions)
                 } else {
                     ret_ty
@@ -2262,6 +2448,33 @@ impl<'a> FnContext<'a> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("fn({}) -> {}", params_str, self.format_type(ret))
+            }
+            Type::Var(id) => format!("?{}", id.0),
+        }
+    }
+
+    /// Convert a Type to a string name for trait lookup.
+    fn type_to_name(&self, ty: &Type) -> String {
+        match ty {
+            Type::Named { name, args } => {
+                if args.is_empty() {
+                    name.clone()
+                } else {
+                    let arg_strs: Vec<String> = args.iter().map(|a| self.type_to_name(a)).collect();
+                    format!("{}<{}>", name, arg_strs.join(", "))
+                }
+            }
+            Type::Primitive(prim) => match prim {
+                PrimitiveType::I32 => "i32".to_string(),
+                PrimitiveType::F64 => "f64".to_string(),
+                PrimitiveType::Bool => "bool".to_string(),
+                PrimitiveType::String => "String".to_string(),
+                PrimitiveType::Unit => "()".to_string(),
+            },
+            Type::Array(elem) => format!("[{}]", self.type_to_name(elem)),
+            Type::Function { params, ret } => {
+                let param_strs: Vec<String> = params.iter().map(|p| self.type_to_name(p)).collect();
+                format!("fn({}) -> {}", param_strs.join(", "), self.type_to_name(ret))
             }
             Type::Var(id) => format!("?{}", id.0),
         }
@@ -3415,6 +3628,172 @@ fn process(s: String) -> String {
             found_shadowed_binding,
             "expected shadowed variable 's' to be renamed to 's$N', but name_resolution only has: {:?}",
             result.name_resolution
+        );
+    }
+
+    // ========== Trait Bound Tests ==========
+
+    #[test]
+    fn supertrait_parsing() {
+        // Test that trait Eq: PartialEq parses correctly
+        let src = r#"
+trait PartialEq {}
+trait Eq: PartialEq {}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn trait_impl_requires_supertrait() {
+        // Implementing Eq without PartialEq should error
+        let src = r#"
+trait PartialEq {}
+trait Eq: PartialEq {}
+
+struct Foo {}
+
+impl Eq for Foo {}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("missing implementation of supertrait") && e.message.contains("PartialEq")),
+            "expected supertrait error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn trait_impl_with_supertrait_satisfied() {
+        // Implementing both PartialEq and Eq should succeed
+        let src = r#"
+trait PartialEq {}
+trait Eq: PartialEq {}
+
+struct Foo {}
+
+impl PartialEq for Foo {}
+impl Eq for Foo {}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn function_with_trait_bound_parses() {
+        // Test that function with trait bound parses correctly
+        let src = r#"
+trait PartialEq {}
+
+fn compare<T: PartialEq>(a: T, b: T) -> bool {
+    true
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn function_call_with_trait_bound_satisfied() {
+        // Calling a generic function with a type that implements the bound should succeed
+        let src = r#"
+trait PartialEq {}
+
+impl PartialEq for i32 {}
+
+fn compare<T: PartialEq>(a: T, b: T) -> bool {
+    true
+}
+
+fn main() {
+    let x = compare(1, 2);
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn function_call_with_trait_bound_not_satisfied() {
+        // Calling a generic function with a type that doesn't implement the bound should error
+        let src = r#"
+trait PartialEq {}
+
+struct NoEq {}
+
+fn compare<T: PartialEq>(a: T, b: T) -> bool {
+    true
+}
+
+fn main() {
+    let x = NoEq {};
+    let y = NoEq {};
+    let z = compare(x, y);
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("NoEq: PartialEq") && e.message.contains("not satisfied")),
+            "expected trait bound error, got: {:?}",
+            result.type_errors
         );
     }
 }

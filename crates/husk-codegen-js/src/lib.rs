@@ -9,7 +9,7 @@
 use husk_ast::{
     EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec, Ident,
     ImplItemKind, ItemKind, LiteralKind, Param, Span, Stmt, StmtKind, StructField, TypeExpr,
-    TypeExprKind,
+    TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::NameResolution;
@@ -2528,7 +2528,7 @@ pub fn file_to_dts(file: &File) -> String {
 fn write_struct_dts(name: &Ident, type_params: &[Ident], fields: &[StructField], out: &mut String) {
     out.push_str("export interface ");
     out.push_str(&name.name);
-    write_type_params(type_params, out);
+    write_simple_type_params(type_params, out);
     out.push_str(" {\n");
     for field in fields {
         out.push_str("    ");
@@ -2548,7 +2548,7 @@ fn write_enum_dts(
 ) {
     out.push_str("export type ");
     out.push_str(&name.name);
-    write_type_params(type_params, out);
+    write_simple_type_params(type_params, out);
     out.push_str(" =\n");
 
     for (i, variant) in variants.iter().enumerate() {
@@ -2592,7 +2592,7 @@ fn write_enum_dts(
 
 fn write_fn_dts(
     name: &Ident,
-    type_params: &[Ident],
+    type_params: &[TypeParam],
     params: &[Param],
     ret_type: Option<&TypeExpr>,
     out: &mut String,
@@ -2619,7 +2619,31 @@ fn write_fn_dts(
     out.push_str(";\n");
 }
 
-fn write_type_params(type_params: &[Ident], out: &mut String) {
+fn write_type_params(type_params: &[TypeParam], out: &mut String) {
+    if !type_params.is_empty() {
+        out.push('<');
+        for (i, tp) in type_params.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&tp.name.name);
+            // Write trait bounds if present (for TypeScript, we use `extends`)
+            if !tp.bounds.is_empty() {
+                out.push_str(" extends ");
+                for (j, bound) in tp.bounds.iter().enumerate() {
+                    if j > 0 {
+                        out.push_str(" & ");
+                    }
+                    write_type_expr(bound, out);
+                }
+            }
+        }
+        out.push('>');
+    }
+}
+
+/// Write type params for structs/enums (which use Ident, not TypeParam)
+fn write_simple_type_params(type_params: &[Ident], out: &mut String) {
     if !type_params.is_empty() {
         out.push('<');
         for (i, tp) in type_params.iter().enumerate() {

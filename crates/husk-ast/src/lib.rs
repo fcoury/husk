@@ -411,7 +411,7 @@ pub struct ClosureParam {
 pub enum ItemKind {
     Fn {
         name: Ident,
-        type_params: Vec<Ident>,
+        type_params: Vec<TypeParam>,
         params: Vec<Param>,
         ret_type: Option<TypeExpr>,
         body: Vec<Stmt>,
@@ -448,11 +448,13 @@ pub enum ItemKind {
 // Trait and Impl AST Nodes
 // ============================================================================
 
-/// A trait definition: `trait Name { fn method(&self); }`
+/// A trait definition: `trait Name: SuperTrait { fn method(&self); }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitDef {
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
+    /// Supertraits that this trait requires (e.g., `Eq: PartialEq` means PartialEq is a supertrait)
+    pub supertraits: Vec<TypeExpr>,
     pub items: Vec<TraitItem>,
     pub span: Span,
 }
