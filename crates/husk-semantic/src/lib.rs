@@ -2300,7 +2300,7 @@ impl<'a> FnContext<'a> {
                         Type::Primitive(PrimitiveType::F64),
                     ) => true,
 
-                    // Anything to String
+                    // Primitives to String
                     (
                         Type::Primitive(PrimitiveType::I32),
                         Type::Primitive(PrimitiveType::String),
@@ -2314,8 +2314,14 @@ impl<'a> FnContext<'a> {
                         Type::Primitive(PrimitiveType::String),
                     ) => true,
 
-                    // Same type (no-op, but allowed)
-                    (a, b) if a == b => true,
+                    // Same type (no-op, but allowed) - exclude bool since codegen
+                    // doesn't support casting to bool
+                    (a, b)
+                        if a == b
+                            && !matches!(b, Type::Primitive(PrimitiveType::Bool)) =>
+                    {
+                        true
+                    }
 
                     _ => false,
                 };
