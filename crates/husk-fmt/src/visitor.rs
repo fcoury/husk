@@ -1172,18 +1172,30 @@ impl<'a> Formatter<'a> {
                     self.write("print(");
                 }
                 self.format_format_string(format);
-                for arg in args {
-                    self.write(", ");
-                    self.format_expr(arg);
+
+                // Only output args for non-named placeholders
+                // Named placeholders (e.g., {res}) reference variables in scope
+                // and don't need explicit arguments in the source code
+                let named_positions = self.collect_named_placeholder_positions(&format.segments);
+                for (i, arg) in args.iter().enumerate() {
+                    if !named_positions.contains(&i) {
+                        self.write(", ");
+                        self.format_expr(arg);
+                    }
                 }
                 self.write(")");
             }
             ExprKind::Format { format, args } => {
                 self.write("format(");
                 self.format_format_string(format);
-                for arg in args {
-                    self.write(", ");
-                    self.format_expr(arg);
+
+                // Only output args for non-named placeholders
+                let named_positions = self.collect_named_placeholder_positions(&format.segments);
+                for (i, arg) in args.iter().enumerate() {
+                    if !named_positions.contains(&i) {
+                        self.write(", ");
+                        self.format_expr(arg);
+                    }
                 }
                 self.write(")");
             }
@@ -1283,11 +1295,12 @@ impl<'a> Formatter<'a> {
                 }
                 FormatSegment::Placeholder(placeholder) => {
                     self.write("{");
-                    if let Some(pos) = placeholder.position {
-                        self.write(&pos.to_string());
-                    }
+                    // Prefer name over position when both are present
+                    // (position is assigned internally by parser for named placeholders)
                     if let Some(name) = &placeholder.name {
                         self.write(name);
+                    } else if let Some(pos) = placeholder.position {
+                        self.write(&pos.to_string());
                     }
                     // Format spec
                     let spec = &placeholder.spec;
@@ -1378,6 +1391,26 @@ impl<'a> Formatter<'a> {
                 self.write(" }");
             }
         }
+    }
+
+    /// Collect the argument positions that correspond to named placeholders.
+    /// These args should not be output when formatting, as named placeholders
+    /// reference variables in scope without explicit arguments.
+    fn collect_named_placeholder_positions(&self, segments: &[FormatSegment]) -> std::collections::HashSet<usize> {
+        use std::collections::HashSet;
+
+        let mut positions = HashSet::new();
+        for segment in segments {
+            if let FormatSegment::Placeholder(ph) = segment {
+                if ph.name.is_some() {
+                    // Named placeholders have their position assigned by the parser
+                    if let Some(pos) = ph.position {
+                        positions.insert(pos);
+                    }
+                }
+            }
+        }
+        positions
     }
 
     fn write(&mut self, s: &str) {

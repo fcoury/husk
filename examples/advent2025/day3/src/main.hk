@@ -5,33 +5,67 @@ extern "js" {
 }
 
 fn main() {
-    let banks = include_str("input.txt").trim().split("\n");
+    let banks = include_str("input-test.txt").trim().split("\n");
 
     let total = 0;
     for bank in banks {
-        let largest = find_largest(bank);
-        println("bank: {}", largest);
+        let largest = find_largest(bank, 12);
         total += largest;
     }
 
     println("{}", total);
 }
 
-fn find_largest(s: String) -> i32 {
-    let bank = s.trim();
+fn find_largest(s: String, len: i32) -> i32 {
+    let res = "";
+    for n in 0..len {
+        let s = s.substring(n);
+        res += format("{}", find_largest_with_len(s, len));
+    }
+    res
+}
 
-    println("Processing bank: {}", bank);
-    let jolts = s.split("");
-
+fn find_largest_with_len(str: String, len: i32) -> i32 {
     let max = 0;
-    for i in 0..jolts.length {
-        let first = jolts[i];
-        for j in i+1..jolts.length {
-            let second = jolts[j];
-            let val = parseInt(format("{}{}", first, second));
-            max = Math.max(max, val);
-        }
+    for n in 0..str.length - len {
+        // BUG: we don't specify charAt returns String, verification pass don't work
+        let c = str.charAt(n);
+        let c = format("{}", c);
+        let v = parseInt(c);
+        max = Math.max(max, v);
     }
 
     max
+}
+
+#[cfg(test)]
+#[test]
+fn test_find_largest() {
+    let s = "818181911112111";
+    let res = find_largest(s, 12);
+    println("Res: {res}");
+    assert(res == 888911112111);
+}
+
+#[cfg(test)]
+#[test]
+fn test_find_largest_with_len() {
+    let s = "818181911112111";
+    // 818181911112111
+    // we check 0 = 8 (remaining len = 14)
+    // we check 1 = 1 (remaining len = 13)
+    // we check 2 = 8 (remaining len = 12)
+    // we check 3 = 1 (remaining len = 11), stop
+    // largest = 8
+    let result = find_largest_with_len(s, 12);
+    assert_msg(result == 8, "first");
+    let s = s.substring(1); // 18181911112111
+    let result = find_largest_with_len(s, 11);
+    assert_msg(result == 8, "second");
+    let s = s.substring(1); // 8181911112111
+    let result = find_largest_with_len(s, 10);
+    assert_msg(result == 8, "third");
+    let s = s.substring(1); // 181911112111
+    let result = find_largest_with_len(s, 9);
+    assert_msg(result == 9, format("expected 9 but got {result}"));
 }

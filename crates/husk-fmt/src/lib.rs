@@ -249,4 +249,20 @@ pub struct User {
         assert!(result.contains("let x = 1;"), "Expected 'let x = 1;' in output. Got:\n{}", result);
         assert!(result.contains("if x > 0"), "Expected 'if x > 0' in output. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_format_named_placeholders() {
+        // Regression test: named placeholders like {res} were being formatted as {0res}
+        // because the formatter was writing both position and name when both were set
+        let source = r#"fn test_find_largest() {
+    let s = "818181911112111";
+    let res = find_largest(s, 12);
+    println("Res: {res}");
+    assert(res == 888911112111);
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains(r#"println("Res: {res}");"#), "Named placeholder should be preserved as {{res}}, not {{0res}}. Got:\n{}", result);
+        // Should NOT contain the malformed {0res} pattern
+        assert!(!result.contains("{0res}"), "Should not contain malformed {{0res}}. Got:\n{}", result);
+    }
 }
