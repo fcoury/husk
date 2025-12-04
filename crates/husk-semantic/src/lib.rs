@@ -668,8 +668,10 @@ impl TypeChecker {
                 });
             }
             // Register parameter in name resolution (no shadowing for params)
+            // Set shadow_counts to 1 because the parameter uses slot 0 (plain name).
+            // Next shadowing will get name$1.
             let resolved = param.name.name.clone();
-            shadow_counts.insert(param.name.name.clone(), 0);
+            shadow_counts.insert(param.name.name.clone(), 1);
             resolved_names.insert(param.name.name.clone(), resolved.clone());
             self.name_resolution.insert(
                 (param.name.span.range.start, param.name.span.range.end),
@@ -1567,6 +1569,7 @@ impl<'a> FnContext<'a> {
                             "len" => return Type::Primitive(PrimitiveType::I32),
                             "char_at" => return Type::Primitive(PrimitiveType::String),
                             "slice" => return Type::Primitive(PrimitiveType::String),
+                            "substring" => return Type::Primitive(PrimitiveType::String),
                             _ => {}
                         }
                     }
@@ -3346,6 +3349,72 @@ fn main() {
             result.type_errors.is_empty(),
             "unexpected type errors: {:?}",
             result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_substring_returns_string() {
+        // substring should be typed as returning String
+        let src = r#"
+fn test(s: String) -> String {
+    s.substring(0)
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for String.substring(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn shadow_param_in_loop_generates_unique_names() {
+        // When shadowing a function parameter inside a loop with `let s = s.something()`,
+        // the new variable should get a unique name (s$1) while the RHS reference
+        // should still use the original parameter name (s).
+        let src = r#"
+fn process(s: String) -> String {
+    for n in 0..3 {
+        let s = s.substring(n);
+    }
+    s
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors, got: {:?}",
+            result.type_errors
+        );
+
+        // Check that name resolution produces different names for LHS and RHS
+        // The new `s` binding (LHS) should be renamed to avoid JS "cannot access before init" error
+        let mut found_shadowed_binding = false;
+        for ((_start, _end), resolved_name) in &result.name_resolution {
+            if resolved_name.starts_with("s$") {
+                found_shadowed_binding = true;
+                break;
+            }
+        }
+        assert!(
+            found_shadowed_binding,
+            "expected shadowed variable 's' to be renamed to 's$N', but name_resolution only has: {:?}",
+            result.name_resolution
         );
     }
 }
