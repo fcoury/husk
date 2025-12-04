@@ -3932,4 +3932,42 @@ impl Middle for Foo {}
             result.type_errors
         );
     }
+
+    #[test]
+    fn generic_type_matches_base_type_impl() {
+        // A generic struct with trait impl should satisfy bounds when instantiated
+        // e.g., Vec<i32> should match impl PartialEq for Vec
+        let src = r#"
+trait PartialEq {}
+
+struct Container<T> {
+    value: T,
+}
+
+impl PartialEq for Container {}
+
+fn compare<T: PartialEq>(a: T, b: T) -> bool {
+    true
+}
+
+fn main() {
+    let c1 = Container { value: 42 };
+    let c2 = Container { value: 43 };
+    let result = compare(c1, c2);
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no errors for generic type with base impl, got: {:?}",
+            result.type_errors
+        );
+    }
 }
