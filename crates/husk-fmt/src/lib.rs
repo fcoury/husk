@@ -177,4 +177,36 @@ pub struct User {
         assert!(result.contains("// if comment"), "If block comment lost. Got:\n{}", result);
         assert!(result.contains("// outer comment"), "Outer comment lost. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_string_escape_sequences_preserved() {
+        // Regression test: escape sequences in strings were being converted to literal characters
+        // e.g., \n became an actual newline instead of staying as \n
+        let source = r#"fn main() {
+    let s = "hello\nworld";
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains(r#""hello\nworld""#),
+            "Escape sequence \\n should be preserved as \\n, not converted to literal newline. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_string_escape_sequences_all_types() {
+        let source = r#"fn main() {
+    let a = "\n";
+    let b = "\t";
+    let c = "\r";
+    let d = "\\";
+    let e = "\"";
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains(r#""\n""#), "\\n not preserved. Got:\n{}", result);
+        assert!(result.contains(r#""\t""#), "\\t not preserved. Got:\n{}", result);
+        assert!(result.contains(r#""\r""#), "\\r not preserved. Got:\n{}", result);
+        assert!(result.contains(r#""\\""#), "\\\\ not preserved. Got:\n{}", result);
+        assert!(result.contains(r#""\"""#), "\\\" not preserved. Got:\n{}", result);
+    }
 }

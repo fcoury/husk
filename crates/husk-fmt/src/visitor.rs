@@ -6,6 +6,24 @@ use husk_lexer::Trivia;
 use crate::config::FormatConfig;
 use crate::trivia_map::TriviaMap;
 
+/// Escape special characters in a string for output.
+/// Converts newlines, tabs, etc. back to their escape sequences.
+fn escape_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\n' => result.push_str("\\n"),
+            '\t' => result.push_str("\\t"),
+            '\r' => result.push_str("\\r"),
+            '\0' => result.push_str("\\0"),
+            '\\' => result.push_str("\\\\"),
+            '"' => result.push_str("\\\""),
+            c => result.push(c),
+        }
+    }
+    result
+}
+
 /// Formatter visitor that walks the AST and produces formatted output.
 pub struct Formatter<'a> {
     config: &'a FormatConfig,
@@ -1009,7 +1027,7 @@ impl<'a> Formatter<'a> {
                     LiteralKind::Bool(b) => self.write(if *b { "true" } else { "false" }),
                     LiteralKind::String(s) => {
                         self.write("\"");
-                        self.write(s);
+                        self.write(&escape_string(s));
                         self.write("\"");
                     }
                 }
