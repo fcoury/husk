@@ -200,6 +200,11 @@ pub enum ExprKind {
         /// The raw JavaScript code (content between braces, trimmed)
         code: String,
     },
+    /// Type cast expression: `expr as Type`
+    Cast {
+        expr: Box<Expr>,
+        target_ty: TypeExpr,
+    },
 }
 
 // ============================================================================

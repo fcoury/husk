@@ -1509,6 +1509,55 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Emit raw JavaScript code wrapped in parentheses for safe precedence
             JsExpr::Raw(format!("({})", code))
         }
+        ExprKind::Cast {
+            expr: inner,
+            target_ty,
+        } => {
+            let js_inner = lower_expr(inner, ctx);
+
+            // Generate JavaScript conversion based on target type
+            match &target_ty.kind {
+                TypeExprKind::Named(ident) => match ident.name.as_str() {
+                    "i32" => {
+                        // f64/bool → i32: truncate and convert to 32-bit signed integer
+                        // Math.trunc handles the float→int conversion
+                        // | 0 ensures 32-bit signed integer semantics (handles overflow wrapping)
+                        // We need to emit this as raw JS since JsBinaryOp doesn't have BitOr
+                        let mut inner_str = String::new();
+                        write_expr(&js_inner, &mut inner_str);
+                        JsExpr::Raw(format!("(Math.trunc({}) | 0)", inner_str))
+                    }
+                    "f64" => {
+                        // i32/bool → f64: Use Number() to ensure boolean becomes numeric
+                        // While i32 → f64 is a no-op, bool → f64 needs explicit conversion
+                        // to get 0.0/1.0 instead of false/true
+                        JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("Number".to_string())),
+                            args: vec![js_inner],
+                        }
+                    }
+                    "String" => {
+                        // any → String: use String() constructor
+                        JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("String".to_string())),
+                            args: vec![js_inner],
+                        }
+                    }
+                    "bool" => {
+                        // Should have been caught by semantic analysis
+                        panic!("invalid cast to bool should have been rejected by semantic analysis")
+                    }
+                    _ => {
+                        // Unknown type, pass through (shouldn't happen for valid casts)
+                        js_inner
+                    }
+                },
+                _ => {
+                    // Non-simple type casts not supported, pass through
+                    js_inner
+                }
+            }
+        }
     }
 }
 

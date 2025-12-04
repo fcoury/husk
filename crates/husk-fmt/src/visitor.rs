@@ -1321,6 +1321,11 @@ impl<'a> Formatter<'a> {
                 self.write(code);
                 self.write(" }");
             }
+            ExprKind::Cast { expr, target_ty } => {
+                self.format_expr(expr);
+                self.write(" as ");
+                self.format_type(target_ty);
+            }
         }
     }
 
