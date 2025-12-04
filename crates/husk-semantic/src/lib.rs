@@ -2340,11 +2340,17 @@ impl<'a> FnContext<'a> {
 
                     let message = if let Some(hint) = hint {
                         format!(
-                            "cannot cast `{:?}` to `{:?}`; {}",
-                            inner_ty, target, hint
+                            "cannot cast `{}` to `{}`; {}",
+                            self.format_type(&inner_ty),
+                            self.format_type(&target),
+                            hint
                         )
                     } else {
-                        format!("cannot cast `{:?}` to `{:?}`", inner_ty, target)
+                        format!(
+                            "cannot cast `{}` to `{}`",
+                            self.format_type(&inner_ty),
+                            self.format_type(&target)
+                        )
                     };
 
                     self.tcx.errors.push(SemanticError {
