@@ -8,9 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use husk_ast::{
-    Block, CfgPredicate, ClosureParam, Expr, ExprKind, File, FormatSegment, Ident, Item, ItemKind,
-    LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr,
-    TypeExprKind,
+    Block, CfgPredicate, ClosureParam, EnumVariantFields, Expr, ExprKind, File, FormatSegment,
+    Ident, Item, ItemKind, LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt,
+    StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
@@ -237,11 +237,18 @@ struct StructDef {
     fields: HashMap<String, TypeExpr>,
 }
 
+/// Information about an enum variant.
+#[derive(Debug, Clone)]
+struct VariantDef {
+    name: String,
+    fields: EnumVariantFields,
+}
+
 /// Information about an enum type.
 #[derive(Debug, Clone)]
 struct EnumDef {
     type_params: Vec<String>,
-    variant_names: Vec<String>,
+    variants: Vec<VariantDef>,
 }
 
 /// Information about a function type.
@@ -391,7 +398,13 @@ impl TypeChecker {
                 } => {
                     let def = EnumDef {
                         type_params: type_params.iter().map(|id| id.name.clone()).collect(),
-                        variant_names: variants.iter().map(|v| v.name.name.clone()).collect(),
+                        variants: variants
+                            .iter()
+                            .map(|v| VariantDef {
+                                name: v.name.name.clone(),
+                                fields: v.fields.clone(),
+                            })
+                            .collect(),
                     };
                     self.env.enums.insert(name.name.clone(), def);
                 }
@@ -842,13 +855,15 @@ impl<'a> FnContext<'a> {
     }
 
     fn check_path_expr(&mut self, expr: &Expr, segments: &[Ident]) -> Type {
-        // MVP: treat `Enum::Variant` as a constructor function.
+        // Handle `Enum::Variant` paths.
         if segments.len() >= 2 {
             let enum_name = &segments[0].name;
             let variant_name = &segments[segments.len() - 1].name;
 
             if let Some(def) = self.tcx.env.enums.get(enum_name).cloned() {
-                if !def.variant_names.iter().any(|v| v == variant_name) {
+                let variant = def.variants.iter().find(|v| &v.name == variant_name);
+
+                if variant.is_none() {
                     self.tcx.errors.push(SemanticError {
                         message: format!(
                             "unknown variant `{}` on enum `{}`",
@@ -857,18 +872,37 @@ impl<'a> FnContext<'a> {
                         span: expr.span.clone(),
                     });
                 }
-                // Return a function type that constructs the enum.
-                // For variants like Ok(T) or Err(E), we use a placeholder type parameter.
-                // This allows calling the constructor with any argument.
+
                 let enum_ty = Type::Named {
                     name: enum_name.clone(),
                     args: Vec::new(),
                 };
-                // Use a Named type "T" as a stand-in for any type (MVP approach)
-                return Type::Function {
-                    params: vec![Type::Named { name: "T".to_string(), args: Vec::new() }],
-                    ret: Box::new(enum_ty),
-                };
+
+                // Check variant fields to determine the type:
+                // - Unit variants: return the enum type directly
+                // - Tuple/Struct variants: return a constructor function type
+                match variant.map(|v| &v.fields) {
+                    Some(EnumVariantFields::Unit) | None => {
+                        // Unit variant or unknown variant - return enum type directly
+                        return enum_ty;
+                    }
+                    Some(EnumVariantFields::Tuple(field_types)) => {
+                        // Tuple variant - return function type with field types as params
+                        let params: Vec<Type> = field_types
+                            .iter()
+                            .map(|ty| self.tcx.resolve_type_expr(ty, &def.type_params))
+                            .collect();
+                        return Type::Function {
+                            params,
+                            ret: Box::new(enum_ty),
+                        };
+                    }
+                    Some(EnumVariantFields::Struct(_fields)) => {
+                        // Struct variants are constructed differently (not as function calls)
+                        // For now, return the enum type
+                        return enum_ty;
+                    }
+                }
             }
             // Fallback: unknown enum name.
             self.tcx.errors.push(SemanticError {
@@ -889,12 +923,11 @@ impl<'a> FnContext<'a> {
 
         // Try to interpret scrutinee as an enum.
         let enum_info = match &scrut_ty {
-            Type::Named { name, .. } => self
-                .tcx
-                .env
-                .enums
-                .get(name)
-                .map(|def| (name.clone(), def.variant_names.clone())),
+            Type::Named { name, .. } => self.tcx.env.enums.get(name).map(|def| {
+                let variant_names: Vec<String> =
+                    def.variants.iter().map(|v| v.name.clone()).collect();
+                (name.clone(), variant_names)
+            }),
             _ => None,
         };
 

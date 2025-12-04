@@ -36,7 +36,7 @@ fn main() {
     println("Zero-padded: {:08}", x);
 
     // Escaped braces
-    println("Braces: {}");
+    println("Braces: {{}}");
 
     // Multiple arguments
     println("{} + {} = {}", 1, 2, 3);

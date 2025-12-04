@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -5,7 +6,7 @@ use std::process::Command;
 use glob::glob;
 use husk_cli::load::{assemble_root, load_graph};
 use husk_codegen_js::{JsTarget, lower_file_to_js};
-use husk_semantic::analyze_file;
+use husk_semantic::{analyze_file, filter_items_by_cfg};
 
 fn workspace_root() -> PathBuf {
     // Walk up from the current directory, returning the outermost Cargo.toml (workspace root).
@@ -81,8 +82,11 @@ fn examples_execute_with_node_when_available() {
             sem.type_errors
         );
 
+        // Filter out #[cfg(test)] items before codegen (not running in test mode)
+        let filtered_file = filter_items_by_cfg(&file, &HashSet::new());
+
         // Lower to JS with preamble (bin mode: auto-call main when present).
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &sem.name_resolution);
+        let module = lower_file_to_js(&filtered_file, true, JsTarget::Cjs, &sem.name_resolution);
         let mut js = module.to_source_with_preamble();
 
         // For the minimal Express interop example, prepend a tiny stub `express`
