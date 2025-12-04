@@ -209,4 +209,44 @@ pub struct User {
         assert!(result.contains(r#""\\""#), "\\\\ not preserved. Got:\n{}", result);
         assert!(result.contains(r#""\"""#), "\\\" not preserved. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_format_loop_statement() {
+        let source = r#"fn main() {
+    loop {
+        break;
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("loop {"), "Expected 'loop {{' in output. Got:\n{}", result);
+        assert!(result.contains("break;"), "Expected 'break;' in output. Got:\n{}", result);
+    }
+
+    #[test]
+    fn test_format_loop_with_continue() {
+        let source = r#"fn main() {
+    loop {
+        continue;
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("loop {"), "Expected 'loop {{' in output. Got:\n{}", result);
+        assert!(result.contains("continue;"), "Expected 'continue;' in output. Got:\n{}", result);
+    }
+
+    #[test]
+    fn test_format_loop_preserves_body() {
+        let source = r#"fn main() {
+    loop {
+        let x = 1;
+        if x > 0 {
+            break;
+        }
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("loop {"), "Expected 'loop {{' in output. Got:\n{}", result);
+        assert!(result.contains("let x = 1;"), "Expected 'let x = 1;' in output. Got:\n{}", result);
+        assert!(result.contains("if x > 0"), "Expected 'if x > 0' in output. Got:\n{}", result);
+    }
 }

@@ -3404,4 +3404,145 @@ mod tests {
         // Should generate just "hello"
         assert_eq!(js_str, "\"hello\"");
     }
+
+    #[test]
+    fn lowers_loop_to_while_true() {
+        // Test that loop { break; } generates while (true) { break; }
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let loop_stmt = husk_ast::Stmt {
+            kind: husk_ast::StmtKind::Loop {
+                body: husk_ast::Block {
+                    stmts: vec![husk_ast::Stmt {
+                        kind: husk_ast::StmtKind::Break,
+                        span: span(10, 16),
+                    }],
+                    span: span(5, 18),
+                },
+            },
+            span: span(0, 20),
+        };
+
+        let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 0),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: vec![loop_stmt],
+            },
+            span: span(0, 25),
+        };
+
+        let file = husk_ast::File {
+            items: vec![main_fn],
+        };
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let src = module.to_source();
+
+        assert!(
+            src.contains("while (true)"),
+            "expected 'while (true)' in output: {}",
+            src
+        );
+        assert!(
+            src.contains("break;"),
+            "expected 'break;' in output: {}",
+            src
+        );
+    }
+
+    #[test]
+    fn lowers_while_with_condition() {
+        // Test that while cond { ... } generates while (cond) { ... }
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let while_stmt = husk_ast::Stmt {
+            kind: husk_ast::StmtKind::While {
+                cond: husk_ast::Expr {
+                    kind: HuskExprKind::Ident(ident("running", 6)),
+                    span: span(6, 13),
+                },
+                body: husk_ast::Block {
+                    stmts: vec![husk_ast::Stmt {
+                        kind: husk_ast::StmtKind::Continue,
+                        span: span(16, 25),
+                    }],
+                    span: span(14, 27),
+                },
+            },
+            span: span(0, 28),
+        };
+
+        let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 0),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: vec![while_stmt],
+            },
+            span: span(0, 30),
+        };
+
+        let file = husk_ast::File {
+            items: vec![main_fn],
+        };
+        let empty_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let src = module.to_source();
+
+        assert!(
+            src.contains("while (running)"),
+            "expected 'while (running)' in output: {}",
+            src
+        );
+        assert!(
+            src.contains("continue;"),
+            "expected 'continue;' in output: {}",
+            src
+        );
+    }
+
+    #[test]
+    fn lowers_break_and_continue() {
+        // Test that break and continue statements generate proper JS
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+
+        let break_stmt = husk_ast::Stmt {
+            kind: husk_ast::StmtKind::Break,
+            span: span(0, 6),
+        };
+
+        let continue_stmt = husk_ast::Stmt {
+            kind: husk_ast::StmtKind::Continue,
+            span: span(7, 16),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_break = lower_stmt(&break_stmt, &ctx);
+        let js_continue = lower_stmt(&continue_stmt, &ctx);
+
+        assert!(matches!(js_break, JsStmt::Break), "expected JsStmt::Break");
+        assert!(
+            matches!(js_continue, JsStmt::Continue),
+            "expected JsStmt::Continue"
+        );
+    }
 }
