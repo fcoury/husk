@@ -2016,10 +2016,10 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse cast expressions: `expr as Type`
-    /// Cast has higher precedence than arithmetic operators (+, -, *, /, %)
-    /// so `2 + 3 as f64` parses as `2 + (3 as f64)`.
+    /// Cast has higher precedence than all arithmetic operators (+, -, *, /, %)
+    /// so `2 + 3 as f64` parses as `2 + (3 as f64)` and `2 * 3 as f64` as `2 * (3 as f64)`.
     fn parse_cast(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_multiplicative()?;
+        let mut expr = self.parse_unary()?;
 
         loop {
             if self.matches_keyword(Keyword::As) {
@@ -2043,7 +2043,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_additive(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_cast()?;
+        let mut expr = self.parse_multiplicative()?;
         loop {
             let op = if self.matches_token(&TokenKind::Plus) {
                 Some(BinaryOp::Add)
@@ -2054,7 +2054,7 @@ impl<'src> Parser<'src> {
             };
 
             if let Some(op) = op {
-                let right = self.parse_cast()?;
+                let right = self.parse_multiplicative()?;
                 let span = Span {
                     range: expr.span.range.start..right.span.range.end,
                 };
@@ -2074,7 +2074,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_multiplicative(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_unary()?;
+        let mut expr = self.parse_cast()?;
         loop {
             let op = if self.matches_token(&TokenKind::Star) {
                 Some(BinaryOp::Mul)
@@ -2087,7 +2087,7 @@ impl<'src> Parser<'src> {
             };
 
             if let Some(op) = op {
-                let right = self.parse_unary()?;
+                let right = self.parse_cast()?;
                 let span = Span {
                     range: expr.span.range.start..right.span.range.end,
                 };
@@ -4152,6 +4152,50 @@ mod tests {
                             assert_eq!(ident.name, "i32");
                         } else {
                             panic!("expected type i32");
+                        }
+                    } else {
+                        panic!("expected Cast on right");
+                    }
+                } else {
+                    panic!("expected Binary expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_cast_with_multiplication_precedence() {
+        // Cast should have higher precedence than multiplication, so "2 * 3 as f64" should parse as "2 * (3 as f64)"
+        let src = r#"fn main() { let x = 2 * 3 as f64; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                // Should be: Binary(Mul, 2, Cast(3, f64))
+                if let ExprKind::Binary { op, left, right } = &val.kind {
+                    assert!(matches!(op, husk_ast::BinaryOp::Mul));
+                    // Left should be 2
+                    if let ExprKind::Literal(lit) = &left.kind {
+                        assert!(matches!(lit.kind, husk_ast::LiteralKind::Int(2)));
+                    } else {
+                        panic!("expected Literal 2 on left");
+                    }
+                    // Right should be Cast(3, f64)
+                    if let ExprKind::Cast { expr, target_ty } = &right.kind {
+                        if let ExprKind::Literal(lit) = &expr.kind {
+                            assert!(matches!(lit.kind, husk_ast::LiteralKind::Int(3)));
+                        } else {
+                            panic!("expected Literal 3 in cast");
+                        }
+                        if let husk_ast::TypeExprKind::Named(ident) = &target_ty.kind {
+                            assert_eq!(ident.name, "f64");
+                        } else {
+                            panic!("expected type f64");
                         }
                     } else {
                         panic!("expected Cast on right");
