@@ -1051,7 +1051,15 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         Target::Esm => JsTarget::Esm,
         Target::Cjs => JsTarget::Cjs,
     };
-    let module = lower_file_to_js(&file, !lib, js_target, &semantic.name_resolution);
+    let entry_path = Path::new(path);
+    let module = lower_file_to_js_with_source(
+        &file,
+        !lib,
+        js_target,
+        Some(&content),
+        Some(entry_path),
+        &semantic.name_resolution,
+    );
     let js = module.to_source_with_preamble();
 
     // Ensure output directory exists
