@@ -73,6 +73,19 @@ impl<'a> Formatter<'a> {
             self.emit_trailing_trivia(&item.span);
         }
 
+        // Emit trailing file comments (comments after the last item)
+        // These are attached as leading trivia to the EOF token
+        if let Some(eof_pos) = self.trivia_map.eof_position() {
+            let trivia = self.trivia_map.leading_at(eof_pos);
+            if !trivia.is_empty() {
+                // Add blank line before trailing comments if needed
+                if !self.output.ends_with("\n\n") && !self.output.is_empty() {
+                    self.newline();
+                }
+                self.emit_file_trailing_trivia(eof_pos);
+            }
+        }
+
         // Ensure file ends with newline
         if !self.output.is_empty() && !self.output.ends_with('\n') {
             self.newline();
@@ -146,6 +159,20 @@ impl<'a> Formatter<'a> {
                 Trivia::Whitespace(_) => {
                     // Normalize whitespace - don't preserve original
                 }
+            }
+        }
+    }
+
+    /// Emit trailing file comments (comments after the last item).
+    /// These are attached as leading trivia to the EOF token.
+    fn emit_file_trailing_trivia(&mut self, eof_pos: usize) {
+        let trivia = self.trivia_map.leading_at(eof_pos);
+
+        for t in trivia {
+            if let Trivia::LineComment(text) = t {
+                self.write_indent();
+                self.write(text);
+                self.newline();
             }
         }
     }

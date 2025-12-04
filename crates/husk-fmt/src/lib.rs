@@ -265,4 +265,36 @@ pub struct User {
         // Should NOT contain the malformed {0res} pattern
         assert!(!result.contains("{0res}"), "Should not contain malformed {{0res}}. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_trailing_comment_at_end_of_file() {
+        // Regression test: trailing comments at the end of a file were being removed
+        let source = r#"fn main() {
+    let x = 10;
+}
+
+// This is a trailing comment at the end of the file"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("// This is a trailing comment at the end of the file"),
+            "Trailing comment should be preserved. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_multiple_trailing_comments_at_end_of_file() {
+        // Regression test: multiple trailing comments at the end of a file
+        let source = r#"fn main() {
+    let x = 10;
+}
+
+// First trailing comment
+// Second trailing comment
+// Third trailing comment"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(result.contains("// First trailing comment"), "First trailing comment should be preserved. Got:\n{}", result);
+        assert!(result.contains("// Second trailing comment"), "Second trailing comment should be preserved. Got:\n{}", result);
+        assert!(result.contains("// Third trailing comment"), "Third trailing comment should be preserved. Got:\n{}", result);
+    }
 }

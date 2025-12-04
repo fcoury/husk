@@ -15,6 +15,8 @@ pub struct TriviaMap {
     trailing: HashMap<usize, Vec<Trivia>>,
     /// Maps closing brace end position to start position (for block-end trivia lookup)
     brace_end_to_start: HashMap<usize, usize>,
+    /// Position of the EOF token (where trailing file comments are attached)
+    eof_position: Option<usize>,
 }
 
 impl TriviaMap {
@@ -36,6 +38,10 @@ impl TriviaMap {
             if token.kind == TokenKind::RBrace {
                 map.brace_end_to_start
                     .insert(token.span.range.end, token.span.range.start);
+            }
+            // Track EOF position for trailing file comments
+            if token.kind == TokenKind::Eof {
+                map.eof_position = Some(token.span.range.start);
             }
         }
 
@@ -80,6 +86,11 @@ impl TriviaMap {
             .and_then(|start| self.leading.get(start))
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Get the EOF token position (where trailing file comments are attached as leading trivia).
+    pub fn eof_position(&self) -> Option<usize> {
+        self.eof_position
     }
 }
 
