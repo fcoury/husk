@@ -409,19 +409,39 @@ impl TypeEnv {
         false
     }
 
-    /// Check if a type satisfies all trait bounds for a trait (including supertraits).
+    /// Check if a type satisfies all trait bounds for a trait (including transitive supertraits).
     ///
-    /// For example, if Eq: PartialEq, implementing Eq requires also implementing PartialEq.
+    /// For example, if Eq: PartialEq and PartialEq: SomeTrait, implementing Eq requires
+    /// implementing both PartialEq and SomeTrait.
+    ///
+    /// Uses a visited set to guard against cycles in supertrait chains.
     fn type_satisfies_trait_bounds(&self, type_name: &str, trait_name: &str) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        self.type_satisfies_trait_bounds_recursive(type_name, trait_name, &mut visited)
+    }
+
+    /// Recursive helper for type_satisfies_trait_bounds with cycle detection.
+    fn type_satisfies_trait_bounds_recursive(
+        &self,
+        type_name: &str,
+        trait_name: &str,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        // Guard against cycles
+        if visited.contains(trait_name) {
+            return true; // Already checked this trait, assume satisfied to break cycle
+        }
+        visited.insert(trait_name.to_string());
+
         // First check if the type implements the trait directly
         if !self.type_implements_trait(type_name, trait_name) {
             return false;
         }
 
-        // Then check that all supertraits are also implemented
+        // Then recursively check that all supertraits are also satisfied
         if let Some(trait_info) = self.traits.get(trait_name) {
             for supertrait in &trait_info.supertraits {
-                if !self.type_implements_trait(type_name, supertrait) {
+                if !self.type_satisfies_trait_bounds_recursive(type_name, supertrait, visited) {
                     return false;
                 }
             }
@@ -432,17 +452,42 @@ impl TypeEnv {
 
     /// Get the list of missing supertrait implementations for a type implementing a trait.
     ///
-    /// Returns a list of (supertrait_name) that are required but not implemented.
+    /// Returns a list of all transitively missing supertraits that are required but not implemented.
+    /// For example, if Eq: PartialEq and PartialEq: SomeTrait, and SomeTrait is not implemented,
+    /// this will return both PartialEq (if missing) and SomeTrait.
     fn missing_supertraits(&self, type_name: &str, trait_name: &str) -> Vec<String> {
         let mut missing = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        self.collect_missing_supertraits_recursive(type_name, trait_name, &mut missing, &mut visited);
+        missing
+    }
+
+    /// Recursive helper for missing_supertraits with cycle detection.
+    fn collect_missing_supertraits_recursive(
+        &self,
+        type_name: &str,
+        trait_name: &str,
+        missing: &mut Vec<String>,
+        visited: &mut std::collections::HashSet<String>,
+    ) {
+        // Guard against cycles
+        if visited.contains(trait_name) {
+            return;
+        }
+        visited.insert(trait_name.to_string());
+
         if let Some(trait_info) = self.traits.get(trait_name) {
             for supertrait in &trait_info.supertraits {
+                // Check if this supertrait is missing
                 if !self.type_implements_trait(type_name, supertrait) {
-                    missing.push(supertrait.clone());
+                    if !missing.contains(supertrait) {
+                        missing.push(supertrait.clone());
+                    }
                 }
+                // Recursively check the supertrait's supertraits
+                self.collect_missing_supertraits_recursive(type_name, supertrait, missing, visited);
             }
         }
-        missing
     }
 }
 
@@ -3793,6 +3838,90 @@ fn main() {
         assert!(
             result.type_errors.iter().any(|e| e.message.contains("NoEq: PartialEq") && e.message.contains("not satisfied")),
             "expected trait bound error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn transitive_supertrait_chain_requires_all() {
+        // A: B: C means implementing A requires implementing both B and C
+        let src = r#"
+trait Base {}
+trait Middle: Base {}
+trait Top: Middle {}
+
+struct Foo {}
+
+// Only implementing Top without Middle or Base should fail
+impl Top for Foo {}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        // Should error about missing Middle (direct supertrait)
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("Middle")),
+            "expected error about missing Middle, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn transitive_supertrait_chain_satisfied() {
+        // Implementing all traits in the chain should succeed
+        let src = r#"
+trait Base {}
+trait Middle: Base {}
+trait Top: Middle {}
+
+struct Foo {}
+
+impl Base for Foo {}
+impl Middle for Foo {}
+impl Top for Foo {}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "unexpected type errors: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn transitive_supertrait_missing_indirect() {
+        // Middle: Base, implementing Middle without Base should report Base as missing
+        let src = r#"
+trait Base {}
+trait Middle: Base {}
+
+struct Foo {}
+
+impl Middle for Foo {}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("Base")),
+            "expected error about missing Base, got: {:?}",
             result.type_errors
         );
     }
