@@ -395,10 +395,17 @@ impl TypeEnv {
     /// 2. For supertraits, checks if all required supertraits are also implemented
     ///
     /// Returns true if the type implements the trait (including via supertrait satisfaction).
+    ///
+    /// Note: For generic types like `Vec<i32>`, we also check the base type `Vec`
+    /// since impls are registered on the base struct name.
     fn type_implements_trait(&self, type_name: &str, trait_name: &str) -> bool {
+        // Extract base type name for generic types (e.g., "Vec<i32>" -> "Vec")
+        let base_type_name = type_name.split('<').next().unwrap_or(type_name);
+
         // Check for direct trait implementation
         for impl_info in &self.impls {
-            if impl_info.self_ty_name == type_name {
+            // Match either the exact type name or the base type for generics
+            if impl_info.self_ty_name == type_name || impl_info.self_ty_name == base_type_name {
                 if let Some(ref impl_trait) = impl_info.trait_name {
                     if impl_trait == trait_name {
                         return true;
