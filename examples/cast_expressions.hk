@@ -1,0 +1,44 @@
+// Test file for type cast expressions
+
+fn main() {
+    // i32 to f64 (widening)
+    let a: f64 = 42 as f64;
+    println("i32 to f64: {a}");
+
+    // f64 to i32 (truncation)
+    let b: i32 = 3.14 as i32;
+    println("f64 to i32 (3.14): {b}");
+
+    // Test with positive floats only (negative float support is limited)
+    let c: i32 = 9.99 as i32;
+    println("f64 to i32 (9.99): {c}");
+
+    // bool to i32
+    let d: i32 = true as i32;
+    let e: i32 = false as i32;
+    println("bool to i32: true={d}, false={e}");
+
+    // bool to f64
+    let f: f64 = true as f64;
+    let g: f64 = false as f64;
+    println("bool to f64: true={f}, false={g}");
+
+    // any to String
+    let h: String = 42 as String;
+    let i: String = 3.14 as String;
+    let j: String = true as String;
+    println("to String: i32={h}, f64={i}, bool={j}");
+
+    // Chained casts
+    let k: f64 = true as i32 as f64;
+    println("chained (true as i32 as f64): {k}");
+
+    // Cast in expressions (precedence test)
+    // Note: Cast binds tighter than +, so we need parens to cast the sum
+    let m: f64 = (2 + 3) as f64;
+    println("(2 + 3) as f64: {m}");
+
+    // Same-type cast (no-op but allowed)
+    let n: i32 = 42 as i32;
+    println("same type: {n}");
+}

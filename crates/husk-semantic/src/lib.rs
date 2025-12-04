@@ -2271,6 +2271,90 @@ impl<'a> FnContext<'a> {
                     args: Vec::new(),
                 }
             }
+            ExprKind::Cast {
+                expr: inner,
+                target_ty,
+            } => {
+                let inner_ty = self.check_expr(inner);
+                let target = self.tcx.resolve_type_expr(target_ty, &[]);
+
+                // Check if the cast is allowed between primitive types
+                let allowed = match (&inner_ty, &target) {
+                    // Numeric conversions
+                    (
+                        Type::Primitive(PrimitiveType::I32),
+                        Type::Primitive(PrimitiveType::F64),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::F64),
+                        Type::Primitive(PrimitiveType::I32),
+                    ) => true,
+
+                    // Bool to numeric
+                    (
+                        Type::Primitive(PrimitiveType::Bool),
+                        Type::Primitive(PrimitiveType::I32),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::Bool),
+                        Type::Primitive(PrimitiveType::F64),
+                    ) => true,
+
+                    // Anything to String
+                    (
+                        Type::Primitive(PrimitiveType::I32),
+                        Type::Primitive(PrimitiveType::String),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::F64),
+                        Type::Primitive(PrimitiveType::String),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::Bool),
+                        Type::Primitive(PrimitiveType::String),
+                    ) => true,
+
+                    // Same type (no-op, but allowed)
+                    (a, b) if a == b => true,
+
+                    _ => false,
+                };
+
+                if !allowed {
+                    // Generate helpful error message with hint
+                    let hint = match (&inner_ty, &target) {
+                        (
+                            Type::Primitive(PrimitiveType::I32 | PrimitiveType::F64),
+                            Type::Primitive(PrimitiveType::Bool),
+                        ) => Some("use explicit comparison like `x != 0` instead"),
+                        (
+                            Type::Primitive(PrimitiveType::String),
+                            Type::Primitive(PrimitiveType::I32),
+                        ) => Some("use `parseInt(s)` instead"),
+                        (
+                            Type::Primitive(PrimitiveType::String),
+                            Type::Primitive(PrimitiveType::F64),
+                        ) => Some("use `parseFloat(s)` instead"),
+                        _ => None,
+                    };
+
+                    let message = if let Some(hint) = hint {
+                        format!(
+                            "cannot cast `{:?}` to `{:?}`; {}",
+                            inner_ty, target, hint
+                        )
+                    } else {
+                        format!("cannot cast `{:?}` to `{:?}`", inner_ty, target)
+                    };
+
+                    self.tcx.errors.push(SemanticError {
+                        message,
+                        span: expr.span.clone(),
+                    });
+                }
+
+                target
+            }
         }
     }
 
