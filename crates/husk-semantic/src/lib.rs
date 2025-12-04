@@ -1757,29 +1757,26 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
-                // Check for mixing positional and implicit indexing
-                let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
+                // Check for mixing explicit numeric positions (like {0}) with implicit positions ({}).
+                // Named placeholders like {x} are allowed to mix with implicit {} since the parser
+                // synthesizes arguments for them separately.
+                let has_explicit_numeric_position = placeholders
+                    .iter()
+                    .any(|ph| ph.position.is_some() && ph.name.is_none());
                 let has_implicit_position = placeholders
                     .iter()
                     .any(|ph| ph.position.is_none() && ph.name.is_none());
 
-                if has_explicit_position && has_implicit_position {
+                if has_explicit_numeric_position && has_implicit_position {
                     self.tcx.errors.push(SemanticError {
                         message: "cannot mix positional and implicit argument indexing".to_string(),
                         span: format.span.clone(),
                     });
                 }
 
-                // Check for named arguments (which require matching argument names - not yet supported)
-                let has_named = placeholders.iter().any(|ph| ph.name.is_some());
-                if has_named {
-                    self.tcx.errors.push(SemanticError {
-                        message: "named format arguments are not yet supported".to_string(),
-                        span: format.span.clone(),
-                    });
-                }
-
                 // Validate argument count
+                // Named placeholders have synthesized arguments with explicit positions
+                let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
                 if has_explicit_position {
                     // With explicit positions, check that all indices are in bounds
                     for ph in &placeholders {
@@ -1852,26 +1849,25 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
-                let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
+                // Check for mixing explicit numeric positions (like {0}) with implicit positions ({}).
+                // Named placeholders like {x} are allowed to mix with implicit {} since the parser
+                // synthesizes arguments for them separately.
+                let has_explicit_numeric_position = placeholders
+                    .iter()
+                    .any(|ph| ph.position.is_some() && ph.name.is_none());
                 let has_implicit_position = placeholders
                     .iter()
                     .any(|ph| ph.position.is_none() && ph.name.is_none());
 
-                if has_explicit_position && has_implicit_position {
+                if has_explicit_numeric_position && has_implicit_position {
                     self.tcx.errors.push(SemanticError {
                         message: "cannot mix positional and implicit argument indexing".to_string(),
                         span: format.span.clone(),
                     });
                 }
 
-                let has_named = placeholders.iter().any(|ph| ph.name.is_some());
-                if has_named {
-                    self.tcx.errors.push(SemanticError {
-                        message: "named format arguments are not yet supported".to_string(),
-                        span: format.span.clone(),
-                    });
-                }
-
+                // Named placeholders have synthesized arguments with explicit positions
+                let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
                 if has_explicit_position {
                     for ph in &placeholders {
                         if let Some(pos) = ph.position {

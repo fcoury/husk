@@ -2372,7 +2372,7 @@ impl<'src> Parser<'src> {
 
         // Parse the format string to check if it has placeholders
         let format_span = self.ast_span_from(&format_tok.span);
-        let parsed_format = self.parse_format_string(&format_str, &format_span);
+        let mut parsed_format = self.parse_format_string(&format_str, &format_span);
 
         // Advance past the format string
         self.advance();
@@ -2396,6 +2396,9 @@ impl<'src> Parser<'src> {
                 }
             }
         }
+
+        // Synthesize implicit arguments from named placeholders (Rust-style {var_name})
+        self.synthesize_named_placeholder_args(&mut parsed_format, &mut args);
 
         let end = self.previous().span.range.end;
 
@@ -2425,7 +2428,7 @@ impl<'src> Parser<'src> {
 
         // Parse the format string to check if it has placeholders
         let format_span = self.ast_span_from(&format_tok.span);
-        let parsed_format = self.parse_format_string(&format_str, &format_span);
+        let mut parsed_format = self.parse_format_string(&format_str, &format_span);
 
         // Advance past the format string
         self.advance();
@@ -2449,6 +2452,9 @@ impl<'src> Parser<'src> {
                 }
             }
         }
+
+        // Synthesize implicit arguments from named placeholders (Rust-style {var_name})
+        self.synthesize_named_placeholder_args(&mut parsed_format, &mut args);
 
         let end = self.previous().span.range.end;
 
@@ -2529,6 +2535,70 @@ impl<'src> Parser<'src> {
         FormatString {
             span: span.clone(),
             segments,
+        }
+    }
+
+    /// Synthesize implicit arguments from named placeholders (Rust-style {var_name}).
+    ///
+    /// When a placeholder has a name like `{var_name}` without a corresponding explicit
+    /// argument, this creates an identifier expression for `var_name` and adds it to the
+    /// args list, then assigns the correct position to the placeholder.
+    ///
+    /// For example, `println("{x} {y}")` becomes equivalent to `println("{} {}", x, y)`.
+    fn synthesize_named_placeholder_args(&self, format: &mut FormatString, args: &mut Vec<Expr>) {
+        // First pass: count implicit positions used and find named placeholders
+        let mut max_implicit_position: usize = 0;
+        let mut max_explicit_position: Option<usize> = None;
+
+        for segment in &format.segments {
+            if let FormatSegment::Placeholder(ph) = segment {
+                if let Some(pos) = ph.position {
+                    max_explicit_position = Some(max_explicit_position.map_or(pos, |m| m.max(pos)));
+                } else if ph.name.is_none() {
+                    // Implicit {} placeholder
+                    max_implicit_position += 1;
+                }
+            }
+        }
+
+        // The starting position for synthesized named args.
+        // Named placeholders get positions after all explicit and implicit positions.
+        let base_position = max_explicit_position.map_or(max_implicit_position, |m| {
+            // Named args start after max of: explicit positions, or implicit count
+            m.max(max_implicit_position.saturating_sub(1)) + 1
+        });
+
+        // Track named placeholders we've seen and their assigned positions
+        let mut named_positions: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut next_named_position = base_position;
+
+        // Second pass: assign positions to named placeholders and synthesize args
+        for segment in &mut format.segments {
+            if let FormatSegment::Placeholder(ph) = segment {
+                if let Some(name) = &ph.name {
+                    // Check if we've already seen this name
+                    if let Some(&pos) = named_positions.get(name) {
+                        // Reuse the same position
+                        ph.position = Some(pos);
+                    } else {
+                        // Assign a new position and create a synthetic identifier arg
+                        let pos = next_named_position;
+                        next_named_position += 1;
+                        named_positions.insert(name.clone(), pos);
+                        ph.position = Some(pos);
+
+                        // Create identifier expression for this variable
+                        args.push(Expr {
+                            kind: ExprKind::Ident(Ident {
+                                name: name.clone(),
+                                span: ph.span.clone(),
+                            }),
+                            span: ph.span.clone(),
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -3555,6 +3625,266 @@ mod tests {
                 assert!(matches!(loop_body.stmts[0].kind, StmtKind::If { .. }));
             } else {
                 panic!("expected Loop statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_named_placeholder() {
+        // Rust-style {var_name} syntax - the parser should synthesize an implicit arg
+        let src = r#"fn main() { let s = format("{x}"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    // Should have synthesized 1 implicit arg for `x`
+                    assert_eq!(args.len(), 1, "expected 1 synthesized arg");
+                    // Verify the arg is an identifier named "x"
+                    if let ExprKind::Ident(ident) = &args[0].kind {
+                        assert_eq!(ident.name, "x");
+                    } else {
+                        panic!("expected Ident expression, got {:?}", args[0].kind);
+                    }
+                    // Verify the placeholder has a position assigned
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(placeholders.len(), 1);
+                    assert_eq!(placeholders[0].name, Some("x".to_string()));
+                    assert_eq!(placeholders[0].position, Some(0));
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_multiple_named_placeholders() {
+        let src = r#"fn main() { let s = format("{x} + {y} = {z}"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    // Should have synthesized 3 implicit args
+                    assert_eq!(args.len(), 3, "expected 3 synthesized args");
+                    // Verify args are identifiers x, y, z in order
+                    let names: Vec<_> = args
+                        .iter()
+                        .filter_map(|a| {
+                            if let ExprKind::Ident(ident) = &a.kind {
+                                Some(ident.name.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(names, vec!["x", "y", "z"]);
+                    // Verify placeholders have positions 0, 1, 2
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(placeholders[0].position, Some(0));
+                    assert_eq!(placeholders[1].position, Some(1));
+                    assert_eq!(placeholders[2].position, Some(2));
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_repeated_named_placeholder() {
+        // Same variable used twice should only generate one arg
+        let src = r#"fn main() { let s = format("{x} and {x} again"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    // Should have synthesized 1 arg for `x` (not 2)
+                    assert_eq!(args.len(), 1, "expected 1 synthesized arg for repeated {{x}}");
+                    // Both placeholders should point to position 0
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(placeholders.len(), 2);
+                    assert_eq!(placeholders[0].position, Some(0));
+                    assert_eq!(placeholders[1].position, Some(0));
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_with_named_and_format_spec() {
+        let src = r#"fn main() { let s = format("{x:08x}"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    assert_eq!(args.len(), 1);
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(placeholders[0].name, Some("x".to_string()));
+                    assert_eq!(placeholders[0].position, Some(0));
+                    assert_eq!(placeholders[0].spec.width, Some(8));
+                    assert!(placeholders[0].spec.zero_pad);
+                    assert_eq!(placeholders[0].spec.ty, Some('x'));
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_println_with_named_placeholder() {
+        let src = r#"fn main() { println("{name}"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            // println statements with semicolons are wrapped in Semi
+            let expr = match &body[0].kind {
+                husk_ast::StmtKind::Expr(e) => e,
+                husk_ast::StmtKind::Semi(e) => e,
+                other => panic!("expected Expr or Semi statement, got {:?}", other),
+            };
+            if let ExprKind::FormatPrint { format, args, .. } = &expr.kind {
+                assert_eq!(args.len(), 1);
+                if let ExprKind::Ident(ident) = &args[0].kind {
+                    assert_eq!(ident.name, "name");
+                } else {
+                    panic!("expected Ident expression");
+                }
+                let placeholders: Vec<_> = format
+                    .segments
+                    .iter()
+                    .filter_map(|s| {
+                        if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                            Some(ph)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert_eq!(placeholders[0].name, Some("name".to_string()));
+                assert_eq!(placeholders[0].position, Some(0));
+            } else {
+                panic!("expected FormatPrint expression");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_format_mixed_implicit_and_named() {
+        // Mix of implicit {} and named {var} placeholders
+        let src = r#"fn main() { let s = format("{} is {x} and {} is {y}", a, b); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Format { format, args } = &val.kind {
+                    // 2 explicit args (a, b) + 2 synthesized (x, y) = 4 total
+                    assert_eq!(args.len(), 4, "expected 4 args (2 explicit + 2 synthesized)");
+                    // Check synthesized args are at the end
+                    if let ExprKind::Ident(ident) = &args[2].kind {
+                        assert_eq!(ident.name, "x");
+                    }
+                    if let ExprKind::Ident(ident) = &args[3].kind {
+                        assert_eq!(ident.name, "y");
+                    }
+                    // Check placeholder positions
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(placeholders.len(), 4);
+                    // First {} -> position None (implicit 0)
+                    assert_eq!(placeholders[0].position, None);
+                    // {x} -> position 2 (synthesized)
+                    assert_eq!(placeholders[1].position, Some(2));
+                    // Second {} -> position None (implicit 1)
+                    assert_eq!(placeholders[2].position, None);
+                    // {y} -> position 3 (synthesized)
+                    assert_eq!(placeholders[3].position, Some(3));
+                } else {
+                    panic!("expected Format expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
             }
         } else {
             panic!("expected Fn item");
