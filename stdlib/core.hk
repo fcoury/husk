@@ -17,6 +17,50 @@ enum Result<T, E> {
     Err(E),
 }
 
+// ============================================================================
+// Comparison Traits
+// ============================================================================
+
+// Trait for partial equality comparisons.
+//
+// Types implementing PartialEq can be compared for equality, but the
+// comparison may not be reflexive (e.g., NaN != NaN for floating point).
+//
+// Note: This is a marker trait in Husk. The actual equality comparison
+// is performed by the runtime using JavaScript's strict equality (===)
+// for primitives and deep equality (__husk_eq) for complex types.
+trait PartialEq {}
+
+// Trait for full equivalence relations.
+//
+// Types implementing Eq guarantee that equality is:
+// - Reflexive: a == a
+// - Symmetric: a == b implies b == a
+// - Transitive: a == b and b == c implies a == c
+//
+// Eq requires PartialEq as a supertrait. Types that implement Eq must
+// also implement PartialEq.
+//
+// Note: f64 implements PartialEq but NOT Eq because NaN != NaN.
+trait Eq: PartialEq {}
+
+// ============================================================================
+// Primitive PartialEq implementations
+// ============================================================================
+
+impl PartialEq for i32 {}
+impl PartialEq for f64 {}
+impl PartialEq for bool {}
+impl PartialEq for String {}
+
+// ============================================================================
+// Primitive Eq implementations (not f64 due to NaN != NaN)
+// ============================================================================
+
+impl Eq for i32 {}
+impl Eq for bool {}
+impl Eq for String {}
+
 // Built-in functions for console output.
 // These are translated to console.log/console.error in JavaScript.
 extern "js" {

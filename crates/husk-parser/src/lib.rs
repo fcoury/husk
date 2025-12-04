@@ -240,7 +240,7 @@ impl<'src> Parser<'src> {
         let fn_tok = self.advance().clone(); // consume `fn`
         let name = self.parse_ident("expected function name after `fn`")?;
 
-        let type_params = self.parse_type_params();
+        let type_params = self.parse_type_params_with_bounds();
 
         // Parameter list
         if !self.matches_token(&TokenKind::LParen) {
@@ -710,13 +710,20 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// Parse a trait definition: `trait Name { fn method(&self); }`
+    /// Parse a trait definition: `trait Name: SuperTrait { fn method(&self); }`
     fn parse_trait_item(&mut self) -> Option<Item> {
         let trait_tok = self.advance().clone(); // consume `trait`
         let name = self.parse_ident("expected trait name after `trait`")?;
 
         // Parse optional type parameters with bounds
         let type_params = self.parse_type_params_with_bounds();
+
+        // Parse optional supertraits: `trait Eq: PartialEq + Clone { ... }`
+        let supertraits = if self.matches_token(&TokenKind::Colon) {
+            self.parse_trait_bounds()
+        } else {
+            Vec::new()
+        };
 
         if !self.matches_token(&TokenKind::LBrace) {
             self.error_here("expected `{` after trait name");
@@ -743,6 +750,7 @@ impl<'src> Parser<'src> {
             kind: ItemKind::Trait(TraitDef {
                 name,
                 type_params,
+                supertraits,
                 items,
                 span: span.clone(),
             }),
