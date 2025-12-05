@@ -4053,7 +4053,7 @@ impl<'src> Parser<'src> {
             if self.is_at_end() {
                 self.error_here(&format!(
                     "unclosed JSX element `<{}>`",
-                    parent_name.as_str()
+                    Self::jsx_element_name_to_string(parent_name)
                 ));
                 return None;
             }
@@ -4120,30 +4120,14 @@ impl<'src> Parser<'src> {
     }
 
     /// Check if a token can be part of JSX text content.
-    /// Excludes `<`, `{`, and `}` which are JSX structural tokens.
+    ///
+    /// Uses exclusion-based logic: anything that is *not* a JSX structural marker
+    /// (`<`, `{`, `}`, or EOF) is treated as text. This matches the JSX model of
+    /// "text runs until `<` or `{`" and is robust to new token kinds.
     fn is_jsx_text_token(kind: &TokenKind) -> bool {
-        matches!(
+        !matches!(
             kind,
-            TokenKind::Ident(_)
-                | TokenKind::IntLiteral(_)
-                | TokenKind::FloatLiteral(_)
-                | TokenKind::StringLiteral(_)
-                | TokenKind::Keyword(_) // Keywords can appear as text (e.g., "true", "for")
-                | TokenKind::Dot
-                | TokenKind::Comma
-                | TokenKind::Colon
-                | TokenKind::Semicolon
-                | TokenKind::Bang
-                | TokenKind::Minus
-                | TokenKind::Plus
-                | TokenKind::Star
-                | TokenKind::Slash
-                | TokenKind::Percent
-                | TokenKind::Eq
-                | TokenKind::LParen
-                | TokenKind::RParen
-                | TokenKind::LBracket
-                | TokenKind::RBracket
+            TokenKind::Lt | TokenKind::LBrace | TokenKind::RBrace | TokenKind::Eof
         )
     }
 }
