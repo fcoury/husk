@@ -108,7 +108,10 @@ function compileHusk(
  */
 function injectJsxRuntime(code: string): string {
   // Check if the code uses JSX functions
-  if (code.includes("_jsx(") || code.includes("_jsxs(") || code.includes("Fragment")) {
+  // Use more specific patterns to avoid false positives on unrelated identifiers
+  const usesJsx = code.includes("_jsx(") || code.includes("_jsxs(");
+  const usesFragment = code.includes("Fragment,") || code.includes("Fragment)");
+  if (usesJsx || usesFragment) {
     const importStatement =
       'import { jsx as _jsx, jsxs as _jsxs, Fragment } from "react/jsx-runtime";\n';
     return importStatement + code;

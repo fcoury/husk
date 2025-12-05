@@ -1847,7 +1847,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             }
 
             // Handle callable interface: __call__(args) -> obj(args)
-            // This is used for TypeScript interfaces with call signatures
+            // This is used for TypeScript interfaces with call signatures.
+            // Note: These dunder names are reserved for DTS importer-generated externs.
+            // User-defined methods with these names will also be rewritten, but this is
+            // unlikely to occur in practice and the naming convention makes intent clear.
             if method_name == "__call__" {
                 return JsExpr::Call {
                     callee: Box::new(lower_expr(receiver, ctx)),
