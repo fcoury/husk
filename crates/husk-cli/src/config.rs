@@ -61,10 +61,12 @@ pub struct BuildConfig {
     pub prelude: Option<bool>,
     /// JSX mode: "legacy" (built-in lowering) or "macro" (future macro-backed path).
     /// Default is "legacy".
+    #[allow(dead_code)] // Reserved for future JSX macro support
     pub jsx: Option<String>,
 }
 
 /// JSX mode configuration.
+#[allow(dead_code)] // Reserved for future JSX macro support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JsxMode {
     /// Built-in JSX lowering to React automatic runtime.
@@ -187,6 +189,7 @@ impl BuildConfig {
     }
 
     /// Get the JSX mode (default: Legacy).
+    #[allow(dead_code)] // Reserved for future JSX macro support
     pub fn jsx_mode(&self) -> JsxMode {
         match self.jsx.as_deref() {
             Some("macro") => JsxMode::Macro,

@@ -145,6 +145,15 @@ export default function huskPlugin(options: HuskPluginOptions = {}): Plugin {
             "Install huskc or specify the path in plugin options."
         );
       }
+
+      // Warn if sourceMaps is explicitly enabled (not yet supported)
+      if (options.sourceMaps === true) {
+        this.warn(
+          "sourceMaps option is not yet supported in shell-out mode. " +
+            "Source maps will not be generated. " +
+            "This feature is reserved for future WASM-based compilation."
+        );
+      }
     },
 
     resolveId(id, importer) {

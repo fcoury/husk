@@ -111,6 +111,7 @@ struct GeneratedProperty {
 
 /// A generated callable (for interfaces with call signatures).
 struct GeneratedCallable {
+    #[allow(dead_code)] // Reserved for future generic callable support
     type_params: Vec<String>,
     params: Vec<(String, String)>,
     return_type: Option<String>,
