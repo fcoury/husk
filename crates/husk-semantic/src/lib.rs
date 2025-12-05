@@ -3950,7 +3950,7 @@ impl<'a> FnContext<'a> {
                                 span: span.clone(),
                             });
                         } else if path.len() == 2 {
-                            // Enum name matches, now verify variant exists
+                            // Enum name matches, now verify it's actually an enum and variant exists
                             let variant_name = &path[1].name;
                             if let Some(enum_def) = self.tcx.env.enums.get(name) {
                                 let variant_exists =
@@ -3964,6 +3964,15 @@ impl<'a> FnContext<'a> {
                                         span: span.clone(),
                                     });
                                 }
+                            } else {
+                                // Type exists but is not an enum (e.g., a struct)
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "cannot use enum pattern on non-enum type `{}`",
+                                        name
+                                    ),
+                                    span: span.clone(),
+                                });
                             }
                         }
                     }
@@ -6667,6 +6676,33 @@ fn test() -> i32 {
         assert!(
             !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
             "expected error for unknown variant in if-let pattern"
+        );
+    }
+
+    #[test]
+    fn if_let_enum_pattern_on_struct_errors() {
+        // Using enum pattern syntax on a struct type should error
+        let src = r#"
+struct Foo {
+    x: i32,
+}
+
+fn test() -> i32 {
+    let f: Foo = Foo { x: 42 };
+    if let Foo::Bar = f {
+        0
+    } else {
+        1
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
+            "expected error for enum pattern on struct type"
         );
     }
 }
