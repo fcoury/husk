@@ -20,8 +20,7 @@ fn compile_to_js(source: &str) -> String {
     let file = result.file.unwrap();
     let sem = analyze_file(&file);
 
-    // Allow JSX-related type errors since JsValue is external
-    // We're testing codegen, not full type checking
+    // Filter by cfg attributes (none specified, so keeps all items)
     let filtered_file = husk_semantic::filter_items_by_cfg(&file, &HashSet::new());
 
     let module = lower_file_to_js(
