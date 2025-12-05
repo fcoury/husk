@@ -2232,7 +2232,7 @@ impl<'a> FnContext<'a> {
                     let start_ty = self.check_expr(start_expr);
                     if !matches!(start_ty, Type::Primitive(PrimitiveType::I32)) {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("range start must be i32, found {:?}", start_ty),
+                            message: format!("range start must be i32, found {}", self.format_type(&start_ty)),
                             span: start_expr.span.clone(),
                         });
                     }
@@ -2243,7 +2243,7 @@ impl<'a> FnContext<'a> {
                     let end_ty = self.check_expr(end_expr);
                     if !matches!(end_ty, Type::Primitive(PrimitiveType::I32)) {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("range end must be i32, found {:?}", end_ty),
+                            message: format!("range end must be i32, found {}", self.format_type(&end_ty)),
                             span: end_expr.span.clone(),
                         });
                     }
@@ -4030,6 +4030,81 @@ fn main() {
         assert!(
             result.type_errors.is_empty(),
             "expected no errors for generic type with base impl, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn range_with_f64_reports_formatted_type_error() {
+        // Range expressions require i32, using f64 should report error with "f64" not "Primitive(F64)"
+        let src = r#"
+fn main() {
+    let x: f64 = 1.0;
+    for i in x..10 {
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("found f64")),
+            "expected error message to contain 'found f64', got: {:?}",
+            result.type_errors
+        );
+        assert!(
+            !result.type_errors.iter().any(|e| e.message.contains("Primitive")),
+            "error message should not contain 'Primitive', got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn range_with_string_reports_formatted_type_error() {
+        // Range expressions require i32, using String should report error with "String" not debug format
+        let src = r#"
+fn main() {
+    let x = "hello";
+    for i in x..10 {
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("found String")),
+            "expected error message to contain 'found String', got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn range_with_named_type_reports_formatted_type_error() {
+        // Range expressions require i32, using a named type should report the type name
+        let src = r#"
+struct Foo {}
+
+fn main() {
+    let x = Foo {};
+    for i in x..10 {
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("found Foo")),
+            "expected error message to contain 'found Foo', got: {:?}",
+            result.type_errors
+        );
+        assert!(
+            !result.type_errors.iter().any(|e| e.message.contains("Named {")),
+            "error message should not contain debug format 'Named {{', got: {:?}",
             result.type_errors
         );
     }
