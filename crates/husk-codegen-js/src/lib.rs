@@ -1193,21 +1193,28 @@ fn lower_let_pattern(pattern: &Pattern, value: Option<&Expr>, ctx: &CodegenConte
         }
         PatternKind::Tuple { fields } => {
             // Tuple pattern: let (a, b, c) = expr;
-            // This becomes: const [a, b, c] = expr;
-            // We'll generate a destructuring assignment by creating individual let statements
-            // wrapped in a block, or use JS destructuring.
-            // For simplicity, we'll use JS array destructuring pattern.
-            let names: Vec<String> = fields
-                .iter()
-                .filter_map(|p| {
-                    if let PatternKind::Binding(name) = &p.kind {
-                        Some(ctx.resolve_name(&name.name, &name.span))
-                    } else {
-                        // Nested patterns would need recursive handling
-                        None
+            // For now, only support simple bindings - reject nested patterns
+            let mut names: Vec<String> = Vec::new();
+            for p in fields {
+                match &p.kind {
+                    PatternKind::Binding(name) => {
+                        names.push(ctx.resolve_name(&name.name, &name.span));
                     }
-                })
-                .collect();
+                    PatternKind::Wildcard => {
+                        // Use a placeholder that JS will ignore
+                        names.push("_".to_string());
+                    }
+                    _ => {
+                        // Nested patterns not yet supported in let destructuring
+                        // Fall back to evaluating the expression
+                        return if let Some(e) = value {
+                            JsStmt::Expr(lower_expr(e, ctx))
+                        } else {
+                            JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
+                        };
+                    }
+                }
+            }
 
             JsStmt::LetDestructure {
                 names,
@@ -2169,6 +2176,65 @@ fn has_formatting(spec: &FormatSpec) -> bool {
         || spec.precision.is_some()
 }
 
+/// Extract bindings from a pattern for use in match arms.
+/// Returns a list of (binding_name, accessor_expr) pairs.
+fn extract_pattern_bindings(
+    pattern: &husk_ast::Pattern,
+    scrutinee_js: &JsExpr,
+) -> Vec<(String, JsExpr)> {
+    use husk_ast::PatternKind;
+
+    match &pattern.kind {
+        PatternKind::EnumTuple { fields, .. } => {
+            let mut bindings = Vec::new();
+            for (i, field) in fields.iter().enumerate() {
+                if let PatternKind::Binding(ident) = &field.kind {
+                    // For single-field tuple, use .value; for multi-field, use ["0"], ["1"], etc.
+                    let accessor = if fields.len() == 1 {
+                        JsExpr::Member {
+                            object: Box::new(scrutinee_js.clone()),
+                            property: "value".to_string(),
+                        }
+                    } else {
+                        JsExpr::Index {
+                            object: Box::new(scrutinee_js.clone()),
+                            index: Box::new(JsExpr::String(i.to_string())),
+                        }
+                    };
+                    bindings.push((ident.name.clone(), accessor));
+                }
+            }
+            bindings
+        }
+        PatternKind::Tuple { fields } => {
+            // Tuple pattern: (x, y, z) -> x = scrutinee[0], y = scrutinee[1], etc.
+            let mut bindings = Vec::new();
+            for (i, field) in fields.iter().enumerate() {
+                let accessor = JsExpr::Index {
+                    object: Box::new(scrutinee_js.clone()),
+                    index: Box::new(JsExpr::Number(i as i64)),
+                };
+                // Recursively extract bindings from nested patterns
+                match &field.kind {
+                    PatternKind::Binding(ident) => {
+                        bindings.push((ident.name.clone(), accessor));
+                    }
+                    PatternKind::Wildcard => {
+                        // Ignore wildcards
+                    }
+                    PatternKind::Tuple { .. } => {
+                        // Nested tuple pattern - extract recursively
+                        bindings.extend(extract_pattern_bindings(field, &accessor));
+                    }
+                    _ => {}
+                }
+            }
+            bindings
+        }
+        _ => Vec::new(),
+    }
+}
+
 fn lower_match_expr(
     scrutinee: &Expr,
     arms: &[husk_ast::MatchArm],
@@ -2230,70 +2296,13 @@ fn lower_match_expr(
         }
     }
 
-    // Extract bindings from an enum tuple pattern or tuple pattern.
-    // Returns a list of (binding_name, accessor) pairs.
-    fn extract_bindings(
-        pattern: &husk_ast::Pattern,
-        scrutinee_js: &JsExpr,
-    ) -> Vec<(String, JsExpr)> {
-        match &pattern.kind {
-            PatternKind::EnumTuple { fields, .. } => {
-                let mut bindings = Vec::new();
-                for (i, field) in fields.iter().enumerate() {
-                    if let PatternKind::Binding(ident) = &field.kind {
-                        // For single-field tuple, use .value; for multi-field, use ["0"], ["1"], etc.
-                        let accessor = if fields.len() == 1 {
-                            JsExpr::Member {
-                                object: Box::new(scrutinee_js.clone()),
-                                property: "value".to_string(),
-                            }
-                        } else {
-                            JsExpr::Index {
-                                object: Box::new(scrutinee_js.clone()),
-                                index: Box::new(JsExpr::String(i.to_string())),
-                            }
-                        };
-                        bindings.push((ident.name.clone(), accessor));
-                    }
-                }
-                bindings
-            }
-            PatternKind::Tuple { fields } => {
-                // Tuple pattern: (x, y, z) -> x = scrutinee[0], y = scrutinee[1], etc.
-                let mut bindings = Vec::new();
-                for (i, field) in fields.iter().enumerate() {
-                    let accessor = JsExpr::Index {
-                        object: Box::new(scrutinee_js.clone()),
-                        index: Box::new(JsExpr::Number(i as i64)),
-                    };
-                    // Recursively extract bindings from nested patterns
-                    match &field.kind {
-                        PatternKind::Binding(ident) => {
-                            bindings.push((ident.name.clone(), accessor));
-                        }
-                        PatternKind::Wildcard => {
-                            // Ignore wildcards
-                        }
-                        PatternKind::Tuple { .. } => {
-                            // Nested tuple pattern - extract recursively
-                            bindings.extend(extract_bindings(field, &accessor));
-                        }
-                        _ => {}
-                    }
-                }
-                bindings
-            }
-            _ => Vec::new(),
-        }
-    }
-
     // Lower an arm body, potentially wrapping it with let bindings for enum tuple patterns.
     fn lower_arm_body(
         arm: &husk_ast::MatchArm,
         scrutinee_js: &JsExpr,
         ctx: &CodegenContext,
     ) -> JsExpr {
-        let bindings = extract_bindings(&arm.pattern, scrutinee_js);
+        let bindings = extract_pattern_bindings(&arm.pattern, scrutinee_js);
         if bindings.is_empty() {
             lower_expr(&arm.expr, ctx)
         } else {
@@ -2398,68 +2407,13 @@ fn lower_match_stmt(
         }
     }
 
-    // Extract bindings from pattern
-    fn extract_bindings(
-        pattern: &husk_ast::Pattern,
-        scrutinee_js: &JsExpr,
-    ) -> Vec<(String, JsExpr)> {
-        match &pattern.kind {
-            PatternKind::EnumTuple { fields, .. } => {
-                let mut bindings = Vec::new();
-                for (i, field) in fields.iter().enumerate() {
-                    if let PatternKind::Binding(ident) = &field.kind {
-                        let accessor = if fields.len() == 1 {
-                            JsExpr::Member {
-                                object: Box::new(scrutinee_js.clone()),
-                                property: "value".to_string(),
-                            }
-                        } else {
-                            JsExpr::Index {
-                                object: Box::new(scrutinee_js.clone()),
-                                index: Box::new(JsExpr::String(i.to_string())),
-                            }
-                        };
-                        bindings.push((ident.name.clone(), accessor));
-                    }
-                }
-                bindings
-            }
-            PatternKind::Tuple { fields } => {
-                // Tuple pattern: (x, y, z) -> x = scrutinee[0], y = scrutinee[1], etc.
-                let mut bindings = Vec::new();
-                for (i, field) in fields.iter().enumerate() {
-                    let accessor = JsExpr::Index {
-                        object: Box::new(scrutinee_js.clone()),
-                        index: Box::new(JsExpr::Number(i as i64)),
-                    };
-                    // Recursively extract bindings from nested patterns
-                    match &field.kind {
-                        PatternKind::Binding(ident) => {
-                            bindings.push((ident.name.clone(), accessor));
-                        }
-                        PatternKind::Wildcard => {
-                            // Ignore wildcards
-                        }
-                        PatternKind::Tuple { .. } => {
-                            // Nested tuple pattern - extract recursively
-                            bindings.extend(extract_bindings(field, &accessor));
-                        }
-                        _ => {}
-                    }
-                }
-                bindings
-            }
-            _ => Vec::new(),
-        }
-    }
-
     // Lower arm body to statements, including any pattern bindings
     fn lower_arm_body_stmts(
         arm: &husk_ast::MatchArm,
         scrutinee_js: &JsExpr,
         ctx: &CodegenContext,
     ) -> Vec<JsStmt> {
-        let bindings = extract_bindings(&arm.pattern, scrutinee_js);
+        let bindings = extract_pattern_bindings(&arm.pattern, scrutinee_js);
         let mut stmts = Vec::new();
 
         // Add let bindings for pattern variables

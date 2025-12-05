@@ -25,6 +25,13 @@ fn main() {
     // Multiple element tuple
     let triple: (i32, bool, String) = (1, true, "test");
     let (n, flag, text) = triple;
+
+    // Single-element tuple (requires trailing comma)
+    let single: (i32,) = (100,);
+    let single_val = single.0;
+
+    // Wildcard in tuple pattern
+    let (a, _) = pair;
 }
 
 fn create_pair(num: i32, text: String) -> (i32, String) {
