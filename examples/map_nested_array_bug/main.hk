@@ -1,0 +1,27 @@
+// Test case for map returning nested arrays
+// The type inference should correctly infer [[String]] when mapping to arrays
+
+fn process_grid(grid: [[String]]) -> i32 {
+    grid.length
+}
+
+#[cfg(test)]
+#[test]
+fn test_map_returns_nested_array() {
+    // This should produce [[String]]
+    let data = ["a,b,c", "d,e,f"];
+    let grid = data.map(|row: String| row.split(","));
+
+    // This call should work if grid is [[String]]
+    let len = process_grid(grid);
+    assert_eq(2, len);
+}
+
+#[cfg(test)]
+#[test]
+fn test_map_nested_array_literal() {
+    // This works - direct 2D array literal
+    let grid: [[String]] = [["a", "b"], ["c", "d"]];
+    let len = process_grid(grid);
+    assert_eq(2, len);
+}

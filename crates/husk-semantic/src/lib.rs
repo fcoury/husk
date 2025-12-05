@@ -2210,7 +2210,16 @@ impl<'a> FnContext<'a> {
                     match method_name.as_str() {
                         "some" | "every" => return Type::Primitive(PrimitiveType::Bool),
                         "filter" => return receiver_ty.clone(),
-                        "map" => return receiver_ty.clone(), // simplified - should infer from closure
+                        "map" => {
+                            // Infer return type from closure's return type
+                            if let Some(closure_arg) = args.first() {
+                                let closure_ty = self.check_expr(closure_arg);
+                                if let Type::Function { ret, .. } = closure_ty {
+                                    return Type::Array(ret);
+                                }
+                            }
+                            return receiver_ty.clone(); // fallback
+                        }
                         "reduce" => return (**elem_ty).clone(),
                         _ => {}
                     }
