@@ -171,6 +171,12 @@ pub enum TokenKind {
     Hash,      // #
     LBracket,  // [
     RBracket,  // ]
+    // JSX-specific tokens
+    JsxTagOpen,    // < when starting a JSX element (context-sensitive)
+    JsxTagClose,   // > when ending a JSX opening tag
+    JsxSelfClose,  // /> for self-closing JSX elements
+    JsxCloseTag,   // </ for JSX closing tags
+    JsxText(String), // Text content inside JSX
     // End of input
     Eof,
 }

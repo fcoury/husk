@@ -3186,6 +3186,68 @@ impl<'a> FnContext<'a> {
                     }
                 }
             }
+            ExprKind::Jsx(jsx_element) => {
+                // Type check JSX element children and attribute expressions
+                for child in &jsx_element.children {
+                    self.check_jsx_child(child);
+                }
+                for attr in &jsx_element.attributes {
+                    self.check_jsx_attribute(attr);
+                }
+                // JSX elements return JsValue (opaque React element type)
+                Type::Named {
+                    name: "JsValue".to_string(),
+                    args: Vec::new(),
+                }
+            }
+        }
+    }
+
+    /// Check a JSX child expression.
+    fn check_jsx_child(&mut self, child: &husk_ast::JsxChild) {
+        match child {
+            husk_ast::JsxChild::Text(_, _) => {
+                // Text is always valid
+            }
+            husk_ast::JsxChild::Element(element) => {
+                // Recursively check nested elements
+                for ch in &element.children {
+                    self.check_jsx_child(ch);
+                }
+                for attr in &element.attributes {
+                    self.check_jsx_attribute(attr);
+                }
+            }
+            husk_ast::JsxChild::Expression(expr) => {
+                self.check_expr(expr);
+            }
+            husk_ast::JsxChild::Fragment(children, _) => {
+                for child in children {
+                    self.check_jsx_child(child);
+                }
+            }
+        }
+    }
+
+    /// Check a JSX attribute expression.
+    fn check_jsx_attribute(&mut self, attr: &husk_ast::JsxAttribute) {
+        match attr {
+            husk_ast::JsxAttribute::KeyValue { name: _, value } => {
+                match value {
+                    husk_ast::JsxAttributeValue::String(_, _) => {
+                        // String values are always valid
+                    }
+                    husk_ast::JsxAttributeValue::Expression(expr) => {
+                        self.check_expr(expr);
+                    }
+                }
+            }
+            husk_ast::JsxAttribute::Boolean(_) => {
+                // Boolean attributes are always valid
+            }
+            husk_ast::JsxAttribute::Spread(expr) => {
+                self.check_expr(expr);
+            }
         }
     }
 

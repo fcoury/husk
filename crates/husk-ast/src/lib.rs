@@ -218,6 +218,92 @@ pub enum ExprKind {
         base: Box<Expr>,
         index: usize,
     },
+    /// JSX element expression: `<div class="x">{child}</div>` or `<Component prop={val} />`
+    Jsx(JsxElement),
+}
+
+// ============================================================================
+// JSX AST Nodes
+// ============================================================================
+
+/// A JSX element: `<div>...</div>` or `<Component prop={val} />`
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsxElement {
+    /// The tag name or component name
+    pub name: JsxElementName,
+    /// Attributes on the element
+    pub attributes: Vec<JsxAttribute>,
+    /// Child elements/expressions (empty for self-closing)
+    pub children: Vec<JsxChild>,
+    /// Whether this is a self-closing element: `<br />`
+    pub self_closing: bool,
+    pub span: Span,
+}
+
+/// The name of a JSX element - either an HTML tag or a component.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JsxElementName {
+    /// Lowercase HTML tag: `div`, `span`, `button`
+    Tag(String),
+    /// Capitalized component name: `MyComponent`, `Button`
+    Component(String),
+    /// Namespaced name: `Foo.Bar` (component member expression)
+    Member { object: String, property: String },
+}
+
+impl JsxElementName {
+    /// Returns true if this is an HTML tag (lowercase).
+    pub fn is_html_tag(&self) -> bool {
+        matches!(self, JsxElementName::Tag(_))
+    }
+
+    /// Returns the name as a string.
+    pub fn as_str(&self) -> &str {
+        match self {
+            JsxElementName::Tag(s) => s,
+            JsxElementName::Component(s) => s,
+            JsxElementName::Member { object: _, property } => {
+                // This is a simplification - should probably return the full path
+                property
+            }
+        }
+    }
+}
+
+/// A JSX attribute: `name="value"` or `name={expr}` or just `name`
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsxAttribute {
+    /// A key-value attribute: `class="foo"` or `onClick={handler}`
+    KeyValue {
+        name: Ident,
+        value: JsxAttributeValue,
+    },
+    /// A boolean attribute (present = true): `disabled`
+    Boolean(Ident),
+    /// Spread attributes: `{...props}`
+    Spread(Expr),
+}
+
+/// The value of a JSX attribute.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsxAttributeValue {
+    /// String literal: `"hello"`
+    String(String, Span),
+    /// Expression in braces: `{expr}`
+    Expression(Box<Expr>),
+}
+
+/// A child of a JSX element.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsxChild {
+    /// Text content (whitespace-trimmed)
+    Text(String, Span),
+    /// Nested JSX element
+    Element(Box<JsxElement>),
+    /// Expression in braces: `{expr}`
+    Expression(Expr),
+    /// JSX Fragment: `<>...</>`
+    Fragment(Vec<JsxChild>, Span),
 }
 
 // ============================================================================

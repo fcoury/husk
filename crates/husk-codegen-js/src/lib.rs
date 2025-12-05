@@ -8,8 +8,9 @@
 
 use husk_ast::{
     Block, EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec,
-    Ident, ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
-    StructField, TypeExpr, TypeExprKind, TypeParam,
+    Ident, ImplItemKind, ItemKind, JsxAttribute, JsxAttributeValue, JsxChild, JsxElement,
+    JsxElementName, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField,
+    TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
@@ -2287,6 +2288,143 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             JsExpr::Index {
                 object: Box::new(js_base),
                 index: Box::new(JsExpr::Number(*index as i64)),
+            }
+        }
+        ExprKind::Jsx(jsx_element) => lower_jsx_element(jsx_element, ctx),
+    }
+}
+
+// ============================================================================
+// JSX Lowering - React Automatic Runtime
+// ============================================================================
+
+/// Lower a JSX element to React automatic runtime calls.
+///
+/// Uses the React 17+ automatic runtime:
+/// - `<div>` becomes `_jsx("div", { children: ... })`
+/// - `<Component>` becomes `_jsx(Component, { children: ... })`
+/// - Fragments `<>` become `_jsxs(Fragment, { children: [...] })`
+///
+/// The automatic runtime is imported at the top of the file:
+/// ```js
+/// import { jsx as _jsx, jsxs as _jsxs, Fragment } from "react/jsx-runtime";
+/// ```
+fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
+    // Determine the tag/component reference
+    let type_expr = match &element.name {
+        JsxElementName::Tag(tag) => {
+            // HTML tag: pass as string "div", "span", etc.
+            // Empty string means fragment
+            if tag.is_empty() {
+                JsExpr::Ident("Fragment".to_string())
+            } else {
+                JsExpr::String(tag.clone())
+            }
+        }
+        JsxElementName::Component(name) => {
+            // Component: pass as identifier
+            JsExpr::Ident(name.clone())
+        }
+        JsxElementName::Member { object, property } => {
+            // Member expression: Foo.Bar
+            JsExpr::Member {
+                object: Box::new(JsExpr::Ident(object.clone())),
+                property: property.clone(),
+            }
+        }
+    };
+
+    // Build the props object
+    let mut props: Vec<(String, JsExpr)> = Vec::new();
+
+    // Process attributes
+    for attr in &element.attributes {
+        match attr {
+            JsxAttribute::KeyValue { name, value } => {
+                let prop_value = match value {
+                    JsxAttributeValue::String(s, _) => JsExpr::String(s.clone()),
+                    JsxAttributeValue::Expression(expr) => lower_expr(expr, ctx),
+                };
+                props.push((name.name.clone(), prop_value));
+            }
+            JsxAttribute::Boolean(name) => {
+                // Boolean attributes are set to true
+                props.push((name.name.clone(), JsExpr::Bool(true)));
+            }
+            JsxAttribute::Spread(expr) => {
+                // Spread props are handled via Object.assign or spread
+                // For simplicity, we'll add a special marker that gets handled in codegen
+                // In practice, this would need more sophisticated handling
+                props.push(("...".to_string(), lower_expr(expr, ctx)));
+            }
+        }
+    }
+
+    // Process children
+    let children = lower_jsx_children(&element.children, ctx);
+
+    // Add children to props if not empty
+    if !children.is_empty() {
+        if children.len() == 1 {
+            props.push(("children".to_string(), children.into_iter().next().unwrap()));
+        } else {
+            props.push(("children".to_string(), JsExpr::Array(children)));
+        }
+    }
+
+    // Determine which jsx function to use
+    // - _jsx for single child or no children
+    // - _jsxs for multiple children
+    let jsx_fn = if element.children.len() > 1 {
+        "_jsxs"
+    } else {
+        "_jsx"
+    };
+
+    // Build the call: _jsx(type, props) or _jsxs(type, props)
+    JsExpr::Call {
+        callee: Box::new(JsExpr::Ident(jsx_fn.to_string())),
+        args: vec![type_expr, JsExpr::Object(props)],
+    }
+}
+
+/// Lower JSX children to JavaScript expressions.
+fn lower_jsx_children(children: &[JsxChild], ctx: &CodegenContext) -> Vec<JsExpr> {
+    children
+        .iter()
+        .filter_map(|child| lower_jsx_child(child, ctx))
+        .collect()
+}
+
+/// Lower a single JSX child to a JavaScript expression.
+fn lower_jsx_child(child: &JsxChild, ctx: &CodegenContext) -> Option<JsExpr> {
+    match child {
+        JsxChild::Text(text, _) => {
+            // Skip whitespace-only text nodes (trimmed in parser)
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(JsExpr::String(text.clone()))
+            }
+        }
+        JsxChild::Element(element) => Some(lower_jsx_element(element, ctx)),
+        JsxChild::Expression(expr) => Some(lower_expr(expr, ctx)),
+        JsxChild::Fragment(children, _) => {
+            // Fragment children are flattened
+            let child_exprs = lower_jsx_children(children, ctx);
+            if child_exprs.is_empty() {
+                None
+            } else if child_exprs.len() == 1 {
+                child_exprs.into_iter().next()
+            } else {
+                // Wrap in a Fragment call
+                Some(JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("_jsxs".to_string())),
+                    args: vec![
+                        JsExpr::Ident("Fragment".to_string()),
+                        JsExpr::Object(vec![("children".to_string(), JsExpr::Array(child_exprs))]),
+                    ],
+                })
             }
         }
     }

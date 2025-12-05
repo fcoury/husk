@@ -11,6 +11,14 @@ pub struct CodegenOptions {
     pub module_name: Option<String>,
     /// Include verbose warnings as comments.
     pub verbose: bool,
+    /// Enable callable interface support (interfaces with call signatures).
+    pub enable_callables: bool,
+    /// Enable indexer support (interfaces with index signatures).
+    pub enable_indexers: bool,
+    /// Namespace allowlist for filtering imports.
+    pub namespace_allowlist: Option<Vec<String>>,
+    /// Fail fast on unsupported TypeScript features.
+    pub fail_fast: bool,
 }
 
 /// Warnings generated during code generation.
@@ -25,6 +33,8 @@ pub enum WarningKind {
     Unsupported,
     Simplified,
     Skipped,
+    /// Fatal error for fail-fast mode.
+    Fatal,
 }
 
 /// Result of code generation.
@@ -56,6 +66,10 @@ struct Codegen<'a> {
     impls: HashMap<String, Vec<GeneratedMethod>>,
     /// Collected properties: type name -> properties with #[getter] syntax.
     properties: HashMap<String, Vec<GeneratedProperty>>,
+    /// Collected callables: type name -> call signatures.
+    callables: HashMap<String, Vec<GeneratedCallable>>,
+    /// Collected indexers: type name -> index signatures.
+    indexers: HashMap<String, Vec<GeneratedIndexer>>,
     /// Type aliases (for reference, not always generated).
     type_aliases: HashMap<String, DtsType>,
     /// Known generic types (struct-level type parameters).
@@ -66,6 +80,8 @@ struct Codegen<'a> {
     in_struct_context: bool,
     /// The name of the current struct/interface being processed (for `this` type).
     current_type_name: Option<String>,
+    /// Count of unsupported features encountered (for visibility logging).
+    unsupported_count: usize,
 }
 
 struct GeneratedFn {
@@ -93,6 +109,21 @@ struct GeneratedProperty {
     is_static: bool,
 }
 
+/// A generated callable (for interfaces with call signatures).
+struct GeneratedCallable {
+    type_params: Vec<String>,
+    params: Vec<(String, String)>,
+    return_type: Option<String>,
+}
+
+/// A generated indexer (for interfaces with index signatures).
+struct GeneratedIndexer {
+    key_name: String,
+    key_type: String,
+    value_type: String,
+    is_readonly: bool,
+}
+
 impl<'a> Codegen<'a> {
     fn new(options: &'a CodegenOptions) -> Self {
         Self {
@@ -103,12 +134,29 @@ impl<'a> Codegen<'a> {
             functions: Vec::new(),
             impls: HashMap::new(),
             properties: HashMap::new(),
+            callables: HashMap::new(),
+            indexers: HashMap::new(),
             type_aliases: HashMap::new(),
             known_generics: HashSet::new(),
             method_type_params: HashSet::new(),
             in_struct_context: false,
             current_type_name: None,
+            unsupported_count: 0,
         }
+    }
+
+    /// Record an unsupported feature, potentially as a fatal error in fail-fast mode.
+    fn warn_unsupported(&mut self, message: impl Into<String>) {
+        self.unsupported_count += 1;
+        let kind = if self.options.fail_fast {
+            WarningKind::Fatal
+        } else {
+            WarningKind::Unsupported
+        };
+        self.warnings.push(Warning {
+            message: message.into(),
+            kind,
+        });
     }
 
     fn warn(&mut self, kind: WarningKind, message: impl Into<String>) {
@@ -497,11 +545,49 @@ impl<'a> Codegen<'a> {
                         );
                     }
                 }
-                InterfaceMember::CallSignature(_) => {
-                    self.warn(
-                        WarningKind::Skipped,
-                        format!("Call signature on {} skipped", i.name),
-                    );
+                InterfaceMember::CallSignature(cs) => {
+                    if self.options.enable_callables {
+                        // Track method-only type params
+                        let call_type_params: HashSet<String> =
+                            cs.type_params.iter().map(|p| p.name.clone()).collect();
+
+                        let old_method_params =
+                            std::mem::replace(&mut self.method_type_params, call_type_params.clone());
+                        let old_generics = self.known_generics.clone();
+                        for tp in &cs.type_params {
+                            self.known_generics.insert(tp.name.clone());
+                        }
+
+                        let params: Vec<(String, String)> = cs
+                            .params
+                            .iter()
+                            .map(|p| {
+                                let ty = self.map_param_type(&p.ty, p.optional);
+                                (escape_keyword(&p.name), ty)
+                            })
+                            .collect();
+
+                        let return_type = cs.return_type.as_ref().and_then(|ty| {
+                            let mapped = self.map_type(ty);
+                            if mapped == "()" { None } else { Some(mapped) }
+                        });
+
+                        self.callables.entry(i.name.clone()).or_default().push(
+                            GeneratedCallable {
+                                type_params: type_params.clone(),
+                                params,
+                                return_type,
+                            },
+                        );
+
+                        self.known_generics = old_generics;
+                        self.method_type_params = old_method_params;
+                    } else {
+                        self.warn(
+                            WarningKind::Skipped,
+                            format!("Call signature on {} skipped (enable with enable_callables)", i.name),
+                        );
+                    }
                 }
                 InterfaceMember::ConstructSignature(_) => {
                     self.warn(
@@ -509,11 +595,25 @@ impl<'a> Codegen<'a> {
                         format!("Construct signature on {} skipped", i.name),
                     );
                 }
-                InterfaceMember::IndexSignature(_) => {
-                    self.warn(
-                        WarningKind::Skipped,
-                        format!("Index signature on {} skipped", i.name),
-                    );
+                InterfaceMember::IndexSignature(idx) => {
+                    if self.options.enable_indexers {
+                        let key_type = self.map_type(&idx.key_type);
+                        let value_type = self.map_type(&idx.value_type);
+
+                        self.indexers.entry(i.name.clone()).or_default().push(
+                            GeneratedIndexer {
+                                key_name: idx.key_name.clone(),
+                                key_type,
+                                value_type,
+                                is_readonly: idx.readonly,
+                            },
+                        );
+                    } else {
+                        self.warn(
+                            WarningKind::Skipped,
+                            format!("Index signature on {} skipped (enable with enable_indexers)", i.name),
+                        );
+                    }
                 }
             }
         }
@@ -1130,15 +1230,19 @@ impl<'a> Codegen<'a> {
     }
 
     fn emit_impl_blocks(&mut self) {
-        // Collect all type names that have either methods or properties
-        let mut all_type_names: HashSet<&String> = HashSet::new();
-        all_type_names.extend(self.impls.keys());
-        all_type_names.extend(self.properties.keys());
+        // Collect all type names that have either methods, properties, callables, or indexers
+        // Clone the names to avoid borrow conflicts when calling emit_callable_and_indexer_methods
+        let mut all_type_names: HashSet<String> = HashSet::new();
+        all_type_names.extend(self.impls.keys().cloned());
+        all_type_names.extend(self.properties.keys().cloned());
+        all_type_names.extend(self.callables.keys().cloned());
+        all_type_names.extend(self.indexers.keys().cloned());
 
-        let mut sorted_types: Vec<&String> = all_type_names.into_iter().collect();
+        let mut sorted_types: Vec<String> = all_type_names.into_iter().collect();
         sorted_types.sort();
 
         for type_name in sorted_types {
+            let type_name = &type_name; // Reference for lookups
             let methods = self
                 .impls
                 .get(type_name)
@@ -1150,7 +1254,10 @@ impl<'a> Codegen<'a> {
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
 
-            if methods.is_empty() && properties.is_empty() {
+            let has_callables = self.callables.contains_key(type_name);
+            let has_indexers = self.indexers.contains_key(type_name);
+
+            if methods.is_empty() && properties.is_empty() && !has_callables && !has_indexers {
                 continue;
             }
 
@@ -1222,6 +1329,20 @@ impl<'a> Codegen<'a> {
                 writeln!(self.output, ";").unwrap();
             }
 
+            // Emit callable methods (call signatures)
+            if has_callables {
+                if !methods.is_empty() || !properties.is_empty() {
+                    writeln!(self.output).unwrap();
+                }
+                self.emit_callable_and_indexer_methods(type_name);
+            } else if has_indexers {
+                // Just indexers, no callables
+                if !methods.is_empty() || !properties.is_empty() {
+                    writeln!(self.output).unwrap();
+                }
+                self.emit_callable_and_indexer_methods(type_name);
+            }
+
             writeln!(self.output, "}}").unwrap();
         }
     }
@@ -1233,13 +1354,69 @@ impl<'a> Codegen<'a> {
 
         writeln!(self.output).unwrap();
         writeln!(self.output, "// WARNINGS:").unwrap();
+
+        // Log unsupported feature count for visibility
+        if self.unsupported_count > 0 {
+            writeln!(
+                self.output,
+                "// Total unsupported features encountered: {}",
+                self.unsupported_count
+            )
+            .unwrap();
+        }
+
         for w in &self.warnings {
             let prefix = match w.kind {
                 WarningKind::Unsupported => "UNSUPPORTED",
                 WarningKind::Simplified => "SIMPLIFIED",
                 WarningKind::Skipped => "SKIPPED",
+                WarningKind::Fatal => "FATAL",
             };
             writeln!(self.output, "// {}: {}", prefix, w.message).unwrap();
+        }
+    }
+
+    /// Emit callable and indexer implementations in the impl block.
+    fn emit_callable_and_indexer_methods(&mut self, type_name: &str) {
+        // Emit callables as `call` method
+        if let Some(callables) = self.callables.get(type_name) {
+            for callable in callables {
+                writeln!(self.output, "    // Callable interface - invoke with call()").unwrap();
+                write!(self.output, "    extern \"js\" fn call(self").unwrap();
+
+                for (name, ty) in &callable.params {
+                    write!(self.output, ", {}: {}", name, ty).unwrap();
+                }
+                write!(self.output, ")").unwrap();
+
+                if let Some(ret) = &callable.return_type {
+                    write!(self.output, " -> {}", ret).unwrap();
+                }
+
+                writeln!(self.output, ";").unwrap();
+            }
+        }
+
+        // Emit indexers as `get` and `set` methods
+        if let Some(indexers) = self.indexers.get(type_name) {
+            for idx in indexers {
+                writeln!(self.output, "    // Indexer access").unwrap();
+                writeln!(
+                    self.output,
+                    "    extern \"js\" fn get(self, {}: {}) -> {};",
+                    idx.key_name, idx.key_type, idx.value_type
+                )
+                .unwrap();
+
+                if !idx.is_readonly {
+                    writeln!(
+                        self.output,
+                        "    extern \"js\" fn set(self, {}: {}, value: {});",
+                        idx.key_name, idx.key_type, idx.value_type
+                    )
+                    .unwrap();
+                }
+            }
         }
     }
 }

@@ -1,0 +1,46 @@
+// JSX Demo - Husk JSX syntax example
+// Demonstrates JSX element expressions in Husk
+
+// A simple component (represented as a function returning JSX)
+fn Button(label: String, on_click: JsValue) -> JsValue {
+    <button onClick={on_click}>
+        {label}
+    </button>
+}
+
+// A component with children
+fn Card(title: String, children: JsValue) -> JsValue {
+    <div class="card">
+        <h2>{title}</h2>
+        <div class="card-body">
+            {children}
+        </div>
+    </div>
+}
+
+// Using a fragment
+fn List(items: [String]) -> JsValue {
+    <>
+        {items.map(|item| <li>{item}</li>)}
+    </>
+}
+
+// Main app component
+fn App() -> JsValue {
+    let count = 0;
+
+    <div class="app">
+        <h1>Hello from Husk JSX</h1>
+        <p>Count: {count}</p>
+        <Button label="Click me" onClick={js { () => console.log("clicked") }} />
+        <Card title="Welcome">
+            <p>This is a card component.</p>
+        </Card>
+    </div>
+}
+
+fn main() {
+    let element = <App />;
+    // In a real app, you'd render this with ReactDOM
+    println!("JSX demo compiled successfully!");
+}
