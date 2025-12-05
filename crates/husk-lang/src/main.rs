@@ -115,6 +115,10 @@ enum Command {
         /// Exit immediately on unsupported TypeScript features.
         #[arg(long)]
         fail_fast: bool,
+        /// Namespace allowlist for filtering imports (e.g., "dom,fetch,url").
+        /// Useful for phased DOM ingestion.
+        #[arg(long, value_delimiter = ',')]
+        namespace_allowlist: Option<Vec<String>>,
     },
     /// Create a new Husk project
     New {
@@ -287,8 +291,8 @@ fn main() {
             output.as_deref(),
             source_map,
         ),
-        Some(Command::ImportDts { file, out, module, enable_callables, enable_indexers, fail_fast }) => {
-            run_import_dts(&file, out.as_deref(), module.as_deref(), enable_callables, enable_indexers, fail_fast)
+        Some(Command::ImportDts { file, out, module, enable_callables, enable_indexers, fail_fast, namespace_allowlist }) => {
+            run_import_dts(&file, out.as_deref(), module.as_deref(), enable_callables, enable_indexers, fail_fast, namespace_allowlist)
         }
         Some(Command::New { name }) => run_new(&name),
         Some(Command::Run {
@@ -592,7 +596,7 @@ fn run_compile(
     }
 }
 
-fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>, enable_callables: bool, enable_indexers: bool, fail_fast: bool) {
+fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>, enable_callables: bool, enable_indexers: bool, fail_fast: bool, namespace_allowlist: Option<Vec<String>>) {
     debug_log(&format!("[huskc] reading .d.ts: {path}"));
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -617,7 +621,7 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>, enable_ca
         verbose: env::var("HUSKC_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
         enable_callables,
         enable_indexers,
-        namespace_allowlist: None,
+        namespace_allowlist,
         fail_fast,
     };
     let result = generate_husk(&file, &options);
