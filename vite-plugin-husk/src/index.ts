@@ -29,7 +29,9 @@ export interface HuskPluginOptions {
   target?: "esm" | "cjs";
 
   /**
-   * Enable source maps. Defaults to true in development.
+   * Enable source maps. Defaults to false.
+   * Note: Source maps are not yet supported in the shell-out architecture.
+   * This option is reserved for future WASM-based compilation.
    */
   sourceMaps?: boolean;
 
@@ -71,9 +73,9 @@ function compileHusk(
     options.target,
   ];
 
-  if (options.sourceMaps) {
-    args.push("--source-map");
-  }
+  // Note: huskc requires --output when using --source-map.
+  // Since we're using stdout capture, source maps are not yet supported.
+  // Future versions may use temp files or WASM for source map support.
 
   if (options.huskArgs) {
     args.push(...options.huskArgs);
@@ -87,7 +89,7 @@ function compileHusk(
     });
 
     // For now, huskc outputs to stdout
-    // In production, we'd use --output to write to a temp file
+    // Source maps would require --output to write to a temp file
     return {
       code: output,
       errors: [],
@@ -115,12 +117,11 @@ function injectJsxRuntime(code: string): string {
 }
 
 export default function huskPlugin(options: HuskPluginOptions = {}): Plugin {
-  const userSetSourceMaps = options.sourceMaps !== undefined;
   const resolvedOptions: Required<HuskPluginOptions> = {
     huskc: options.huskc ?? "huskc",
     jsx: options.jsx ?? true,
     target: options.target ?? "esm",
-    sourceMaps: options.sourceMaps ?? true,
+    sourceMaps: options.sourceMaps ?? false, // Not yet supported in shell-out mode
     huskArgs: options.huskArgs ?? [],
   };
 
@@ -132,10 +133,6 @@ export default function huskPlugin(options: HuskPluginOptions = {}): Plugin {
 
     configResolved(resolvedConfig) {
       config = resolvedConfig;
-      // Disable source maps in production by default, unless user explicitly enabled them
-      if (config.command === "build" && !userSetSourceMaps) {
-        resolvedOptions.sourceMaps = false;
-      }
     },
 
     buildStart() {

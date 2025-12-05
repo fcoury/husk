@@ -1377,12 +1377,18 @@ impl<'a> Codegen<'a> {
     }
 
     /// Emit callable and indexer implementations in the impl block.
+    ///
+    /// Callables use `__call__` as the method name. The JS codegen recognizes this
+    /// special name and emits a direct function call `obj(args)` instead of `obj.__call__(args)`.
+    ///
+    /// Indexers use `__index__` and `__index_set__` as method names. The JS codegen
+    /// recognizes these and emits `obj[key]` and `obj[key] = value` respectively.
     fn emit_callable_and_indexer_methods(&mut self, type_name: &str) {
-        // Emit callables as `call` method
+        // Emit callables as `__call__` method (special name recognized by JS codegen)
         if let Some(callables) = self.callables.get(type_name) {
             for callable in callables {
-                writeln!(self.output, "    // Callable interface - invoke with call()").unwrap();
-                write!(self.output, "    extern \"js\" fn call(self").unwrap();
+                writeln!(self.output, "    // Callable interface - use __call__() to invoke as obj(args)").unwrap();
+                write!(self.output, "    extern \"js\" fn __call__(self").unwrap();
 
                 for (name, ty) in &callable.params {
                     write!(self.output, ", {}: {}", name, ty).unwrap();
@@ -1397,13 +1403,14 @@ impl<'a> Codegen<'a> {
             }
         }
 
-        // Emit indexers as `get` and `set` methods
+        // Emit indexers as `__index__` and `__index_set__` methods
+        // JS codegen recognizes these and emits obj[key] / obj[key] = value
         if let Some(indexers) = self.indexers.get(type_name) {
             for idx in indexers {
-                writeln!(self.output, "    // Indexer access").unwrap();
+                writeln!(self.output, "    // Indexer - use __index__() for obj[key] access").unwrap();
                 writeln!(
                     self.output,
-                    "    extern \"js\" fn get(self, {}: {}) -> {};",
+                    "    extern \"js\" fn __index__(self, {}: {}) -> {};",
                     idx.key_name, idx.key_type, idx.value_type
                 )
                 .unwrap();
@@ -1411,7 +1418,7 @@ impl<'a> Codegen<'a> {
                 if !idx.is_readonly {
                     writeln!(
                         self.output,
-                        "    extern \"js\" fn set(self, {}: {}, value: {});",
+                        "    extern \"js\" fn __index_set__(self, {}: {}, value: {});",
                         idx.key_name, idx.key_type, idx.value_type
                     )
                     .unwrap();

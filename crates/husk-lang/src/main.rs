@@ -103,6 +103,18 @@ enum Command {
         /// For packages with hyphens/scopes: `mod "pkg" as alias;`
         #[arg(short, long, value_name = "NAME")]
         module: Option<String>,
+        /// Enable callable interface support (interfaces with call signatures).
+        /// Generates `__call__()` methods that compile to `obj(args)`.
+        #[arg(long)]
+        enable_callables: bool,
+        /// Enable indexer support (interfaces with index signatures).
+        /// Generates `__index__(key)` and `__index_set__(key, value)` methods
+        /// that compile to `obj[key]` and `obj[key] = value`.
+        #[arg(long)]
+        enable_indexers: bool,
+        /// Exit immediately on unsupported TypeScript features.
+        #[arg(long)]
+        fail_fast: bool,
     },
     /// Create a new Husk project
     New {
@@ -275,8 +287,8 @@ fn main() {
             output.as_deref(),
             source_map,
         ),
-        Some(Command::ImportDts { file, out, module }) => {
-            run_import_dts(&file, out.as_deref(), module.as_deref())
+        Some(Command::ImportDts { file, out, module, enable_callables, enable_indexers, fail_fast }) => {
+            run_import_dts(&file, out.as_deref(), module.as_deref(), enable_callables, enable_indexers, fail_fast)
         }
         Some(Command::New { name }) => run_new(&name),
         Some(Command::Run {
@@ -580,7 +592,7 @@ fn run_compile(
     }
 }
 
-fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
+fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>, enable_callables: bool, enable_indexers: bool, fail_fast: bool) {
     debug_log(&format!("[huskc] reading .d.ts: {path}"));
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
@@ -603,10 +615,10 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
     let options = DtsCodegenOptions {
         module_name: module.map(String::from),
         verbose: env::var("HUSKC_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
-        enable_callables: false,
-        enable_indexers: false,
+        enable_callables,
+        enable_indexers,
         namespace_allowlist: None,
-        fail_fast: false,
+        fail_fast,
     };
     let result = generate_husk(&file, &options);
 
@@ -1788,14 +1800,13 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         return;
     }
 
-    // Get global warn level from config
-    let warn_level = config
-        .dts_options
-        .as_ref()
-        .and_then(|o| o.warn_level.as_deref())
-        .unwrap_or("all");
+    // Get global options from config
+    let dts_opts = config.dts_options.as_ref();
+    let warn_level = dts_opts.and_then(|o| o.warn_level.as_deref()).unwrap_or("all");
     let show_warnings = warn_level != "none";
     let verbose_warnings = warn_level == "all";
+    let enable_callables = dts_opts.and_then(|o| o.enable_callables).unwrap_or(false);
+    let enable_indexers = dts_opts.and_then(|o| o.enable_indexers).unwrap_or(false);
 
     for entry in entries {
         println!("Updating {}", entry.package);
@@ -1847,9 +1858,9 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         let options = DtsCodegenOptions {
             module_name: Some(entry.package.clone()),
             verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
-            enable_callables: false,
-            enable_indexers: false,
-            namespace_allowlist: None,
+            enable_callables,
+            enable_indexers,
+            namespace_allowlist: dts_opts.and_then(|o| o.namespace_allowlist.clone()),
             fail_fast: false,
         };
         let mut result = generate_husk(&dts_file, &options);
