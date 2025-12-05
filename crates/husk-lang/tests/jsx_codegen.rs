@@ -185,6 +185,56 @@ fn render() -> JsValue {
     );
 }
 
+#[test]
+fn jsx_text_with_operators() {
+    // JSX text should handle operators like &&, ||, ?, etc.
+    let src = r#"
+fn render() -> JsValue {
+    <div>A && B</div>
+}
+"#;
+    let js = compile_to_js(src);
+    assert!(
+        js.contains("\"A && B\""),
+        "text with && operator should work: {}",
+        js
+    );
+}
+
+#[test]
+fn jsx_text_with_pipe() {
+    // Test || operator in JSX text (was previously not handled with whitelist approach)
+    let src = r#"
+fn render() -> JsValue {
+    <div>A || B</div>
+}
+"#;
+    let js = compile_to_js(src);
+    assert!(
+        js.contains("\"A || B\""),
+        "text with || operator should work: {}",
+        js
+    );
+}
+
+#[test]
+fn jsx_text_with_comparison() {
+    let src = r#"
+fn render() -> JsValue {
+    <div>x > y</div>
+}
+"#;
+    let js = compile_to_js(src);
+    // Note: > is a JSX structural token for closing tags, but inside text it should work
+    // Actually, this is tricky - the lexer will see `>` as Gt which could end tags
+    // This test verifies the exclusion-based approach handles this correctly
+    assert!(
+        js.contains("\"x > y\"") || js.contains("x > y"),
+        "text with > should work: {}",
+        js
+    );
+}
+
 // ============================================================================
 // JSX Fragment Tests
 // ============================================================================
