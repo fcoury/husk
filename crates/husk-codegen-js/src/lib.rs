@@ -1846,6 +1846,35 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
             }
 
+            // Handle callable interface: __call__(args) -> obj(args)
+            // This is used for TypeScript interfaces with call signatures
+            if method_name == "__call__" {
+                return JsExpr::Call {
+                    callee: Box::new(lower_expr(receiver, ctx)),
+                    args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+                };
+            }
+
+            // Handle indexer get: __index__(key) -> obj[key]
+            if method_name == "__index__" && args.len() == 1 {
+                return JsExpr::Index {
+                    object: Box::new(lower_expr(receiver, ctx)),
+                    index: Box::new(lower_expr(&args[0], ctx)),
+                };
+            }
+
+            // Handle indexer set: __index_set__(key, value) -> obj[key] = value
+            if method_name == "__index_set__" && args.len() == 2 {
+                return JsExpr::Assignment {
+                    left: Box::new(JsExpr::Index {
+                        object: Box::new(lower_expr(receiver, ctx)),
+                        index: Box::new(lower_expr(&args[0], ctx)),
+                    }),
+                    op: JsAssignOp::Assign,
+                    right: Box::new(lower_expr(&args[1], ctx)),
+                };
+            }
+
             // Handle Result/Option unwrap and expect methods
             if method_name == "unwrap" && args.is_empty() {
                 // result.unwrap() -> __husk_unwrap(result)
