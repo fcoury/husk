@@ -471,6 +471,7 @@ dependencies = [
  "husk-ast",
  "husk-runtime-js",
  "husk-semantic",
+ "husk-types",
  "sourcemap",
 ]
 

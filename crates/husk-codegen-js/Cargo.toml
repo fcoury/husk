@@ -7,4 +7,5 @@ edition = "2024"
 husk-ast = { path = "../husk-ast" }
 husk-runtime-js = { path = "../husk-runtime-js" }
 husk-semantic = { path = "../husk-semantic" }
+husk-types = { path = "../husk-types" }
 sourcemap = "9"

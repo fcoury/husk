@@ -13,7 +13,10 @@ use husk_ast::{
     Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_parser::parse_str;
-use husk_types::{PrimitiveType, Type};
+use husk_types::PrimitiveType;
+
+// Re-export Type for use in codegen
+pub use husk_types::Type;
 
 /// Unique identifier for a symbol within a module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -82,6 +85,9 @@ pub struct SemanticError {
 /// Values are the resolved names (e.g., "x", "x$1", "x$2").
 pub type NameResolution = HashMap<(usize, usize), String>;
 
+/// Maps expression spans to inferred generic type arguments for codegen.
+pub type InferredGenerics = HashMap<(usize, usize), Vec<Type>>;
+
 /// The result of running semantic analysis (name resolution + type checking) on a Husk file.
 #[derive(Debug)]
 pub struct SemanticResult {
@@ -89,6 +95,9 @@ pub struct SemanticResult {
     pub type_errors: Vec<SemanticError>,
     /// Maps variable spans to their resolved unique names for codegen.
     pub name_resolution: NameResolution,
+    /// Maps expression spans to their inferred generic type arguments.
+    /// Used by codegen for bidirectional type inference (e.g., parse() target type).
+    pub inferred_generics: InferredGenerics,
 }
 
 /// Options controlling semantic analysis.
@@ -172,11 +181,12 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let (type_errors, name_resolution) = checker.check_file(&filtered_file);
+    let (type_errors, name_resolution, inferred_generics) = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
         name_resolution,
+        inferred_generics,
     }
 }
 
@@ -472,6 +482,9 @@ struct TypeChecker {
     errors: Vec<SemanticError>,
     /// Maps variable spans to their resolved unique names for codegen.
     name_resolution: NameResolution,
+    /// Maps expression spans to their inferred generic type arguments.
+    /// Used for bidirectional type inference (e.g., parse() inferring target type from context).
+    inferred_generics: HashMap<(usize, usize), Vec<Type>>,
 }
 
 impl TypeChecker {
@@ -480,6 +493,7 @@ impl TypeChecker {
             env: TypeEnv::default(),
             errors: Vec::new(),
             name_resolution: HashMap::new(),
+            inferred_generics: HashMap::new(),
         }
     }
 
@@ -753,7 +767,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution) {
+    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution, InferredGenerics) {
         // Verify trait implementations
         self.verify_trait_impls();
 
@@ -771,7 +785,11 @@ impl TypeChecker {
                 self.check_fn(name, type_params, params, ret_type.as_ref(), body, item.span.clone());
             }
         }
-        (self.errors.clone(), std::mem::take(&mut self.name_resolution))
+        (
+            self.errors.clone(),
+            std::mem::take(&mut self.name_resolution),
+            std::mem::take(&mut self.inferred_generics),
+        )
     }
 
     fn check_fn(
@@ -1065,6 +1083,102 @@ impl<'a> FnContext<'a> {
         Type::Primitive(PrimitiveType::Unit)
     }
 
+    /// Check a path expression with an expected type for bidirectional inference.
+    /// Used for inferring generic type parameters from context (e.g., `None` → `Option<T>`).
+    fn check_path_expr_with_expected(
+        &mut self,
+        expr: &Expr,
+        segments: &[PathSegment],
+        expected: Option<&Type>,
+    ) -> Type {
+        // Handle `Enum::Variant` paths with expected type for generic inference.
+        if segments.len() >= 2 {
+            let enum_name = &segments[0].ident.name;
+            let variant_name = &segments[segments.len() - 1].ident.name;
+
+            if let Some(def) = self.tcx.env.enums.get(enum_name).cloned() {
+                let variant = def.variants.iter().find(|v| &v.name == variant_name);
+
+                if variant.is_none() {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "unknown variant `{}` on enum `{}`",
+                            variant_name, enum_name
+                        ),
+                        span: expr.span.clone(),
+                    });
+                }
+
+                // Use expected type to infer generic arguments if the enum is generic
+                // and no explicit type args are provided
+                let enum_ty = if !def.type_params.is_empty() {
+                    if let Some(Type::Named { name, args }) = expected {
+                        if name == enum_name && !args.is_empty() {
+                            // Use the expected type's generic args
+                            Type::Named {
+                                name: enum_name.clone(),
+                                args: args.clone(),
+                            }
+                        } else {
+                            // Expected type doesn't match, fall back to empty args
+                            Type::Named {
+                                name: enum_name.clone(),
+                                args: Vec::new(),
+                            }
+                        }
+                    } else {
+                        Type::Named {
+                            name: enum_name.clone(),
+                            args: Vec::new(),
+                        }
+                    }
+                } else {
+                    Type::Named {
+                        name: enum_name.clone(),
+                        args: Vec::new(),
+                    }
+                };
+
+                // Check variant fields to determine the type:
+                // - Unit variants: return the enum type directly
+                // - Tuple/Struct variants: return a constructor function type
+                match variant.map(|v| &v.fields) {
+                    Some(EnumVariantFields::Unit) | None => {
+                        // Unit variant or unknown variant - return enum type directly
+                        return enum_ty;
+                    }
+                    Some(EnumVariantFields::Tuple(field_types)) => {
+                        // Tuple variant - return function type with field types as params
+                        let params: Vec<Type> = field_types
+                            .iter()
+                            .map(|ty| self.tcx.resolve_type_expr(ty, &def.type_params))
+                            .collect();
+                        return Type::Function {
+                            params,
+                            ret: Box::new(enum_ty),
+                        };
+                    }
+                    Some(EnumVariantFields::Struct(_fields)) => {
+                        // Struct variants are constructed differently (not as function calls)
+                        // For now, return the enum type
+                        return enum_ty;
+                    }
+                }
+            }
+            // Fallback: unknown enum name.
+            self.tcx.errors.push(SemanticError {
+                message: format!("unknown enum `{}` in path expression", enum_name),
+                span: expr.span.clone(),
+            });
+        } else {
+            self.tcx.errors.push(SemanticError {
+                message: "path expression must have at least two segments".to_string(),
+                span: expr.span.clone(),
+            });
+        }
+        Type::Primitive(PrimitiveType::Unit)
+    }
+
     fn check_match_expr(&mut self, expr: &Expr, scrutinee: &Expr, arms: &[MatchArm]) -> Type {
         let scrut_ty = self.check_expr(scrutinee);
 
@@ -1138,6 +1252,118 @@ impl<'a> FnContext<'a> {
                             message: format!(
                                 "mismatched types in match arms: expected `{:?}`, found `{:?}`",
                                 expected, arm_ty
+                            ),
+                            span: arm.expr.span.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Exhaustiveness for simple enums.
+        if let Some((enum_name, variant_names)) = enum_info {
+            if !has_catch_all {
+                for variant in &variant_names {
+                    if !seen_variants.contains(variant) {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "non-exhaustive match on enum `{}`: missing variant `{}`",
+                                enum_name, variant
+                            ),
+                            span: expr.span.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        result_ty.unwrap_or(Type::Primitive(PrimitiveType::Unit))
+    }
+
+    /// Check a match expression with an expected type for bidirectional inference.
+    /// The expected type is propagated to all arm expressions.
+    fn check_match_expr_with_expected(
+        &mut self,
+        expr: &Expr,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        expected: Option<&Type>,
+    ) -> Type {
+        let scrut_ty = self.check_expr(scrutinee);
+
+        // Try to interpret scrutinee as an enum.
+        let enum_info = match &scrut_ty {
+            Type::Named { name, .. } => self.tcx.env.enums.get(name).map(|def| {
+                let variant_names: Vec<String> =
+                    def.variants.iter().map(|v| v.name.clone()).collect();
+                (name.clone(), variant_names)
+            }),
+            _ => None,
+        };
+
+        let mut result_ty: Option<Type> = None;
+        let mut seen_variants: HashSet<String> = HashSet::new();
+        let mut has_catch_all = false;
+
+        for arm in arms {
+            // Track patterns for exhaustiveness.
+            match &arm.pattern.kind {
+                PatternKind::Wildcard | PatternKind::Binding(_) => {
+                    has_catch_all = true;
+                }
+                PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
+                    if let Some((enum_name, variant_names)) = &enum_info {
+                        // Expect path like Enum::Variant
+                        if path.len() == 2 && path[0].name == *enum_name {
+                            let variant = path[1].name.clone();
+                            if !variant_names.contains(&variant) {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "unknown variant `{}` for enum `{}`",
+                                        variant, enum_name
+                                    ),
+                                    span: arm.pattern.span.clone(),
+                                });
+                            } else {
+                                seen_variants.insert(variant);
+                            }
+                        } else {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "enum pattern must use `{0}::Variant` for enum `{0}`",
+                                    enum_name
+                                ),
+                                span: arm.pattern.span.clone(),
+                            });
+                        }
+                    }
+                }
+                // Struct patterns not yet used in exhaustiveness.
+                PatternKind::EnumStruct { .. } => {}
+            }
+
+            // Type-check the arm expression in a fresh scope with any bindings from the pattern.
+            let saved_locals = self.locals.clone();
+            let saved_shadow_counts = self.shadow_counts.clone();
+            let saved_resolved_names = self.resolved_names.clone();
+            let mut pattern_bindings = HashSet::new();
+            self.bind_pattern_locals(&arm.pattern, &scrut_ty, &mut pattern_bindings);
+
+            // Use expected type for arm expression (bidirectional inference)
+            let arm_ty = self.check_expr_with_expected(&arm.expr, expected);
+
+            self.locals = saved_locals;
+            self.shadow_counts = saved_shadow_counts;
+            self.resolved_names = saved_resolved_names;
+
+            match &mut result_ty {
+                None => result_ty = Some(arm_ty),
+                Some(expected_ty) => {
+                    if !self.types_compatible(expected_ty, &arm_ty) {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "mismatched types in match arms: expected `{:?}`, found `{:?}`",
+                                expected_ty, arm_ty
                             ),
                             span: arm.expr.span.clone(),
                         });
@@ -1272,7 +1498,8 @@ impl<'a> FnContext<'a> {
                 }
 
                 let target_ty = self.check_expr(target);
-                let value_ty = self.check_expr(value);
+                // Use expected type from target for bidirectional inference
+                let value_ty = self.check_expr_with_expected(value, Some(&target_ty));
 
                 match op {
                     husk_ast::AssignOp::Assign => {
@@ -1315,8 +1542,9 @@ impl<'a> FnContext<'a> {
                 let _ = self.check_expr(expr);
             }
             StmtKind::Return { value } => {
+                // Use expected return type for bidirectional inference
                 let actual_ty = if let Some(expr) = value {
-                    self.check_expr(expr)
+                    self.check_expr_with_expected(expr, Some(&self.ret_ty.clone()))
                 } else {
                     Type::Primitive(PrimitiveType::Unit)
                 };
@@ -1448,6 +1676,51 @@ impl<'a> FnContext<'a> {
         self.locals = old_locals;
         self.shadow_counts = old_shadow_counts;
         self.resolved_names = old_resolved_names;
+    }
+
+    /// Check a block expression with an expected type for bidirectional inference.
+    /// The expected type is propagated to the last expression in the block.
+    fn check_block_expr_with_expected(&mut self, block: &Block, expected: Option<&Type>) -> Type {
+        let old_locals = self.locals.clone();
+        let old_shadow_counts = self.shadow_counts.clone();
+        let old_resolved_names = self.resolved_names.clone();
+
+        // Process all statements except the last
+        let stmts = &block.stmts;
+        if stmts.is_empty() {
+            self.locals = old_locals;
+            self.shadow_counts = old_shadow_counts;
+            self.resolved_names = old_resolved_names;
+            return Type::Primitive(PrimitiveType::Unit);
+        }
+
+        // Check all but the last statement normally
+        for stmt in stmts.iter().take(stmts.len().saturating_sub(1)) {
+            self.check_stmt(stmt);
+        }
+
+        // Check the last statement - if it's an expression statement, propagate expected type
+        let result_ty = if let Some(last_stmt) = stmts.last() {
+            match &last_stmt.kind {
+                StmtKind::Expr(expr) => {
+                    // Propagate expected type to the final expression
+                    self.check_expr_with_expected(expr, expected)
+                }
+                _ => {
+                    // Not an expression - check normally and return unit
+                    self.check_stmt(last_stmt);
+                    Type::Primitive(PrimitiveType::Unit)
+                }
+            }
+        } else {
+            Type::Primitive(PrimitiveType::Unit)
+        };
+
+        self.locals = old_locals;
+        self.shadow_counts = old_shadow_counts;
+        self.resolved_names = old_resolved_names;
+
+        result_ty
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Type {
@@ -2475,17 +2748,305 @@ impl<'a> FnContext<'a> {
         }
     }
 
+    /// Synthesize type without expected context (bottom-up type inference).
+    #[allow(dead_code)]
+    fn synth_expr(&mut self, expr: &Expr) -> Type {
+        self.check_expr_with_expected(expr, None)
+    }
+
     /// Check expression with optional expected type for bidirectional inference.
-    /// This enables closure parameter type inference from call-site context.
+    /// This is the main entry point for type checking expressions.
+    ///
+    /// When `expected` is `Some(ty)`, the expected type flows down into the expression,
+    /// enabling type inference for:
+    /// - Closures: infer parameter types from expected function type
+    /// - Method chains: infer generic types from expected return type (unwrap, parse)
+    /// - Generic constructors: infer type parameters from expected type (None, Ok, Err)
+    /// - Control flow: propagate expected type through branches (if, match, blocks)
     fn check_expr_with_expected(&mut self, expr: &Expr, expected: Option<&Type>) -> Type {
         match &expr.kind {
+            // Closures use expected type to infer parameter types
             ExprKind::Closure {
                 params,
                 ret_type,
                 body,
             } => self.check_closure_expr(expr, params, ret_type.as_ref(), body, expected),
+
+            // Method calls can use expected type for inference (Phase 2: unwrap, parse)
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                type_args,
+                args,
+            } => self.check_method_call_with_expected(
+                expr,
+                receiver,
+                method,
+                type_args.as_ref(),
+                args,
+                expected,
+            ),
+
+            // Path expressions can use expected type for generic inference (Phase 3: None, Ok, Err)
+            ExprKind::Path { segments } => self.check_path_expr_with_expected(expr, segments, expected),
+
+            // Block expressions propagate expected type to last expression (Phase 5)
+            ExprKind::Block(block) => self.check_block_expr_with_expected(block, expected),
+
+            // Match expressions propagate expected type to all arms (Phase 5)
+            ExprKind::Match { scrutinee, arms } => {
+                self.check_match_expr_with_expected(expr, scrutinee, arms, expected)
+            }
+
+            // All other expressions fall back to synthesis
             _ => self.check_expr(expr),
         }
+    }
+
+    /// Check a method call expression with an expected type for bidirectional inference.
+    /// This enables inferring types for:
+    /// - unwrap()/expect(): expected T → receiver expected Result<T, _> or Option<T>
+    /// - parse(): expected Result<T, String> → infer T as parse target
+    fn check_method_call_with_expected(
+        &mut self,
+        expr: &Expr,
+        receiver: &Expr,
+        method: &Ident,
+        type_args: Option<&Vec<TypeExpr>>,
+        args: &[Expr],
+        expected: Option<&Type>,
+    ) -> Type {
+        let method_name = &method.name;
+
+        // Check if receiver is an extern module (e.g., Array.from, Math.ceil)
+        if let ExprKind::Ident(ref id) = receiver.kind {
+            // Clone the return type to avoid borrow conflicts
+            let module_fn_ret_type: Option<Option<TypeExpr>> = self
+                .tcx
+                .env
+                .modules
+                .get(&id.name)
+                .and_then(|m| m.functions.get(method_name))
+                .map(|fn_info| fn_info.ret_type.clone());
+
+            if let Some(ret_type_opt) = module_fn_ret_type {
+                // Type-check arguments
+                for arg in args {
+                    let _ = self.check_expr(arg);
+                }
+                // Return the function's return type
+                if let Some(ret_ty) = ret_type_opt {
+                    return self.tcx.resolve_type_expr(&ret_ty, &[]);
+                }
+                return Type::Primitive(PrimitiveType::Unit);
+            }
+        }
+
+        // For unwrap/expect, we can propagate the expected type backward to the receiver
+        let receiver_expected = match method_name.as_str() {
+            "unwrap" | "expect" => {
+                // If we expect T from unwrap(), receiver should be Result<T, _> or Option<T>
+                expected.map(|t| {
+                    // Try to construct the expected receiver type
+                    // We'll check both Result and Option during type checking
+                    t.clone()
+                })
+            }
+            _ => None,
+        };
+
+        // Type-check receiver with backward type propagation for unwrap/expect
+        let receiver_ty = if receiver_expected.is_some() {
+            // For unwrap/expect, we need to propagate the expected inner type to the receiver
+            self.check_expr_with_expected_unwrap_receiver(receiver, expected)
+        } else {
+            self.check_expr(receiver)
+        };
+
+        // Type-check arguments
+        for arg in args {
+            let _ = self.check_expr(arg);
+        }
+
+        // Handle built-in methods on primitive types
+        match &receiver_ty {
+            Type::Primitive(PrimitiveType::String) => {
+                match method_name.as_str() {
+                    "split" => return Type::Array(Box::new(Type::Primitive(PrimitiveType::String))),
+                    "trim" => return Type::Primitive(PrimitiveType::String),
+                    "len" => return Type::Primitive(PrimitiveType::I32),
+                    "char_at" | "charAt" => return Type::Primitive(PrimitiveType::String),
+                    "slice" => return Type::Primitive(PrimitiveType::String),
+                    "substring" => return Type::Primitive(PrimitiveType::String),
+                    "indexOf" | "lastIndexOf" => return Type::Primitive(PrimitiveType::I32),
+                    "startsWith" | "endsWith" | "includes" => {
+                        return Type::Primitive(PrimitiveType::Bool)
+                    }
+                    "parse" => {
+                        // String.parse::<T>() returns Result<T, String>
+                        // Check for explicit turbofish first
+                        if let Some(targs) = type_args {
+                            if targs.len() == 1 {
+                                let target_ty = self.tcx.resolve_type_expr(&targs[0], &[]);
+                                return Type::Named {
+                                    name: "Result".to_string(),
+                                    args: vec![
+                                        target_ty,
+                                        Type::Primitive(PrimitiveType::String),
+                                    ],
+                                };
+                            } else {
+                                self.tcx.errors.push(SemanticError {
+                                    message: "parse() requires exactly one type argument".to_string(),
+                                    span: method.span.clone(),
+                                });
+                            }
+                        } else if let Some(expected_ty) = expected {
+                            // Try to infer from expected type
+                            // Expected could be:
+                            // - Result<T, String> directly (parse target is T)
+                            // - T directly if we're expecting the unwrapped value
+                            let target_ty = match expected_ty {
+                                Type::Named { name, args } if name == "Result" => {
+                                    // Expected is Result<T, E>, target is T
+                                    args.first().cloned()
+                                }
+                                _ => {
+                                    // Expected is T directly (e.g., after unwrap)
+                                    Some(expected_ty.clone())
+                                }
+                            };
+
+                            if let Some(target) = target_ty {
+                                // Record the inferred type for codegen
+                                self.tcx.inferred_generics.insert(
+                                    (expr.span.range.start, expr.span.range.end),
+                                    vec![target.clone()],
+                                );
+
+                                return Type::Named {
+                                    name: "Result".to_string(),
+                                    args: vec![
+                                        target,
+                                        Type::Primitive(PrimitiveType::String),
+                                    ],
+                                };
+                            }
+                        }
+
+                        // No turbofish and no expected type - require explicit type
+                        self.tcx.errors.push(SemanticError {
+                            message: "parse() requires a type argument: \"str\".parse::<i32>()".to_string(),
+                            span: method.span.clone(),
+                        });
+                        return Type::Named {
+                            name: "Result".to_string(),
+                            args: vec![
+                                Type::Primitive(PrimitiveType::Unit),
+                                Type::Primitive(PrimitiveType::String),
+                            ],
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            Type::Primitive(PrimitiveType::I32) | Type::Primitive(PrimitiveType::F64) => {
+                match method_name.as_str() {
+                    "toString" => return Type::Primitive(PrimitiveType::String),
+                    _ => {}
+                }
+            }
+            Type::Array(elem_ty) => {
+                match method_name.as_str() {
+                    "len" => return Type::Primitive(PrimitiveType::I32),
+                    "push" => return Type::Primitive(PrimitiveType::Unit),
+                    "slice" => return receiver_ty.clone(),
+                    "some" | "every" | "filter" => return Type::Primitive(PrimitiveType::Bool),
+                    "map" => return receiver_ty.clone(),
+                    "reduce" => return (**elem_ty).clone(),
+                    "sort" | "reverse" => return receiver_ty.clone(),
+                    "join" => return Type::Primitive(PrimitiveType::String),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        // Handle Result/Option unwrap methods specially to extract inner type
+        if let Type::Named { name, args } = &receiver_ty {
+            match (name.as_str(), method_name.as_str()) {
+                ("Result", "unwrap") | ("Result", "expect") => {
+                    // Result<T, E>.unwrap() returns T
+                    if let Some(ok_type) = args.first() {
+                        return ok_type.clone();
+                    }
+                }
+                ("Option", "unwrap") | ("Option", "expect") => {
+                    // Option<T>.unwrap() returns T
+                    if let Some(inner_type) = args.first() {
+                        return inner_type.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Try to resolve the method's return type from impl blocks
+        let receiver_type_name = match &receiver_ty {
+            Type::Named { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+
+        // Look up the method in impl blocks and get its return type.
+        let method_lookup_result: Option<Option<TypeExpr>> = if let Some(ref type_name) = receiver_type_name
+        {
+            let mut found = None;
+            for impl_info in &self.tcx.env.impls {
+                if impl_info.self_ty_name == *type_name {
+                    if let Some(method_info) = impl_info.methods.get(method_name) {
+                        found = Some(method_info.ret_type.clone());
+                        break;
+                    }
+                }
+            }
+            found
+        } else {
+            None
+        };
+
+        // Resolve the return type
+        match method_lookup_result {
+            Some(Some(ret_type_expr)) => {
+                self.tcx.resolve_type_expr(&ret_type_expr, &[])
+            }
+            Some(None) => {
+                Type::Primitive(PrimitiveType::Unit)
+            }
+            None => {
+                Type::Primitive(PrimitiveType::Unit)
+            }
+        }
+    }
+
+    /// Helper for propagating expected type backward through unwrap receiver.
+    /// If expected is T, we need the receiver to be Result<T, _> or Option<T>.
+    fn check_expr_with_expected_unwrap_receiver(
+        &mut self,
+        receiver: &Expr,
+        expected: Option<&Type>,
+    ) -> Type {
+        // Construct expected Result<T, _> or Option<T> from expected T
+        let receiver_expected = expected.map(|t| {
+            // We'll try Result first, then Option during checking
+            // For now, construct Result<T, String> as the expected type
+            Type::Named {
+                name: "Result".to_string(),
+                args: vec![t.clone(), Type::Primitive(PrimitiveType::String)],
+            }
+        });
+
+        // Type-check the receiver with the constructed expected type
+        self.check_expr_with_expected(receiver, receiver_expected.as_ref())
     }
 
     /// Check a closure expression and return its function type.

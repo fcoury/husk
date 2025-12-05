@@ -12,7 +12,8 @@ use husk_ast::{
     TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
-use husk_semantic::NameResolution;
+use husk_semantic::{InferredGenerics, NameResolution};
+use husk_types::PrimitiveType;
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
@@ -60,6 +61,7 @@ struct PropertyAccessors {
 /// - Property accessors for extern type method rewrites
 /// - Source file path for compile-time operations like include_str
 /// - Name resolution for variable shadowing
+/// - Inferred generics for bidirectional type inference
 #[derive(Debug, Clone)]
 struct CodegenContext<'a> {
     /// Property accessors for extern types
@@ -69,14 +71,22 @@ struct CodegenContext<'a> {
     /// Name resolution map from semantic analysis for variable shadowing.
     /// Maps (span_start, span_end) -> resolved_name (e.g., "x", "x$1", "x$2")
     name_resolution: &'a NameResolution,
+    /// Inferred generic type arguments from bidirectional type inference.
+    /// Maps expression spans to their inferred type parameters.
+    inferred_generics: &'a InferredGenerics,
 }
 
 impl<'a> CodegenContext<'a> {
-    fn new(accessors: &'a PropertyAccessors, name_resolution: &'a NameResolution) -> Self {
+    fn new(
+        accessors: &'a PropertyAccessors,
+        name_resolution: &'a NameResolution,
+        inferred_generics: &'a InferredGenerics,
+    ) -> Self {
         Self {
             accessors,
             source_path: None,
             name_resolution,
+            inferred_generics,
         }
     }
 
@@ -84,11 +94,13 @@ impl<'a> CodegenContext<'a> {
         accessors: &'a PropertyAccessors,
         source_path: &'a Path,
         name_resolution: &'a NameResolution,
+        inferred_generics: &'a InferredGenerics,
     ) -> Self {
         Self {
             accessors,
             source_path: Some(source_path),
             name_resolution,
+            inferred_generics,
         }
     }
 
@@ -99,6 +111,12 @@ impl<'a> CodegenContext<'a> {
             .get(&(span.range.start, span.range.end))
             .cloned()
             .unwrap_or_else(|| name.to_string())
+    }
+
+    /// Get inferred type arguments for an expression at the given span.
+    /// Returns None if no inferred types are available.
+    fn get_inferred_types(&self, span: &Span) -> Option<&Vec<husk_semantic::Type>> {
+        self.inferred_generics.get(&(span.range.start, span.range.end))
     }
 }
 
@@ -388,7 +406,8 @@ pub fn lower_file_to_js(
     target: JsTarget,
     name_resolution: &NameResolution,
 ) -> JsModule {
-    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution)
+    let empty_inferred = HashMap::new();
+    lower_file_to_js_with_inference(file, call_main, target, None, None, name_resolution, &empty_inferred)
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
@@ -405,6 +424,26 @@ pub fn lower_file_to_js_with_source(
     source: Option<&str>,
     source_path: Option<&Path>,
     name_resolution: &NameResolution,
+) -> JsModule {
+    let empty_inferred = HashMap::new();
+    lower_file_to_js_with_inference(file, call_main, target, source, source_path, name_resolution, &empty_inferred)
+}
+
+/// Lower a Husk AST file into a JS module with full bidirectional type inference support.
+///
+/// This is the full-featured lowering function that supports:
+/// - Source text for accurate source maps
+/// - Compile-time operations like `include_str`
+/// - Variable shadowing resolution
+/// - Inferred generic types from bidirectional type inference
+pub fn lower_file_to_js_with_inference(
+    file: &File,
+    call_main: bool,
+    target: JsTarget,
+    source: Option<&str>,
+    source_path: Option<&Path>,
+    name_resolution: &NameResolution,
+    inferred_generics: &InferredGenerics,
 ) -> JsModule {
     use std::collections::HashSet;
 
@@ -507,10 +546,10 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
-    // Create codegen context with accessors, optional source path, and name resolution
+    // Create codegen context with accessors, optional source path, name resolution, and inferred generics
     let ctx = match source_path {
-        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution),
-        None => CodegenContext::new(&accessors, name_resolution),
+        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution, inferred_generics),
+        None => CodegenContext::new(&accessors, name_resolution, inferred_generics),
     };
 
     // First pass: collect module imports
@@ -1234,9 +1273,9 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 };
             }
 
-            // Handle String.parse::<T>() method with turbofish type argument
+            // Handle String.parse::<T>() method with turbofish type argument or inferred type
             if method_name == "parse" && args.is_empty() {
-                // Extract type_args from the MethodCall
+                // First try explicit turbofish type argument
                 if let ExprKind::MethodCall { type_args: Some(targs), .. } = &expr.kind {
                     if let Some(first_ty) = targs.first() {
                         // Dispatch based on target type
@@ -1247,6 +1286,31 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                                 "f64" => Some("__husk_parse_f64"),
                                 _ => None,
                             },
+                            _ => None,
+                        };
+                        if let Some(helper) = helper_fn {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(helper.to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                    }
+                }
+
+                // Fall back to inferred type from bidirectional type inference
+                if let Some(inferred_types) = ctx.get_inferred_types(&expr.span) {
+                    if let Some(first_ty) = inferred_types.first() {
+                        // Dispatch based on inferred type
+                        let helper_fn = match first_ty {
+                            husk_semantic::Type::Primitive(PrimitiveType::I32) => {
+                                Some("__husk_parse_i32")
+                            }
+                            husk_semantic::Type::Primitive(PrimitiveType::I64) => {
+                                Some("__husk_parse_i64")
+                            }
+                            husk_semantic::Type::Primitive(PrimitiveType::F64) => {
+                                Some("__husk_parse_f64")
+                            }
                             _ => None,
                         };
                         if let Some(helper) = helper_fn {
@@ -3193,7 +3257,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution));
+        let empty_inferred = HashMap::new();
+        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution, &empty_inferred));
         let mut out = String::new();
         write_expr(&js, &mut out);
 
@@ -3642,7 +3707,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3706,7 +3772,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3742,7 +3809,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3880,7 +3948,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_break = lower_stmt(&break_stmt, &ctx);
         let js_continue = lower_stmt(&continue_stmt, &ctx);
@@ -3896,7 +3965,7 @@ mod tests {
     fn lowers_enum_variant_with_single_arg_to_tagged_object() {
         // Test that Option::Some(x) generates {tag: "Some", value: x}
         let span = |s: usize, e: usize| HuskSpan { range: s..e };
-        let ident = |name: &str, s: usize| HuskIdent {
+        let _ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
         };
@@ -3928,7 +3997,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -3984,7 +4054,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -4017,7 +4088,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_expr = lower_expr(&path_expr, &ctx);
 
@@ -4087,7 +4159,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
 
@@ -4157,7 +4230,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
 
@@ -4218,7 +4292,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_inferred = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_inferred);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
 
