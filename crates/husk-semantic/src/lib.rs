@@ -464,6 +464,23 @@ impl TypeEnv {
     }
 }
 
+/// Extract the inner type from a trait name like "From<i32>" -> Some("i32")
+/// Returns None if the trait name doesn't match the expected prefix/suffix pattern.
+fn extract_trait_type_arg<'a>(trait_name: &'a str, prefix: &str) -> Option<&'a str> {
+    if trait_name.starts_with(prefix) && trait_name.ends_with('>') {
+        Some(&trait_name[prefix.len()..trait_name.len() - 1])
+    } else {
+        None
+    }
+}
+
+/// Check if a type argument string represents a generic type parameter.
+/// Currently matches single uppercase letters (e.g., "T", "U").
+/// NOTE: Multi-letter type params like "Key" are not matched (known limitation).
+fn is_generic_type_param(inner: &str) -> bool {
+    inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_uppercase())
+}
+
 /// Extract a simple type name from a TypeExpr (for impl/trait lookups).
 fn type_expr_to_name(ty: &TypeExpr) -> String {
     match &ty.kind {
@@ -2694,7 +2711,6 @@ impl<'a> FnContext<'a> {
 
     /// Check if TargetType implements From<SourceType>
     fn type_implements_from(&self, target: &Type, source: &Type) -> bool {
-        // Check in impl blocks for impl From<Source> for Target
         let target_name = self.format_type(target);
         let source_name = self.format_type(source);
 
@@ -2707,14 +2723,8 @@ impl<'a> FnContext<'a> {
                         return true;
                     }
                     // Also check for generic From<T> implementations
-                    if trait_name.starts_with("From<") && trait_name.ends_with(">") {
-                        let inner = &trait_name[5..trait_name.len() - 1];
-                        // If inner is a single uppercase letter, it's a type parameter
-                        if inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_uppercase()) {
-                            return true;
-                        }
-                        // Also match if inner equals source_name
-                        if inner == source_name {
+                    if let Some(inner) = extract_trait_type_arg(trait_name, "From<") {
+                        if is_generic_type_param(inner) || inner == source_name {
                             return true;
                         }
                     }
@@ -2737,12 +2747,8 @@ impl<'a> FnContext<'a> {
                         return true;
                     }
                     // Check for generic TryFrom<T> implementations
-                    if trait_name.starts_with("TryFrom<") && trait_name.ends_with(">") {
-                        let inner = &trait_name[8..trait_name.len() - 1];
-                        if inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_uppercase()) {
-                            return true;
-                        }
-                        if inner == source_name {
+                    if let Some(inner) = extract_trait_type_arg(trait_name, "TryFrom<") {
+                        if is_generic_type_param(inner) || inner == source_name {
                             return true;
                         }
                     }
@@ -5013,6 +5019,49 @@ fn test(s: String) -> String {
             result.type_errors.is_empty(),
             "expected no type errors for .parse::<i64>(), got: {:?}",
             result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_into_with_turbofish() {
+        // let r = (42 as i64).try_into::<i32>();
+        let src = r#"fn foo() { let r = (42 as i64).try_into::<i32>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .try_into::<i32>(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_into_without_turbofish_errors() {
+        // let r = (42 as i64).try_into(); // Missing type argument
+        let src = r#"fn foo() { let r = (42 as i64).try_into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for .try_into() without type argument"
+        );
+    }
+
+    #[test]
+    fn try_into_invalid_conversion_errors() {
+        // let r = true.try_into::<i32>(); // No TryFrom<bool> for i32
+        let src = r#"fn foo() { let r = true.try_into::<i32>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for invalid .try_into() conversion"
         );
     }
 }

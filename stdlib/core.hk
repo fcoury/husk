@@ -71,9 +71,10 @@ trait TryInto<T> {
 // ============================================================================
 
 // String conversions (infallible)
+// NOTE: These are trait definitions for semantic analysis.
+// Codegen replaces .into() calls with String(value) in JS.
 impl From<i32> for String {
     fn from(value: i32) -> String {
-        // Implemented by codegen as String(value) in JS
         value.toString()
     }
 }
@@ -147,10 +148,13 @@ impl TryFrom<String> for f64 {
 }
 
 // Narrowing conversion (may overflow)
+// NOTE: This is a trait definition for semantic analysis only.
+// The actual implementation with bounds checking is in the JS runtime
+// (__husk_try_into_i32), which codegen calls instead of this body.
 impl TryFrom<i64> for i32 {
     fn try_from(value: i64) -> Result<i32, String> {
-        // Check if value fits in i32 range
-        // Implemented by codegen with proper bounds check
+        // Placeholder body - codegen replaces with __husk_try_into_i32(value)
+        // which performs: value < -2147483648 || value > 2147483647 check
         Result::Ok(value as i32)
     }
 }
