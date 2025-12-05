@@ -138,12 +138,18 @@ fn module_path_to_file(root: &Path, mod_path: &[String]) -> Option<PathBuf> {
 fn discover_module_paths(file: &File) -> Vec<Vec<String>> {
     let mut mods = Vec::new();
     for item in &file.items {
-        if let ItemKind::Use { path } = &item.kind {
+        if let ItemKind::Use { path, kind } = &item.kind {
             if path.first().map(|i| i.name.as_str()) == Some("crate") && path.len() >= 2 {
                 let module_seg = path[1].name.clone();
                 let mut mod_path = vec!["crate".to_string(), module_seg];
+                // For variant imports (Glob or Variants), the path ends at the enum
+                // For item imports, the path ends at the item, so we exclude the last segment
+                let path_end = match kind {
+                    husk_ast::UseKind::Item => path.len() - 1,
+                    husk_ast::UseKind::Glob | husk_ast::UseKind::Variants(_) => path.len(),
+                };
                 if path.len() > 2 {
-                    mod_path.extend(path[2..path.len() - 1].iter().map(|i| i.name.clone()));
+                    mod_path.extend(path[2..path_end].iter().map(|i| i.name.clone()));
                 }
                 mods.push(mod_path);
             }
@@ -171,72 +177,83 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
     // Phase 1: Process use statements and root items
     for item in root_mod.file.items.iter() {
         match &item.kind {
-            ItemKind::Use { path } => {
-                if path.len() < 3 {
-                    continue;
-                }
-                let module_path = module_path_from_use(path);
-                let module = graph
-                    .modules
-                    .get(&module_path)
-                    .ok_or_else(|| LoadError::Missing(module_path.join("::")))?;
-                let item_name = path.last().unwrap().name.clone();
-                let export = find_pub_item(&module.file, &item_name).ok_or_else(|| {
-                    LoadError::Missing(format!(
-                        "`{}` not found or not public in `{}`",
-                        item_name,
-                        module_path.join("::")
-                    ))
-                })?;
+            ItemKind::Use { path, kind } => {
+                match kind {
+                    husk_ast::UseKind::Item => {
+                        // Regular item import: `use crate::foo::Bar;`
+                        if path.len() < 3 {
+                            continue;
+                        }
+                        let module_path = module_path_from_use(path);
+                        let module = graph
+                            .modules
+                            .get(&module_path)
+                            .ok_or_else(|| LoadError::Missing(module_path.join("::")))?;
+                        let item_name = path.last().unwrap().name.clone();
+                        let export = find_pub_item(&module.file, &item_name).ok_or_else(|| {
+                            LoadError::Missing(format!(
+                                "`{}` not found or not public in `{}`",
+                                item_name,
+                                module_path.join("::")
+                            ))
+                        })?;
 
-                // Track if this is a type (for impl block inclusion)
-                match &export.kind {
-                    ItemKind::Struct { name, .. } | ItemKind::Enum { name, .. } => {
-                        imported_types.insert(name.name.clone());
-                    }
-                    ItemKind::ExternBlock { items: ext_items, .. } => {
-                        // If we're importing from an extern block, track the type
-                        for ext in ext_items {
-                            if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                                if name.name == item_name {
-                                    imported_types.insert(name.name.clone());
+                        // Track if this is a type (for impl block inclusion)
+                        match &export.kind {
+                            ItemKind::Struct { name, .. } | ItemKind::Enum { name, .. } => {
+                                imported_types.insert(name.name.clone());
+                            }
+                            ItemKind::ExternBlock { items: ext_items, .. } => {
+                                // If we're importing from an extern block, track the type
+                                for ext in ext_items {
+                                    if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                                        if name.name == item_name {
+                                            imported_types.insert(name.name.clone());
+                                        }
+                                    }
                                 }
                             }
+                            _ => {}
                         }
-                    }
-                    _ => {}
-                }
 
-                if !seen_names.insert(item_name.clone()) {
-                    return Err(LoadError::Missing(format!(
-                        "conflicting import `{}` in root module",
-                        item_name
-                    )));
-                }
-
-                // For extern blocks, avoid adding the same block multiple times
-                // (e.g., when importing multiple items from the same extern block)
-                if let ItemKind::ExternBlock { items: ext_items, .. } = &export.kind {
-                    // Check if all structs in this block have already been included
-                    let all_structs_included = ext_items.iter().all(|ext| {
-                        if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                            included_extern_blocks.contains(&name.name)
-                        } else {
-                            true
+                        if !seen_names.insert(item_name.clone()) {
+                            return Err(LoadError::Missing(format!(
+                                "conflicting import `{}` in root module",
+                                item_name
+                            )));
                         }
-                    });
 
-                    if !all_structs_included {
-                        // Mark all structs as included
-                        for ext in ext_items {
-                            if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                                included_extern_blocks.insert(name.name.clone());
+                        // For extern blocks, avoid adding the same block multiple times
+                        // (e.g., when importing multiple items from the same extern block)
+                        if let ItemKind::ExternBlock { items: ext_items, .. } = &export.kind {
+                            // Check if all structs in this block have already been included
+                            let all_structs_included = ext_items.iter().all(|ext| {
+                                if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                                    included_extern_blocks.contains(&name.name)
+                                } else {
+                                    true
+                                }
+                            });
+
+                            if !all_structs_included {
+                                // Mark all structs as included
+                                for ext in ext_items {
+                                    if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                                        included_extern_blocks.insert(name.name.clone());
+                                    }
+                                }
+                                items.push(export.clone());
                             }
+                        } else {
+                            items.push(export.clone());
                         }
-                        items.push(export.clone());
                     }
-                } else {
-                    items.push(export.clone());
+                    husk_ast::UseKind::Glob | husk_ast::UseKind::Variants(_) => {
+                        // Variant imports are handled in semantic analysis, not here
+                        // We just need to pass them through to the assembled file
+                        // The use statement itself is preserved for semantic analysis
+                        items.push(item.clone());
+                    }
                 }
             }
             _ => {
