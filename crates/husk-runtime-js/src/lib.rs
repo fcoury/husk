@@ -23,7 +23,7 @@ function Ok(value) {
 }
 
 function Err(error) {
-    return { tag: "Err", error };
+    return { tag: "Err", value: error };
 }
 
 function panic(message) {
@@ -81,9 +81,6 @@ function __husk_fmt_debug(value, pretty) {
             if (keys.length === 0) return tag;
             if (keys.length === 1 && keys[0] === "value") {
                 return tag + "(" + __husk_fmt_debug(value.value, pretty) + ")";
-            }
-            if (keys.length === 1 && keys[0] === "error") {
-                return tag + "(" + __husk_fmt_debug(value.error, pretty) + ")";
             }
             // General struct fields
             var fields = keys.map(function(k) { return k + ": " + __husk_fmt_debug(value[k], pretty); });
@@ -400,7 +397,7 @@ function __husk_unwrap(value) {
             return value.value;
         }
         if (value.tag === "Err") {
-            throw new Error("[Husk panic] called unwrap on Err: " + __husk_fmt_debug(value.error));
+            throw new Error("[Husk panic] called unwrap on Err: " + __husk_fmt_debug(value.value));
         }
         if (value.tag === "Some") {
             return value.value;
@@ -423,7 +420,7 @@ function __husk_expect(value, message) {
             return value.value;
         }
         if (value.tag === "Err") {
-            throw new Error("[Husk panic] " + message + ": " + __husk_fmt_debug(value.error));
+            throw new Error("[Husk panic] " + message + ": " + __husk_fmt_debug(value.value));
         }
         if (value.tag === "Some") {
             return value.value;
@@ -434,6 +431,38 @@ function __husk_expect(value, message) {
     }
     // Not a Result/Option, return as-is
     return value;
+}
+
+// Parse a string to i32, returns Result<i32, String>
+function __husk_parse_i32(s) {
+    var n = parseInt(s, 10);
+    if (isNaN(n)) {
+        return Err("invalid integer: " + s);
+    }
+    if (n < -2147483648 || n > 2147483647) {
+        return Err("integer out of i32 range: " + s);
+    }
+    return Ok(n | 0);
+}
+
+// Parse a string to i64 (BigInt), returns Result<i64, String>
+function __husk_parse_i64(s) {
+    try {
+        var n = BigInt(s.trim());
+        return Ok(n);
+    } catch (e) {
+        return Err("invalid integer: " + s);
+    }
+}
+
+// Parse a string to f64, returns Result<f64, String>
+function __husk_parse_f64(s) {
+    var trimmed = s.trim();
+    var n = parseFloat(trimmed);
+    if (isNaN(n) && trimmed.toLowerCase() !== "nan") {
+        return Err("invalid float: " + s);
+    }
+    return Ok(n);
 }
 "#
 }

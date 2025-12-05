@@ -6,8 +6,9 @@ use husk_ast::{
     AssignOp, Attribute, BinaryOp, Block, CfgPredicate, ClosureParam, EnumVariant,
     EnumVariantFields, Expr, ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment,
     FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind,
-    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind,
-    StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    Literal, LiteralKind, MatchArm, Param, PathSegment, Pattern, PatternKind, SelfReceiver, Span,
+    Stmt, StmtKind, StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr,
+    TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -798,6 +799,7 @@ impl<'src> Parser<'src> {
         Some(TraitItem {
             kind: TraitItemKind::Method(TraitMethod {
                 name,
+                type_params: Vec::new(), // TODO: parse method type params
                 receiver,
                 params,
                 ret_type,
@@ -1113,6 +1115,7 @@ impl<'src> Parser<'src> {
             Some(ImplItem {
                 kind: ImplItemKind::Method(ImplMethod {
                     name,
+                    type_params: Vec::new(), // TODO: parse method type params
                     receiver,
                     params,
                     ret_type,
@@ -1130,6 +1133,7 @@ impl<'src> Parser<'src> {
             Some(ImplItem {
                 kind: ImplItemKind::Method(ImplMethod {
                     name,
+                    type_params: Vec::new(), // TODO: parse method type params
                     receiver,
                     params,
                     ret_type,
@@ -1498,17 +1502,65 @@ impl<'src> Parser<'src> {
     }
 
     /// After consuming an initial identifier, parse any following `::segment` path components.
-    fn parse_path_segments(&mut self, first: Ident) -> Vec<Ident> {
-        let mut path = vec![first];
-        // Check for path segments `Foo::Bar`.
+    /// Returns PathSegments with optional turbofish type arguments.
+    fn parse_path_segments(&mut self, first: Ident) -> Vec<PathSegment> {
+        let mut path = vec![PathSegment {
+            ident: first,
+            type_args: None,
+        }];
+        // Check for path segments `Foo::Bar` or `Foo::<T>::Bar`.
         while self.matches_token(&TokenKind::ColonColon) {
+            // Check for turbofish on the PREVIOUS segment: `Foo::<T>`
+            // The `::` we just consumed could be followed by `<` (turbofish) or identifier
+            if matches!(self.current().kind, TokenKind::Lt) {
+                // Turbofish: parse type arguments for the previous segment
+                if let Some(last) = path.last_mut() {
+                    last.type_args = self.parse_turbofish_type_args();
+                }
+                // After turbofish, check for another `::` for the next segment
+                if !self.matches_token(&TokenKind::ColonColon) {
+                    break;
+                }
+            }
+
             let seg = match self.parse_ident("expected identifier after `::` in path") {
                 Some(id) => id,
                 None => break,
             };
-            path.push(seg);
+            path.push(PathSegment {
+                ident: seg,
+                type_args: None,
+            });
         }
         path
+    }
+
+    /// Parse turbofish type arguments: `<T, U, ...>` (assumes `<` is current token)
+    fn parse_turbofish_type_args(&mut self) -> Option<Vec<TypeExpr>> {
+        if !self.matches_token(&TokenKind::Lt) {
+            return None;
+        }
+        let mut types = Vec::new();
+        loop {
+            if let Some(ty) = self.parse_type_expr() {
+                types.push(ty);
+            } else {
+                break;
+            }
+            if self.matches_token(&TokenKind::Comma) {
+                continue;
+            }
+            if self.matches_token(&TokenKind::Gt) {
+                break;
+            }
+            self.error_here("expected `,` or `>` in type arguments");
+            break;
+        }
+        if types.is_empty() {
+            None
+        } else {
+            Some(types)
+        }
     }
 
     // ---------------- Statements and blocks ----------------
@@ -1550,7 +1602,9 @@ impl<'src> Parser<'src> {
     fn parse_use_item(&mut self) -> Option<Item> {
         let use_tok = self.advance().clone(); // consume `use`
         let first = self.parse_ident("expected path after `use`")?;
-        let path = self.parse_path_segments(first);
+        let path_segments = self.parse_path_segments(first);
+        // Use paths don't support turbofish, extract just the idents
+        let path: Vec<Ident> = path_segments.into_iter().map(|s| s.ident).collect();
         if !self.matches_token(&TokenKind::Semicolon) {
             self.error_here("expected `;` after use path");
         }
@@ -2170,6 +2224,7 @@ impl<'src> Parser<'src> {
                 expr = Expr {
                     kind: ExprKind::Call {
                         callee: Box::new(expr),
+                        type_args: None, // TODO: parse turbofish before call
                         args,
                     },
                     span,
@@ -2191,8 +2246,15 @@ impl<'src> Parser<'src> {
                     }
                 };
 
+                // Check for turbofish syntax: .method::<T>(...)
+                let method_type_args = if self.matches_token(&TokenKind::ColonColon) {
+                    self.parse_turbofish_type_args()
+                } else {
+                    None
+                };
+
                 if self.matches_token(&TokenKind::LParen) {
-                    // Method call: expr.ident(args...)
+                    // Method call: expr.ident(args...) or expr.ident::<T>(args...)
                     let args = self.parse_argument_list();
                     let span = Span {
                         range: expr.span.range.start..self.previous().span.range.end,
@@ -2201,10 +2263,15 @@ impl<'src> Parser<'src> {
                         kind: ExprKind::MethodCall {
                             receiver: Box::new(expr),
                             method: ident,
+                            type_args: method_type_args,
                             args,
                         },
                         span,
                     };
+                } else if method_type_args.is_some() {
+                    // Turbofish without call - error
+                    self.error_here("expected `(` after turbofish type arguments");
+                    break;
                 } else {
                     // Field access: expr.ident
                     let span = Span {
@@ -2852,7 +2919,9 @@ impl<'src> Parser<'src> {
                 };
                 self.advance();
 
-                let mut path = self.parse_path_segments(first);
+                let path_segments = self.parse_path_segments(first);
+                // Patterns don't support turbofish, extract just the idents
+                let mut path: Vec<Ident> = path_segments.into_iter().map(|s| s.ident).collect();
 
                 if path.len() == 1 {
                     // Single identifier: treat as binding pattern.
@@ -3056,22 +3125,26 @@ impl<'src> Parser<'src> {
                 // Check for struct literal: `Name { ... }` or `Path::Name { ... }`
                 // Only parse as struct literal if allowed in this context.
                 if self.allow_struct_expr && self.current().kind == TokenKind::LBrace {
-                    return self.parse_struct_expr(path);
+                    // For struct expr, extract just the idents
+                    let ident_path: Vec<Ident> = path.iter().map(|s| s.ident.clone()).collect();
+                    return self.parse_struct_expr(ident_path);
                 }
 
-                if path.len() == 1 {
+                if path.len() == 1 && path[0].type_args.is_none() {
+                    // Simple identifier with no turbofish
                     Some(Expr {
                         kind: ExprKind::Ident(first.clone()),
                         span: first.span,
                     })
                 } else {
+                    // Path with multiple segments or turbofish on single segment
                     let start = path
                         .first()
-                        .map(|id| id.span.range.start)
+                        .map(|seg| seg.ident.span.range.start)
                         .unwrap_or(tok.span.range.start);
                     let end = path
                         .last()
-                        .map(|id| id.span.range.end)
+                        .map(|seg| seg.ident.span.range.end)
                         .unwrap_or(tok.span.range.end);
                     Some(Expr {
                         kind: ExprKind::Path { segments: path },
@@ -4301,7 +4374,7 @@ mod tests {
             if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
                 // Should be: Cast(Call(foo, []), i32)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
-                    if let ExprKind::Call { callee, args } = &expr.kind {
+                    if let ExprKind::Call { callee, args, .. } = &expr.kind {
                         if let ExprKind::Ident(ident) = &callee.kind {
                             assert_eq!(ident.name, "foo");
                         } else {
@@ -4536,6 +4609,116 @@ fn test() {
                 }
             } else {
                 panic!("expected Loop statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_turbofish_on_method_call() {
+        let src = r#"
+            fn main() {
+                let x = "42".parse::<i32>();
+            }
+        "#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::MethodCall { method, type_args, .. } = &val.kind {
+                    assert_eq!(method.name, "parse");
+                    assert!(type_args.is_some(), "expected type_args to be present");
+                    let targs = type_args.as_ref().unwrap();
+                    assert_eq!(targs.len(), 1);
+                    if let husk_ast::TypeExprKind::Named(id) = &targs[0].kind {
+                        assert_eq!(id.name, "i32");
+                    } else {
+                        panic!("expected Named type i32");
+                    }
+                } else {
+                    panic!("expected MethodCall");
+                }
+            } else {
+                panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_turbofish_on_function_call() {
+        let src = r#"
+            fn main() {
+                let x = collect::<Vec<i32>>();
+            }
+        "#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Call { callee, type_args, .. } = &val.kind {
+                    // callee should be a path with turbofish
+                    if let ExprKind::Path { segments } = &callee.kind {
+                        assert_eq!(segments.len(), 1);
+                        assert_eq!(segments[0].ident.name, "collect");
+                        // turbofish is on the path segment
+                        assert!(segments[0].type_args.is_some());
+                        let targs = segments[0].type_args.as_ref().unwrap();
+                        assert_eq!(targs.len(), 1);
+                        if let husk_ast::TypeExprKind::Generic { name, args } = &targs[0].kind {
+                            assert_eq!(name.name, "Vec");
+                            assert_eq!(args.len(), 1);
+                        } else {
+                            panic!("expected Generic type Vec<i32>");
+                        }
+                    } else if let ExprKind::Ident(id) = &callee.kind {
+                        // If parsed as ident, check type_args on call
+                        assert_eq!(id.name, "collect");
+                        assert!(type_args.is_some());
+                    } else {
+                        panic!("expected Path or Ident callee");
+                    }
+                } else {
+                    panic!("expected Call");
+                }
+            } else {
+                panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_turbofish_with_multiple_type_args() {
+        let src = r#"
+            fn main() {
+                let x = foo::<i32, String>();
+            }
+        "#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Call { callee, .. } = &val.kind {
+                    if let ExprKind::Path { segments } = &callee.kind {
+                        assert_eq!(segments.len(), 1);
+                        assert!(segments[0].type_args.is_some());
+                        let targs = segments[0].type_args.as_ref().unwrap();
+                        assert_eq!(targs.len(), 2);
+                    } else {
+                        panic!("expected Path callee");
+                    }
+                } else {
+                    panic!("expected Call");
+                }
+            } else {
+                panic!("expected Let with value");
             }
         } else {
             panic!("expected Fn item");

@@ -1155,7 +1155,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // We ignore the enum name and any intermediate segments here.
             let variant = segments
                 .last()
-                .map(|id| id.name.clone())
+                .map(|id| id.ident.name.clone())
                 .unwrap_or_else(|| "Unknown".to_string());
             JsExpr::Object(vec![("tag".to_string(), JsExpr::String(variant))])
         }
@@ -1179,6 +1179,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             receiver,
             method,
             args,
+            ..
         } => {
             // Try to determine receiver type for getter/setter lookup.
             // For now, we use a heuristic: look up by method name across all types.
@@ -1233,6 +1234,31 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 };
             }
 
+            // Handle String.parse::<T>() method with turbofish type argument
+            if method_name == "parse" && args.is_empty() {
+                // Extract type_args from the MethodCall
+                if let ExprKind::MethodCall { type_args: Some(targs), .. } = &expr.kind {
+                    if let Some(first_ty) = targs.first() {
+                        // Dispatch based on target type
+                        let helper_fn = match &first_ty.kind {
+                            husk_ast::TypeExprKind::Named(ident) => match ident.name.as_str() {
+                                "i32" => Some("__husk_parse_i32"),
+                                "i64" => Some("__husk_parse_i64"),
+                                "f64" => Some("__husk_parse_f64"),
+                                _ => None,
+                            },
+                            _ => None,
+                        };
+                        if let Some(helper) = helper_fn {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(helper.to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                    }
+                }
+            }
+
             // Default: emit as a regular method call
             // Strip numeric suffix for variadic function emulation (run1, run2, run3 -> run)
             let js_method_name = strip_variadic_suffix(&method.name);
@@ -1244,7 +1270,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
             }
         }
-        ExprKind::Call { callee, args } => {
+        ExprKind::Call { callee, args, .. } => {
             // Handle built-in functions like println -> console.log
             if let ExprKind::Ident(ref id) = callee.kind {
                 if id.name == "println" {
@@ -1303,7 +1329,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             if let ExprKind::Path { segments } = &callee.kind {
                 let variant = segments
                     .last()
-                    .map(|id| id.name.clone())
+                    .map(|id| id.ident.name.clone())
                     .unwrap_or_else(|| "Unknown".to_string());
 
                 let mut fields = vec![("tag".to_string(), JsExpr::String(variant))];
@@ -2988,10 +3014,20 @@ mod tests {
     use super::*;
     use husk_ast::{
         ExprKind as HuskExprKind, Ident as HuskIdent, Literal as HuskLiteral,
-        LiteralKind as HuskLiteralKind, MatchArm as HuskMatchArm, Pattern as HuskPattern,
-        PatternKind as HuskPatternKind, Span as HuskSpan, TypeExpr as HuskTypeExpr,
-        TypeExprKind as HuskTypeExprKind,
+        LiteralKind as HuskLiteralKind, MatchArm as HuskMatchArm, PathSegment as HuskPathSegment,
+        Pattern as HuskPattern, PatternKind as HuskPatternKind, Span as HuskSpan,
+        TypeExpr as HuskTypeExpr, TypeExprKind as HuskTypeExprKind,
     };
+
+    fn path_seg(name: &str, s: usize) -> HuskPathSegment {
+        HuskPathSegment {
+            ident: HuskIdent {
+                name: name.to_string(),
+                span: HuskSpan { range: s..s + name.len() },
+            },
+            type_args: None,
+        }
+    }
 
     #[test]
     fn prints_simple_function() {
@@ -3868,7 +3904,7 @@ mod tests {
         // Build: Option::Some(42)
         let callee = husk_ast::Expr {
             kind: HuskExprKind::Path {
-                segments: vec![ident("Option", 0), ident("Some", 8)],
+                segments: vec![path_seg("Option", 0), path_seg("Some", 8)],
             },
             span: span(0, 12),
         };
@@ -3884,6 +3920,7 @@ mod tests {
         let call_expr = husk_ast::Expr {
             kind: HuskExprKind::Call {
                 callee: Box::new(callee),
+                type_args: None,
                 args: vec![arg],
             },
             span: span(0, 16),
@@ -3911,15 +3948,11 @@ mod tests {
     fn lowers_enum_variant_with_multiple_args_to_indexed_object() {
         // Test that MyEnum::Pair(a, b) generates {tag: "Pair", "0": a, "1": b}
         let span = |s: usize, e: usize| HuskSpan { range: s..e };
-        let ident = |name: &str, s: usize| HuskIdent {
-            name: name.to_string(),
-            span: span(s, s + name.len()),
-        };
 
         // Build: MyEnum::Pair(1, 2)
         let callee = husk_ast::Expr {
             kind: HuskExprKind::Path {
-                segments: vec![ident("MyEnum", 0), ident("Pair", 8)],
+                segments: vec![path_seg("MyEnum", 0), path_seg("Pair", 8)],
             },
             span: span(0, 12),
         };
@@ -3943,6 +3976,7 @@ mod tests {
         let call_expr = husk_ast::Expr {
             kind: HuskExprKind::Call {
                 callee: Box::new(callee),
+                type_args: None,
                 args: vec![arg1, arg2],
             },
             span: span(0, 18),
@@ -3972,15 +4006,11 @@ mod tests {
     fn lowers_unit_enum_variant_to_tagged_object() {
         // Test that Option::None generates {tag: "None"}
         let span = |s: usize, e: usize| HuskSpan { range: s..e };
-        let ident = |name: &str, s: usize| HuskIdent {
-            name: name.to_string(),
-            span: span(s, s + name.len()),
-        };
 
         // Build: Option::None (as a Path expression, not a Call)
         let path_expr = husk_ast::Expr {
             kind: HuskExprKind::Path {
-                segments: vec![ident("Option", 0), ident("None", 8)],
+                segments: vec![path_seg("Option", 0), path_seg("None", 8)],
             },
             span: span(0, 12),
         };

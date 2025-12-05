@@ -1,0 +1,46 @@
+// Test String.parse::<T>() method with turbofish syntax
+
+fn main() {
+    // Test parsing i32
+    let result_i32: Result<i32, String> = "42".parse::<i32>();
+    match result_i32 {
+        Result::Ok(n) => println("Parsed i32: {}", n),
+        Result::Err(e) => println("Error: {}", e),
+    }
+
+    // Test parsing negative i32
+    let neg_result = "-123".parse::<i32>();
+    match neg_result {
+        Result::Ok(n) => println("Parsed negative i32: {}", n),
+        Result::Err(e) => println("Error: {}", e),
+    }
+
+    // Test parsing f64
+    let result_f64: Result<f64, String> = "3.14159".parse::<f64>();
+    match result_f64 {
+        Result::Ok(n) => println("Parsed f64: {}", n),
+        Result::Err(e) => println("Error: {}", e),
+    }
+
+    // Test parsing i64
+    let result_i64: Result<i64, String> = "9223372036854775807".parse::<i64>();
+    match result_i64 {
+        Result::Ok(n) => println("Parsed i64: {}", n),
+        Result::Err(e) => println("Error: {}", e),
+    }
+
+    // Test error case - invalid integer
+    let invalid = "not_a_number".parse::<i32>();
+    match invalid {
+        Result::Ok(n) => println("Should not get here: {}", n),
+        Result::Err(e) => println("Expected error: {}", e),
+    }
+
+    // Test chaining with unwrap
+    let x = "100".parse::<i32>().unwrap();
+    println("Parsed with unwrap: {}", x);
+
+    // Test chaining with expect
+    let y = "200".parse::<i32>().expect("failed to parse");
+    println("Parsed with expect: {}", y);
+}

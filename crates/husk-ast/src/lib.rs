@@ -106,18 +106,29 @@ pub enum AssignOp {
     ModAssign, // %=
 }
 
+/// A segment in a path expression, optionally with type arguments (turbofish).
+/// Example: `Option` or `Option::<i32>` or `Result::<T, E>`
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathSegment {
+    pub ident: Ident,
+    /// Optional type arguments via turbofish syntax: `Foo::<T, U>`
+    pub type_args: Option<Vec<TypeExpr>>,
+}
+
 /// Expressions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
     Literal(Literal),
     Ident(Ident),
-    /// Path-like expression, e.g. `Enum::Variant`.
+    /// Path-like expression, e.g. `Enum::Variant` or `Enum::<T>::Variant`.
     /// For the MVP this is primarily used for enum constructors.
     Path {
-        segments: Vec<Ident>,
+        segments: Vec<PathSegment>,
     },
     Call {
         callee: Box<Expr>,
+        /// Optional type arguments via turbofish syntax: `foo::<T>()`
+        type_args: Option<Vec<TypeExpr>>,
         args: Vec<Expr>,
     },
     Field {
@@ -127,6 +138,8 @@ pub enum ExprKind {
     MethodCall {
         receiver: Box<Expr>,
         method: Ident,
+        /// Optional type arguments via turbofish syntax: `x.method::<T>()`
+        type_args: Option<Vec<TypeExpr>>,
         args: Vec<Expr>,
     },
     Unary {
@@ -489,6 +502,8 @@ pub enum TraitItemKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitMethod {
     pub name: Ident,
+    /// Type parameters for generic methods: `fn parse<T>(&self) -> T`
+    pub type_params: Vec<TypeParam>,
     pub receiver: Option<SelfReceiver>,
     pub params: Vec<Param>,
     pub ret_type: Option<TypeExpr>,
@@ -572,6 +587,8 @@ impl ExternProperty {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplMethod {
     pub name: Ident,
+    /// Type parameters for generic methods: `fn parse<T>(&self) -> T`
+    pub type_params: Vec<TypeParam>,
     pub receiver: Option<SelfReceiver>,
     pub params: Vec<Param>,
     pub ret_type: Option<TypeExpr>,

@@ -9,8 +9,8 @@ use std::sync::OnceLock;
 
 use husk_ast::{
     Block, CfgPredicate, ClosureParam, EnumVariantFields, Expr, ExprKind, File, FormatSegment,
-    Ident, Item, ItemKind, LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt,
-    StmtKind, TypeExpr, TypeExprKind,
+    Ident, Item, ItemKind, LiteralKind, MatchArm, Param, PathSegment, Pattern, PatternKind, Span,
+    Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
@@ -1001,11 +1001,11 @@ impl<'a> FnContext<'a> {
         resolved
     }
 
-    fn check_path_expr(&mut self, expr: &Expr, segments: &[Ident]) -> Type {
+    fn check_path_expr(&mut self, expr: &Expr, segments: &[PathSegment]) -> Type {
         // Handle `Enum::Variant` paths.
         if segments.len() >= 2 {
-            let enum_name = &segments[0].name;
-            let variant_name = &segments[segments.len() - 1].name;
+            let enum_name = &segments[0].ident.name;
+            let variant_name = &segments[segments.len() - 1].ident.name;
 
             if let Some(def) = self.tcx.env.enums.get(enum_name).cloned() {
                 let variant = def.variants.iter().find(|v| &v.name == variant_name);
@@ -1538,7 +1538,7 @@ impl<'a> FnContext<'a> {
                 });
                 Type::Primitive(PrimitiveType::Unit)
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, args, .. } => {
                 // Check if the callee is a module import (which accepts any arguments)
                 let is_module_call = match &callee.kind {
                     ExprKind::Ident(id) => self.tcx.env.modules.contains_key(&id.name),
@@ -1743,6 +1743,7 @@ impl<'a> FnContext<'a> {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                type_args,
                 args,
             } => {
                 let method_name = &method.name;
@@ -1790,6 +1791,39 @@ impl<'a> FnContext<'a> {
                             "indexOf" | "lastIndexOf" => return Type::Primitive(PrimitiveType::I32),
                             "startsWith" | "endsWith" | "includes" => {
                                 return Type::Primitive(PrimitiveType::Bool)
+                            }
+                            "parse" => {
+                                // String.parse::<T>() returns Result<T, String>
+                                // Requires turbofish type argument
+                                if let Some(targs) = type_args {
+                                    if targs.len() == 1 {
+                                        let target_ty = self.tcx.resolve_type_expr(&targs[0], &[]);
+                                        return Type::Named {
+                                            name: "Result".to_string(),
+                                            args: vec![
+                                                target_ty,
+                                                Type::Primitive(PrimitiveType::String),
+                                            ],
+                                        };
+                                    } else {
+                                        self.tcx.errors.push(SemanticError {
+                                            message: "parse() requires exactly one type argument".to_string(),
+                                            span: method.span.clone(),
+                                        });
+                                    }
+                                } else {
+                                    self.tcx.errors.push(SemanticError {
+                                        message: "parse() requires a type argument: \"str\".parse::<i32>()".to_string(),
+                                        span: method.span.clone(),
+                                    });
+                                }
+                                return Type::Named {
+                                    name: "Result".to_string(),
+                                    args: vec![
+                                        Type::Primitive(PrimitiveType::Unit),
+                                        Type::Primitive(PrimitiveType::String),
+                                    ],
+                                };
                             }
                             _ => {}
                         }
@@ -2952,7 +2986,8 @@ mod tests {
     use super::*;
     use husk_ast::{
         EnumVariant, EnumVariantFields, Expr, ExprKind, File, Ident, Item, ItemKind, Literal,
-        LiteralKind, MatchArm, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
+        LiteralKind, MatchArm, PathSegment, Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr,
+        TypeExprKind,
     };
     use husk_parser::parse_str;
 
@@ -2962,6 +2997,13 @@ mod tests {
             span: Span {
                 range: start..start + name.len(),
             },
+        }
+    }
+
+    fn path_seg(name: &str, start: usize) -> PathSegment {
+        PathSegment {
+            ident: ident(name, start),
+            type_args: None,
         }
     }
 
@@ -3181,7 +3223,7 @@ mod tests {
 
         let path_expr = Expr {
             kind: ExprKind::Path {
-                segments: vec![color_ident.clone(), ident("Red", 40)],
+                segments: vec![path_seg("Color", 30), path_seg("Red", 40)],
             },
             span: Span { range: 30..45 },
         };
@@ -3455,6 +3497,7 @@ mod tests {
                     kind: ExprKind::Ident(express_ident.clone()),
                     span: express_ident.span.clone(),
                 }),
+                type_args: None,
                 args: vec![],
             },
             span: Span { range: 30..40 },
@@ -3476,6 +3519,7 @@ mod tests {
                     kind: ExprKind::Ident(express_ident.clone()),
                     span: express_ident.span.clone(),
                 }),
+                type_args: None,
                 args: vec![Expr {
                     kind: ExprKind::Literal(Literal {
                         kind: LiteralKind::Int(42),
@@ -3503,6 +3547,7 @@ mod tests {
                     kind: ExprKind::Ident(express_ident.clone()),
                     span: express_ident.span.clone(),
                 }),
+                type_args: None,
                 args: vec![
                     Expr {
                         kind: ExprKind::Literal(Literal {
@@ -4426,6 +4471,60 @@ fn test(s: String) -> String {
         assert!(
             result.type_errors.is_empty(),
             "expected no type errors for parseLong returning i64, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_parse_with_turbofish_returns_result() {
+        let src = r#"
+            fn foo() {
+                let x: Result<i32, String> = "42".parse::<i32>();
+            }
+        "#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for parse::<i32>(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_parse_without_turbofish_is_error() {
+        let src = r#"fn foo() { let x = "42".parse(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for parse() without turbofish"
+        );
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("type argument")),
+            "expected error about missing type argument, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_parse_f64_returns_result_f64() {
+        let src = r#"
+            fn foo() {
+                let x: Result<f64, String> = "3.14".parse::<f64>();
+            }
+        "#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for parse::<f64>(), got: {:?}",
             result.type_errors
         );
     }

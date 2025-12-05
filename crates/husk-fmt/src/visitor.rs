@@ -1099,11 +1099,31 @@ impl<'a> Formatter<'a> {
                     if i > 0 {
                         self.write("::");
                     }
-                    self.write(&segment.name);
+                    self.write(&segment.ident.name);
+                    if let Some(ref type_args) = segment.type_args {
+                        self.write("::<");
+                        for (j, ty) in type_args.iter().enumerate() {
+                            if j > 0 {
+                                self.write(", ");
+                            }
+                            self.format_type(ty);
+                        }
+                        self.write(">");
+                    }
                 }
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, type_args, args } => {
                 self.format_expr(callee);
+                if let Some(targs) = type_args {
+                    self.write("::<");
+                    for (i, ty) in targs.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.format_type(ty);
+                    }
+                    self.write(">");
+                }
                 self.write("(");
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -1121,11 +1141,22 @@ impl<'a> Formatter<'a> {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                type_args,
                 args,
             } => {
                 self.format_expr(receiver);
                 self.write(".");
                 self.write(&method.name);
+                if let Some(targs) = type_args {
+                    self.write("::<");
+                    for (i, ty) in targs.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.format_type(ty);
+                    }
+                    self.write(">");
+                }
                 self.write("(");
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
