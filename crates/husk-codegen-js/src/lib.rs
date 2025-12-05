@@ -405,6 +405,8 @@ pub enum JsBinaryOp {
     Gt,
     Le,
     Ge,
+    And,
+    Or,
 }
 
 /// Output target style.
@@ -1663,12 +1665,8 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 Gt => JsBinaryOp::Gt,
                 Le => JsBinaryOp::Le,
                 Ge => JsBinaryOp::Ge,
-                And | Or => {
-                    // Logical operators not yet mapped; approximate as `&&`/`||` by
-                    // reusing equality operators is incorrect, so for now mark as `==`
-                    // until we extend JsBinaryOp. This is intentionally conservative.
-                    JsBinaryOp::EqEq
-                }
+                And => JsBinaryOp::And,
+                Or => JsBinaryOp::Or,
             };
             JsExpr::Binary {
                 op: js_op,
@@ -3068,6 +3066,8 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
                 JsBinaryOp::Gt => ">",
                 JsBinaryOp::Le => "<=",
                 JsBinaryOp::Ge => ">=",
+                JsBinaryOp::And => "&&",
+                JsBinaryOp::Or => "||",
             });
             out.push(' ');
             write_expr(right, out);

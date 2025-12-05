@@ -1,0 +1,64 @@
+// Test case for logical && and || operators
+// These should compile to && and || in JS, not ==
+
+#[cfg(test)]
+#[test]
+fn test_logical_and() {
+    // All conditions true - should return true
+    let a = true;
+    let b = true;
+    let result = a && b;
+    assert(result);
+}
+
+#[cfg(test)]
+#[test]
+fn test_logical_and_with_comparisons() {
+    // This is the pattern that fails: multiple && with comparisons
+    let x = 5;
+    let result = x >= 0 && x < 10;
+    assert(result);
+}
+
+#[cfg(test)]
+#[test]
+fn test_logical_and_bounds_check() {
+    // Real-world bounds checking pattern
+    let row = 5;
+    let col = 3;
+    let max_row = 10;
+    let max_col = 10;
+
+    let in_bounds = row >= 0 && row < max_row && col >= 0 && col < max_col;
+    assert(in_bounds);
+}
+
+#[cfg(test)]
+#[test]
+fn test_logical_or() {
+    let a = true;
+    let b = false;
+    let result = a || b;
+    assert(result);
+}
+
+#[cfg(test)]
+#[test]
+fn test_logical_or_with_comparisons() {
+    let x = 15;
+    // x is either less than 10 OR greater than 12 (true because 15 > 12)
+    let result = x < 10 || x > 12;
+    assert(result);
+}
+
+#[cfg(test)]
+#[test]
+fn test_mixed_logical_operators() {
+    let a = true;
+    let b = false;
+    let c = true;
+
+    // (true && false) || true = false || true = true
+    let result = (a && b) || c;
+    assert(result);
+}
