@@ -1,8 +1,14 @@
 /**
- * JSX Integration Tests for Husk
+ * React jsx-runtime Contract Tests
  *
- * These tests verify that Husk's JSX codegen produces valid JavaScript
- * that works correctly with React's jsx-runtime.
+ * These tests verify the expected behavior of React's jsx-runtime API
+ * that Husk's JSX codegen targets. They serve as a reference for the
+ * _jsx/_jsxs/Fragment API contract and expected element shapes.
+ *
+ * NOTE: These tests call React's jsx-runtime directly and do NOT compile
+ * or import Husk code. For tests that verify Husk's actual JSX lowering
+ * (AST → JavaScript code generation), see:
+ *   crates/husk-cli/tests/jsx_codegen.rs
  */
 
 import { jsx as _jsx, jsxs as _jsxs, Fragment } from "react/jsx-runtime";
