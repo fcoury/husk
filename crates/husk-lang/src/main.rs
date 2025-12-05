@@ -1859,9 +1859,11 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         };
 
         // Generate Husk code
+        // Note: fail_fast is disabled for dts update since it processes multiple entries
+        // and we want to continue generating other packages even if one has issues.
         let options = DtsCodegenOptions {
             module_name: Some(entry.package.clone()),
-            verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
+            verbose: env::var("HUSKC_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
             enable_callables,
             enable_indexers,
             namespace_allowlist: dts_opts.and_then(|o| o.namespace_allowlist.clone()),
