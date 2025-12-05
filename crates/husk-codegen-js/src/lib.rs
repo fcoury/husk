@@ -2305,10 +2305,13 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 /// - `<Component>` becomes `_jsx(Component, { children: ... })`
 /// - Fragments `<>` become `_jsxs(Fragment, { children: [...] })`
 ///
-/// The automatic runtime is imported at the top of the file:
+/// The automatic runtime must be imported at the top of the file:
 /// ```js
 /// import { jsx as _jsx, jsxs as _jsxs, Fragment } from "react/jsx-runtime";
 /// ```
+///
+/// Note: The Vite plugin (vite-plugin-husk) automatically injects this import
+/// when JSX is detected in the generated output.
 fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
     // Determine the tag/component reference
     let type_expr = match &element.name {
@@ -2334,8 +2337,9 @@ fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
         }
     };
 
-    // Build the props object
-    let mut props: Vec<(String, JsExpr)> = Vec::new();
+    // Build props: separate base props from spread expressions
+    let mut base_props: Vec<(String, JsExpr)> = Vec::new();
+    let mut spreads: Vec<JsExpr> = Vec::new();
 
     // Process attributes
     for attr in &element.attributes {
@@ -2345,46 +2349,66 @@ fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
                     JsxAttributeValue::String(s, _) => JsExpr::String(s.clone()),
                     JsxAttributeValue::Expression(expr) => lower_expr(expr, ctx),
                 };
-                props.push((name.name.clone(), prop_value));
+                base_props.push((name.name.clone(), prop_value));
             }
             JsxAttribute::Boolean(name) => {
                 // Boolean attributes are set to true
-                props.push((name.name.clone(), JsExpr::Bool(true)));
+                base_props.push((name.name.clone(), JsExpr::Bool(true)));
             }
             JsxAttribute::Spread(expr) => {
-                // Spread props are handled via Object.assign or spread
-                // For simplicity, we'll add a special marker that gets handled in codegen
-                // In practice, this would need more sophisticated handling
-                props.push(("...".to_string(), lower_expr(expr, ctx)));
+                // Collect spread expressions separately
+                spreads.push(lower_expr(expr, ctx));
             }
         }
     }
 
-    // Process children
+    // Process children first to determine the correct jsx function
     let children = lower_jsx_children(&element.children, ctx);
+    let children_count = children.len();
 
-    // Add children to props if not empty
-    if !children.is_empty() {
-        if children.len() == 1 {
-            props.push(("children".to_string(), children.into_iter().next().unwrap()));
+    // Add children to base_props if not empty
+    if children_count > 0 {
+        if children_count == 1 {
+            base_props.push(("children".to_string(), children.into_iter().next().unwrap()));
         } else {
-            props.push(("children".to_string(), JsExpr::Array(children)));
+            base_props.push(("children".to_string(), JsExpr::Array(children)));
         }
     }
 
-    // Determine which jsx function to use
+    // Determine which jsx function to use based on *lowered* children count
     // - _jsx for single child or no children
-    // - _jsxs for multiple children
-    let jsx_fn = if element.children.len() > 1 {
+    // - _jsxs for multiple children (static children array)
+    let jsx_fn = if children_count > 1 {
         "_jsxs"
     } else {
         "_jsx"
     };
 
+    // Build the props expression
+    // If there are spread attributes, we need Object.assign to merge them
+    let props_expr = if spreads.is_empty() {
+        JsExpr::Object(base_props)
+    } else {
+        // Object.assign({}, ...spreads, { base_props })
+        // The empty object ensures we don't mutate any input
+        let mut assign_args = Vec::with_capacity(2 + spreads.len());
+        assign_args.push(JsExpr::Object(vec![])); // Empty target object
+        assign_args.extend(spreads);
+        assign_args.push(JsExpr::Object(base_props)); // Base props last to override spreads
+
+        JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("Object".to_string())),
+                property: "assign".to_string(),
+            }),
+            args: assign_args,
+        }
+    };
+
     // Build the call: _jsx(type, props) or _jsxs(type, props)
     JsExpr::Call {
         callee: Box::new(JsExpr::Ident(jsx_fn.to_string())),
-        args: vec![type_expr, JsExpr::Object(props)],
+        args: vec![type_expr, props_expr],
     }
 }
 

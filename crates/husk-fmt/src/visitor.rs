@@ -1536,7 +1536,7 @@ impl<'a> Formatter<'a> {
                     match value {
                         JsxAttributeValue::String(s, _) => {
                             self.write("\"");
-                            self.write(s);
+                            self.write(&escape_string(s));
                             self.write("\"");
                         }
                         JsxAttributeValue::Expression(expr) => {
