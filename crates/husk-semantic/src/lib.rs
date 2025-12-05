@@ -3899,10 +3899,12 @@ impl<'a> FnContext<'a> {
             PatternKind::EnumUnit { path }
             | PatternKind::EnumTuple { path, .. }
             | PatternKind::EnumStruct { path, .. } => {
-                // Verify the pattern matches an enum type (type-aware validation)
+                // Verify the pattern's enum matches the scrutinee's type
                 if let Type::Named { name, .. } = scrut_ty {
                     let path_enum = path.first().map(|id| &id.name);
-                    if path_enum != Some(name) && !self.is_enum_type(name) {
+                    // Error if pattern's enum name doesn't match scrutinee's type
+                    // e.g., `if let Option::Some(_) = result_val` where result_val: Result<_, _>
+                    if path_enum != Some(name) {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
                                 "pattern `{}` does not match type `{}`",
@@ -3970,11 +3972,6 @@ impl<'a> FnContext<'a> {
                 }
             }
         }
-    }
-
-    /// Check if a name refers to an enum type.
-    fn is_enum_type(&self, name: &str) -> bool {
-        self.tcx.env.enums.contains_key(name)
     }
 
     /// Record imported variant patterns in variant_patterns map for codegen.
