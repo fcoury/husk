@@ -3032,6 +3032,21 @@ fn count_newlines_in_stmt(stmt: &JsStmt) -> u32 {
             });
             1 + then_lines + else_lines
         }
+        JsStmt::Block(stmts) => {
+            // { + body lines + }
+            1 + stmts
+                .iter()
+                .map(|s| count_newlines_in_stmt(s) + 1)
+                .sum::<u32>()
+        }
+        JsStmt::Sequence(stmts) => {
+            // Statements at same level, each followed by newline except last
+            stmts
+                .iter()
+                .map(|s| count_newlines_in_stmt(s) + 1)
+                .sum::<u32>()
+                .saturating_sub(1)
+        }
         _ => 0, // single-line statements
     }
 }

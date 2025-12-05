@@ -1125,7 +1125,9 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    /// Format a statement inline (for else-if chains)
+    /// Format a statement inline (for else-if chains).
+    // TODO: Consider extracting shared If/IfLet formatting logic into a helper
+    // to reduce duplication with the corresponding branches in format_stmt.
     fn format_stmt_inline(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::If {
