@@ -3924,9 +3924,16 @@ impl<'a> FnContext<'a> {
                                     span: span.clone(),
                                 });
                             }
+                        } else {
+                            // Single-segment path not in variant_imports - error like match does
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "unknown variant `{}` (did you mean `{}::{}`?)",
+                                    variant_name, name, variant_name
+                                ),
+                                span: span.clone(),
+                            });
                         }
-                        // If not in variant_imports, it might be a locally defined variant
-                        // which will be caught by other type checking
                     } else {
                         // Multi-segment path like Option::Some - check enum name matches
                         let path_enum = path.first().map(|id| &id.name);
@@ -4021,23 +4028,55 @@ impl<'a> FnContext<'a> {
 
     /// Record imported variant patterns in variant_patterns map for codegen.
     fn record_variant_pattern(&mut self, pattern: &Pattern, scrut_ty: &Type) {
-        if let PatternKind::Binding(ident) = &pattern.kind {
-            if let Some((imported_enum, _)) = self.tcx.env.variant_imports.get(&ident.name) {
-                // Determine if we should record this variant
-                let should_record = match scrut_ty {
-                    Type::Named { name: enum_name, .. } => imported_enum == enum_name,
-                    // Record for type variables (will be resolved later)
-                    Type::Var(_) => true,
-                    _ => false,
-                };
-
-                if should_record {
-                    self.tcx.variant_patterns.insert(
-                        (pattern.span.range.start, pattern.span.range.end),
-                        (imported_enum.clone(), ident.name.clone()),
-                    );
+        match &pattern.kind {
+            PatternKind::Binding(ident) => {
+                // Unit variant imported as bare name (e.g., `None`)
+                if let Some((imported_enum, _)) = self.tcx.env.variant_imports.get(&ident.name) {
+                    let should_record = match scrut_ty {
+                        Type::Named { name: enum_name, .. } => imported_enum == enum_name,
+                        Type::Var(_) => true,
+                        _ => false,
+                    };
+                    if should_record {
+                        self.tcx.variant_patterns.insert(
+                            (pattern.span.range.start, pattern.span.range.end),
+                            (imported_enum.clone(), ident.name.clone()),
+                        );
+                    }
                 }
             }
+            PatternKind::EnumUnit { path }
+            | PatternKind::EnumTuple { path, .. }
+            | PatternKind::EnumStruct { path, .. } => {
+                // Single-segment imported variant (e.g., `Some(x)`)
+                if path.len() == 1 {
+                    let variant_name = &path[0].name;
+                    if let Some((imported_enum, _)) =
+                        self.tcx.env.variant_imports.get(variant_name)
+                    {
+                        let should_record = match scrut_ty {
+                            Type::Named { name: enum_name, .. } => imported_enum == enum_name,
+                            Type::Var(_) => true,
+                            _ => false,
+                        };
+                        if should_record {
+                            self.tcx.variant_patterns.insert(
+                                (pattern.span.range.start, pattern.span.range.end),
+                                (imported_enum.clone(), variant_name.clone()),
+                            );
+                        }
+                    }
+                }
+            }
+            PatternKind::Tuple { fields } => {
+                // Recursively record nested patterns
+                if let Type::Tuple(elem_types) = scrut_ty {
+                    for (field, elem_ty) in fields.iter().zip(elem_types.iter()) {
+                        self.record_variant_pattern(field, elem_ty);
+                    }
+                }
+            }
+            PatternKind::Wildcard => {}
         }
     }
 
@@ -6341,6 +6380,201 @@ fn test(s: String) -> String {
         assert!(
             !result.type_errors.is_empty(),
             "expected type mismatch error for accessing i32 field as String"
+        );
+    }
+
+    // =========================================================================
+    // if-let and let-else tests
+    // =========================================================================
+
+    #[test]
+    fn if_let_with_qualified_variant() {
+        // if let with fully qualified Option::Some
+        let src = r#"
+fn test() -> i32 {
+    let opt: Option<i32> = Option::Some(42);
+    if let Option::Some(x) = opt {
+        x
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn if_let_with_imported_variant() {
+        // if let with imported Some variant (prelude import)
+        let src = r#"
+fn test() -> i32 {
+    let opt: Option<i32> = Some(42);
+    if let Some(x) = opt {
+        x
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn let_else_with_qualified_variant() {
+        // let-else with fully qualified Option::Some
+        let src = r#"
+fn test() -> i32 {
+    let opt: Option<i32> = Option::Some(42);
+    let Option::Some(x) = opt else {
+        return 0;
+    };
+    x
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn let_else_with_imported_variant() {
+        // let-else with imported Some variant (prelude import)
+        let src = r#"
+fn test() -> i32 {
+    let opt: Option<i32> = Some(42);
+    let Some(x) = opt else {
+        return 0;
+    };
+    x
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn if_let_mismatched_enum_errors() {
+        // if let with Option pattern on Result type should error
+        let src = r#"
+fn test() -> i32 {
+    let res: Result<i32, String> = Ok(42);
+    if let Option::Some(x) = res {
+        x
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
+            "expected error for mismatched enum types"
+        );
+    }
+
+    #[test]
+    fn if_let_tuple_with_refutable_element() {
+        // if let with tuple containing refutable Some(x)
+        let src = r#"
+fn test() -> i32 {
+    let pair: (Option<i32>, i32) = (Option::Some(42), 10);
+    if let (Option::Some(x), y) = pair {
+        x + y
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn if_let_irrefutable_pattern_errors() {
+        // if let with irrefutable pattern should error
+        let src = r#"
+fn test() -> i32 {
+    let x: i32 = 42;
+    if let y = x {
+        y
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
+            "expected error for irrefutable pattern in if-let"
+        );
+    }
+
+    #[test]
+    fn let_else_without_diverging_block_errors() {
+        // let-else without diverging else block should error
+        let src = r#"
+fn test() -> i32 {
+    let opt: Option<i32> = Option::Some(42);
+    let Option::Some(x) = opt else {
+        let y = 0;
+    };
+    x
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
+            "expected error for non-diverging else block in let-else"
         );
     }
 }
