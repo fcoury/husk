@@ -57,6 +57,8 @@ fn main() {
         JsTarget::Cjs,
         &sem.name_resolution,
         &sem.type_resolution,
+        &sem.variant_calls,
+        &sem.variant_patterns,
     );
     let js = module.to_source();
 
@@ -133,6 +135,8 @@ fn main() {
         JsTarget::Cjs,
         &sem.name_resolution,
         &sem.type_resolution,
+        &sem.variant_calls,
+        &sem.variant_patterns,
     );
     let js = module.to_source();
 
