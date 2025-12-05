@@ -2337,11 +2337,14 @@ fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
         }
     };
 
-    // Build props: separate base props from spread expressions
-    let mut base_props: Vec<(String, JsExpr)> = Vec::new();
-    let mut spreads: Vec<JsExpr> = Vec::new();
+    // Build props while preserving the order between static attributes and spreads.
+    // We group contiguous static props into object literals and keep spreads as separate segments.
+    // This ensures JSX semantics where later attributes override earlier ones:
+    //   <div {...a} b="1" {...c} />  =>  Object.assign({}, a, { b: "1" }, c)
+    let mut has_spread = false;
+    let mut segments: Vec<JsExpr> = Vec::new();
+    let mut current_props: Vec<(String, JsExpr)> = Vec::new();
 
-    // Process attributes
     for attr in &element.attributes {
         match attr {
             JsxAttribute::KeyValue { name, value } => {
@@ -2349,30 +2352,41 @@ fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
                     JsxAttributeValue::String(s, _) => JsExpr::String(s.clone()),
                     JsxAttributeValue::Expression(expr) => lower_expr(expr, ctx),
                 };
-                base_props.push((name.name.clone(), prop_value));
+                current_props.push((name.name.clone(), prop_value));
             }
             JsxAttribute::Boolean(name) => {
-                // Boolean attributes are set to true
-                base_props.push((name.name.clone(), JsExpr::Bool(true)));
+                current_props.push((name.name.clone(), JsExpr::Bool(true)));
             }
             JsxAttribute::Spread(expr) => {
-                // Collect spread expressions separately
-                spreads.push(lower_expr(expr, ctx));
+                has_spread = true;
+                // Flush accumulated static props as an object segment before the spread
+                if !current_props.is_empty() {
+                    segments.push(JsExpr::Object(std::mem::take(&mut current_props)));
+                }
+                segments.push(lower_expr(expr, ctx));
             }
         }
     }
 
-    // Process children first to determine the correct jsx function
+    // Lower children first to select the correct jsx function and append them
+    // as the last property group so `children` ends up last in the config.
     let children = lower_jsx_children(&element.children, ctx);
     let children_count = children.len();
 
-    // Add children to base_props if not empty
     if children_count > 0 {
         if children_count == 1 {
-            base_props.push(("children".to_string(), children.into_iter().next().unwrap()));
+            current_props.push((
+                "children".to_string(),
+                children.into_iter().next().unwrap(),
+            ));
         } else {
-            base_props.push(("children".to_string(), JsExpr::Array(children)));
+            current_props.push(("children".to_string(), JsExpr::Array(children)));
         }
+    }
+
+    // Flush any remaining static props (including children)
+    if !current_props.is_empty() {
+        segments.push(JsExpr::Object(current_props));
     }
 
     // Determine which jsx function to use based on *lowered* children count
@@ -2385,23 +2399,25 @@ fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
     };
 
     // Build the props expression
-    // If there are spread attributes, we need Object.assign to merge them
-    let props_expr = if spreads.is_empty() {
-        JsExpr::Object(base_props)
+    let props_expr = if !has_spread {
+        // No spreads: either no props at all or a single object literal segment
+        match segments.len() {
+            0 => JsExpr::Object(Vec::new()),
+            1 => segments.into_iter().next().unwrap(),
+            _ => unreachable!("multiple segments without spreads should be impossible"),
+        }
     } else {
-        // Object.assign({}, ...spreads, { base_props })
-        // The empty object ensures we don't mutate any input
-        let mut assign_args = Vec::with_capacity(2 + spreads.len());
-        assign_args.push(JsExpr::Object(vec![])); // Empty target object
-        assign_args.extend(spreads);
-        assign_args.push(JsExpr::Object(base_props)); // Base props last to override spreads
-
+        // At least one spread: merge all segments in source order.
+        // Object.assign({}, ...segments) preserves correct override semantics.
+        let mut args = Vec::with_capacity(1 + segments.len());
+        args.push(JsExpr::Object(Vec::new())); // Empty target object
+        args.extend(segments);
         JsExpr::Call {
             callee: Box::new(JsExpr::Member {
                 object: Box::new(JsExpr::Ident("Object".to_string())),
                 property: "assign".to_string(),
             }),
-            args: assign_args,
+            args,
         }
     };
 
