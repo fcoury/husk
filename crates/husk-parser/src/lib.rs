@@ -42,6 +42,8 @@ enum JsParseState {
 pub struct ParseResult {
     pub file: Option<File>,
     pub errors: Vec<ParseError>,
+    /// The tokens from lexing, useful for accessing trivia (comments).
+    pub tokens: Vec<Token>,
 }
 
 /// Parse a source string into an AST `File` and a list of parse errors.
@@ -49,11 +51,12 @@ pub fn parse_str(source: &str) -> ParseResult {
     debug_log("[huskc-parser] lexing");
     let tokens: Vec<Token> = Lexer::new(source).collect();
     debug_log(&format!("[huskc-parser] lexed {} tokens", tokens.len()));
-    let mut parser = Parser::new(tokens, source);
+    let mut parser = Parser::new(tokens.clone(), source);
     let file = parser.parse_file();
     ParseResult {
         file: Some(file),
         errors: parser.errors,
+        tokens,
     }
 }
 

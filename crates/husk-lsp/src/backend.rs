@@ -1,10 +1,14 @@
 //! LSP backend implementing the LanguageServer trait.
 
+use std::collections::HashMap;
+
 use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 use tracing::{debug, info, instrument, warn};
+
+use husk_lexer::Token;
 
 use crate::diagnostics::analyze_and_publish_diagnostics;
 use crate::document::Document;
@@ -104,23 +108,62 @@ impl LanguageServer for HuskBackend {
             None => return Ok(None),
         };
 
-        // Find the word at the position
+        // Find the word and its span at the position
         let offset = doc.position_to_offset(position);
-        let word = doc.word_at_offset(offset);
+        let (word, start, end) = match doc.word_span_at_offset(offset) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
 
-        if let Some(word) = word {
-            // For now, just return the word as hover info
-            // TODO: Look up type information from semantic analysis
-            Ok(Some(Hover {
+        // Parse and analyze
+        let text = doc.text();
+        let parse_result = husk_parser::parse_str(&text);
+
+        let file = match parse_result.file {
+            Some(f) => f,
+            None => {
+                // Fallback to just showing the word
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: format!("```husk\n{}\n```", word),
+                    }),
+                    range: None,
+                }));
+            }
+        };
+
+        // Run semantic analysis to get type information
+        let semantic_result = husk_semantic::analyze_file(&file);
+
+        // Build doc map from tokens
+        let doc_map = build_doc_map(&parse_result.tokens);
+
+        // Look up hover info for this span
+        if let Some(info) = semantic_result.hover_info.get(&(start, end)) {
+            let markdown = format_hover_markdown(info, &doc_map);
+            let range_start = doc.offset_to_position(start);
+            let range_end = doc.offset_to_position(end);
+            return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: format!("```husk\n{}\n```", word),
+                    value: markdown,
                 }),
-                range: None,
-            }))
-        } else {
-            Ok(None)
+                range: Some(Range {
+                    start: range_start,
+                    end: range_end,
+                }),
+            }));
         }
+
+        // Fallback: just show the word
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!("```husk\n{}\n```", word),
+            }),
+            range: None,
+        }))
     }
 
     #[instrument(skip(self, params), fields(
@@ -297,4 +340,49 @@ impl LanguageServer for HuskBackend {
             Ok(None)
         }
     }
+}
+
+/// Build a map from token start positions to concatenated doc comments.
+/// Doc comments are `/// ...` style comments that appear before definitions.
+fn build_doc_map(tokens: &[Token]) -> HashMap<usize, String> {
+    let mut doc_map = HashMap::new();
+
+    for token in tokens {
+        let docs: Vec<&str> = token
+            .leading_trivia
+            .iter()
+            .filter_map(|t| t.doc_content())
+            .collect();
+
+        if !docs.is_empty() {
+            doc_map.insert(token.span.range.start, docs.join("\n"));
+        }
+    }
+
+    doc_map
+}
+
+/// Format hover info as markdown (rust-analyzer style).
+fn format_hover_markdown(
+    info: &husk_semantic::HoverInfo,
+    doc_map: &HashMap<usize, String>,
+) -> String {
+    let mut parts = Vec::new();
+
+    // Code block with signature
+    parts.push(format!("```husk\n{}\n```", info.signature));
+
+    // Doc comments: first try definition_span lookup, then fall back to stored docs
+    let docs = info
+        .definition_span
+        .as_ref()
+        .and_then(|span| doc_map.get(&span.range.start))
+        .or(info.docs.as_ref());
+
+    if let Some(doc_text) = docs {
+        parts.push("---".to_string());
+        parts.push(doc_text.clone());
+    }
+
+    parts.join("\n\n")
 }

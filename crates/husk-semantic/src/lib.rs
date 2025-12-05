@@ -94,6 +94,21 @@ pub type VariantCallMap = HashMap<(usize, usize), (String, String)>;
 /// Used by codegen to emit proper tag checks for patterns like `None` in match arms.
 pub type VariantPatternMap = HashMap<(usize, usize), (String, String)>;
 
+/// Information for LSP hover display (rust-analyzer style).
+#[derive(Debug, Clone)]
+pub struct HoverInfo {
+    /// The formatted signature, e.g., "total: i64" or "fn foo(a: i32) -> bool"
+    pub signature: String,
+    /// Doc comments if available (populated by LSP from token trivia)
+    pub docs: Option<String>,
+    /// Span of the definition (for "Go to Definition" links)
+    pub definition_span: Option<Span>,
+}
+
+/// Maps expression/identifier spans to hover information for LSP.
+/// Keys are (start_byte, end_byte), values are the hover info to display.
+pub type HoverMap = HashMap<(usize, usize), HoverInfo>;
+
 /// The result of running semantic analysis (name resolution + type checking) on a Husk file.
 #[derive(Debug)]
 pub struct SemanticResult {
@@ -107,6 +122,8 @@ pub struct SemanticResult {
     pub variant_calls: VariantCallMap,
     /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns.
     pub variant_patterns: VariantPatternMap,
+    /// Maps spans to hover information for LSP.
+    pub hover_info: HoverMap,
 }
 
 /// Options controlling semantic analysis.
@@ -190,7 +207,7 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let (type_errors, name_resolution, type_resolution, variant_calls, variant_patterns) =
+    let (type_errors, name_resolution, type_resolution, variant_calls, variant_patterns, hover_info) =
         checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
@@ -199,6 +216,7 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         type_resolution,
         variant_calls,
         variant_patterns,
+        hover_info,
     }
 }
 
@@ -581,6 +599,8 @@ struct TypeChecker {
     variant_calls: VariantCallMap,
     /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns.
     variant_patterns: VariantPatternMap,
+    /// Maps spans to hover information for LSP.
+    hover_info: HoverMap,
 }
 
 impl TypeChecker {
@@ -592,6 +612,7 @@ impl TypeChecker {
             type_resolution: HashMap::new(),
             variant_calls: HashMap::new(),
             variant_patterns: HashMap::new(),
+            hover_info: HashMap::new(),
         }
     }
 
@@ -610,7 +631,31 @@ impl TypeChecker {
                             .map(|f| (f.name.name.clone(), f.ty.clone()))
                             .collect(),
                     };
-                    self.env.structs.insert(name.name.clone(), def);
+                    self.env.structs.insert(name.name.clone(), def.clone());
+
+                    // Register hover info for struct definition
+                    let type_params_str = if type_params.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<{}>", type_params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "))
+                    };
+                    let fields_str = fields.iter()
+                        .map(|f| format!("    {}: {}", f.name.name, self.format_type_expr(&f.ty)))
+                        .collect::<Vec<_>>()
+                        .join(",\n");
+                    let signature = if fields.is_empty() {
+                        format!("struct {}{} {{}}", name.name, type_params_str)
+                    } else {
+                        format!("struct {}{} {{\n{}\n}}", name.name, type_params_str, fields_str)
+                    };
+                    self.hover_info.insert(
+                        (name.span.range.start, name.span.range.end),
+                        HoverInfo {
+                            signature,
+                            docs: None,
+                            definition_span: Some(item.span.clone()),
+                        },
+                    );
                 }
                 ItemKind::Enum {
                     name,
@@ -628,6 +673,45 @@ impl TypeChecker {
                             .collect(),
                     };
                     self.env.enums.insert(name.name.clone(), def);
+
+                    // Register hover info for enum definition
+                    let type_params_str = if type_params.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<{}>", type_params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "))
+                    };
+                    let variants_str = variants.iter()
+                        .map(|v| {
+                            let variant_name = &v.name.name;
+                            match &v.fields {
+                                EnumVariantFields::Unit => format!("    {}", variant_name),
+                                EnumVariantFields::Tuple(types) => {
+                                    let types_str = types.iter()
+                                        .map(|t| self.format_type_expr(t))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    format!("    {}({})", variant_name, types_str)
+                                }
+                                EnumVariantFields::Struct(fields) => {
+                                    let fields_str = fields.iter()
+                                        .map(|f| format!("{}: {}", f.name.name, self.format_type_expr(&f.ty)))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    format!("    {} {{ {} }}", variant_name, fields_str)
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",\n");
+                    let signature = format!("enum {}{} {{\n{}\n}}", name.name, type_params_str, variants_str);
+                    self.hover_info.insert(
+                        (name.span.range.start, name.span.range.end),
+                        HoverInfo {
+                            signature,
+                            docs: None,
+                            definition_span: Some(item.span.clone()),
+                        },
+                    );
                 }
                 ItemKind::TypeAlias { name, ty } => {
                     self.env.type_aliases.insert(name.name.clone(), ty.clone());
@@ -645,6 +729,42 @@ impl TypeChecker {
                         ret_type: ret_type.clone(),
                     };
                     self.env.functions.insert(name.name.clone(), def);
+
+                    // Register hover info for function definition
+                    let type_params_str = if type_params.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<{}>", type_params.iter()
+                            .map(|p| {
+                                if p.bounds.is_empty() {
+                                    p.name.name.clone()
+                                } else {
+                                    let bounds = p.bounds.iter()
+                                        .map(|b| self.format_type_expr(b))
+                                        .collect::<Vec<_>>()
+                                        .join(" + ");
+                                    format!("{}: {}", p.name.name, bounds)
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", "))
+                    };
+                    let params_str = params.iter()
+                        .map(|p| format!("{}: {}", p.name.name, self.format_type_expr(&p.ty)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let ret_str = ret_type.as_ref()
+                        .map(|t| self.format_type_expr(t))
+                        .unwrap_or_else(|| "()".to_string());
+                    let signature = format!("fn {}{}({}) -> {}", name.name, type_params_str, params_str, ret_str);
+                    self.hover_info.insert(
+                        (name.span.range.start, name.span.range.end),
+                        HoverInfo {
+                            signature,
+                            docs: None,
+                            definition_span: Some(item.span.clone()),
+                        },
+                    );
                 }
                 ItemKind::ExternBlock { items, .. } => {
                     // First pass: collect all struct names in this extern block
@@ -931,6 +1051,7 @@ impl TypeChecker {
         TypeResolution,
         VariantCallMap,
         VariantPatternMap,
+        HoverMap,
     ) {
         // Verify trait implementations
         self.verify_trait_impls();
@@ -955,6 +1076,7 @@ impl TypeChecker {
             std::mem::take(&mut self.type_resolution),
             std::mem::take(&mut self.variant_calls),
             std::mem::take(&mut self.variant_patterns),
+            std::mem::take(&mut self.hover_info),
         )
     }
 
@@ -1056,6 +1178,39 @@ impl TypeChecker {
                     .map(|t| self.resolve_type_expr(t, generic_params))
                     .collect();
                 Type::Tuple(element_types)
+            }
+        }
+    }
+
+    /// Format a TypeExpr as a human-readable string for hover information.
+    fn format_type_expr(&self, ty: &TypeExpr) -> String {
+        match &ty.kind {
+            TypeExprKind::Named(ident) => ident.name.clone(),
+            TypeExprKind::Generic { name, args } => {
+                if args.is_empty() {
+                    name.name.clone()
+                } else {
+                    let args_str = args.iter()
+                        .map(|a| self.format_type_expr(a))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}<{}>", name.name, args_str)
+                }
+            }
+            TypeExprKind::Function { params, ret } => {
+                let params_str = params.iter()
+                    .map(|p| self.format_type_expr(p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("fn({}) -> {}", params_str, self.format_type_expr(ret))
+            }
+            TypeExprKind::Array(elem) => format!("[{}]", self.format_type_expr(elem)),
+            TypeExprKind::Tuple(types) => {
+                let types_str = types.iter()
+                    .map(|t| self.format_type_expr(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({})", types_str)
             }
         }
     }
@@ -1181,12 +1336,23 @@ impl<'a> FnContext<'a> {
         self.resolved_names.insert(name.to_string(), resolved.clone());
 
         // Add to locals for type checking
-        self.locals.insert(name.to_string(), ty);
+        self.locals.insert(name.to_string(), ty.clone());
 
         // Register in name resolution map
         self.tcx.name_resolution.insert(
             (span.range.start, span.range.end),
             resolved.clone(),
+        );
+
+        // Register hover info for the variable binding
+        let type_str = self.format_type(&ty);
+        self.tcx.hover_info.insert(
+            (span.range.start, span.range.end),
+            HoverInfo {
+                signature: format!("{}: {}", name, type_str),
+                docs: None,
+                definition_span: Some(span.clone()),
+            },
         );
 
         resolved
@@ -1826,7 +1992,7 @@ impl<'a> FnContext<'a> {
             },
             ExprKind::Path { segments } => self.check_path_expr(expr, segments),
             ExprKind::Ident(id) => {
-                if let Some(ty) = self.locals.get(&id.name) {
+                if let Some(ty) = self.locals.get(&id.name).cloned() {
                     // Register the resolved name for this variable usage
                     if let Some(resolved) = self.resolved_names.get(&id.name) {
                         self.tcx.name_resolution.insert(
@@ -1834,7 +2000,17 @@ impl<'a> FnContext<'a> {
                             resolved.clone(),
                         );
                     }
-                    return ty.clone();
+                    // Register hover info for variable usage
+                    let type_str = self.format_type(&ty);
+                    self.tcx.hover_info.insert(
+                        (id.span.range.start, id.span.range.end),
+                        HoverInfo {
+                            signature: format!("{}: {}", id.name, type_str),
+                            docs: None,
+                            definition_span: None, // Could look up definition span if stored
+                        },
+                    );
+                    return ty;
                 }
                 // Try top-level function.
                 if let Some(fn_def) = self.tcx.env.functions.get(&id.name).cloned() {
@@ -1850,10 +2026,27 @@ impl<'a> FnContext<'a> {
                     } else {
                         Type::Primitive(PrimitiveType::Unit)
                     };
-                    return Type::Function {
-                        params: param_types,
-                        ret: Box::new(ret_ty),
+                    // Register hover info for function reference
+                    let fn_type = Type::Function {
+                        params: param_types.clone(),
+                        ret: Box::new(ret_ty.clone()),
                     };
+                    let params_str = fn_def.params.iter()
+                        .map(|p| format!("{}: {}", p.name.name, self.tcx.format_type_expr(&p.ty)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let ret_str = fn_def.ret_type.as_ref()
+                        .map(|t| self.tcx.format_type_expr(t))
+                        .unwrap_or_else(|| "()".to_string());
+                    self.tcx.hover_info.insert(
+                        (id.span.range.start, id.span.range.end),
+                        HoverInfo {
+                            signature: format!("fn {}({}) -> {}", id.name, params_str, ret_str),
+                            docs: None,
+                            definition_span: None,
+                        },
+                    );
+                    return fn_type;
                 }
 
                 // Try imported JS module (from `mod name;` in extern block).
@@ -2117,25 +2310,47 @@ impl<'a> FnContext<'a> {
                 if member.name == "length" {
                     match &base_ty {
                         Type::Array(_) | Type::Primitive(PrimitiveType::String) => {
-                            return Type::Primitive(PrimitiveType::I32);
+                            let field_ty = Type::Primitive(PrimitiveType::I32);
+                            // Register hover info for .length field
+                            let base_name = self.format_type(&base_ty);
+                            self.tcx.hover_info.insert(
+                                (member.span.range.start, member.span.range.end),
+                                HoverInfo {
+                                    signature: format!("{}.length: i32", base_name),
+                                    docs: None,
+                                    definition_span: None,
+                                },
+                            );
+                            return field_ty;
                         }
                         _ => {}
                     }
                 }
 
-                if let Type::Named { name, args } = base_ty {
+                if let Type::Named { name, args } = &base_ty {
                     // First, check regular struct fields
-                    if let Some(def) = self.tcx.env.structs.get(&name).cloned() {
+                    if let Some(def) = self.tcx.env.structs.get(name).cloned() {
                         if let Some(field_ty_expr) = def.fields.get(&member.name) {
                             // For now, ignore generic substitution and just resolve as-is.
                             let _ = args;
-                            return self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
+                            let field_ty = self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
+                            // Register hover info for struct field access
+                            let type_str = self.format_type(&field_ty);
+                            self.tcx.hover_info.insert(
+                                (member.span.range.start, member.span.range.end),
+                                HoverInfo {
+                                    signature: format!("{}.{}: {}", name, member.name, type_str),
+                                    docs: None,
+                                    definition_span: None,
+                                },
+                            );
+                            return field_ty;
                         }
                     }
 
                     // Then check extern properties from impl blocks
                     let prop_ty = self.tcx.env.impls.iter()
-                        .find(|info| info.self_ty_name == name)
+                        .find(|info| &info.self_ty_name == name)
                         .and_then(|info| info.properties.get(&member.name))
                         .map(|prop| prop.ty.clone());
                     if let Some(ty) = prop_ty {
@@ -2143,7 +2358,7 @@ impl<'a> FnContext<'a> {
                     }
 
                     // Not found in either
-                    if self.tcx.env.structs.contains_key(&name) {
+                    if self.tcx.env.structs.contains_key(name) {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
                                 "no field named `{}` on struct `{}`",
