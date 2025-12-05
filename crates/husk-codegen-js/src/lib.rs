@@ -2062,8 +2062,14 @@ fn lower_match_expr(
     let scrutinee_js = lower_expr(scrutinee, ctx);
 
     // Build nested conditional expression from the arms, folding from the end.
-    // For a catch-all (wildcard or binding) arm, we treat its body as the final `else`.
-    fn pattern_test(pattern: &husk_ast::Pattern, scrutinee_js: &JsExpr) -> Option<JsExpr> {
+    // For a catch-all (wildcard or true binding) arm, we treat its body as the final `else`.
+    // Note: A Binding pattern might actually be an imported unit variant (e.g., `None` from `use Option::*`),
+    // so we check the variant_patterns map to distinguish.
+    fn pattern_test(
+        pattern: &husk_ast::Pattern,
+        scrutinee_js: &JsExpr,
+        variant_patterns: &VariantPatternMap,
+    ) -> Option<JsExpr> {
         match &pattern.kind {
             PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
                 // Use the last path segment as the variant tag string.
@@ -2081,7 +2087,26 @@ fn lower_match_expr(
                     right: Box::new(JsExpr::String(variant)),
                 })
             }
-            PatternKind::Wildcard | PatternKind::Binding(_) => None,
+            PatternKind::Binding(_) => {
+                // Check if this binding is actually an imported unit variant
+                if let Some((_enum_name, variant_name)) =
+                    variant_patterns.get(&(pattern.span.range.start, pattern.span.range.end))
+                {
+                    let tag_access = JsExpr::Member {
+                        object: Box::new(scrutinee_js.clone()),
+                        property: "tag".to_string(),
+                    };
+                    Some(JsExpr::Binary {
+                        op: JsBinaryOp::EqEq,
+                        left: Box::new(tag_access),
+                        right: Box::new(JsExpr::String(variant_name.clone())),
+                    })
+                } else {
+                    // True binding pattern - acts as catch-all
+                    None
+                }
+            }
+            PatternKind::Wildcard => None,
             PatternKind::EnumStruct { .. } => None,
         }
     }
@@ -2152,7 +2177,7 @@ fn lower_match_expr(
     let mut acc = lower_arm_body(last_arm, &scrutinee_js, ctx);
 
     for arm in iter {
-        if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
+        if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js, ctx.variant_patterns) {
             let then_expr = lower_arm_body(arm, &scrutinee_js, ctx);
             acc = JsExpr::Conditional {
                 test: Box::new(test),
@@ -2179,8 +2204,14 @@ fn lower_match_stmt(
 
     let scrutinee_js = lower_expr(scrutinee, ctx);
 
-    // Generate condition for pattern matching
-    fn pattern_test(pattern: &husk_ast::Pattern, scrutinee_js: &JsExpr) -> Option<JsExpr> {
+    // Generate condition for pattern matching.
+    // Note: A Binding pattern might actually be an imported unit variant (e.g., `None` from `use Option::*`),
+    // so we check the variant_patterns map to distinguish.
+    fn pattern_test(
+        pattern: &husk_ast::Pattern,
+        scrutinee_js: &JsExpr,
+        variant_patterns: &VariantPatternMap,
+    ) -> Option<JsExpr> {
         match &pattern.kind {
             PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
                 let variant = path
@@ -2197,7 +2228,26 @@ fn lower_match_stmt(
                     right: Box::new(JsExpr::String(variant)),
                 })
             }
-            PatternKind::Wildcard | PatternKind::Binding(_) => None,
+            PatternKind::Binding(_) => {
+                // Check if this binding is actually an imported unit variant
+                if let Some((_enum_name, variant_name)) =
+                    variant_patterns.get(&(pattern.span.range.start, pattern.span.range.end))
+                {
+                    let tag_access = JsExpr::Member {
+                        object: Box::new(scrutinee_js.clone()),
+                        property: "tag".to_string(),
+                    };
+                    Some(JsExpr::Binary {
+                        op: JsBinaryOp::EqEq,
+                        left: Box::new(tag_access),
+                        right: Box::new(JsExpr::String(variant_name.clone())),
+                    })
+                } else {
+                    // True binding pattern - acts as catch-all
+                    None
+                }
+            }
+            PatternKind::Wildcard => None,
             PatternKind::EnumStruct { .. } => None,
         }
     }
@@ -2274,7 +2324,7 @@ fn lower_match_stmt(
     for arm in arms.iter().rev() {
         let body = lower_arm_body_stmts(arm, &scrutinee_js, ctx);
 
-        if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
+        if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js, ctx.variant_patterns) {
             let else_block = result.map(|s| vec![s]);
             result = Some(JsStmt::If {
                 cond: test,
