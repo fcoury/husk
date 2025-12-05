@@ -6,6 +6,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {
     I32,
+    I64,
     F64,
     Bool,
     String,
@@ -39,6 +40,10 @@ pub enum Type {
 impl Type {
     pub fn i32() -> Self {
         Type::Primitive(PrimitiveType::I32)
+    }
+
+    pub fn i64() -> Self {
+        Type::Primitive(PrimitiveType::I64)
     }
 
     pub fn f64() -> Self {
@@ -79,6 +84,7 @@ mod tests {
     #[test]
     fn primitives_constructors_work() {
         assert_eq!(Type::i32(), Type::Primitive(PrimitiveType::I32));
+        assert_eq!(Type::i64(), Type::Primitive(PrimitiveType::I64));
         assert_eq!(Type::bool(), Type::Primitive(PrimitiveType::Bool));
         assert_eq!(Type::string(), Type::Primitive(PrimitiveType::String));
         assert_eq!(Type::unit(), Type::Primitive(PrimitiveType::Unit));

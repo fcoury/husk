@@ -1,71 +1,64 @@
 extern "js" {
     mod global Math {
         fn max(x: i32, y: i32) -> i32;
+        fn min(x: i32, y: i32) -> i32;
     }
 }
 
 fn main() {
-    let banks = include_str("input-test.txt").trim().split("\n");
+    let banks = include_str("input.txt").trim().split("\n");
 
-    let total = 0;
+    let total: i64 = 0 as i64;
     for bank in banks {
-        let largest = find_largest(bank, 12);
+        let largest = find_largest_from_bank(bank);
         total += largest;
     }
 
-    println("{}", total);
+    println("{total}");
 }
 
-fn find_largest(s: String, len: i32) -> i32 {
-    let res = "";
-    for n in 0..len {
-        let s = s.substring(n);
-        res += format("{}", find_largest_with_len(s, len));
-    }
-    res
-}
+// Greedy algorithm: O(n * k) instead of O(C(n,k))
+// At each step, pick the largest digit that leaves enough remaining
+fn find_largest_from_bank(s: String) -> i64 {
+    let result = "";
+    let start = 0;
+    let digits_to_pick = 12;
 
-fn find_largest_with_len(str: String, len: i32) -> i32 {
-    let max = 0;
-    for n in 0..str.length - len {
-        // BUG: we don't specify charAt returns String, verification pass don't work
-        let c = str.charAt(n);
-        let c = format("{}", c);
-        let v = parseInt(c);
-        max = Math.max(max, v);
+    for i in 0..digits_to_pick {
+        // How many more digits we need after this one
+        let remaining_needed = digits_to_pick - i - 1;
+        // Last valid position to pick from (must leave enough for remaining)
+        let end = s.length - remaining_needed;
+
+        // Find the largest digit in range [start, end)
+        let best_pos = start;
+        let best_digit = s.charAt(start);
+        for pos in start + 1..end {
+            let digit = s.charAt(pos);
+            if digit > best_digit {
+                best_digit = digit;
+                best_pos = pos;
+            }
+        }
+
+        // Add this digit to result and move start past it
+        result += best_digit;
+        start = best_pos + 1;
     }
 
-    max
+    parseLong(result)
 }
 
 #[cfg(test)]
 #[test]
-fn test_find_largest() {
-    let s = "818181911112111";
-    let res = find_largest(s, 12);
-    println("Res: {res}");
-    assert(res == 888911112111);
+fn test_find_largest_from_bank() {
+    let res = find_largest_from_bank("987654321111111");
+    assert_eq(res, 987654321111 as i64);
+    let res = find_largest_from_bank("811111111111119");
+    assert_eq(res, 811111111119 as i64);
+    let res = find_largest_from_bank("234234234234278");
+    assert_eq(res, 434234234278 as i64);
+    let res = find_largest_from_bank("818181911112111");
+    assert_eq(res, 888911112111 as i64);
 }
 
-#[cfg(test)]
-#[test]
-fn test_find_largest_with_len() {
-    let s = "818181911112111";
-    // 818181911112111
-    // we check 0 = 8 (remaining len = 14)
-    // we check 1 = 1 (remaining len = 13)
-    // we check 2 = 8 (remaining len = 12)
-    // we check 3 = 1 (remaining len = 11), stop
-    // largest = 8
-    let result = find_largest_with_len(s, 12);
-    assert_msg(result == 8, "first");
-    let s = s.substring(1); // 18181911112111
-    let result = find_largest_with_len(s, 11);
-    assert_msg(result == 8, "second");
-    let s = s.substring(1); // 8181911112111
-    let result = find_largest_with_len(s, 10);
-    assert_msg(result == 8, "third");
-    let s = s.substring(1); // 181911112111
-    let result = find_largest_with_len(s, 9);
-    assert_msg(result == 9, format("expected 9 but got {result}"));
-}

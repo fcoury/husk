@@ -271,6 +271,7 @@ pub enum JsAssignOp {
 pub enum JsExpr {
     Ident(String),
     Number(i64),
+    BigInt(i64),
     Float(f64),
     Bool(bool),
     String(String),
@@ -1288,6 +1289,14 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                         args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
                     };
                 }
+
+                // Handle parseLong -> BigInt (for i64)
+                if id.name == "parseLong" {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("BigInt".to_string())),
+                        args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+                    };
+                }
             }
 
             // Handle enum variant construction: Option::Some(x) -> {tag: "Some", value: x}
@@ -1551,18 +1560,23 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             match &target_ty.kind {
                 TypeExprKind::Named(ident) => match ident.name.as_str() {
                     "i32" => {
-                        // f64/bool → i32: truncate and convert to 32-bit signed integer
+                        // f64/i64/bool → i32: truncate and convert to 32-bit signed integer
                         // Math.trunc handles the float→int conversion
                         // | 0 ensures 32-bit signed integer semantics (handles overflow wrapping)
                         // We need to emit this as raw JS since JsBinaryOp doesn't have BitOr
                         let mut inner_str = String::new();
                         write_expr(&js_inner, &mut inner_str);
-                        JsExpr::Raw(format!("(Math.trunc({}) | 0)", inner_str))
+                        JsExpr::Raw(format!("(Math.trunc(Number({})) | 0)", inner_str))
+                    }
+                    "i64" => {
+                        // i32/f64/bool → i64: Convert to BigInt
+                        // BigInt() handles the conversion, Math.trunc needed for f64
+                        let mut inner_str = String::new();
+                        write_expr(&js_inner, &mut inner_str);
+                        JsExpr::Raw(format!("BigInt(Math.trunc({}))", inner_str))
                     }
                     "f64" => {
-                        // i32/bool → f64: Use Number() to ensure boolean becomes numeric
-                        // While i32 → f64 is a no-op, bool → f64 needs explicit conversion
-                        // to get 0.0/1.0 instead of false/true
+                        // i32/i64/bool → f64: Use Number() to ensure boolean/BigInt becomes numeric
                         JsExpr::Call {
                             callee: Box::new(JsExpr::Ident("Number".to_string())),
                             args: vec![js_inner],
@@ -2566,6 +2580,10 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
     match expr {
         JsExpr::Ident(name) => out.push_str(name),
         JsExpr::Number(n) => out.push_str(&n.to_string()),
+        JsExpr::BigInt(n) => {
+            out.push_str(&n.to_string());
+            out.push('n');
+        }
         JsExpr::Float(f) => out.push_str(&f.to_string()),
         JsExpr::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         JsExpr::Object(props) => {

@@ -887,6 +887,7 @@ impl TypeChecker {
         // Primitive types.
         let prim = match name {
             "i32" => Some(Type::Primitive(PrimitiveType::I32)),
+            "i64" => Some(Type::Primitive(PrimitiveType::I64)),
             "f64" => Some(Type::Primitive(PrimitiveType::F64)),
             "bool" => Some(Type::Primitive(PrimitiveType::Bool)),
             "String" => Some(Type::Primitive(PrimitiveType::String)),
@@ -1904,7 +1905,7 @@ impl<'a> FnContext<'a> {
                 use husk_ast::BinaryOp::*;
                 match op {
                     Add => {
-                        // Add supports both i32 + i32 and String + String
+                        // Add supports i32 + i32, i64 + i64, and String + String
                         if matches!(left_ty, Type::Primitive(PrimitiveType::String))
                             && matches!(right_ty, Type::Primitive(PrimitiveType::String))
                         {
@@ -1913,10 +1914,14 @@ impl<'a> FnContext<'a> {
                             && matches!(right_ty, Type::Primitive(PrimitiveType::I32))
                         {
                             Type::Primitive(PrimitiveType::I32)
+                        } else if matches!(left_ty, Type::Primitive(PrimitiveType::I64))
+                            && matches!(right_ty, Type::Primitive(PrimitiveType::I64))
+                        {
+                            Type::Primitive(PrimitiveType::I64)
                         } else {
                             self.tcx.errors.push(SemanticError {
                                 message:
-                                    "`+` requires operands of the same type (`i32` or `String`)"
+                                    "`+` requires operands of the same type (`i32`, `i64`, or `String`)"
                                         .to_string(),
                                 span: expr.span.clone(),
                             });
@@ -1924,16 +1929,23 @@ impl<'a> FnContext<'a> {
                         }
                     }
                     Sub | Mul | Div | Mod => {
-                        if !matches!(left_ty, Type::Primitive(PrimitiveType::I32))
-                            || !matches!(right_ty, Type::Primitive(PrimitiveType::I32))
+                        // Arithmetic supports i32 and i64, operands must match
+                        if matches!(left_ty, Type::Primitive(PrimitiveType::I64))
+                            && matches!(right_ty, Type::Primitive(PrimitiveType::I64))
                         {
+                            Type::Primitive(PrimitiveType::I64)
+                        } else if matches!(left_ty, Type::Primitive(PrimitiveType::I32))
+                            && matches!(right_ty, Type::Primitive(PrimitiveType::I32))
+                        {
+                            Type::Primitive(PrimitiveType::I32)
+                        } else {
                             self.tcx.errors.push(SemanticError {
-                                message: "arithmetic operators expect operands of type `i32`"
+                                message: "arithmetic operators expect operands of the same type (`i32` or `i64`)"
                                     .to_string(),
                                 span: expr.span.clone(),
                             });
+                            Type::Primitive(PrimitiveType::I32)
                         }
-                        Type::Primitive(PrimitiveType::I32)
                     }
                     Eq | NotEq | Lt | Gt | Le | Ge => {
                         if !self.types_compatible(&left_ty, &right_ty) {
@@ -2311,7 +2323,15 @@ impl<'a> FnContext<'a> {
 
                 // Check if the cast is allowed between primitive types
                 let allowed = match (&inner_ty, &target) {
-                    // Numeric conversions
+                    // Numeric conversions: i32 <-> i64 <-> f64
+                    (
+                        Type::Primitive(PrimitiveType::I32),
+                        Type::Primitive(PrimitiveType::I64),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::I64),
+                        Type::Primitive(PrimitiveType::I32),
+                    ) => true,
                     (
                         Type::Primitive(PrimitiveType::I32),
                         Type::Primitive(PrimitiveType::F64),
@@ -2319,6 +2339,14 @@ impl<'a> FnContext<'a> {
                     (
                         Type::Primitive(PrimitiveType::F64),
                         Type::Primitive(PrimitiveType::I32),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::I64),
+                        Type::Primitive(PrimitiveType::F64),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::F64),
+                        Type::Primitive(PrimitiveType::I64),
                     ) => true,
 
                     // Bool to numeric
@@ -2328,12 +2356,20 @@ impl<'a> FnContext<'a> {
                     ) => true,
                     (
                         Type::Primitive(PrimitiveType::Bool),
+                        Type::Primitive(PrimitiveType::I64),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::Bool),
                         Type::Primitive(PrimitiveType::F64),
                     ) => true,
 
                     // Primitives to String
                     (
                         Type::Primitive(PrimitiveType::I32),
+                        Type::Primitive(PrimitiveType::String),
+                    ) => true,
+                    (
+                        Type::Primitive(PrimitiveType::I64),
                         Type::Primitive(PrimitiveType::String),
                     ) => true,
                     (
@@ -2361,13 +2397,17 @@ impl<'a> FnContext<'a> {
                     // Generate helpful error message with hint
                     let hint = match (&inner_ty, &target) {
                         (
-                            Type::Primitive(PrimitiveType::I32 | PrimitiveType::F64),
+                            Type::Primitive(PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::F64),
                             Type::Primitive(PrimitiveType::Bool),
                         ) => Some("use explicit comparison like `x != 0` instead"),
                         (
                             Type::Primitive(PrimitiveType::String),
                             Type::Primitive(PrimitiveType::I32),
                         ) => Some("use `parseInt(s)` instead"),
+                        (
+                            Type::Primitive(PrimitiveType::String),
+                            Type::Primitive(PrimitiveType::I64),
+                        ) => Some("use `parseLong(s)` instead"),
                         (
                             Type::Primitive(PrimitiveType::String),
                             Type::Primitive(PrimitiveType::F64),
@@ -2566,6 +2606,7 @@ impl<'a> FnContext<'a> {
         match ty {
             Type::Primitive(p) => match p {
                 PrimitiveType::I32 => "i32".to_string(),
+                PrimitiveType::I64 => "i64".to_string(),
                 PrimitiveType::F64 => "f64".to_string(),
                 PrimitiveType::Bool => "bool".to_string(),
                 PrimitiveType::String => "String".to_string(),
@@ -2604,6 +2645,7 @@ impl<'a> FnContext<'a> {
             }
             Type::Primitive(prim) => match prim {
                 PrimitiveType::I32 => "i32".to_string(),
+                PrimitiveType::I64 => "i64".to_string(),
                 PrimitiveType::F64 => "f64".to_string(),
                 PrimitiveType::Bool => "bool".to_string(),
                 PrimitiveType::String => "String".to_string(),
@@ -2707,7 +2749,9 @@ impl<'a> FnContext<'a> {
     fn is_numeric(&self, ty: &Type) -> bool {
         matches!(
             ty,
-            Type::Primitive(PrimitiveType::I32) | Type::Primitive(PrimitiveType::F64)
+            Type::Primitive(PrimitiveType::I32)
+                | Type::Primitive(PrimitiveType::I64)
+                | Type::Primitive(PrimitiveType::F64)
         )
     }
 
@@ -4299,6 +4343,89 @@ fn test(s: String) -> String {
         assert!(
             result.type_errors.is_empty(),
             "expected no type errors for split().sort().join() chain, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn i64_type_annotation_works() {
+        let src = r#"fn foo() { let x: i64 = 0 as i64; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for i64 type annotation, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn i64_arithmetic_works() {
+        let src = r#"fn foo() { let a: i64 = 1 as i64; let b: i64 = 2 as i64; let c = a + b; let d = a * b; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for i64 arithmetic, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn i64_i32_arithmetic_mismatch_error() {
+        let src = r#"fn foo() { let a: i64 = 1 as i64; let b: i32 = 2; let c = a + b; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for i64 + i32 mismatch"
+        );
+    }
+
+    #[test]
+    fn i64_cast_from_i32_works() {
+        let src = r#"fn foo() { let x: i32 = 42; let y: i64 = x as i64; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for i32 to i64 cast, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn i64_cast_to_i32_works() {
+        let src = r#"fn foo() { let x: i64 = 42 as i64; let y: i32 = x as i32; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for i64 to i32 cast, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn parse_long_returns_i64() {
+        let src = r#"fn foo() { let x: i64 = parseLong("123"); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for parseLong returning i64, got: {:?}",
             result.type_errors
         );
     }
