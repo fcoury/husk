@@ -12,7 +12,7 @@ use husk_ast::{
     TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
-use husk_semantic::{NameResolution, TypeResolution, VariantCallMap};
+use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
@@ -61,7 +61,8 @@ struct PropertyAccessors {
 /// - Source file path for compile-time operations like include_str
 /// - Name resolution for variable shadowing
 /// - Type resolution for conversion methods (.into(), .parse(), .try_into())
-/// - Variant call tracking for imported enum variants
+/// - Variant call map for imported enum variant constructor calls
+/// - Variant pattern map for imported enum variant patterns in match
 #[derive(Debug, Clone)]
 struct CodegenContext<'a> {
     /// Property accessors for extern types
@@ -74,8 +75,10 @@ struct CodegenContext<'a> {
     /// Type resolution map from semantic analysis for conversion methods.
     /// Maps (span_start, span_end) -> type_name (e.g., "String", "i32")
     type_resolution: &'a TypeResolution,
-    /// Maps call expression spans to (enum_name, variant_name) for imported variant calls.
+    /// Maps call spans to (enum_name, variant_name) for imported variant constructor calls.
     variant_calls: &'a VariantCallMap,
+    /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns in match.
+    variant_patterns: &'a VariantPatternMap,
 }
 
 impl<'a> CodegenContext<'a> {
@@ -84,6 +87,7 @@ impl<'a> CodegenContext<'a> {
         name_resolution: &'a NameResolution,
         type_resolution: &'a TypeResolution,
         variant_calls: &'a VariantCallMap,
+        variant_patterns: &'a VariantPatternMap,
     ) -> Self {
         Self {
             accessors,
@@ -91,6 +95,7 @@ impl<'a> CodegenContext<'a> {
             name_resolution,
             type_resolution,
             variant_calls,
+            variant_patterns,
         }
     }
 
@@ -100,6 +105,7 @@ impl<'a> CodegenContext<'a> {
         name_resolution: &'a NameResolution,
         type_resolution: &'a TypeResolution,
         variant_calls: &'a VariantCallMap,
+        variant_patterns: &'a VariantPatternMap,
     ) -> Self {
         Self {
             accessors,
@@ -107,7 +113,14 @@ impl<'a> CodegenContext<'a> {
             name_resolution,
             type_resolution,
             variant_calls,
+            variant_patterns,
         }
+    }
+
+    /// Look up a variant pattern at the given span.
+    /// Returns Some((enum_name, variant_name)) if this pattern is an imported variant.
+    fn get_variant_pattern(&self, span: &Span) -> Option<&(String, String)> {
+        self.variant_patterns.get(&(span.range.start, span.range.end))
     }
 
     /// Get the resolved name for a variable at the given span.
@@ -117,12 +130,6 @@ impl<'a> CodegenContext<'a> {
             .get(&(span.range.start, span.range.end))
             .cloned()
             .unwrap_or_else(|| name.to_string())
-    }
-
-    /// Check if a call expression at the given span is a variant call.
-    /// Returns Some((enum_name, variant_name)) if it is.
-    fn get_variant_call(&self, span: &Span) -> Option<&(String, String)> {
-        self.variant_calls.get(&(span.range.start, span.range.end))
     }
 }
 
@@ -408,8 +415,10 @@ pub enum JsTarget {
 /// for handling variable shadowing. Use an empty HashMap if shadowing is not needed.
 /// `type_resolution` provides the mapping from expression spans to resolved types
 /// for type-dependent operations like .into(), .parse(), .try_into().
-/// `variant_calls` provides the mapping from call spans to (enum_name, variant_name)
-/// for imported variant calls.
+/// `variant_calls` provides the mapping from call spans to enum/variant names
+/// for imported variant constructor calls.
+/// `variant_patterns` provides the mapping from pattern spans to enum/variant names
+/// for imported variant patterns in match expressions.
 pub fn lower_file_to_js(
     file: &File,
     call_main: bool,
@@ -417,8 +426,9 @@ pub fn lower_file_to_js(
     name_resolution: &NameResolution,
     type_resolution: &TypeResolution,
     variant_calls: &VariantCallMap,
+    variant_patterns: &VariantPatternMap,
 ) -> JsModule {
-    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution, type_resolution, variant_calls)
+    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution, type_resolution, variant_calls, variant_patterns)
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
@@ -430,8 +440,10 @@ pub fn lower_file_to_js(
 /// for handling variable shadowing.
 /// `type_resolution` provides the mapping from expression spans to resolved types
 /// for type-dependent operations like .into(), .parse(), .try_into().
-/// `variant_calls` provides the mapping from call spans to (enum_name, variant_name)
-/// for imported variant calls.
+/// `variant_calls` provides the mapping from call spans to enum/variant names
+/// for imported variant constructor calls.
+/// `variant_patterns` provides the mapping from pattern spans to enum/variant names
+/// for imported variant patterns in match expressions.
 pub fn lower_file_to_js_with_source(
     file: &File,
     call_main: bool,
@@ -441,6 +453,7 @@ pub fn lower_file_to_js_with_source(
     name_resolution: &NameResolution,
     type_resolution: &TypeResolution,
     variant_calls: &VariantCallMap,
+    variant_patterns: &VariantPatternMap,
 ) -> JsModule {
     use std::collections::HashSet;
 
@@ -543,10 +556,10 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
-    // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant calls
+    // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
     let ctx = match source_path {
-        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution, type_resolution, variant_calls),
-        None => CodegenContext::new(&accessors, name_resolution, type_resolution, variant_calls),
+        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution, type_resolution, variant_calls, variant_patterns),
+        None => CodegenContext::new(&accessors, name_resolution, type_resolution, variant_calls, variant_patterns),
     };
 
     // First pass: collect module imports
@@ -1289,9 +1302,8 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Translate `self` to `this` for JavaScript method bodies
             if id.name == "self" {
                 JsExpr::Ident("this".to_string())
-            } else if let Some((_enum_name, variant_name)) = ctx.get_variant_call(&id.span) {
-                // Unit or struct variant imported via `use Enum::*;` or `use Enum::Variant;`
-                // Emit as { tag: "Variant" }
+            } else if let Some((_enum_name, variant_name)) = ctx.variant_calls.get(&(expr.span.range.start, expr.span.range.end)) {
+                // Imported unit variant (e.g., `None` from `use Option::*`)
                 JsExpr::Object(vec![("tag".to_string(), JsExpr::String(variant_name.clone()))])
             } else {
                 // Use resolved name from name_resolution if available
@@ -1456,6 +1468,23 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
             }
 
+            // Handle imported variant construction: Some(x) -> {tag: "Some", value: x}
+            // Check if this call is an imported variant (e.g., from `use Option::*`)
+            if let Some((_enum_name, variant_name)) = ctx.variant_calls.get(&(expr.span.range.start, expr.span.range.end)) {
+                let mut fields = vec![("tag".to_string(), JsExpr::String(variant_name.clone()))];
+
+                // Add the value(s) based on argument count
+                if args.len() == 1 {
+                    fields.push(("value".to_string(), lower_expr(&args[0], ctx)));
+                } else {
+                    for (i, arg) in args.iter().enumerate() {
+                        fields.push((i.to_string(), lower_expr(arg, ctx)));
+                    }
+                }
+
+                return JsExpr::Object(fields);
+            }
+
             // Handle enum variant construction: Option::Some(x) -> {tag: "Some", value: x}
             if let ExprKind::Path { segments } = &callee.kind {
                 let variant = segments
@@ -1469,27 +1498,6 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 if args.len() == 1 {
                     // Single argument: { tag: "Variant", value: arg }
                     fields.push(("value".to_string(), lower_expr(&args[0], ctx)));
-                } else {
-                    // Multiple arguments: { tag: "Variant", "0": arg0, "1": arg1, ... }
-                    for (i, arg) in args.iter().enumerate() {
-                        fields.push((i.to_string(), lower_expr(arg, ctx)));
-                    }
-                }
-
-                return JsExpr::Object(fields);
-            }
-
-            // Handle imported enum variant calls: Some(x) -> {tag: "Some", value: x}
-            // This is for variants imported via `use Option::*;` or `use Option::{Some, None};`
-            if let Some((_enum_name, variant_name)) = ctx.get_variant_call(&expr.span) {
-                let mut fields = vec![("tag".to_string(), JsExpr::String(variant_name.clone()))];
-
-                // Add the value(s) based on argument count
-                if args.len() == 1 {
-                    // Single argument: { tag: "Variant", value: arg }
-                    fields.push(("value".to_string(), lower_expr(&args[0], ctx)));
-                } else if args.is_empty() {
-                    // Unit variant with parens (shouldn't happen for normal calls, but handle it)
                 } else {
                     // Multiple arguments: { tag: "Variant", "0": arg0, "1": arg1, ... }
                     for (i, arg) in args.iter().enumerate() {
@@ -3239,7 +3247,8 @@ mod tests {
         let empty_resolution = HashMap::new();
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls);
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -3337,15 +3346,10 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution, &empty_type_resolution));
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution));
-=======
-        let empty_variant_calls: VariantCallMap = HashMap::new();
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution, &empty_variant_calls));
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_calls = HashMap::new();
+        let empty_variant_patterns = HashMap::new();
+        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns));
         let mut out = String::new();
         write_expr(&js, &mut out);
 
@@ -3388,7 +3392,8 @@ mod tests {
         let empty_resolution = HashMap::new();
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls);
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -3588,7 +3593,8 @@ mod tests {
         let empty_resolution = HashMap::new();
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls);
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(src.contains("function parse"));
@@ -3662,15 +3668,10 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         // Check for ESM imports at the top
@@ -3707,15 +3708,10 @@ mod tests {
             items: vec![main_fn],
         };
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(src.contains("export { main }"));
@@ -3773,7 +3769,8 @@ mod tests {
         let empty_resolution = HashMap::new();
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls);
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(src.contains("const express = require(\"express\");"));
@@ -3816,15 +3813,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3888,15 +3880,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3932,15 +3919,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3990,7 +3972,8 @@ mod tests {
         let empty_resolution = HashMap::new();
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls);
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(
@@ -4050,7 +4033,8 @@ mod tests {
         let empty_resolution = HashMap::new();
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls);
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
         let src = module.to_source();
 
         assert!(
@@ -4082,15 +4066,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_break = lower_stmt(&break_stmt, &ctx);
         let js_continue = lower_stmt(&continue_stmt, &ctx);
@@ -4138,15 +4117,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -4206,15 +4180,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -4251,15 +4220,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_expr = lower_expr(&path_expr, &ctx);
 
@@ -4329,15 +4293,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
 
@@ -4407,15 +4366,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
 
@@ -4476,15 +4430,10 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-<<<<<<< HEAD
         let empty_type_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
-||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
-=======
         let empty_variant_calls = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_variant_calls);
->>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let empty_variant_patterns = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
 

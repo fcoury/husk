@@ -90,6 +90,10 @@ pub type TypeResolution = HashMap<(usize, usize), String>;
 /// Used by codegen to emit enum variant construction for calls like `Some(42)`.
 pub type VariantCallMap = HashMap<(usize, usize), (String, String)>;
 
+/// Maps pattern spans to (enum_name, variant_name) for imported variant patterns.
+/// Used by codegen to emit proper tag checks for patterns like `None` in match arms.
+pub type VariantPatternMap = HashMap<(usize, usize), (String, String)>;
+
 /// The result of running semantic analysis (name resolution + type checking) on a Husk file.
 #[derive(Debug)]
 pub struct SemanticResult {
@@ -101,6 +105,8 @@ pub struct SemanticResult {
     pub type_resolution: TypeResolution,
     /// Maps call expression spans to (enum_name, variant_name) for imported variant calls.
     pub variant_calls: VariantCallMap,
+    /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns.
+    pub variant_patterns: VariantPatternMap,
 }
 
 /// Options controlling semantic analysis.
@@ -184,13 +190,15 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let (type_errors, name_resolution, type_resolution, variant_calls) = checker.check_file(&filtered_file);
+    let (type_errors, name_resolution, type_resolution, variant_calls, variant_patterns) =
+        checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
         name_resolution,
         type_resolution,
         variant_calls,
+        variant_patterns,
     }
 }
 
@@ -521,6 +529,8 @@ struct TypeChecker {
     type_resolution: TypeResolution,
     /// Maps call expression spans to (enum_name, variant_name) for imported variant calls.
     variant_calls: VariantCallMap,
+    /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns.
+    variant_patterns: VariantPatternMap,
 }
 
 impl TypeChecker {
@@ -531,6 +541,7 @@ impl TypeChecker {
             name_resolution: HashMap::new(),
             type_resolution: HashMap::new(),
             variant_calls: HashMap::new(),
+            variant_patterns: HashMap::new(),
         }
     }
 
@@ -861,7 +872,16 @@ impl TypeChecker {
         }
     }
 
-    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution, TypeResolution, VariantCallMap) {
+    fn check_file(
+        &mut self,
+        file: &File,
+    ) -> (
+        Vec<SemanticError>,
+        NameResolution,
+        TypeResolution,
+        VariantCallMap,
+        VariantPatternMap,
+    ) {
         // Verify trait implementations
         self.verify_trait_impls();
 
@@ -884,6 +904,7 @@ impl TypeChecker {
             std::mem::take(&mut self.name_resolution),
             std::mem::take(&mut self.type_resolution),
             std::mem::take(&mut self.variant_calls),
+            std::mem::take(&mut self.variant_patterns),
         )
     }
 
@@ -1243,8 +1264,50 @@ impl<'a> FnContext<'a> {
         for arm in arms {
             // Track patterns for exhaustiveness.
             match &arm.pattern.kind {
-                PatternKind::Wildcard | PatternKind::Binding(_) => {
+                PatternKind::Wildcard => {
                     has_catch_all = true;
+                }
+                PatternKind::Binding(ident) => {
+                    // Check if this binding name matches an imported unit variant
+                    if let Some((enum_name, variant_names)) = &enum_info {
+                        if let Some((imported_enum, _)) =
+                            self.tcx.env.variant_imports.get(&ident.name)
+                        {
+                            if imported_enum == enum_name {
+                                // This binding is actually an imported unit variant pattern
+                                if variant_names.contains(&ident.name) {
+                                    seen_variants.insert(ident.name.clone());
+                                    // Record this pattern as a variant pattern for codegen
+                                    self.tcx.variant_patterns.insert(
+                                        (arm.pattern.span.range.start, arm.pattern.span.range.end),
+                                        (enum_name.clone(), ident.name.clone()),
+                                    );
+                                } else {
+                                    self.tcx.errors.push(SemanticError {
+                                        message: format!(
+                                            "unknown variant `{}` for enum `{}`",
+                                            ident.name, enum_name
+                                        ),
+                                        span: arm.pattern.span.clone(),
+                                    });
+                                }
+                            } else {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "pattern for `{}` cannot use variant `{}` from `{}`",
+                                        enum_name, ident.name, imported_enum
+                                    ),
+                                    span: arm.pattern.span.clone(),
+                                });
+                            }
+                        } else {
+                            // Just a regular binding pattern
+                            has_catch_all = true;
+                        }
+                    } else {
+                        // Not matching on an enum, treat as normal binding
+                        has_catch_all = true;
+                    }
                 }
                 PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
                     if let Some((enum_name, variant_names)) = &enum_info {
@@ -1375,18 +1438,28 @@ impl<'a> FnContext<'a> {
         match &pat.kind {
             PatternKind::Wildcard => {}
             PatternKind::Binding(id) => {
-                // Check for duplicate binding within the same pattern (e.g., `(x, x)`)
-                if !pattern_bindings.insert(id.name.clone()) {
-                    self.tcx.errors.push(SemanticError {
-                        message: format!(
-                            "identifier `{}` is bound more than once in the same pattern",
-                            id.name
-                        ),
-                        span: id.span.clone(),
-                    });
+                // Check if this is actually an imported variant pattern, not a variable binding.
+                // We check variant_patterns which was populated by check_match_expr.
+                let is_variant_pattern = self.tcx.variant_patterns.contains_key(&(
+                    pat.span.range.start,
+                    pat.span.range.end,
+                ));
+
+                if !is_variant_pattern {
+                    // Check for duplicate binding within the same pattern (e.g., `(x, x)`)
+                    if !pattern_bindings.insert(id.name.clone()) {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "identifier `{}` is bound more than once in the same pattern",
+                                id.name
+                            ),
+                            span: id.span.clone(),
+                        });
+                    }
+                    // Allow shadowing outer variables
+                    self.bind_variable(&id.name, scrut_ty.clone(), &id.span);
                 }
-                // Allow shadowing outer variables
-                self.bind_variable(&id.name, scrut_ty.clone(), &id.span);
+                // If it's a variant pattern, don't bind it as a variable
             }
             PatternKind::EnumUnit { .. } => {}
             PatternKind::EnumTuple { fields, .. } => {
