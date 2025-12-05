@@ -1580,8 +1580,14 @@ fn run_test(
 
     // Compile to JS with lib mode (don't auto-call main)
     let source_path = Path::new(&path);
-    let module = lower_file_to_js_with_source(&file_ast, false, JsTarget::Cjs, None, Some(source_path), &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
-    let js_code = module.to_source_with_preamble();
+    let module = lower_file_to_js_with_source(&file_ast, false, JsTarget::Cjs, Some(&content), Some(source_path), &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
+
+    // Generate source map for better error messages
+    let source_file = source_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&path);
+    let (js_code, source_map_json) = module.to_source_with_sourcemap(source_file, &content);
 
     // Build test harness that runs each test
     let mut harness = String::new();
@@ -1619,7 +1625,7 @@ fn run_test(
     {}();
     __husk_test_results.push({{ name: "{}", status: "ok" }});
 }} catch (e) {{
-    __husk_test_results.push({{ name: "{}", status: "failed", message: e.message }});
+    __husk_test_results.push({{ name: "{}", status: "failed", message: e.stack || e.message }});
 }}
 "#,
                 test_name, test_name, test_name
@@ -1665,11 +1671,29 @@ console.log("test result: " + (failed === 0 ? "ok" : "FAILED") + ". " + passed +
 process.exit(failed > 0 ? 1 : 0);
 "#);
 
-    // Run with Node.js
+    // Write harness and source map to temp files for source map support
+    let temp_dir = env::temp_dir();
+    let test_js_path = temp_dir.join("husk_test.js");
+    let test_map_path = temp_dir.join("husk_test.js.map");
+
+    // Append source map reference to harness
+    harness.push_str("\n//# sourceMappingURL=husk_test.js.map\n");
+
+    // Write the files
+    if let Err(err) = fs::write(&test_js_path, &harness) {
+        eprintln!("Failed to write temp test file: {err}");
+        std::process::exit(1);
+    }
+    if let Err(err) = fs::write(&test_map_path, &source_map_json) {
+        eprintln!("Failed to write temp source map: {err}");
+        std::process::exit(1);
+    }
+
+    // Run with Node.js with source map support
     let node_cmd = env::var("HUSK_NODE").unwrap_or_else(|_| "node".to_string());
     let result = ProcessCommand::new(&node_cmd)
-        .arg("-e")
-        .arg(&harness)
+        .arg("--enable-source-maps")
+        .arg(&test_js_path)
         .stdin(Stdio::null())
         .status();
 
