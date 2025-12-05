@@ -362,7 +362,11 @@ fn render(props: JsValue) -> JsValue {
 
     // The static prop should come AFTER the spread in the args
     // Object.assign({}, props, { class: "override" })
-    let props_pos = js.find("props").expect("should have props");
+    // Search for "props" after Object.assign to avoid matching the function parameter
+    let after_assign = js.find("Object.assign").expect("should have Object.assign");
+    let props_pos = js[after_assign..]
+        .find("props")
+        .expect("should have props in Object.assign") + after_assign;
     let class_pos = js.find("class:").expect("should have class:");
     assert!(
         props_pos < class_pos,
