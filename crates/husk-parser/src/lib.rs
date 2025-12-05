@@ -1604,10 +1604,14 @@ impl<'src> Parser<'src> {
         })
     }
 
-    /// Parse path segments for use statements, stopping before `::*` or `::{`.
+    /// Parse path segments for use statements, stopping before `::*`, `::{`,
+    /// and (for bare type paths) before a single-variant import like `Result::Ok;`.
     fn parse_use_path_segments(&mut self, first: Ident) -> Vec<Ident> {
         let mut path = vec![first];
-        // Check for path segments `Foo::Bar`, but stop before `::*` or `::{`
+        // Check for path segments `Foo::Bar`, but stop before:
+        // - `::*`
+        // - `::{`
+        // - `Type::Variant;` when the path is a single bare type (e.g. `Result::Ok;`)
         while self.current().kind == TokenKind::ColonColon {
             // Peek ahead to see what follows `::`
             if let Some(next) = self.tokens.get(self.pos + 1) {
@@ -1617,12 +1621,27 @@ impl<'src> Parser<'src> {
                         break;
                     }
                     TokenKind::Ident(_) => {
-                        // Continue parsing as path segment
+                        // For a bare type path like `Result::Ok;`, stop before the final
+                        // `::Ok` so that `parse_use_item` can treat it as a variant import.
+                        let is_bare_single_variant = path.len() == 1
+                            && path[0].name != "crate"
+                            && path[0].name != "self"
+                            && path[0].name != "super"
+                            && matches!(
+                                self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                                Some(TokenKind::Semicolon)
+                            );
+                        if is_bare_single_variant {
+                            break;
+                        }
+
+                        // Otherwise, continue parsing as a normal path segment.
                         self.advance(); // consume `::`
-                        let seg = match self.parse_ident("expected identifier after `::` in path") {
-                            Some(id) => id,
-                            None => break,
-                        };
+                        let seg =
+                            match self.parse_ident("expected identifier after `::` in path") {
+                                Some(id) => id,
+                                None => break,
+                            };
                         path.push(seg);
                     }
                     _ => break,

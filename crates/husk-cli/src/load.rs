@@ -138,16 +138,14 @@ fn module_path_to_file(root: &Path, mod_path: &[String]) -> Option<PathBuf> {
 fn discover_module_paths(file: &File) -> Vec<Vec<String>> {
     let mut mods = Vec::new();
     for item in &file.items {
-        if let ItemKind::Use { path, kind } = &item.kind {
+        if let ItemKind::Use { path, .. } = &item.kind {
             if path.first().map(|i| i.name.as_str()) == Some("crate") && path.len() >= 2 {
                 let module_seg = path[1].name.clone();
                 let mut mod_path = vec!["crate".to_string(), module_seg];
-                // For variant imports (Glob or Variants), the path ends at the enum
-                // For item imports, the path ends at the item, so we exclude the last segment
-                let path_end = match kind {
-                    husk_ast::UseKind::Item => path.len() - 1,
-                    husk_ast::UseKind::Glob | husk_ast::UseKind::Variants(_) => path.len(),
-                };
+                // The last segment is always an item (type, function, or enum for variant imports),
+                // so we exclude it. E.g., `use crate::foo::Result::{Ok, Err}` depends on module
+                // `crate::foo` (foo.hk), not `crate::foo::Result` (foo/Result.hk).
+                let path_end = path.len() - 1;
                 if path.len() > 2 {
                     mod_path.extend(path[2..path_end].iter().map(|i| i.name.clone()));
                 }
