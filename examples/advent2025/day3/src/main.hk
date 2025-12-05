@@ -8,7 +8,7 @@ extern "js" {
 fn main() {
     let banks = include_str("input.txt").trim().split("\n");
 
-    let total: i64 = 0 as i64;
+    let total = 0 as i64;
     for bank in banks {
         let largest = find_largest_from_bank(bank);
         total += largest;

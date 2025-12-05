@@ -1,0 +1,67 @@
+extern "js" {
+    mod global Math {
+        fn floor(x: f64) -> i32;
+    }
+}
+
+fn main() {
+    let grid = include_str("input.txt").trim().split("\n").map(|row: String| row.split(""));
+    println("{grid:?}");
+    println("{}", count_accessible(grid));
+}
+
+fn count_accessible(grid: [[String]]) -> i32 {
+    let total = 0;
+    for row in 0..grid.length {
+        for col in 0..grid[row].length {
+            if grid[row][col] == "@" {
+                if is_accessible(grid, row, col) {
+                    // print("@");
+                    total += 1;
+                } else {
+                    // print("x");
+                }
+            } else {
+                // print(".");
+            }
+        }
+        // println("");
+    }
+
+    total
+}
+
+fn is_accessible(grid: [[String]], cell_row: i32, cell_col: i32) -> bool {
+    let row_size = grid[0].length;
+
+    // we need to check -1, -1 (up left); -1, 0 (up); -1, 1 (up right) etc
+    let surroundings = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+    let occupied = 0;
+    for s in surroundings {
+        let row = cell_row + s[0];
+        let col = cell_col + s[1];
+        if row >= 0 && row < grid.length && col >= 0 && col < row_size {
+            let cell_value = grid[row][col];
+            if cell_value == "@" {
+                occupied += 1;
+            }
+        }
+    }
+
+    occupied < 4
+}
+
+#[cfg(test)]
+#[test]
+fn test_count_accessible() {
+    let grid = include_str("input-test.txt").split("\n").map(|row: String| row.split(""));
+    assert_eq(13, count_accessible(grid));
+}
+
+#[cfg(test)]
+#[test]
+fn test_is_accessible() {
+    let grid = [[".", ".", "@", "@", "."], [".", ".", "@", "@", "."], [".", ".", "@", "@", "."], [".", ".", "@", "@", "."]];
+    assert(is_accessible(grid, 0, 2));
+}
+
