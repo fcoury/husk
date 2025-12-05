@@ -1546,13 +1546,31 @@ impl<'a> FnContext<'a> {
                 // For tuple patterns, bind each field to the corresponding element type
                 match scrut_ty {
                     Type::Tuple(element_types) => {
+                        // Validate arity matches
+                        if fields.len() != element_types.len() {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "tuple pattern has {} fields but type has {} elements",
+                                    fields.len(),
+                                    element_types.len()
+                                ),
+                                span: pat.span.clone(),
+                            });
+                        }
                         for (i, field) in fields.iter().enumerate() {
                             let field_ty = element_types.get(i).cloned().unwrap_or(Type::unit());
                             self.bind_pattern_locals(field, &field_ty, pattern_bindings);
                         }
                     }
                     _ => {
-                        // Type mismatch - already reported elsewhere or will be
+                        // Type mismatch - report error for tuple pattern on non-tuple type
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "expected tuple type for tuple pattern, found `{}`",
+                                self.format_type(scrut_ty)
+                            ),
+                            span: pat.span.clone(),
+                        });
                         for field in fields {
                             self.bind_pattern_locals(field, &Type::unit(), pattern_bindings);
                         }
@@ -1602,6 +1620,7 @@ impl<'a> FnContext<'a> {
                 };
 
                 // Bind variables from pattern with shadowing support
+                // (pattern validation happens in bind_pattern_locals)
                 let mut pattern_bindings = HashSet::new();
                 self.bind_pattern_locals(pattern, &final_ty, &mut pattern_bindings);
             }
@@ -5593,6 +5612,90 @@ fn test(s: String) -> String {
         assert!(
             !result.type_errors.is_empty(),
             "expected type error for invalid .try_into() conversion"
+        );
+    }
+
+    // =========================================================================
+    // Tuple semantic tests
+    // =========================================================================
+
+    #[test]
+    fn tuple_pattern_with_non_tuple_type_errors() {
+        // let (x, y): i32 = 5; should error
+        let src = r#"fn foo() { let (x, y): i32 = 5; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("expected tuple type for tuple pattern")),
+            "expected 'expected tuple type for tuple pattern' error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn tuple_pattern_arity_mismatch_errors() {
+        // let (x, y, z): (i32, String) = (1, "hello"); should error
+        let src = r#"fn foo() { let (x, y, z): (i32, String) = (1, "hello"); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("tuple pattern has") && e.message.contains("fields but type has")),
+            "expected arity mismatch error, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn tuple_type_and_pattern_match_succeeds() {
+        // Valid tuple destructuring
+        let src = r#"fn foo() { let pair: (i32, String) = (42, "hello"); let (x, y) = pair; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn tuple_field_access_type_checks() {
+        // Access tuple fields
+        let src = r#"fn foo() { let pair: (i32, String) = (42, "hello"); let x: i32 = pair.0; let y: String = pair.1; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn tuple_field_access_wrong_type_errors() {
+        // Type mismatch on tuple field access
+        let src = r#"fn foo() { let pair: (i32, String) = (42, "hello"); let x: String = pair.0; }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type mismatch error for accessing i32 field as String"
         );
     }
 }

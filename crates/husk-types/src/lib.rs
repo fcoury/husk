@@ -122,4 +122,18 @@ mod tests {
             _ => panic!("expected function type"),
         }
     }
+
+    #[test]
+    fn tuple_type() {
+        let t = Type::tuple(vec![Type::i32(), Type::string(), Type::bool()]);
+        match t {
+            Type::Tuple(elements) => {
+                assert_eq!(elements.len(), 3);
+                assert_eq!(elements[0], Type::i32());
+                assert_eq!(elements[1], Type::string());
+                assert_eq!(elements[2], Type::bool());
+            }
+            _ => panic!("expected tuple type"),
+        }
+    }
 }

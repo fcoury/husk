@@ -1424,8 +1424,9 @@ impl<'src> Parser<'src> {
                     });
                 }
 
-                // Parse tuple type: (T1, T2, ...)
+                // Parse tuple type: (T1, T2, ...) with optional trailing comma.
                 let mut types = Vec::new();
+                let mut had_trailing_comma = false;
                 loop {
                     let ty = self.parse_type_expr()?;
                     types.push(ty);
@@ -1437,17 +1438,20 @@ impl<'src> Parser<'src> {
                         self.error_here("expected `,` or `)` in tuple type");
                         return None;
                     }
-                    // Allow trailing comma: (T1, T2,)
+                    // If we see `)` immediately after a comma, remember that there was a trailing comma.
+                    had_trailing_comma = true;
                     if self.matches_token(&TokenKind::RParen) {
                         break;
                     }
+                    // Reset if we continue parsing more elements
+                    had_trailing_comma = false;
                 }
 
                 let end = self.previous().span.range.end;
 
-                // Single element in parens is just grouping, not a tuple
-                // Tuples need at least 2 elements or a trailing comma: (T,)
-                if types.len() == 1 {
+                // Single element in parens is just grouping, not a tuple,
+                // unless we saw a trailing comma: (T,) is a 1-tuple.
+                if types.len() == 1 && !had_trailing_comma {
                     // Just return the inner type (parenthesized type)
                     return Some(types.pop().unwrap());
                 }
@@ -3104,8 +3108,9 @@ impl<'src> Parser<'src> {
                     });
                 }
 
-                // Parse tuple pattern fields
+                // Parse tuple pattern fields with optional trailing comma
                 let mut fields = Vec::new();
+                let mut had_trailing_comma = false;
                 loop {
                     let field = self.parse_pattern()?;
                     fields.push(field);
@@ -3117,13 +3122,24 @@ impl<'src> Parser<'src> {
                         self.error_here("expected `,` or `)` in tuple pattern");
                         return None;
                     }
-                    // Allow trailing comma: (a, b,)
+                    // If we see `)` immediately after a comma, remember that there was a trailing comma.
+                    had_trailing_comma = true;
                     if self.matches_token(&TokenKind::RParen) {
                         break;
                     }
+                    // Reset if we continue parsing more elements
+                    had_trailing_comma = false;
                 }
 
                 let end = self.previous().span.range.end;
+
+                // Single element in parens is just grouping, not a tuple,
+                // unless we saw a trailing comma: (x,) is a 1-tuple pattern.
+                if fields.len() == 1 && !had_trailing_comma {
+                    // Just return the inner pattern (parenthesized pattern)
+                    return Some(fields.pop().unwrap());
+                }
+
                 return Some(Pattern {
                     kind: PatternKind::Tuple { fields },
                     span: Span { range: start..end },
@@ -4950,6 +4966,235 @@ fn test() {
                 }
             } else {
                 panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    // =========================================================================
+    // Tuple parsing tests
+    // =========================================================================
+
+    #[test]
+    fn parses_tuple_type() {
+        let src = r#"fn main() { let x: (i32, String) = (1, "hello"); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { ty: Some(ty), .. } = &body[0].kind {
+                if let husk_ast::TypeExprKind::Tuple(types) = &ty.kind {
+                    assert_eq!(types.len(), 2);
+                } else {
+                    panic!("expected Tuple type, got {:?}", ty.kind);
+                }
+            } else {
+                panic!("expected Let with type annotation");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_single_element_tuple_type_with_trailing_comma() {
+        // (i32,) should be a single-element tuple, not just i32
+        let src = r#"fn main() { let x: (i32,) = (42,); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { ty: Some(ty), .. } = &body[0].kind {
+                if let husk_ast::TypeExprKind::Tuple(types) = &ty.kind {
+                    assert_eq!(types.len(), 1, "single-element tuple should have 1 type");
+                } else {
+                    panic!("expected Tuple type for (i32,), got {:?}", ty.kind);
+                }
+            } else {
+                panic!("expected Let with type annotation");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_parenthesized_type_as_grouping() {
+        // (i32) without trailing comma should be just i32, not a tuple
+        let src = r#"fn main() { let x: (i32) = 5; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { ty: Some(ty), .. } = &body[0].kind {
+                // Should be Named(i32), not Tuple
+                if let husk_ast::TypeExprKind::Named(ident) = &ty.kind {
+                    assert_eq!(ident.name, "i32");
+                } else {
+                    panic!("expected Named type i32 for grouping, got {:?}", ty.kind);
+                }
+            } else {
+                panic!("expected Let with type annotation");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_tuple_literal() {
+        let src = r#"fn main() { let x = (1, "hello", true); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::Tuple { elements } = &val.kind {
+                    assert_eq!(elements.len(), 3);
+                } else {
+                    panic!("expected Tuple expression, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_tuple_field_access() {
+        let src = r#"fn main() { let x = pair.0; let y = pair.1; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::TupleField { index, .. } = &val.kind {
+                    assert_eq!(*index, 0);
+                } else {
+                    panic!("expected TupleField expression, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_chained_tuple_field_access() {
+        // nested.0.0 should parse as two chained TupleField accesses
+        let src = r#"fn main() { let x = nested.0.0; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                // Outer should be TupleField with index 0
+                if let ExprKind::TupleField { base, index: outer_idx } = &val.kind {
+                    assert_eq!(*outer_idx, 0);
+                    // Inner should also be TupleField with index 0
+                    if let ExprKind::TupleField { index: inner_idx, .. } = &base.kind {
+                        assert_eq!(*inner_idx, 0);
+                    } else {
+                        panic!("expected inner TupleField, got {:?}", base.kind);
+                    }
+                } else {
+                    panic!("expected TupleField expression, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_tuple_pattern_in_let() {
+        let src = r#"fn main() { let (x, y) = pair; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { pattern, .. } = &body[0].kind {
+                if let husk_ast::PatternKind::Tuple { fields } = &pattern.kind {
+                    assert_eq!(fields.len(), 2);
+                } else {
+                    panic!("expected Tuple pattern, got {:?}", pattern.kind);
+                }
+            } else {
+                panic!("expected Let statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_tuple_pattern_with_wildcard() {
+        let src = r#"fn main() { let (x, _) = pair; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { pattern, .. } = &body[0].kind {
+                if let husk_ast::PatternKind::Tuple { fields } = &pattern.kind {
+                    assert_eq!(fields.len(), 2);
+                    assert!(matches!(fields[1].kind, husk_ast::PatternKind::Wildcard));
+                } else {
+                    panic!("expected Tuple pattern, got {:?}", pattern.kind);
+                }
+            } else {
+                panic!("expected Let statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_parenthesized_pattern_as_grouping() {
+        // (x) without trailing comma should be just x, not a tuple pattern
+        let src = r#"fn main() { let (x) = 5; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { pattern, .. } = &body[0].kind {
+                // Should be a Binding pattern, not a Tuple
+                if let husk_ast::PatternKind::Binding(ident) = &pattern.kind {
+                    assert_eq!(ident.name, "x");
+                } else {
+                    panic!("expected Binding pattern for grouping, got {:?}", pattern.kind);
+                }
+            } else {
+                panic!("expected Let statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_single_element_tuple_pattern_with_trailing_comma() {
+        // (x,) with trailing comma should be a single-element tuple pattern
+        let src = r#"fn main() { let (x,) = single; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { pattern, .. } = &body[0].kind {
+                if let husk_ast::PatternKind::Tuple { fields } = &pattern.kind {
+                    assert_eq!(fields.len(), 1, "single-element tuple pattern should have 1 field");
+                } else {
+                    panic!("expected Tuple pattern for (x,), got {:?}", pattern.kind);
+                }
+            } else {
+                panic!("expected Let statement");
             }
         } else {
             panic!("expected Fn item");
