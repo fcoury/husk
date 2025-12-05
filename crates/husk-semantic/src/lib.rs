@@ -315,6 +315,10 @@ fn type_expr_to_trait_name(ty: &husk_ast::TypeExpr) -> String {
         }
         TypeExprKind::Function { .. } => "Fn".to_string(), // Simplified
         TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_trait_name(elem)),
+        TypeExprKind::Tuple(types) => {
+            let type_strs: Vec<String> = types.iter().map(type_expr_to_trait_name).collect();
+            format!("({})", type_strs.join(", "))
+        }
     }
 }
 
@@ -517,6 +521,10 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
         }
         TypeExprKind::Function { .. } => "<fn>".to_string(),
         TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_name(elem)),
+        TypeExprKind::Tuple(types) => {
+            let type_strs: Vec<String> = types.iter().map(type_expr_to_name).collect();
+            format!("({})", type_strs.join(", "))
+        }
     }
 }
 
@@ -1039,6 +1047,13 @@ impl TypeChecker {
                 let elem = self.resolve_type_expr(elem_ty, generic_params);
                 Type::Array(Box::new(elem))
             }
+            TypeExprKind::Tuple(types) => {
+                let element_types: Vec<Type> = types
+                    .iter()
+                    .map(|t| self.resolve_type_expr(t, generic_params))
+                    .collect();
+                Type::Tuple(element_types)
+            }
         }
     }
 
@@ -1414,6 +1429,10 @@ impl<'a> FnContext<'a> {
                 }
                 // Struct patterns not yet used in exhaustiveness.
                 PatternKind::EnumStruct { .. } => {}
+                // Tuple patterns - treat as irrefutable for now (they always match if types match)
+                PatternKind::Tuple { .. } => {
+                    has_catch_all = true;
+                }
             }
 
             // Type-check the arm expression in a fresh scope with any bindings from the pattern.
@@ -1523,13 +1542,30 @@ impl<'a> FnContext<'a> {
             PatternKind::EnumStruct { .. } => {
                 // Not yet supported for bindings.
             }
+            PatternKind::Tuple { fields } => {
+                // For tuple patterns, bind each field to the corresponding element type
+                match scrut_ty {
+                    Type::Tuple(element_types) => {
+                        for (i, field) in fields.iter().enumerate() {
+                            let field_ty = element_types.get(i).cloned().unwrap_or(Type::unit());
+                            self.bind_pattern_locals(field, &field_ty, pattern_bindings);
+                        }
+                    }
+                    _ => {
+                        // Type mismatch - already reported elsewhere or will be
+                        for field in fields {
+                            self.bind_pattern_locals(field, &Type::unit(), pattern_bindings);
+                        }
+                    }
+                }
+            }
         }
     }
     fn check_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Let {
                 mutable: _,
-                name,
+                pattern,
                 ty,
                 value,
             } => {
@@ -1565,8 +1601,9 @@ impl<'a> FnContext<'a> {
                     }
                 };
 
-                // Bind the variable with shadowing support
-                self.bind_variable(&name.name, final_ty, &name.span);
+                // Bind variables from pattern with shadowing support
+                let mut pattern_bindings = HashSet::new();
+                self.bind_pattern_locals(pattern, &final_ty, &mut pattern_bindings);
             }
             StmtKind::Assign { target, op, value } => {
                 // Validate target is assignable (lvalue: ident, field, or index)
@@ -2791,6 +2828,44 @@ impl<'a> FnContext<'a> {
 
                 target
             }
+            ExprKind::Tuple { elements } => {
+                // Type check each element and collect their types
+                let element_types: Vec<Type> = elements
+                    .iter()
+                    .map(|elem| self.check_expr(elem))
+                    .collect();
+                Type::Tuple(element_types)
+            }
+            ExprKind::TupleField { base, index } => {
+                let base_ty = self.check_expr(base);
+                match base_ty {
+                    Type::Tuple(ref element_types) => {
+                        if *index < element_types.len() {
+                            element_types[*index].clone()
+                        } else {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "tuple index {} out of bounds for tuple with {} elements",
+                                    index,
+                                    element_types.len()
+                                ),
+                                span: expr.span.clone(),
+                            });
+                            Type::unit()
+                        }
+                    }
+                    _ => {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "type `{}` cannot be indexed with a tuple field access; expected a tuple",
+                                self.format_type(&base_ty)
+                            ),
+                            span: base.span.clone(),
+                        });
+                        Type::unit()
+                    }
+                }
+            }
         }
     }
 
@@ -3244,6 +3319,13 @@ impl<'a> FnContext<'a> {
                 format!("fn({}) -> {}", params_str, self.format_type(ret))
             }
             Type::Var(id) => format!("?{}", id.0),
+            Type::Tuple(elements) => {
+                let elements_str = elements.iter()
+                    .map(|e| self.format_type(e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({})", elements_str)
+            }
         }
     }
 
@@ -3272,6 +3354,10 @@ impl<'a> FnContext<'a> {
                 format!("fn({}) -> {}", param_strs.join(", "), self.type_to_name(ret))
             }
             Type::Var(id) => format!("?{}", id.0),
+            Type::Tuple(elements) => {
+                let elem_strs: Vec<String> = elements.iter().map(|e| self.type_to_name(e)).collect();
+                format!("({})", elem_strs.join(", "))
+            }
         }
     }
 
@@ -3345,6 +3431,19 @@ impl<'a> FnContext<'a> {
                     return true;
                 }
             }
+        }
+
+        // Handle tuple types: compare element-wise
+        if let (Type::Tuple(expected_elems), Type::Tuple(actual_elems)) = (expected, actual) {
+            if expected_elems.len() != actual_elems.len() {
+                return false;
+            }
+            for (exp, act) in expected_elems.iter().zip(actual_elems.iter()) {
+                if !self.types_compatible_inner(exp, act) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         expected == actual
@@ -3580,6 +3679,14 @@ mod tests {
         }
     }
 
+    fn ident_pattern(name: &str, start: usize) -> Pattern {
+        let id = ident(name, start);
+        Pattern {
+            kind: PatternKind::Binding(id.clone()),
+            span: id.span,
+        }
+    }
+
     #[test]
     fn collects_unique_top_level_symbols() {
         let f = File {
@@ -3676,7 +3783,10 @@ mod tests {
         let let_stmt = Stmt {
             kind: StmtKind::Let {
                 mutable: false,
-                name: x_ident.clone(),
+                pattern: Pattern {
+                    kind: PatternKind::Binding(x_ident.clone()),
+                    span: x_ident.span.clone(),
+                },
                 ty: Some(type_ident("i32", 25)),
                 value: Some(one_lit),
             },
@@ -3737,7 +3847,10 @@ mod tests {
         let let_stmt = Stmt {
             kind: StmtKind::Let {
                 mutable: false,
-                name: x_ident.clone(),
+                pattern: Pattern {
+                    kind: PatternKind::Binding(x_ident.clone()),
+                    span: x_ident.span.clone(),
+                },
                 ty: Some(type_ident("i32", 20)),
                 value: Some(string_lit),
             },
@@ -4078,7 +4191,7 @@ mod tests {
         let let_app = Stmt {
             kind: StmtKind::Let {
                 mutable: false,
-                name: ident("app", 25),
+                pattern: ident_pattern("app", 25),
                 ty: None,
                 value: Some(call_0_args),
             },
@@ -4106,7 +4219,7 @@ mod tests {
         let let_app2 = Stmt {
             kind: StmtKind::Let {
                 mutable: false,
-                name: ident("app2", 45),
+                pattern: ident_pattern("app2", 45),
                 ty: None,
                 value: Some(call_1_arg),
             },
@@ -4150,7 +4263,7 @@ mod tests {
         let let_app3 = Stmt {
             kind: StmtKind::Let {
                 mutable: false,
-                name: ident("app3", 70),
+                pattern: ident_pattern("app3", 70),
                 ty: None,
                 value: Some(call_3_args),
             },

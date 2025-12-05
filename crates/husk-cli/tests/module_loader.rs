@@ -13,6 +13,10 @@ fn type_expr_to_name(ty: &husk_ast::TypeExpr) -> String {
         TypeExprKind::Generic { name, .. } => name.name.clone(),
         TypeExprKind::Function { .. } => String::new(),
         TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_name(elem)),
+        TypeExprKind::Tuple(types) => {
+            let type_names: Vec<String> = types.iter().map(type_expr_to_name).collect();
+            format!("({})", type_names.join(", "))
+        }
     }
 }
 

@@ -8,8 +8,8 @@
 
 use husk_ast::{
     EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec, Ident,
-    ImplItemKind, ItemKind, LiteralKind, Param, Span, Stmt, StmtKind, StructField, TypeExpr,
-    TypeExprKind, TypeParam,
+    ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
+    StructField, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
@@ -248,6 +248,8 @@ pub enum JsStmt {
     Return(JsExpr),
     /// `let name = expr;`
     Let { name: String, init: Option<JsExpr> },
+    /// `let [name1, name2, ...] = expr;` (array destructuring)
+    LetDestructure { names: Vec<String>, init: Option<JsExpr> },
     /// Expression statement: `expr;`
     Expr(JsExpr),
     /// `try { ... } catch (e) { ... }`
@@ -848,6 +850,11 @@ fn type_expr_to_js_name(ty: &TypeExpr) -> String {
         TypeExprKind::Array(elem) => {
             format!("{}[]", type_expr_to_js_name(elem))
         }
+        TypeExprKind::Tuple(types) => {
+            // TypeScript tuple type: [T1, T2, T3]
+            let type_names: Vec<String> = types.iter().map(type_expr_to_js_name).collect();
+            format!("[{}]", type_names.join(", "))
+        }
     }
 }
 
@@ -1044,13 +1051,12 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
     match &stmt.kind {
         StmtKind::Let {
             mutable: _,
-            name,
+            pattern,
             ty: _,
             value,
-        } => JsStmt::Let {
-            name: ctx.resolve_name(&name.name, &name.span),
-            init: value.as_ref().map(|e| lower_expr(e, ctx)),
-        },
+        } => {
+            lower_let_pattern(pattern, value.as_ref(), ctx)
+        }
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
             // Special case: match expressions in statement position should be lowered
             // to if/else statements, not ternary expressions. This allows break/continue
@@ -1170,6 +1176,59 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 target: lower_expr(target, ctx),
                 op: js_op,
                 value: lower_expr(value, ctx),
+            }
+        }
+    }
+}
+
+/// Lower a let statement with a pattern (handles both simple identifiers and tuple patterns).
+fn lower_let_pattern(pattern: &Pattern, value: Option<&Expr>, ctx: &CodegenContext) -> JsStmt {
+    match &pattern.kind {
+        PatternKind::Binding(name) => {
+            // Simple identifier: let x = expr;
+            JsStmt::Let {
+                name: ctx.resolve_name(&name.name, &name.span),
+                init: value.map(|e| lower_expr(e, ctx)),
+            }
+        }
+        PatternKind::Tuple { fields } => {
+            // Tuple pattern: let (a, b, c) = expr;
+            // This becomes: const [a, b, c] = expr;
+            // We'll generate a destructuring assignment by creating individual let statements
+            // wrapped in a block, or use JS destructuring.
+            // For simplicity, we'll use JS array destructuring pattern.
+            let names: Vec<String> = fields
+                .iter()
+                .filter_map(|p| {
+                    if let PatternKind::Binding(name) = &p.kind {
+                        Some(ctx.resolve_name(&name.name, &name.span))
+                    } else {
+                        // Nested patterns would need recursive handling
+                        None
+                    }
+                })
+                .collect();
+
+            JsStmt::LetDestructure {
+                names,
+                init: value.map(|e| lower_expr(e, ctx)),
+            }
+        }
+        PatternKind::Wildcard => {
+            // let _ = expr; - just evaluate the expression for side effects
+            if let Some(e) = value {
+                JsStmt::Expr(lower_expr(e, ctx))
+            } else {
+                JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
+            }
+        }
+        _ => {
+            // Other patterns not yet supported in let statements
+            // For now, just evaluate the value if present
+            if let Some(e) = value {
+                JsStmt::Expr(lower_expr(e, ctx))
+            } else {
+                JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
             }
         }
     }
@@ -1829,6 +1888,19 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
             }
         }
+        ExprKind::Tuple { elements } => {
+            // Tuples are represented as JavaScript arrays
+            let js_elements: Vec<JsExpr> = elements.iter().map(|e| lower_expr(e, ctx)).collect();
+            JsExpr::Array(js_elements)
+        }
+        ExprKind::TupleField { base, index } => {
+            // Tuple field access: tuple.0 -> tuple[0]
+            let js_base = lower_expr(base, ctx);
+            JsExpr::Index {
+                object: Box::new(js_base),
+                index: Box::new(JsExpr::Number(*index as i64)),
+            }
+        }
     }
 }
 
@@ -2153,10 +2225,12 @@ fn lower_match_expr(
             }
             PatternKind::Wildcard => None,
             PatternKind::EnumStruct { .. } => None,
+            // Tuple patterns are always matched (irrefutable)
+            PatternKind::Tuple { .. } => None,
         }
     }
 
-    // Extract bindings from an enum tuple pattern.
+    // Extract bindings from an enum tuple pattern or tuple pattern.
     // Returns a list of (binding_name, accessor) pairs.
     fn extract_bindings(
         pattern: &husk_ast::Pattern,
@@ -2180,6 +2254,31 @@ fn lower_match_expr(
                             }
                         };
                         bindings.push((ident.name.clone(), accessor));
+                    }
+                }
+                bindings
+            }
+            PatternKind::Tuple { fields } => {
+                // Tuple pattern: (x, y, z) -> x = scrutinee[0], y = scrutinee[1], etc.
+                let mut bindings = Vec::new();
+                for (i, field) in fields.iter().enumerate() {
+                    let accessor = JsExpr::Index {
+                        object: Box::new(scrutinee_js.clone()),
+                        index: Box::new(JsExpr::Number(i as i64)),
+                    };
+                    // Recursively extract bindings from nested patterns
+                    match &field.kind {
+                        PatternKind::Binding(ident) => {
+                            bindings.push((ident.name.clone(), accessor));
+                        }
+                        PatternKind::Wildcard => {
+                            // Ignore wildcards
+                        }
+                        PatternKind::Tuple { .. } => {
+                            // Nested tuple pattern - extract recursively
+                            bindings.extend(extract_bindings(field, &accessor));
+                        }
+                        _ => {}
                     }
                 }
                 bindings
@@ -2294,6 +2393,8 @@ fn lower_match_stmt(
             }
             PatternKind::Wildcard => None,
             PatternKind::EnumStruct { .. } => None,
+            // Tuple patterns are always matched (irrefutable)
+            PatternKind::Tuple { .. } => None,
         }
     }
 
@@ -2319,6 +2420,31 @@ fn lower_match_stmt(
                             }
                         };
                         bindings.push((ident.name.clone(), accessor));
+                    }
+                }
+                bindings
+            }
+            PatternKind::Tuple { fields } => {
+                // Tuple pattern: (x, y, z) -> x = scrutinee[0], y = scrutinee[1], etc.
+                let mut bindings = Vec::new();
+                for (i, field) in fields.iter().enumerate() {
+                    let accessor = JsExpr::Index {
+                        object: Box::new(scrutinee_js.clone()),
+                        index: Box::new(JsExpr::Number(i as i64)),
+                    };
+                    // Recursively extract bindings from nested patterns
+                    match &field.kind {
+                        PatternKind::Binding(ident) => {
+                            bindings.push((ident.name.clone(), accessor));
+                        }
+                        PatternKind::Wildcard => {
+                            // Ignore wildcards
+                        }
+                        PatternKind::Tuple { .. } => {
+                            // Nested tuple pattern - extract recursively
+                            bindings.extend(extract_bindings(field, &accessor));
+                        }
+                        _ => {}
                     }
                 }
                 bindings
@@ -2700,6 +2826,22 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push_str("let ");
             out.push_str(name);
+            if let Some(expr) = init {
+                out.push_str(" = ");
+                write_expr(expr, out);
+            }
+            out.push(';');
+        }
+        JsStmt::LetDestructure { names, init } => {
+            indent(indent_level, out);
+            out.push_str("let [");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(name);
+            }
+            out.push(']');
             if let Some(expr) = init {
                 out.push_str(" = ");
                 write_expr(expr, out);
@@ -3254,6 +3396,17 @@ fn write_type_expr(ty: &TypeExpr, out: &mut String) {
             // Generate TypeScript array type: T[]
             write_type_expr(elem, out);
             out.push_str("[]");
+        }
+        TypeExprKind::Tuple(types) => {
+            // Generate TypeScript tuple type: [T1, T2, T3]
+            out.push('[');
+            for (i, ty) in types.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_type_expr(ty, out);
+            }
+            out.push(']');
         }
     }
 }

@@ -895,6 +895,20 @@ impl<'a> Formatter<'a> {
                 self.format_type(elem);
                 self.write("]");
             }
+            TypeExprKind::Tuple(types) => {
+                self.write("(");
+                for (i, ty) in types.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.format_type(ty);
+                }
+                // Single-element tuple needs trailing comma
+                if types.len() == 1 {
+                    self.write(",");
+                }
+                self.write(")");
+            }
         }
     }
 
@@ -911,7 +925,7 @@ impl<'a> Formatter<'a> {
         match &stmt.kind {
             StmtKind::Let {
                 mutable,
-                name,
+                pattern,
                 ty,
                 value,
             } => {
@@ -920,7 +934,7 @@ impl<'a> Formatter<'a> {
                 if *mutable {
                     self.write("mut ");
                 }
-                self.write(&name.name);
+                self.format_pattern(pattern);
                 if let Some(ty) = ty {
                     self.write(": ");
                     self.format_type(ty);
@@ -1369,6 +1383,25 @@ impl<'a> Formatter<'a> {
                 self.write(" as ");
                 self.format_type(target_ty);
             }
+            ExprKind::Tuple { elements } => {
+                self.write("(");
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.format_expr(elem);
+                }
+                // Single-element tuple needs trailing comma
+                if elements.len() == 1 {
+                    self.write(",");
+                }
+                self.write(")");
+            }
+            ExprKind::TupleField { base, index } => {
+                self.format_expr(base);
+                self.write(".");
+                self.write(&index.to_string());
+            }
         }
     }
 
@@ -1485,6 +1518,20 @@ impl<'a> Formatter<'a> {
                     self.format_pattern(pattern);
                 }
                 self.write(" }");
+            }
+            PatternKind::Tuple { fields } => {
+                self.write("(");
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.format_pattern(field);
+                }
+                // Single-element tuple needs trailing comma
+                if fields.len() == 1 {
+                    self.write(",");
+                }
+                self.write(")");
             }
         }
     }
