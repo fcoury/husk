@@ -354,6 +354,7 @@ pub enum StmtKind {
         pattern: Pattern,
         ty: Option<TypeExpr>,
         value: Option<Expr>,
+        else_block: Option<Block>, // for let...else syntax
     },
     /// Assignment statement: `target = value` or `target += value` etc.
     Assign {
@@ -389,6 +390,13 @@ pub enum StmtKind {
     Break,
     Continue,
     Block(Block),
+    /// if let pattern = expr { then } [else { else }]
+    IfLet {
+        pattern: Pattern,
+        scrutinee: Expr,
+        then_branch: Block,
+        else_branch: Option<Box<Stmt>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -928,6 +928,7 @@ impl<'a> Formatter<'a> {
                 pattern,
                 ty,
                 value,
+                else_block,
             } => {
                 self.write_indent();
                 self.write("let ");
@@ -942,6 +943,16 @@ impl<'a> Formatter<'a> {
                 if let Some(val) = value {
                     self.write(" = ");
                     self.format_expr(val);
+                }
+                if let Some(else_blk) = else_block {
+                    self.write(" else {");
+                    self.newline();
+                    self.indent += 1;
+                    self.format_stmts(&else_blk.stmts);
+                    self.emit_block_end_trivia(else_blk.span.range.end);
+                    self.indent -= 1;
+                    self.write_indent();
+                    self.write("}");
                 }
                 self.write(";");
             }
@@ -995,8 +1006,8 @@ impl<'a> Formatter<'a> {
                 self.write("}");
                 if let Some(else_stmt) = else_branch {
                     self.write(" else ");
-                    // Check if it's an else-if
-                    if let StmtKind::If { .. } = &else_stmt.kind {
+                    // Check if it's an else-if or else-if-let
+                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
                         // Don't add newline, format_stmt_inline will handle the if
                         self.at_line_start = false;
                         self.format_stmt_inline(else_stmt);
@@ -1074,42 +1085,115 @@ impl<'a> Formatter<'a> {
                 self.write_indent();
                 self.write("}");
             }
+            StmtKind::IfLet {
+                pattern,
+                scrutinee,
+                then_branch,
+                else_branch,
+            } => {
+                self.write_indent();
+                self.write("if let ");
+                self.format_pattern(pattern);
+                self.write(" = ");
+                self.format_expr(scrutinee);
+                self.write(" {");
+                self.newline();
+                self.indent += 1;
+                self.format_stmts(&then_branch.stmts);
+                self.emit_block_end_trivia(then_branch.span.range.end);
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+                if let Some(else_stmt) = else_branch {
+                    self.write(" else ");
+                    // Check if it's an else-if or else-if-let
+                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                        self.at_line_start = false;
+                        self.format_stmt_inline(else_stmt);
+                    } else if let StmtKind::Block(block) = &else_stmt.kind {
+                        self.write("{");
+                        self.newline();
+                        self.indent += 1;
+                        self.format_stmts(&block.stmts);
+                        self.emit_block_end_trivia(block.span.range.end);
+                        self.indent -= 1;
+                        self.write_indent();
+                        self.write("}");
+                    }
+                }
+            }
         }
     }
 
     /// Format a statement inline (for else-if chains)
     fn format_stmt_inline(&mut self, stmt: &Stmt) {
-        if let StmtKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } = &stmt.kind
-        {
-            self.write("if ");
-            self.format_expr(cond);
-            self.write(" {");
-            self.newline();
-            self.indent += 1;
-            self.format_stmts(&then_branch.stmts);
-            self.emit_block_end_trivia(then_branch.span.range.end);
-            self.indent -= 1;
-            self.write_indent();
-            self.write("}");
-            if let Some(else_stmt) = else_branch {
-                self.write(" else ");
-                if let StmtKind::If { .. } = &else_stmt.kind {
-                    self.format_stmt_inline(else_stmt);
-                } else if let StmtKind::Block(block) = &else_stmt.kind {
-                    self.write("{");
-                    self.newline();
-                    self.indent += 1;
-                    self.format_stmts(&block.stmts);
-                    self.emit_block_end_trivia(block.span.range.end);
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
+        match &stmt.kind {
+            StmtKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.write("if ");
+                self.format_expr(cond);
+                self.write(" {");
+                self.newline();
+                self.indent += 1;
+                self.format_stmts(&then_branch.stmts);
+                self.emit_block_end_trivia(then_branch.span.range.end);
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+                if let Some(else_stmt) = else_branch {
+                    self.write(" else ");
+                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                        self.format_stmt_inline(else_stmt);
+                    } else if let StmtKind::Block(block) = &else_stmt.kind {
+                        self.write("{");
+                        self.newline();
+                        self.indent += 1;
+                        self.format_stmts(&block.stmts);
+                        self.emit_block_end_trivia(block.span.range.end);
+                        self.indent -= 1;
+                        self.write_indent();
+                        self.write("}");
+                    }
                 }
             }
+            StmtKind::IfLet {
+                pattern,
+                scrutinee,
+                then_branch,
+                else_branch,
+            } => {
+                self.write("if let ");
+                self.format_pattern(pattern);
+                self.write(" = ");
+                self.format_expr(scrutinee);
+                self.write(" {");
+                self.newline();
+                self.indent += 1;
+                self.format_stmts(&then_branch.stmts);
+                self.emit_block_end_trivia(then_branch.span.range.end);
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+                if let Some(else_stmt) = else_branch {
+                    self.write(" else ");
+                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                        self.format_stmt_inline(else_stmt);
+                    } else if let StmtKind::Block(block) = &else_stmt.kind {
+                        self.write("{");
+                        self.newline();
+                        self.indent += 1;
+                        self.format_stmts(&block.stmts);
+                        self.emit_block_end_trivia(block.span.range.end);
+                        self.indent -= 1;
+                        self.write_indent();
+                        self.write("}");
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
