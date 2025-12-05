@@ -53,7 +53,7 @@ fn typescript_can_typecheck_generated_dts_when_available() {
     fs::create_dir_all(&out_dir).expect("failed to create ts-interop directory");
 
     // Emit JS + preamble and .d.ts side by side.
-    let module = lower_file_to_js(&file, false, JsTarget::Esm, &sem.name_resolution);
+    let module = lower_file_to_js(&file, false, JsTarget::Esm, &sem.name_resolution, &sem.type_resolution);
     let js = module.to_source_with_preamble();
     let js_path = out_dir.join("hello.js");
     fs::write(&js_path, js)

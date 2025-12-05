@@ -1,0 +1,44 @@
+// Type inference examples demonstrating From/Into traits and turbofish syntax
+
+fn main() {
+    // Test .into() with type annotation (type inferred from context)
+    let s: String = 42.into();
+    println("i32 to String: {}", s);
+
+    // Test .into() with turbofish (explicit type)
+    let s2 = 123.into::<String>();
+    println("i32 to String (turbofish): {}", s2);
+
+    // Test .parse() with turbofish
+    let n = "456".parse::<i32>();
+    match n {
+        Result::Ok(value) => println("Parsed i32: {}", value),
+        Result::Err(e) => println("Parse error: {}", e),
+    }
+
+    // Test .parse() for f64
+    let f = "3.14159".parse::<f64>();
+    match f {
+        Result::Ok(value) => println("Parsed f64: {}", value),
+        Result::Err(e) => println("Parse error: {}", e),
+    }
+
+    // Test i32 to i64 widening conversion
+    let i: i64 = 100.into();
+    println("i32 to i64: {}", i);
+
+    // Test i32 to f64 widening conversion
+    let d: f64 = 50.into();
+    println("i32 to f64: {}", d);
+
+    // Test bool to String conversion
+    let b: String = true.into();
+    println("bool to String: {}", b);
+
+    // Test parse error case
+    let bad = "not_a_number".parse::<i32>();
+    match bad {
+        Result::Ok(v) => println("Unexpectedly got: {}", v),
+        Result::Err(e) => println("Expected error: {}", e),
+    }
+}

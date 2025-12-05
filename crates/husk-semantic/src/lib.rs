@@ -82,6 +82,10 @@ pub struct SemanticError {
 /// Values are the resolved names (e.g., "x", "x$1", "x$2").
 pub type NameResolution = HashMap<(usize, usize), String>;
 
+/// Maps expression spans to their resolved types for codegen.
+/// Used for type-dependent operations like .into(), .parse(), .try_into().
+pub type TypeResolution = HashMap<(usize, usize), String>;
+
 /// The result of running semantic analysis (name resolution + type checking) on a Husk file.
 #[derive(Debug)]
 pub struct SemanticResult {
@@ -89,6 +93,8 @@ pub struct SemanticResult {
     pub type_errors: Vec<SemanticError>,
     /// Maps variable spans to their resolved unique names for codegen.
     pub name_resolution: NameResolution,
+    /// Maps expression spans to resolved type names for conversion methods.
+    pub type_resolution: TypeResolution,
 }
 
 /// Options controlling semantic analysis.
@@ -172,11 +178,12 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let (type_errors, name_resolution) = checker.check_file(&filtered_file);
+    let (type_errors, name_resolution, type_resolution) = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
         name_resolution,
+        type_resolution,
     }
 }
 
@@ -461,7 +468,17 @@ impl TypeEnv {
 fn type_expr_to_name(ty: &TypeExpr) -> String {
     match &ty.kind {
         TypeExprKind::Named(ident) => ident.name.clone(),
-        TypeExprKind::Generic { name, .. } => name.name.clone(),
+        TypeExprKind::Generic { name, args } => {
+            if args.is_empty() {
+                name.name.clone()
+            } else {
+                let args_str = args.iter()
+                    .map(|a| type_expr_to_name(a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}<{}>", name.name, args_str)
+            }
+        }
         TypeExprKind::Function { .. } => "<fn>".to_string(),
         TypeExprKind::Array(elem) => format!("[{}]", type_expr_to_name(elem)),
     }
@@ -472,6 +489,8 @@ struct TypeChecker {
     errors: Vec<SemanticError>,
     /// Maps variable spans to their resolved unique names for codegen.
     name_resolution: NameResolution,
+    /// Maps expression spans to resolved type names for conversion methods.
+    type_resolution: TypeResolution,
 }
 
 impl TypeChecker {
@@ -480,6 +499,7 @@ impl TypeChecker {
             env: TypeEnv::default(),
             errors: Vec::new(),
             name_resolution: HashMap::new(),
+            type_resolution: HashMap::new(),
         }
     }
 
@@ -753,7 +773,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution) {
+    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution, TypeResolution) {
         // Verify trait implementations
         self.verify_trait_impls();
 
@@ -771,7 +791,11 @@ impl TypeChecker {
                 self.check_fn(name, type_params, params, ret_type.as_ref(), body, item.span.clone());
             }
         }
-        (self.errors.clone(), std::mem::take(&mut self.name_resolution))
+        (
+            self.errors.clone(),
+            std::mem::take(&mut self.name_resolution),
+            std::mem::take(&mut self.type_resolution),
+        )
     }
 
     fn check_fn(
@@ -1538,7 +1562,7 @@ impl<'a> FnContext<'a> {
                 });
                 Type::Primitive(PrimitiveType::Unit)
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, type_args: _, args } => {
                 // Check if the callee is a module import (which accepts any arguments)
                 let is_module_call = match &callee.kind {
                     ExprKind::Ident(id) => self.tcx.env.modules.contains_key(&id.name),
@@ -1743,6 +1767,7 @@ impl<'a> FnContext<'a> {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                type_args: _,
                 args,
             } => {
                 let method_name = &method.name;
@@ -2442,7 +2467,8 @@ impl<'a> FnContext<'a> {
     }
 
     /// Check expression with optional expected type for bidirectional inference.
-    /// This enables closure parameter type inference from call-site context.
+    /// This enables closure parameter type inference from call-site context,
+    /// as well as type inference for conversion methods like .into() and .parse().
     fn check_expr_with_expected(&mut self, expr: &Expr, expected: Option<&Type>) -> Type {
         match &expr.kind {
             ExprKind::Closure {
@@ -2450,8 +2476,280 @@ impl<'a> FnContext<'a> {
                 ret_type,
                 body,
             } => self.check_closure_expr(expr, params, ret_type.as_ref(), body, expected),
+
+            // Handle .into() and .parse() method calls with type inference
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                type_args,
+                args,
+            } => {
+                let method_name = method.name.as_str();
+
+                // Handle .into() - infer target type from context or turbofish
+                if method_name == "into" && args.is_empty() {
+                    return self.check_into_method(receiver, type_args, expected, &expr.span);
+                }
+
+                // Handle .parse() - String.parse::<T>() -> Result<T, String>
+                if method_name == "parse" && args.is_empty() {
+                    return self.check_parse_method(receiver, type_args, expected, &expr.span);
+                }
+
+                // Handle .try_into() - infer target type from context
+                if method_name == "try_into" && args.is_empty() {
+                    return self.check_try_into_method(receiver, type_args, expected, &expr.span);
+                }
+
+                // Fall back to regular check_expr for other method calls
+                self.check_expr(expr)
+            }
+
             _ => self.check_expr(expr),
         }
+    }
+
+    /// Handle .into() method call: value.into() where the target type is inferred
+    fn check_into_method(
+        &mut self,
+        receiver: &Expr,
+        type_args: &[TypeExpr],
+        expected: Option<&Type>,
+        span: &husk_ast::Span,
+    ) -> Type {
+        let receiver_ty = self.check_expr(receiver);
+
+        // Resolve target type from turbofish or expected type
+        let target_ty = if !type_args.is_empty() {
+            // Turbofish: .into::<TargetType>()
+            Some(self.tcx.resolve_type_expr(&type_args[0], &[]))
+        } else if let Some(expected) = expected {
+            // Infer from let binding or function argument
+            Some(expected.clone())
+        } else {
+            None
+        };
+
+        match target_ty {
+            Some(target) => {
+                // Verify that From<ReceiverType> is implemented for TargetType
+                if !self.type_implements_from(&target, &receiver_ty) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "the trait `From<{}>` is not implemented for `{}`",
+                            self.format_type(&receiver_ty),
+                            self.format_type(&target)
+                        ),
+                        span: span.clone(),
+                    });
+                }
+                // Record the resolved type for codegen
+                self.tcx.type_resolution.insert(
+                    (span.range.start, span.range.end),
+                    self.format_type(&target),
+                );
+                target
+            }
+            None => {
+                self.tcx.errors.push(SemanticError {
+                    message: "type annotations needed: cannot infer type for `.into()`\n\
+                              help: consider using turbofish syntax: `.into::<TargetType>()`"
+                        .to_string(),
+                    span: span.clone(),
+                });
+                Type::Primitive(PrimitiveType::Unit)
+            }
+        }
+    }
+
+    /// Handle .parse() method call: "str".parse::<i32>() -> Result<i32, String>
+    fn check_parse_method(
+        &mut self,
+        receiver: &Expr,
+        type_args: &[TypeExpr],
+        expected: Option<&Type>,
+        span: &husk_ast::Span,
+    ) -> Type {
+        let receiver_ty = self.check_expr(receiver);
+
+        // parse() is only valid on String
+        if !matches!(receiver_ty, Type::Primitive(PrimitiveType::String)) {
+            self.tcx.errors.push(SemanticError {
+                message: format!(
+                    "`.parse()` is only available on `String`, found `{}`",
+                    self.format_type(&receiver_ty)
+                ),
+                span: span.clone(),
+            });
+            return Type::Primitive(PrimitiveType::Unit);
+        }
+
+        // Resolve target type from turbofish or expected type
+        let target_ty = if !type_args.is_empty() {
+            // Turbofish: .parse::<i32>()
+            Some(self.tcx.resolve_type_expr(&type_args[0], &[]))
+        } else if let Some(Type::Named { name, args }) = expected {
+            // Expected Result<T, E> - extract T
+            if name == "Result" && !args.is_empty() {
+                Some(args[0].clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        match target_ty {
+            Some(target) => {
+                // Verify TryFrom<String> is implemented for target type
+                if !self.type_implements_try_from(&target, &Type::Primitive(PrimitiveType::String)) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "the trait `TryFrom<String>` is not implemented for `{}`",
+                            self.format_type(&target)
+                        ),
+                        span: span.clone(),
+                    });
+                }
+                // Record the resolved type for codegen
+                self.tcx.type_resolution.insert(
+                    (span.range.start, span.range.end),
+                    self.format_type(&target),
+                );
+                // parse() returns Result<TargetType, String>
+                Type::Named {
+                    name: "Result".to_string(),
+                    args: vec![target, Type::Primitive(PrimitiveType::String)],
+                }
+            }
+            None => {
+                self.tcx.errors.push(SemanticError {
+                    message: "type annotations needed: cannot infer type for `.parse()`\n\
+                              help: consider using turbofish syntax: `.parse::<i32>()`"
+                        .to_string(),
+                    span: span.clone(),
+                });
+                Type::Primitive(PrimitiveType::Unit)
+            }
+        }
+    }
+
+    /// Handle .try_into() method call: value.try_into() -> Result<TargetType, Error>
+    fn check_try_into_method(
+        &mut self,
+        receiver: &Expr,
+        type_args: &[TypeExpr],
+        expected: Option<&Type>,
+        span: &husk_ast::Span,
+    ) -> Type {
+        let receiver_ty = self.check_expr(receiver);
+
+        // Resolve target type from turbofish or expected type
+        let target_ty = if !type_args.is_empty() {
+            Some(self.tcx.resolve_type_expr(&type_args[0], &[]))
+        } else if let Some(Type::Named { name, args }) = expected {
+            if name == "Result" && !args.is_empty() {
+                Some(args[0].clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        match target_ty {
+            Some(target) => {
+                // Verify TryFrom<ReceiverType> is implemented for TargetType
+                if !self.type_implements_try_from(&target, &receiver_ty) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "the trait `TryFrom<{}>` is not implemented for `{}`",
+                            self.format_type(&receiver_ty),
+                            self.format_type(&target)
+                        ),
+                        span: span.clone(),
+                    });
+                }
+                // Record the resolved type for codegen
+                self.tcx.type_resolution.insert(
+                    (span.range.start, span.range.end),
+                    self.format_type(&target),
+                );
+                Type::Named {
+                    name: "Result".to_string(),
+                    args: vec![target, Type::Primitive(PrimitiveType::String)],
+                }
+            }
+            None => {
+                self.tcx.errors.push(SemanticError {
+                    message: "type annotations needed: cannot infer type for `.try_into()`\n\
+                              help: consider using turbofish syntax: `.try_into::<TargetType>()`"
+                        .to_string(),
+                    span: span.clone(),
+                });
+                Type::Primitive(PrimitiveType::Unit)
+            }
+        }
+    }
+
+    /// Check if TargetType implements From<SourceType>
+    fn type_implements_from(&self, target: &Type, source: &Type) -> bool {
+        // Check in impl blocks for impl From<Source> for Target
+        let target_name = self.format_type(target);
+        let source_name = self.format_type(source);
+
+        for impl_info in &self.tcx.env.impls {
+            if impl_info.self_ty_name == target_name {
+                if let Some(trait_name) = &impl_info.trait_name {
+                    // Check if this is impl From<source> for target
+                    let expected_trait = format!("From<{}>", source_name);
+                    if trait_name == &expected_trait {
+                        return true;
+                    }
+                    // Also check for generic From<T> implementations
+                    if trait_name.starts_with("From<") && trait_name.ends_with(">") {
+                        let inner = &trait_name[5..trait_name.len() - 1];
+                        // If inner is a single uppercase letter, it's a type parameter
+                        if inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_uppercase()) {
+                            return true;
+                        }
+                        // Also match if inner equals source_name
+                        if inner == source_name {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if TargetType implements TryFrom<SourceType>
+    fn type_implements_try_from(&self, target: &Type, source: &Type) -> bool {
+        let target_name = self.format_type(target);
+        let source_name = self.format_type(source);
+
+        for impl_info in &self.tcx.env.impls {
+            if impl_info.self_ty_name == target_name {
+                if let Some(trait_name) = &impl_info.trait_name {
+                    let expected_trait = format!("TryFrom<{}>", source_name);
+                    if trait_name == &expected_trait {
+                        return true;
+                    }
+                    // Check for generic TryFrom<T> implementations
+                    if trait_name.starts_with("TryFrom<") && trait_name.ends_with(">") {
+                        let inner = &trait_name[8..trait_name.len() - 1];
+                        if inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_uppercase()) {
+                            return true;
+                        }
+                        if inner == source_name {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Check a closure expression and return its function type.
@@ -3455,6 +3753,7 @@ mod tests {
                     kind: ExprKind::Ident(express_ident.clone()),
                     span: express_ident.span.clone(),
                 }),
+                type_args: vec![],
                 args: vec![],
             },
             span: Span { range: 30..40 },
@@ -3476,6 +3775,7 @@ mod tests {
                     kind: ExprKind::Ident(express_ident.clone()),
                     span: express_ident.span.clone(),
                 }),
+                type_args: vec![],
                 args: vec![Expr {
                     kind: ExprKind::Literal(Literal {
                         kind: LiteralKind::Int(42),
@@ -3503,6 +3803,7 @@ mod tests {
                     kind: ExprKind::Ident(express_ident.clone()),
                     span: express_ident.span.clone(),
                 }),
+                type_args: vec![],
                 args: vec![
                     Expr {
                         kind: ExprKind::Literal(Literal {
@@ -4426,6 +4727,291 @@ fn test(s: String) -> String {
         assert!(
             result.type_errors.is_empty(),
             "expected no type errors for parseLong returning i64, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    // =====================================================================
+    // Type Inference Tests (From/Into traits, turbofish syntax)
+    // =====================================================================
+
+    #[test]
+    fn into_with_type_annotation_infers_target() {
+        // let s: String = 42.into();
+        let src = r#"fn foo() { let s: String = 42.into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .into() with type annotation, got: {:?}",
+            result.type_errors
+        );
+        // Check that type_resolution recorded the target type
+        assert!(
+            !result.type_resolution.is_empty(),
+            "expected type_resolution to have entries for .into() call"
+        );
+    }
+
+    #[test]
+    fn into_with_turbofish_explicit_type() {
+        // let s = 42.into::<String>();
+        let src = r#"fn foo() { let s = 42.into::<String>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .into::<String>() turbofish, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_without_type_context_errors() {
+        // let s = 42.into(); // Cannot infer target type
+        let src = r#"fn foo() { let s = 42.into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for .into() without type context"
+        );
+        let err_msg = format!("{:?}", result.type_errors);
+        assert!(
+            err_msg.contains("cannot infer type"),
+            "expected 'cannot infer type' error, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn parse_with_turbofish_for_i32() {
+        // let n = "123".parse::<i32>();
+        let src = r#"fn foo() { let n = "123".parse::<i32>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .parse::<i32>(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn parse_with_turbofish_for_f64() {
+        // let n = "3.14".parse::<f64>();
+        let src = r#"fn foo() { let n = "3.14".parse::<f64>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .parse::<f64>(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn parse_without_turbofish_errors() {
+        // let n = "123".parse(); // Missing type argument
+        let src = r#"fn foo() { let n = "123".parse(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for .parse() without type argument"
+        );
+    }
+
+    #[test]
+    fn into_i32_to_i64_widening() {
+        // let x: i64 = 42.into();
+        let src = r#"fn foo() { let x: i64 = 42.into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for i32 to i64 .into(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_i32_to_f64_widening() {
+        // let x: f64 = 42.into();
+        let src = r#"fn foo() { let x: f64 = 42.into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for i32 to f64 .into(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_bool_to_string() {
+        // let s: String = true.into();
+        let src = r#"fn foo() { let s: String = true.into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for bool to String .into(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_invalid_conversion_errors() {
+        // let x: i32 = "hello".into(); // No From<String> for i32
+        let src = r#"fn foo() { let x: i32 = "hello".into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for invalid .into() conversion"
+        );
+    }
+
+    #[test]
+    fn parse_for_non_string_errors() {
+        // let n = 42.parse::<i32>(); // parse only works on String
+        let src = r#"fn foo() { let n = 42.parse::<i32>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected type error for .parse() on non-String"
+        );
+    }
+
+    #[test]
+    fn type_resolution_records_correct_target() {
+        // Verify that the type resolution map contains the correct resolved type
+        let src = r#"fn foo() { let s: String = 42.into(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty());
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(result.type_errors.is_empty());
+
+        // Find the entry in type_resolution - should be "String"
+        let has_string_target = result
+            .type_resolution
+            .values()
+            .any(|v| v == "String");
+        assert!(
+            has_string_target,
+            "expected type_resolution to contain 'String', got: {:?}",
+            result.type_resolution
+        );
+    }
+
+    #[test]
+    fn parse_returns_result_type() {
+        // Verify that parse returns Result<T, String>
+        let src = r#"
+            fn foo() {
+                let n = "123".parse::<i32>();
+                match n {
+                    Result::Ok(v) => v,
+                    Result::Err(e) => 0,
+                }
+            }
+        "#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for parse result matching, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_in_function_argument() {
+        // fn takes_string(s: String) {}
+        // takes_string(42.into());
+        let src = r#"
+            fn takes_string(s: String) {}
+            fn foo() { takes_string(42.into()); }
+        "#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .into() in function argument, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_in_return_position() {
+        // fn to_string() -> String { 42.into() }
+        let src = r#"fn to_string() -> String { 42.into() }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .into() in return position, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn into_with_i64_turbofish() {
+        // let x = 42.into::<i64>();
+        let src = r#"fn foo() { let x = 42.into::<i64>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .into::<i64>() turbofish, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn parse_i64_turbofish() {
+        // let x = "123".parse::<i64>();
+        let src = r#"fn foo() { let x = "123".parse::<i64>(); }"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for .parse::<i64>(), got: {:?}",
             result.type_errors
         );
     }
