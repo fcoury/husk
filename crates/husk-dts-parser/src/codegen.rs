@@ -603,7 +603,7 @@ impl<'a> Codegen<'a> {
 
                         self.indexers.entry(i.name.clone()).or_default().push(
                             GeneratedIndexer {
-                                key_name: idx.key_name.clone(),
+                                key_name: escape_keyword(&idx.key_name),
                                 key_type,
                                 value_type,
                                 is_readonly: idx.readonly,
@@ -1386,8 +1386,10 @@ impl<'a> Codegen<'a> {
     /// recognizes these and emits `obj[key]` and `obj[key] = value` respectively.
     fn emit_callable_and_indexer_methods(&mut self, type_name: &str) {
         // Emit callables as `__call__` method (special name recognized by JS codegen)
+        // Only emit the first callable - multiple call signatures (overloads) would produce
+        // duplicate `__call__` methods which is invalid Husk. Warn about skipped overloads.
         if let Some(callables) = self.callables.get(type_name) {
-            for callable in callables {
+            if let Some(callable) = callables.first() {
                 writeln!(self.output, "    // Callable interface - use __call__() to invoke as obj(args)").unwrap();
                 write!(self.output, "    extern \"js\" fn __call__(self").unwrap();
 
@@ -1401,13 +1403,26 @@ impl<'a> Codegen<'a> {
                 }
 
                 writeln!(self.output, ";").unwrap();
+
+                // Warn about skipped overloads
+                if callables.len() > 1 {
+                    self.warn(
+                        WarningKind::Simplified,
+                        format!(
+                            "{} has {} call signature overloads, only first emitted as __call__",
+                            type_name,
+                            callables.len()
+                        ),
+                    );
+                }
             }
         }
 
         // Emit indexers as `__index__` and `__index_set__` methods
         // JS codegen recognizes these and emits obj[key] / obj[key] = value
+        // Only emit the first indexer - multiple index signatures would produce duplicates.
         if let Some(indexers) = self.indexers.get(type_name) {
-            for idx in indexers {
+            if let Some(idx) = indexers.first() {
                 writeln!(self.output, "    // Indexer - use __index__() for obj[key] access").unwrap();
                 writeln!(
                     self.output,
@@ -1423,6 +1438,18 @@ impl<'a> Codegen<'a> {
                         idx.key_name, idx.key_type, idx.value_type
                     )
                     .unwrap();
+                }
+
+                // Warn about skipped indexers
+                if indexers.len() > 1 {
+                    self.warn(
+                        WarningKind::Simplified,
+                        format!(
+                            "{} has {} index signatures, only first emitted as __index__/__index_set__",
+                            type_name,
+                            indexers.len()
+                        ),
+                    );
                 }
             }
         }

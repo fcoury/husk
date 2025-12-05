@@ -218,6 +218,42 @@ fn render() -> JsValue {
     );
 }
 
+#[test]
+fn jsx_fragment_with_single_child() {
+    // Single-child fragments should use _jsx (not _jsxs) and preserve the Fragment
+    let src = r#"
+fn render() -> JsValue {
+    <><span /></>
+}
+"#;
+    let js = compile_to_js(src);
+    assert!(
+        js.contains("Fragment"),
+        "single-child fragment should preserve Fragment"
+    );
+    assert!(
+        js.contains("_jsx(Fragment"),
+        "single-child fragment uses _jsx, not _jsxs"
+    );
+}
+
+#[test]
+fn jsx_nested_fragment() {
+    // Nested fragments should be preserved, not flattened away
+    // This is important for React reconciliation and DevTools
+    let src = r#"
+fn render() -> JsValue {
+    <div><><span /></></div>
+}
+"#;
+    let js = compile_to_js(src);
+    // The output should have a nested Fragment inside the div
+    assert!(
+        js.contains("Fragment"),
+        "nested fragment should be preserved in output"
+    );
+}
+
 // ============================================================================
 // JSX Component Tests
 // ============================================================================

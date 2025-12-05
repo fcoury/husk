@@ -107,6 +107,17 @@ describe("JSX Fragments", () => {
     expect(element.type).toBe(Fragment);
   });
 
+  test("fragment with single child uses _jsx", () => {
+    // Husk: <><span /></>
+    // Single child should use _jsx (not _jsxs) and NOT wrap in array
+    const element = _jsx(Fragment, {
+      children: _jsx("span", {}),
+    });
+    expect(element.type).toBe(Fragment);
+    // Single child is passed directly, not as an array
+    expect(element.props.children.type).toBe("span");
+  });
+
   test("fragment with children", () => {
     // Husk: <><div /><span /></>
     const element = _jsxs(Fragment, {
@@ -114,6 +125,19 @@ describe("JSX Fragments", () => {
     });
     expect(element.type).toBe(Fragment);
     expect(element.props.children).toHaveLength(2);
+  });
+
+  test("nested fragment is preserved", () => {
+    // Husk: <div><><span /></></div>
+    // The nested fragment should be preserved, not flattened away
+    const element = _jsx("div", {
+      children: _jsx(Fragment, {
+        children: _jsx("span", {}),
+      }),
+    });
+    expect(element.type).toBe("div");
+    expect(element.props.children.type).toBe(Fragment);
+    expect(element.props.children.props.children.type).toBe("span");
   });
 });
 

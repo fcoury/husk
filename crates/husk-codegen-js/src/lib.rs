@@ -2479,14 +2479,33 @@ fn lower_jsx_child(child: &JsxChild, ctx: &CodegenContext) -> Option<JsExpr> {
         JsxChild::Element(element) => Some(lower_jsx_element(element, ctx)),
         JsxChild::Expression(expr) => Some(lower_expr(expr, ctx)),
         JsxChild::Fragment(children, _) => {
-            // Fragment children are flattened
+            // Fragments must be preserved in output - React's automatic runtime always
+            // emits Fragment elements. Removing them would change reconciliation semantics
+            // (e.g., keyed fragments, React DevTools representation).
             let child_exprs = lower_jsx_children(children, ctx);
             if child_exprs.is_empty() {
-                None
+                // Empty fragment: _jsx(Fragment, {})
+                Some(JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+                    args: vec![
+                        JsExpr::Ident("Fragment".to_string()),
+                        JsExpr::Object(vec![]),
+                    ],
+                })
             } else if child_exprs.len() == 1 {
-                child_exprs.into_iter().next()
+                // Single child: _jsx(Fragment, { children: <child> }) - no array wrapper
+                Some(JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+                    args: vec![
+                        JsExpr::Ident("Fragment".to_string()),
+                        JsExpr::Object(vec![(
+                            "children".to_string(),
+                            child_exprs.into_iter().next().unwrap(),
+                        )]),
+                    ],
+                })
             } else {
-                // Wrap in a Fragment call
+                // Multiple children: _jsxs(Fragment, { children: [...] })
                 Some(JsExpr::Call {
                     callee: Box::new(JsExpr::Ident("_jsxs".to_string())),
                     args: vec![
