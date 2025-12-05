@@ -28,6 +28,20 @@ impl Trivia {
     pub fn is_comment(&self) -> bool {
         matches!(self, Trivia::LineComment(_))
     }
+
+    /// Returns true if this trivia is a documentation comment (starts with `/// `).
+    pub fn is_doc_comment(&self) -> bool {
+        matches!(self, Trivia::LineComment(s) if s.starts_with("/// "))
+    }
+
+    /// Extract doc content from a doc comment, removing the `/// ` prefix.
+    /// Returns None if this is not a doc comment.
+    pub fn doc_content(&self) -> Option<&str> {
+        match self {
+            Trivia::LineComment(s) if s.starts_with("/// ") => Some(&s[4..]),
+            _ => None,
+        }
+    }
 }
 
 /// List of all Husk keywords.

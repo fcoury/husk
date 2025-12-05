@@ -80,6 +80,12 @@ impl Document {
 
     /// Get the word at a given byte offset.
     pub fn word_at_offset(&self, offset: usize) -> Option<String> {
+        self.word_span_at_offset(offset).map(|(word, _, _)| word)
+    }
+
+    /// Get the word and its span at a given byte offset.
+    /// Returns (word, start_offset, end_offset) if found.
+    pub fn word_span_at_offset(&self, offset: usize) -> Option<(String, usize, usize)> {
         if offset >= self.text.len() {
             return None;
         }
@@ -107,7 +113,7 @@ impl Document {
             return None;
         }
 
-        Some(self.text[start..end].to_string())
+        Some((self.text[start..end].to_string(), start, end))
     }
 }
 
