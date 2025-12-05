@@ -563,6 +563,9 @@ fn substitute_type_param(ty: &Type, param: &str, replacement: &Type) -> Type {
                 ret: Box::new(substitute_type_param(ret, param, replacement)),
             }
         }
+        Type::Tuple(elements) => {
+            Type::Tuple(elements.iter().map(|e| substitute_type_param(e, param, replacement)).collect())
+        }
         Type::Primitive(_) | Type::Var(_) => ty.clone(),
     }
 }
