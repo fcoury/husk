@@ -503,7 +503,7 @@ fn run_compile(
     if source_map {
         // Generate with source map
         let source_path = Path::new(path);
-        let module = lower_file_to_js_with_source(&file, !lib, js_target, Some(&content), Some(source_path), &semantic.name_resolution);
+        let module = lower_file_to_js_with_source(&file, !lib, js_target, Some(&content), Some(source_path), &semantic.name_resolution, &semantic.type_resolution);
         let source_file = Path::new(path)
             .file_name()
             .and_then(|s| s.to_str())
@@ -546,7 +546,7 @@ fn run_compile(
     } else {
         // Standard output (no source map)
         let source_path = Path::new(path);
-        let module = lower_file_to_js_with_source(&file, !lib, js_target, None, Some(source_path), &semantic.name_resolution);
+        let module = lower_file_to_js_with_source(&file, !lib, js_target, None, Some(source_path), &semantic.name_resolution, &semantic.type_resolution);
         let js = module.to_source_with_preamble();
 
         if let Some(output_path) = output {
@@ -1059,6 +1059,7 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         Some(&content),
         Some(entry_path),
         &semantic.name_resolution,
+        &semantic.type_resolution,
     );
     let js = module.to_source_with_preamble();
 
@@ -1283,7 +1284,7 @@ fn run_build(
 
     if source_map {
         // Generate with source map
-        let module = lower_file_to_js_with_source(&filtered_ast, !lib, codegen_target, Some(&content), Some(&entry_path), &semantic.name_resolution);
+        let module = lower_file_to_js_with_source(&filtered_ast, !lib, codegen_target, Some(&content), Some(&entry_path), &semantic.name_resolution, &semantic.type_resolution);
         let source_file = entry_path
             .file_name()
             .and_then(|s| s.to_str())
@@ -1312,7 +1313,7 @@ fn run_build(
         }
     } else {
         // No source map
-        let module = lower_file_to_js(&filtered_ast, !lib, codegen_target, &semantic.name_resolution);
+        let module = lower_file_to_js(&filtered_ast, !lib, codegen_target, &semantic.name_resolution, &semantic.type_resolution);
         let js = module.to_source_with_preamble();
 
         if let Err(err) = fs::write(&js_file, &js) {
@@ -1577,7 +1578,7 @@ fn run_test(
 
     // Compile to JS with lib mode (don't auto-call main)
     let source_path = Path::new(&path);
-    let module = lower_file_to_js_with_source(&file_ast, false, JsTarget::Cjs, None, Some(source_path), &semantic.name_resolution);
+    let module = lower_file_to_js_with_source(&file_ast, false, JsTarget::Cjs, None, Some(source_path), &semantic.name_resolution, &semantic.type_resolution);
     let js_code = module.to_source_with_preamble();
 
     // Build test harness that runs each test

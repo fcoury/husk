@@ -12,7 +12,7 @@ use husk_ast::{
     TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
-use husk_semantic::NameResolution;
+use husk_semantic::{NameResolution, TypeResolution};
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
@@ -60,6 +60,7 @@ struct PropertyAccessors {
 /// - Property accessors for extern type method rewrites
 /// - Source file path for compile-time operations like include_str
 /// - Name resolution for variable shadowing
+/// - Type resolution for conversion methods (.into(), .parse(), .try_into())
 #[derive(Debug, Clone)]
 struct CodegenContext<'a> {
     /// Property accessors for extern types
@@ -69,14 +70,22 @@ struct CodegenContext<'a> {
     /// Name resolution map from semantic analysis for variable shadowing.
     /// Maps (span_start, span_end) -> resolved_name (e.g., "x", "x$1", "x$2")
     name_resolution: &'a NameResolution,
+    /// Type resolution map from semantic analysis for conversion methods.
+    /// Maps (span_start, span_end) -> type_name (e.g., "String", "i32")
+    type_resolution: &'a TypeResolution,
 }
 
 impl<'a> CodegenContext<'a> {
-    fn new(accessors: &'a PropertyAccessors, name_resolution: &'a NameResolution) -> Self {
+    fn new(
+        accessors: &'a PropertyAccessors,
+        name_resolution: &'a NameResolution,
+        type_resolution: &'a TypeResolution,
+    ) -> Self {
         Self {
             accessors,
             source_path: None,
             name_resolution,
+            type_resolution,
         }
     }
 
@@ -84,11 +93,13 @@ impl<'a> CodegenContext<'a> {
         accessors: &'a PropertyAccessors,
         source_path: &'a Path,
         name_resolution: &'a NameResolution,
+        type_resolution: &'a TypeResolution,
     ) -> Self {
         Self {
             accessors,
             source_path: Some(source_path),
             name_resolution,
+            type_resolution,
         }
     }
 
@@ -382,13 +393,16 @@ pub enum JsTarget {
 ///
 /// `name_resolution` provides the mapping from variable spans to resolved names
 /// for handling variable shadowing. Use an empty HashMap if shadowing is not needed.
+/// `type_resolution` provides the mapping from expression spans to resolved types
+/// for type-dependent operations like .into(), .parse(), .try_into().
 pub fn lower_file_to_js(
     file: &File,
     call_main: bool,
     target: JsTarget,
     name_resolution: &NameResolution,
+    type_resolution: &TypeResolution,
 ) -> JsModule {
-    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution)
+    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution, type_resolution)
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
@@ -398,6 +412,8 @@ pub fn lower_file_to_js(
 /// relative file paths.
 /// `name_resolution` provides the mapping from variable spans to resolved names
 /// for handling variable shadowing.
+/// `type_resolution` provides the mapping from expression spans to resolved types
+/// for type-dependent operations like .into(), .parse(), .try_into().
 pub fn lower_file_to_js_with_source(
     file: &File,
     call_main: bool,
@@ -405,6 +421,7 @@ pub fn lower_file_to_js_with_source(
     source: Option<&str>,
     source_path: Option<&Path>,
     name_resolution: &NameResolution,
+    type_resolution: &TypeResolution,
 ) -> JsModule {
     use std::collections::HashSet;
 
@@ -507,10 +524,10 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
-    // Create codegen context with accessors, optional source path, and name resolution
+    // Create codegen context with accessors, optional source path, name resolution, and type resolution
     let ctx = match source_path {
-        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution),
-        None => CodegenContext::new(&accessors, name_resolution),
+        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution, type_resolution),
+        None => CodegenContext::new(&accessors, name_resolution, type_resolution),
     };
 
     // First pass: collect module imports
@@ -1133,6 +1150,114 @@ fn strip_variadic_suffix(method_name: &str) -> String {
     }
 }
 
+/// Generate JavaScript code for type conversion methods (.into(), .parse(), .try_into()).
+///
+/// Based on the target type, generates the appropriate JavaScript conversion:
+/// - `.into()` for infallible conversions (From trait)
+/// - `.parse()` for parsing strings (TryFrom<String>)
+/// - `.try_into()` for fallible conversions (TryFrom trait)
+fn lower_conversion_method(
+    receiver: &Expr,
+    method_name: &str,
+    target_type: &str,
+    ctx: &CodegenContext,
+) -> JsExpr {
+    let receiver_js = lower_expr(receiver, ctx);
+
+    match method_name {
+        "into" => {
+            // Generate infallible conversion based on target type
+            match target_type {
+                "String" => {
+                    // value.into() -> String(value)
+                    // Use String() constructor to avoid issues with number literals like `42.toString()`
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("String".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                "i64" => {
+                    // value.into() -> BigInt(value)
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("BigInt".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                "f64" => {
+                    // value.into() -> Number(value)
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("Number".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                _ => {
+                    // For other types, just return the value (identity conversion or user-defined)
+                    receiver_js
+                }
+            }
+        }
+        "parse" => {
+            // Generate parsing conversion based on target type
+            // Returns Result<TargetType, String>
+            let parse_call = match target_type {
+                "i32" => {
+                    // "str".parse::<i32>() -> __husk_parse_i32(str)
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_parse_i32".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                "i64" => {
+                    // "str".parse::<i64>() -> __husk_parse_i64(str)
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_parse_i64".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                "f64" => {
+                    // "str".parse::<f64>() -> __husk_parse_f64(str)
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_parse_f64".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                _ => {
+                    // Unsupported parse target - return error Result
+                    JsExpr::Object(vec![
+                        ("tag".to_string(), JsExpr::String("Err".to_string())),
+                        (
+                            "value".to_string(),
+                            JsExpr::String(format!("cannot parse to {}", target_type)),
+                        ),
+                    ])
+                }
+            };
+            parse_call
+        }
+        "try_into" => {
+            // Generate fallible conversion based on target type
+            // Returns Result<TargetType, String>
+            match target_type {
+                "i32" => {
+                    // value.try_into::<i32>() -> __husk_try_into_i32(value)
+                    JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_try_into_i32".to_string())),
+                        args: vec![receiver_js],
+                    }
+                }
+                _ => {
+                    // For other types, wrap in Ok
+                    JsExpr::Object(vec![
+                        ("tag".to_string(), JsExpr::String("Ok".to_string())),
+                        ("value".to_string(), receiver_js),
+                    ])
+                }
+            }
+        }
+        _ => receiver_js,
+    }
+}
+
 fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
     match &expr.kind {
         ExprKind::Literal(lit) => match &lit.kind {
@@ -1178,6 +1303,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
         ExprKind::MethodCall {
             receiver,
             method,
+            type_args: _, // Turbofish types are used for semantic analysis, not codegen
             args,
         } => {
             // Try to determine receiver type for getter/setter lookup.
@@ -1233,6 +1359,14 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 };
             }
 
+            // Handle type conversion methods (.into(), .parse(), .try_into())
+            // The semantic phase records the resolved target type in type_resolution
+            if (method_name == "into" || method_name == "parse" || method_name == "try_into") && args.is_empty() {
+                if let Some(target_type) = ctx.type_resolution.get(&(expr.span.range.start, expr.span.range.end)) {
+                    return lower_conversion_method(receiver, method_name, target_type, ctx);
+                }
+            }
+
             // Default: emit as a regular method call
             // Strip numeric suffix for variadic function emulation (run1, run2, run3 -> run)
             let js_method_name = strip_variadic_suffix(&method.name);
@@ -1244,7 +1378,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
             }
         }
-        ExprKind::Call { callee, args } => {
+        ExprKind::Call { callee, type_args: _, args } => {
             // Handle built-in functions like println -> console.log
             if let ExprKind::Ident(ref id) = callee.kind {
                 if id.name == "println" {
@@ -3059,7 +3193,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -3157,7 +3292,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution));
+        let empty_type_resolution = HashMap::new();
+        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution, &empty_type_resolution));
         let mut out = String::new();
         write_expr(&js, &mut out);
 
@@ -3198,7 +3334,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -3396,7 +3533,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(src.contains("function parse"));
@@ -3470,7 +3608,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         // Check for ESM imports at the top
@@ -3507,7 +3646,8 @@ mod tests {
             items: vec![main_fn],
         };
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(src.contains("export { main }"));
@@ -3563,7 +3703,8 @@ mod tests {
         };
 
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(src.contains("const express = require(\"express\");"));
@@ -3606,7 +3747,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3670,7 +3812,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3706,7 +3849,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -3754,7 +3898,8 @@ mod tests {
             items: vec![main_fn],
         };
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(
@@ -3812,7 +3957,8 @@ mod tests {
             items: vec![main_fn],
         };
         let empty_resolution = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution);
         let src = module.to_source();
 
         assert!(
@@ -3844,7 +3990,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_break = lower_stmt(&break_stmt, &ctx);
         let js_continue = lower_stmt(&continue_stmt, &ctx);
@@ -3884,6 +4031,7 @@ mod tests {
         let call_expr = husk_ast::Expr {
             kind: HuskExprKind::Call {
                 callee: Box::new(callee),
+                type_args: vec![],
                 args: vec![arg],
             },
             span: span(0, 16),
@@ -3891,7 +4039,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -3943,6 +4092,7 @@ mod tests {
         let call_expr = husk_ast::Expr {
             kind: HuskExprKind::Call {
                 callee: Box::new(callee),
+                type_args: vec![],
                 args: vec![arg1, arg2],
             },
             span: span(0, 18),
@@ -3950,7 +4100,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -3987,7 +4138,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_expr = lower_expr(&path_expr, &ctx);
 
@@ -4057,7 +4209,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
 
@@ -4127,7 +4280,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
 
@@ -4188,7 +4342,8 @@ mod tests {
 
         let accessors = PropertyAccessors::default();
         let empty_resolution = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+        let empty_type_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution);
 
         let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
 

@@ -1441,6 +1441,18 @@ impl<'src> Parser<'src> {
                     span: Span { range: start..end },
                 })
             }
+            // Self type (capital S) - used in trait definitions
+            TokenKind::Keyword(Keyword::SelfType) => {
+                self.advance();
+                let span = self.ast_span_from(&tok.span);
+                Some(TypeExpr {
+                    kind: TypeExprKind::Named(Ident {
+                        name: "Self".to_string(),
+                        span: span.clone(),
+                    }),
+                    span,
+                })
+            }
             TokenKind::Ident(ref name) => {
                 self.advance();
                 let ident = Ident {
@@ -2162,7 +2174,7 @@ impl<'src> Parser<'src> {
                     }
                 }
 
-                // Regular function call
+                // Regular function call (no turbofish in this path since we already matched LParen)
                 let args = self.parse_argument_list();
                 let span = Span {
                     range: expr.span.range.start..self.previous().span.range.end,
@@ -2170,6 +2182,7 @@ impl<'src> Parser<'src> {
                 expr = Expr {
                     kind: ExprKind::Call {
                         callee: Box::new(expr),
+                        type_args: Vec::new(),
                         args,
                     },
                     span,
@@ -2191,8 +2204,15 @@ impl<'src> Parser<'src> {
                     }
                 };
 
+                // Check for turbofish: expr.ident::<Type, ...>(args)
+                let type_args = if self.matches_token(&TokenKind::ColonColon) {
+                    self.parse_turbofish_type_args()
+                } else {
+                    Vec::new()
+                };
+
                 if self.matches_token(&TokenKind::LParen) {
-                    // Method call: expr.ident(args...)
+                    // Method call: expr.ident(args...) or expr.ident::<T>(args...)
                     let args = self.parse_argument_list();
                     let span = Span {
                         range: expr.span.range.start..self.previous().span.range.end,
@@ -2201,10 +2221,15 @@ impl<'src> Parser<'src> {
                         kind: ExprKind::MethodCall {
                             receiver: Box::new(expr),
                             method: ident,
+                            type_args,
                             args,
                         },
                         span,
                     };
+                } else if !type_args.is_empty() {
+                    // Turbofish without call - error or allow as partial application?
+                    self.error_here("expected `(` after turbofish type arguments");
+                    break;
                 } else {
                     // Field access: expr.ident
                     let span = Span {
@@ -2389,6 +2414,34 @@ impl<'src> Parser<'src> {
             }
         }
         args
+    }
+
+    /// Parse turbofish type arguments: `::<Type, Type, ...>`.
+    /// Called after `::` has been consumed. Expects `<` next.
+    fn parse_turbofish_type_args(&mut self) -> Vec<TypeExpr> {
+        if !self.matches_token(&TokenKind::Lt) {
+            self.error_here("expected `<` after `::` in turbofish");
+            return Vec::new();
+        }
+
+        let mut type_args = Vec::new();
+        loop {
+            if let Some(ty) = self.parse_type_expr() {
+                type_args.push(ty);
+            } else {
+                break;
+            }
+
+            if self.matches_token(&TokenKind::Gt) {
+                break;
+            }
+            if !self.matches_token(&TokenKind::Comma) {
+                self.error_here("expected `,` or `>` in turbofish type arguments");
+                break;
+            }
+        }
+
+        type_args
     }
 
     /// Try to parse a println/print call as a FormatPrint expression.
@@ -4301,7 +4354,7 @@ mod tests {
             if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
                 // Should be: Cast(Call(foo, []), i32)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
-                    if let ExprKind::Call { callee, args } = &expr.kind {
+                    if let ExprKind::Call { callee, type_args: _, args } = &expr.kind {
                         if let ExprKind::Ident(ident) = &callee.kind {
                             assert_eq!(ident.name, "foo");
                         } else {
@@ -4536,6 +4589,85 @@ fn test() {
                 }
             } else {
                 panic!("expected Loop statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_turbofish_method_call() {
+        // Method call with turbofish: "123".parse::<i32>()
+        let src = r#"fn main() { let n = "123".parse::<i32>(); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::MethodCall {
+                    receiver,
+                    method,
+                    type_args,
+                    args,
+                } = &val.kind
+                {
+                    // Receiver should be "123" literal
+                    assert!(matches!(
+                        &receiver.kind,
+                        ExprKind::Literal(husk_ast::Literal {
+                            kind: husk_ast::LiteralKind::String(s),
+                            ..
+                        }) if s == "123"
+                    ));
+                    // Method should be parse
+                    assert_eq!(method.name, "parse");
+                    // Should have one type arg: i32
+                    assert_eq!(type_args.len(), 1);
+                    if let husk_ast::TypeExprKind::Named(ident) = &type_args[0].kind {
+                        assert_eq!(ident.name, "i32");
+                    } else {
+                        panic!("expected Named type i32");
+                    }
+                    // Should have no args
+                    assert!(args.is_empty());
+                } else {
+                    panic!("expected MethodCall, got {:?}", val.kind);
+                }
+            } else {
+                panic!("expected Let with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_turbofish_with_multiple_type_args() {
+        // Method call with multiple turbofish types
+        let src = r#"fn main() { let x = foo.bar::<i32, String, f64>(); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+                if let ExprKind::MethodCall { type_args, .. } = &val.kind {
+                    assert_eq!(type_args.len(), 3);
+                    let names: Vec<_> = type_args
+                        .iter()
+                        .filter_map(|ty| {
+                            if let husk_ast::TypeExprKind::Named(ident) = &ty.kind {
+                                Some(ident.name.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(names, vec!["i32", "String", "f64"]);
+                } else {
+                    panic!("expected MethodCall");
+                }
+            } else {
+                panic!("expected Let with value");
             }
         } else {
             panic!("expected Fn item");

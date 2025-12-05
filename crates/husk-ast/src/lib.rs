@@ -118,6 +118,9 @@ pub enum ExprKind {
     },
     Call {
         callee: Box<Expr>,
+        /// Turbofish type arguments: `foo::<i32, String>(x)`.
+        /// Empty if no explicit type arguments provided.
+        type_args: Vec<TypeExpr>,
         args: Vec<Expr>,
     },
     Field {
@@ -127,6 +130,9 @@ pub enum ExprKind {
     MethodCall {
         receiver: Box<Expr>,
         method: Ident,
+        /// Turbofish type arguments: `x.parse::<i32>()`.
+        /// Empty if no explicit type arguments provided.
+        type_args: Vec<TypeExpr>,
         args: Vec<Expr>,
     },
     Unary {

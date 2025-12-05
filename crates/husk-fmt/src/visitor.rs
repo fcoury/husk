@@ -1102,8 +1102,18 @@ impl<'a> Formatter<'a> {
                     self.write(&segment.name);
                 }
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, type_args, args } => {
                 self.format_expr(callee);
+                if !type_args.is_empty() {
+                    self.write("::<");
+                    for (i, ty) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.format_type(ty);
+                    }
+                    self.write(">");
+                }
                 self.write("(");
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -1121,11 +1131,22 @@ impl<'a> Formatter<'a> {
             ExprKind::MethodCall {
                 receiver,
                 method,
+                type_args,
                 args,
             } => {
                 self.format_expr(receiver);
                 self.write(".");
                 self.write(&method.name);
+                if !type_args.is_empty() {
+                    self.write("::<");
+                    for (i, ty) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.format_type(ty);
+                    }
+                    self.write(">");
+                }
                 self.write("(");
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {

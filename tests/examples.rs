@@ -43,7 +43,7 @@ fn examples_codegen() {
         };
         let sem = analyze_file(&file);
         if sem.symbols.errors.is_empty() && sem.type_errors.is_empty() {
-            let module = lower_file_to_js(&file, true, JsTarget::Cjs);
+            let module = lower_file_to_js(&file, true, JsTarget::Cjs, &sem.name_resolution, &sem.type_resolution);
             let _js = module.to_source_with_preamble();
         }
     }

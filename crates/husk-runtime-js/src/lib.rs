@@ -23,7 +23,7 @@ function Ok(value) {
 }
 
 function Err(error) {
-    return { tag: "Err", error };
+    return { tag: "Err", value: error };
 }
 
 function panic(message) {
@@ -434,6 +434,54 @@ function __husk_expect(value, message) {
     }
     // Not a Result/Option, return as-is
     return value;
+}
+
+// Parse string to i32, returns Result<i32, String>
+function __husk_parse_i32(str) {
+    var n = parseInt(str, 10);
+    if (isNaN(n)) {
+        return { tag: "Err", value: "invalid digit found in string" };
+    }
+    if (n < -2147483648 || n > 2147483647) {
+        return { tag: "Err", value: "number too large or too small for i32" };
+    }
+    return { tag: "Ok", value: n };
+}
+
+// Parse string to i64, returns Result<i64, String>
+function __husk_parse_i64(str) {
+    try {
+        var n = BigInt(str);
+        return { tag: "Ok", value: n };
+    } catch (e) {
+        return { tag: "Err", value: "invalid digit found in string" };
+    }
+}
+
+// Parse string to f64, returns Result<f64, String>
+function __husk_parse_f64(str) {
+    var n = parseFloat(str);
+    if (isNaN(n) && str.trim() !== "NaN") {
+        return { tag: "Err", value: "invalid float literal" };
+    }
+    return { tag: "Ok", value: n };
+}
+
+// Try to convert i64 to i32, returns Result<i32, String>
+function __husk_try_into_i32(value) {
+    var n;
+    if (typeof value === "bigint") {
+        if (value < -2147483648n || value > 2147483647n) {
+            return { tag: "Err", value: "out of range integral type conversion" };
+        }
+        n = Number(value);
+    } else {
+        n = value;
+        if (n < -2147483648 || n > 2147483647) {
+            return { tag: "Err", value: "out of range integral type conversion" };
+        }
+    }
+    return { tag: "Ok", value: n | 0 };
 }
 "#
 }

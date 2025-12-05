@@ -18,6 +18,144 @@ enum Result<T, E> {
 }
 
 // ============================================================================
+// Conversion Traits
+// ============================================================================
+
+// Trait for infallible type conversions.
+//
+// Used to convert a value from one type to another. If `From<T>` is
+// implemented for `U`, then `T` can be converted to `U` using `U::from(value)`
+// or `value.into()` (via the blanket impl of `Into`).
+//
+// Example:
+//   let s: String = String::from(42);   // explicit From
+//   let s: String = 42.into();          // using Into (requires type annotation)
+trait From<T> {
+    fn from(value: T) -> Self;
+}
+
+// Trait for infallible type conversions (consuming self).
+//
+// This is the reciprocal of `From<T>`. Calling `.into()` on a value converts
+// it to the target type. The target type must be inferrable from context
+// (type annotation, return type, etc.) or specified with turbofish syntax.
+//
+// Note: The compiler provides a blanket impl: if `U: From<T>`, then `T: Into<U>`.
+// You should generally implement `From` rather than `Into` directly.
+trait Into<T> {
+    fn into(self) -> T;
+}
+
+// Trait for fallible type conversions.
+//
+// Used when a conversion might fail. Returns `Result<Self, Self::Error>`.
+//
+// Example:
+//   let n: Result<i32, String> = i32::try_from("123");
+//   let n: Result<i32, String> = "123".try_into();
+trait TryFrom<T> {
+    // Note: Associated types are not yet fully supported, so we use String
+    // as the default error type for now.
+    fn try_from(value: T) -> Result<Self, String>;
+}
+
+// Trait for fallible type conversions (consuming self).
+//
+// This is the reciprocal of `TryFrom<T>`.
+trait TryInto<T> {
+    fn try_into(self) -> Result<T, String>;
+}
+
+// ============================================================================
+// Standard From/Into Implementations
+// ============================================================================
+
+// String conversions (infallible)
+impl From<i32> for String {
+    fn from(value: i32) -> String {
+        // Implemented by codegen as String(value) in JS
+        value.toString()
+    }
+}
+
+impl From<i64> for String {
+    fn from(value: i64) -> String {
+        value.toString()
+    }
+}
+
+impl From<f64> for String {
+    fn from(value: f64) -> String {
+        value.toString()
+    }
+}
+
+impl From<bool> for String {
+    fn from(value: bool) -> String {
+        value.toString()
+    }
+}
+
+// Numeric widening conversions (infallible)
+impl From<i32> for i64 {
+    fn from(value: i32) -> i64 {
+        value as i64
+    }
+}
+
+impl From<i32> for f64 {
+    fn from(value: i32) -> f64 {
+        value as f64
+    }
+}
+
+impl From<i64> for f64 {
+    fn from(value: i64) -> f64 {
+        value as f64
+    }
+}
+
+// ============================================================================
+// Standard TryFrom/TryInto Implementations
+// ============================================================================
+
+// Parse string to i32
+impl TryFrom<String> for i32 {
+    fn try_from(value: String) -> Result<i32, String> {
+        // Implemented by codegen as parseInt with error handling
+        let n = parseInt(value);
+        // Note: parseInt returns NaN for invalid input
+        // This will be handled in codegen with proper JS NaN check
+        Result::Ok(n)
+    }
+}
+
+// Parse string to i64
+impl TryFrom<String> for i64 {
+    fn try_from(value: String) -> Result<i64, String> {
+        let n = parseLong(value);
+        Result::Ok(n)
+    }
+}
+
+// Parse string to f64
+impl TryFrom<String> for f64 {
+    fn try_from(value: String) -> Result<f64, String> {
+        let n = parseFloat(value);
+        Result::Ok(n)
+    }
+}
+
+// Narrowing conversion (may overflow)
+impl TryFrom<i64> for i32 {
+    fn try_from(value: i64) -> Result<i32, String> {
+        // Check if value fits in i32 range
+        // Implemented by codegen with proper bounds check
+        Result::Ok(value as i32)
+    }
+}
+
+// ============================================================================
 // Comparison Traits
 // ============================================================================
 
