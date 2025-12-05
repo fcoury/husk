@@ -985,7 +985,15 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             name: ctx.resolve_name(&name.name, &name.span),
             init: value.as_ref().map(|e| lower_expr(e, ctx)),
         },
-        StmtKind::Expr(expr) | StmtKind::Semi(expr) => JsStmt::Expr(lower_expr(expr, ctx)),
+        StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
+            // Special case: match expressions in statement position should be lowered
+            // to if/else statements, not ternary expressions. This allows break/continue
+            // to work properly in match arms.
+            if let ExprKind::Match { scrutinee, arms } = &expr.kind {
+                return lower_match_stmt(scrutinee, arms, ctx);
+            }
+            JsStmt::Expr(lower_expr(expr, ctx))
+        }
         StmtKind::Return { value } => {
             let expr = value
                 .as_ref()
@@ -1281,6 +1289,30 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     };
                 }
             }
+
+            // Handle enum variant construction: Option::Some(x) -> {tag: "Some", value: x}
+            if let ExprKind::Path { segments } = &callee.kind {
+                let variant = segments
+                    .last()
+                    .map(|id| id.name.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                let mut fields = vec![("tag".to_string(), JsExpr::String(variant))];
+
+                // Add the value(s) based on argument count
+                if args.len() == 1 {
+                    // Single argument: { tag: "Variant", value: arg }
+                    fields.push(("value".to_string(), lower_expr(&args[0], ctx)));
+                } else {
+                    // Multiple arguments: { tag: "Variant", "0": arg0, "1": arg1, ... }
+                    for (i, arg) in args.iter().enumerate() {
+                        fields.push((i.to_string(), lower_expr(arg, ctx)));
+                    }
+                }
+
+                return JsExpr::Object(fields);
+            }
+
             JsExpr::Call {
                 callee: Box::new(lower_expr(callee, ctx)),
                 args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
@@ -1839,7 +1871,7 @@ fn lower_match_expr(
     // For a catch-all (wildcard or binding) arm, we treat its body as the final `else`.
     fn pattern_test(pattern: &husk_ast::Pattern, scrutinee_js: &JsExpr) -> Option<JsExpr> {
         match &pattern.kind {
-            PatternKind::EnumUnit { path } => {
+            PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
                 // Use the last path segment as the variant tag string.
                 let variant = path
                     .last()
@@ -1856,8 +1888,63 @@ fn lower_match_expr(
                 })
             }
             PatternKind::Wildcard | PatternKind::Binding(_) => None,
-            // Tuple/struct patterns are not yet supported in codegen.
-            PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => None,
+            PatternKind::EnumStruct { .. } => None,
+        }
+    }
+
+    // Extract bindings from an enum tuple pattern.
+    // Returns a list of (binding_name, accessor) pairs.
+    fn extract_bindings(
+        pattern: &husk_ast::Pattern,
+        scrutinee_js: &JsExpr,
+    ) -> Vec<(String, JsExpr)> {
+        match &pattern.kind {
+            PatternKind::EnumTuple { fields, .. } => {
+                let mut bindings = Vec::new();
+                for (i, field) in fields.iter().enumerate() {
+                    if let PatternKind::Binding(ident) = &field.kind {
+                        // For single-field tuple, use .value; for multi-field, use ["0"], ["1"], etc.
+                        let accessor = if fields.len() == 1 {
+                            JsExpr::Member {
+                                object: Box::new(scrutinee_js.clone()),
+                                property: "value".to_string(),
+                            }
+                        } else {
+                            JsExpr::Index {
+                                object: Box::new(scrutinee_js.clone()),
+                                index: Box::new(JsExpr::String(i.to_string())),
+                            }
+                        };
+                        bindings.push((ident.name.clone(), accessor));
+                    }
+                }
+                bindings
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    // Lower an arm body, potentially wrapping it with let bindings for enum tuple patterns.
+    fn lower_arm_body(
+        arm: &husk_ast::MatchArm,
+        scrutinee_js: &JsExpr,
+        ctx: &CodegenContext,
+    ) -> JsExpr {
+        let bindings = extract_bindings(&arm.pattern, scrutinee_js);
+        if bindings.is_empty() {
+            lower_expr(&arm.expr, ctx)
+        } else {
+            // Wrap in an IIFE to introduce bindings:
+            // (function() { let x = scrutinee.value; return <body>; })()
+            let mut body = Vec::new();
+            for (name, accessor) in bindings {
+                body.push(JsStmt::Let {
+                    name,
+                    init: Some(accessor),
+                });
+            }
+            body.push(JsStmt::Return(lower_expr(&arm.expr, ctx)));
+            JsExpr::Iife { body }
         }
     }
 
@@ -1868,11 +1955,11 @@ fn lower_match_expr(
     // Start from the last arm as the innermost expression.
     let mut iter = arms.iter().rev();
     let last_arm = iter.next().unwrap();
-    let mut acc = lower_expr(&last_arm.expr, ctx);
+    let mut acc = lower_arm_body(last_arm, &scrutinee_js, ctx);
 
     for arm in iter {
         if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
-            let then_expr = lower_expr(&arm.expr, ctx);
+            let then_expr = lower_arm_body(arm, &scrutinee_js, ctx);
             acc = JsExpr::Conditional {
                 test: Box::new(test),
                 then_branch: Box::new(then_expr),
@@ -1880,11 +1967,143 @@ fn lower_match_expr(
             };
         } else {
             // Catch-all arm: replace accumulator with its expression.
-            acc = lower_expr(&arm.expr, ctx);
+            acc = lower_arm_body(arm, &scrutinee_js, ctx);
         }
     }
 
     acc
+}
+
+/// Lower a match expression to if/else statements (for use in statement position).
+/// This allows break/continue in match arms to work correctly.
+fn lower_match_stmt(
+    scrutinee: &Expr,
+    arms: &[husk_ast::MatchArm],
+    ctx: &CodegenContext,
+) -> JsStmt {
+    use husk_ast::PatternKind;
+
+    let scrutinee_js = lower_expr(scrutinee, ctx);
+
+    // Generate condition for pattern matching
+    fn pattern_test(pattern: &husk_ast::Pattern, scrutinee_js: &JsExpr) -> Option<JsExpr> {
+        match &pattern.kind {
+            PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
+                let variant = path
+                    .last()
+                    .map(|id| id.name.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                let tag_access = JsExpr::Member {
+                    object: Box::new(scrutinee_js.clone()),
+                    property: "tag".to_string(),
+                };
+                Some(JsExpr::Binary {
+                    op: JsBinaryOp::EqEq,
+                    left: Box::new(tag_access),
+                    right: Box::new(JsExpr::String(variant)),
+                })
+            }
+            PatternKind::Wildcard | PatternKind::Binding(_) => None,
+            PatternKind::EnumStruct { .. } => None,
+        }
+    }
+
+    // Extract bindings from pattern
+    fn extract_bindings(
+        pattern: &husk_ast::Pattern,
+        scrutinee_js: &JsExpr,
+    ) -> Vec<(String, JsExpr)> {
+        match &pattern.kind {
+            PatternKind::EnumTuple { fields, .. } => {
+                let mut bindings = Vec::new();
+                for (i, field) in fields.iter().enumerate() {
+                    if let PatternKind::Binding(ident) = &field.kind {
+                        let accessor = if fields.len() == 1 {
+                            JsExpr::Member {
+                                object: Box::new(scrutinee_js.clone()),
+                                property: "value".to_string(),
+                            }
+                        } else {
+                            JsExpr::Index {
+                                object: Box::new(scrutinee_js.clone()),
+                                index: Box::new(JsExpr::String(i.to_string())),
+                            }
+                        };
+                        bindings.push((ident.name.clone(), accessor));
+                    }
+                }
+                bindings
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    // Lower arm body to statements, including any pattern bindings
+    fn lower_arm_body_stmts(
+        arm: &husk_ast::MatchArm,
+        scrutinee_js: &JsExpr,
+        ctx: &CodegenContext,
+    ) -> Vec<JsStmt> {
+        let bindings = extract_bindings(&arm.pattern, scrutinee_js);
+        let mut stmts = Vec::new();
+
+        // Add let bindings for pattern variables
+        for (name, accessor) in bindings {
+            stmts.push(JsStmt::Let {
+                name,
+                init: Some(accessor),
+            });
+        }
+
+        // Lower the arm expression - if it's a block, expand its statements
+        match &arm.expr.kind {
+            ExprKind::Block(block) => {
+                for stmt in &block.stmts {
+                    stmts.push(lower_stmt(stmt, ctx));
+                }
+            }
+            _ => {
+                stmts.push(JsStmt::Expr(lower_expr(&arm.expr, ctx)));
+            }
+        }
+
+        stmts
+    }
+
+    if arms.is_empty() {
+        return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+    }
+
+    // Build nested if/else chain from arms
+    let mut result: Option<JsStmt> = None;
+
+    for arm in arms.iter().rev() {
+        let body = lower_arm_body_stmts(arm, &scrutinee_js, ctx);
+
+        if let Some(test) = pattern_test(&arm.pattern, &scrutinee_js) {
+            let else_block = result.map(|s| vec![s]);
+            result = Some(JsStmt::If {
+                cond: test,
+                then_block: body,
+                else_block,
+            });
+        } else {
+            // Catch-all arm - just use its body as the innermost else
+            // For simplicity, wrap in a block-like structure
+            if body.len() == 1 {
+                result = Some(body.into_iter().next().unwrap());
+            } else {
+                // Multiple statements - wrap in if(true) for now
+                result = Some(JsStmt::If {
+                    cond: JsExpr::Bool(true),
+                    then_block: body,
+                    else_block: None,
+                });
+            }
+        }
+    }
+
+    result.unwrap_or_else(|| JsStmt::Expr(JsExpr::Ident("undefined".to_string())))
 }
 
 impl JsModule {
@@ -3617,5 +3836,375 @@ mod tests {
             matches!(js_continue, JsStmt::Continue),
             "expected JsStmt::Continue"
         );
+    }
+
+    #[test]
+    fn lowers_enum_variant_with_single_arg_to_tagged_object() {
+        // Test that Option::Some(x) generates {tag: "Some", value: x}
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: Option::Some(42)
+        let callee = husk_ast::Expr {
+            kind: HuskExprKind::Path {
+                segments: vec![ident("Option", 0), ident("Some", 8)],
+            },
+            span: span(0, 12),
+        };
+
+        let arg = husk_ast::Expr {
+            kind: HuskExprKind::Literal(HuskLiteral {
+                kind: HuskLiteralKind::Int(42),
+                span: span(13, 15),
+            }),
+            span: span(13, 15),
+        };
+
+        let call_expr = husk_ast::Expr {
+            kind: HuskExprKind::Call {
+                callee: Box::new(callee),
+                args: vec![arg],
+            },
+            span: span(0, 16),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_expr = lower_expr(&call_expr, &ctx);
+
+        // Should be an object with tag and value fields
+        if let JsExpr::Object(fields) = js_expr {
+            assert_eq!(fields.len(), 2, "expected 2 fields (tag and value)");
+            assert_eq!(fields[0].0, "tag");
+            assert!(matches!(&fields[0].1, JsExpr::String(s) if s == "Some"));
+            assert_eq!(fields[1].0, "value");
+            assert!(matches!(&fields[1].1, JsExpr::Number(42)));
+        } else {
+            panic!("expected JsExpr::Object, got {:?}", js_expr);
+        }
+    }
+
+    #[test]
+    fn lowers_enum_variant_with_multiple_args_to_indexed_object() {
+        // Test that MyEnum::Pair(a, b) generates {tag: "Pair", "0": a, "1": b}
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: MyEnum::Pair(1, 2)
+        let callee = husk_ast::Expr {
+            kind: HuskExprKind::Path {
+                segments: vec![ident("MyEnum", 0), ident("Pair", 8)],
+            },
+            span: span(0, 12),
+        };
+
+        let arg1 = husk_ast::Expr {
+            kind: HuskExprKind::Literal(HuskLiteral {
+                kind: HuskLiteralKind::Int(1),
+                span: span(13, 14),
+            }),
+            span: span(13, 14),
+        };
+
+        let arg2 = husk_ast::Expr {
+            kind: HuskExprKind::Literal(HuskLiteral {
+                kind: HuskLiteralKind::Int(2),
+                span: span(16, 17),
+            }),
+            span: span(16, 17),
+        };
+
+        let call_expr = husk_ast::Expr {
+            kind: HuskExprKind::Call {
+                callee: Box::new(callee),
+                args: vec![arg1, arg2],
+            },
+            span: span(0, 18),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_expr = lower_expr(&call_expr, &ctx);
+
+        // Should be an object with tag and indexed fields
+        if let JsExpr::Object(fields) = js_expr {
+            assert_eq!(fields.len(), 3, "expected 3 fields (tag, 0, 1)");
+            assert_eq!(fields[0].0, "tag");
+            assert!(matches!(&fields[0].1, JsExpr::String(s) if s == "Pair"));
+            assert_eq!(fields[1].0, "0");
+            assert!(matches!(&fields[1].1, JsExpr::Number(1)));
+            assert_eq!(fields[2].0, "1");
+            assert!(matches!(&fields[2].1, JsExpr::Number(2)));
+        } else {
+            panic!("expected JsExpr::Object, got {:?}", js_expr);
+        }
+    }
+
+    #[test]
+    fn lowers_unit_enum_variant_to_tagged_object() {
+        // Test that Option::None generates {tag: "None"}
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: Option::None (as a Path expression, not a Call)
+        let path_expr = husk_ast::Expr {
+            kind: HuskExprKind::Path {
+                segments: vec![ident("Option", 0), ident("None", 8)],
+            },
+            span: span(0, 12),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_expr = lower_expr(&path_expr, &ctx);
+
+        // Should be an object with only a tag field
+        if let JsExpr::Object(fields) = js_expr {
+            assert_eq!(fields.len(), 1, "expected 1 field (tag only)");
+            assert_eq!(fields[0].0, "tag");
+            assert!(matches!(&fields[0].1, JsExpr::String(s) if s == "None"));
+        } else {
+            panic!("expected JsExpr::Object, got {:?}", js_expr);
+        }
+    }
+
+    #[test]
+    fn lower_match_stmt_with_break() {
+        // Test that match with break generates if/else with break
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: match x { Option::Some(v) => break, Option::None => {} }
+        let scrutinee = husk_ast::Expr {
+            kind: HuskExprKind::Ident(ident("x", 0)),
+            span: span(0, 1),
+        };
+
+        let some_arm = husk_ast::MatchArm {
+            pattern: husk_ast::Pattern {
+                kind: HuskPatternKind::EnumTuple {
+                    path: vec![ident("Option", 0), ident("Some", 7)],
+                    fields: vec![husk_ast::Pattern {
+                        kind: HuskPatternKind::Binding(ident("v", 12)),
+                        span: span(12, 13),
+                    }],
+                },
+                span: span(0, 14),
+            },
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Block(husk_ast::Block {
+                    stmts: vec![husk_ast::Stmt {
+                        kind: husk_ast::StmtKind::Break,
+                        span: span(18, 23),
+                    }],
+                    span: span(17, 24),
+                }),
+                span: span(17, 24),
+            },
+        };
+
+        let none_arm = husk_ast::MatchArm {
+            pattern: husk_ast::Pattern {
+                kind: HuskPatternKind::EnumUnit {
+                    path: vec![ident("Option", 26), ident("None", 33)],
+                },
+                span: span(26, 38),
+            },
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Block(husk_ast::Block {
+                    stmts: vec![],
+                    span: span(42, 44),
+                }),
+                span: span(42, 44),
+            },
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
+
+        // Should generate: if (x.tag == "Some") { let v = x.value; break; } else if (x.tag == "None") { }
+        if let JsStmt::If {
+            cond,
+            then_block,
+            else_block,
+        } = js_stmt
+        {
+            // Check the condition is x.tag == "Some"
+            if let JsExpr::Binary { op, left, right } = cond {
+                assert!(matches!(op, JsBinaryOp::EqEq));
+                if let JsExpr::Member { property, .. } = *left {
+                    assert_eq!(property, "tag");
+                } else {
+                    panic!("expected Member access for tag");
+                }
+                assert!(matches!(*right, JsExpr::String(s) if s == "Some"));
+            } else {
+                panic!("expected Binary comparison");
+            }
+
+            // Check the then block has let v = x.value; break;
+            assert_eq!(then_block.len(), 2, "expected 2 statements (let + break)");
+            assert!(matches!(&then_block[0], JsStmt::Let { name, .. } if name == "v"));
+            assert!(matches!(&then_block[1], JsStmt::Break));
+
+            // Check there is an else block
+            assert!(else_block.is_some());
+        } else {
+            panic!("expected JsStmt::If, got {:?}", js_stmt);
+        }
+    }
+
+    #[test]
+    fn lower_match_stmt_with_continue() {
+        // Test that match with continue generates if/else with continue
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: match x { _ => continue }
+        let scrutinee = husk_ast::Expr {
+            kind: HuskExprKind::Ident(ident("x", 0)),
+            span: span(0, 1),
+        };
+
+        let wildcard_arm = husk_ast::MatchArm {
+            pattern: husk_ast::Pattern {
+                kind: HuskPatternKind::Wildcard,
+                span: span(0, 1),
+            },
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Block(husk_ast::Block {
+                    stmts: vec![husk_ast::Stmt {
+                        kind: husk_ast::StmtKind::Continue,
+                        span: span(5, 13),
+                    }],
+                    span: span(4, 14),
+                }),
+                span: span(4, 14),
+            },
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
+
+        // Wildcard match should just be the body statements
+        assert!(
+            matches!(&js_stmt, JsStmt::Continue),
+            "expected Continue, got {:?}",
+            js_stmt
+        );
+    }
+
+    #[test]
+    fn lower_match_stmt_generates_if_else_chain() {
+        // Test that match generates if/else chain, not IIFE with ternary
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: match x { Color::Red => 1, Color::Blue => 2 }
+        let scrutinee = husk_ast::Expr {
+            kind: HuskExprKind::Ident(ident("x", 0)),
+            span: span(0, 1),
+        };
+
+        let red_arm = husk_ast::MatchArm {
+            pattern: husk_ast::Pattern {
+                kind: HuskPatternKind::EnumUnit {
+                    path: vec![ident("Color", 0), ident("Red", 7)],
+                },
+                span: span(0, 10),
+            },
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Literal(husk_ast::Literal {
+                    kind: husk_ast::LiteralKind::Int(1),
+                    span: span(14, 15),
+                }),
+                span: span(14, 15),
+            },
+        };
+
+        let blue_arm = husk_ast::MatchArm {
+            pattern: husk_ast::Pattern {
+                kind: HuskPatternKind::EnumUnit {
+                    path: vec![ident("Color", 17), ident("Blue", 24)],
+                },
+                span: span(17, 28),
+            },
+            expr: husk_ast::Expr {
+                kind: HuskExprKind::Literal(husk_ast::Literal {
+                    kind: husk_ast::LiteralKind::Int(2),
+                    span: span(32, 33),
+                }),
+                span: span(32, 33),
+            },
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let ctx = CodegenContext::new(&accessors, &empty_resolution);
+
+        let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
+
+        // Should generate if/else chain
+        if let JsStmt::If {
+            cond: _,
+            then_block,
+            else_block,
+        } = js_stmt
+        {
+            // First arm body should be an expression 1
+            assert_eq!(then_block.len(), 1);
+            if let JsStmt::Expr(JsExpr::Number(n)) = &then_block[0] {
+                assert_eq!(*n, 1);
+            } else {
+                panic!("expected Expr(Number(1)), got {:?}", then_block[0]);
+            }
+
+            // Should have an else block with the second arm
+            assert!(else_block.is_some());
+            let else_stmts = else_block.unwrap();
+            assert_eq!(else_stmts.len(), 1);
+            if let JsStmt::If { then_block, .. } = &else_stmts[0] {
+                assert_eq!(then_block.len(), 1);
+                if let JsStmt::Expr(JsExpr::Number(n)) = &then_block[0] {
+                    assert_eq!(*n, 2);
+                } else {
+                    panic!("expected Expr(Number(2)), got {:?}", then_block[0]);
+                }
+            } else {
+                panic!("expected nested If for second arm");
+            }
+        } else {
+            panic!("expected JsStmt::If, got {:?}", js_stmt);
+        }
     }
 }

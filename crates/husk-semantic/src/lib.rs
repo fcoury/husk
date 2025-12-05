@@ -1087,7 +1087,7 @@ impl<'a> FnContext<'a> {
                 PatternKind::Wildcard | PatternKind::Binding(_) => {
                     has_catch_all = true;
                 }
-                PatternKind::EnumUnit { path } => {
+                PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
                     if let Some((enum_name, variant_names)) = &enum_info {
                         // Expect path like Enum::Variant
                         if path.len() == 2 && path[0].name == *enum_name {
@@ -1114,8 +1114,8 @@ impl<'a> FnContext<'a> {
                         }
                     }
                 }
-                // Tuple/struct patterns not yet used in exhaustiveness.
-                PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => {}
+                // Struct patterns not yet used in exhaustiveness.
+                PatternKind::EnumStruct { .. } => {}
             }
 
             // Type-check the arm expression in a fresh scope with any bindings from the pattern.
@@ -1193,7 +1193,26 @@ impl<'a> FnContext<'a> {
                 self.bind_variable(&id.name, scrut_ty.clone(), &id.span);
             }
             PatternKind::EnumUnit { .. } => {}
-            PatternKind::EnumTuple { .. } | PatternKind::EnumStruct { .. } => {
+            PatternKind::EnumTuple { fields, .. } => {
+                // Extract bindings from each field in the tuple pattern.
+                // For Option::Some(x), the scrutinee type is Option<T>, so x has type T.
+                // For multi-field variants, we'd need the full enum definition to get field types.
+                // For now, handle the common single-field case (Option, Result).
+                if fields.len() == 1 {
+                    // Extract inner type from Option<T> or Result<T, E>
+                    let inner_ty = match scrut_ty {
+                        Type::Named { args, .. } if !args.is_empty() => args[0].clone(),
+                        _ => scrut_ty.clone(),
+                    };
+                    self.bind_pattern_locals(&fields[0], &inner_ty, pattern_bindings);
+                } else {
+                    // Multi-field: bind each to the scrutinee type (imprecise but functional)
+                    for field in fields {
+                        self.bind_pattern_locals(field, scrut_ty, pattern_bindings);
+                    }
+                }
+            }
+            PatternKind::EnumStruct { .. } => {
                 // Not yet supported for bindings.
             }
         }
@@ -1764,9 +1783,16 @@ impl<'a> FnContext<'a> {
                             "split" => return Type::Array(Box::new(Type::Primitive(PrimitiveType::String))),
                             "trim" => return Type::Primitive(PrimitiveType::String),
                             "len" => return Type::Primitive(PrimitiveType::I32),
-                            "char_at" => return Type::Primitive(PrimitiveType::String),
+                            "char_at" | "charAt" => return Type::Primitive(PrimitiveType::String),
                             "slice" => return Type::Primitive(PrimitiveType::String),
                             "substring" => return Type::Primitive(PrimitiveType::String),
+                            "indexOf" | "lastIndexOf" => return Type::Primitive(PrimitiveType::I32),
+                            _ => {}
+                        }
+                    }
+                    Type::Primitive(PrimitiveType::I32) | Type::Primitive(PrimitiveType::F64) => {
+                        match method_name.as_str() {
+                            "toString" => return Type::Primitive(PrimitiveType::String),
                             _ => {}
                         }
                     }
@@ -1778,6 +1804,8 @@ impl<'a> FnContext<'a> {
                             "some" | "every" | "filter" => return Type::Primitive(PrimitiveType::Bool),
                             "map" => return receiver_ty.clone(), // simplified - should infer from closure
                             "reduce" => return (**elem_ty).clone(),
+                            "sort" | "reverse" => return receiver_ty.clone(),
+                            "join" => return Type::Primitive(PrimitiveType::String),
                             _ => {}
                         }
                     }
@@ -4105,6 +4133,115 @@ fn main() {
         assert!(
             !result.type_errors.iter().any(|e| e.message.contains("Named {")),
             "error message should not contain debug format 'Named {{', got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_indexof_returns_i32() {
+        let src = r#"
+fn test(s: String) -> i32 {
+    s.indexOf("x")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for String.indexOf(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_lastindexof_returns_i32() {
+        let src = r#"
+fn test(s: String) -> i32 {
+    s.lastIndexOf("x")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for String.lastIndexOf(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn array_sort_returns_same_array_type() {
+        let src = r#"
+fn test(arr: [i32]) -> [i32] {
+    arr.sort()
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for [i32].sort(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn array_reverse_returns_same_array_type() {
+        let src = r#"
+fn test(arr: [String]) -> [String] {
+    arr.reverse()
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for [String].reverse(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn array_join_returns_string() {
+        let src = r#"
+fn test(arr: [String]) -> String {
+    arr.join(",")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for [String].join(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_split_sort_join_chain_returns_string() {
+        // This tests the common pattern used in the advent code
+        let src = r#"
+fn test(s: String) -> String {
+    s.split("").sort().join("")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for split().sort().join() chain, got: {:?}",
             result.type_errors
         );
     }

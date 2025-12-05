@@ -9,3 +9,96 @@ fn describe(color: Color) -> i32 {
         Color::Blue => 2,
     }
 }
+
+// Option-like enum with tuple variant
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+// Match with tuple pattern binding
+fn unwrap_or_default(result: Result<i32, String>) -> i32 {
+    match result {
+        Result::Ok(value) => value,
+        Result::Err(_msg) => 0,
+    }
+}
+
+// Match with break inside loop using Option
+fn sum_until_none(opt: Option<i32>) -> i32 {
+    // This demonstrates match with break in a loop context
+    let result = 0;
+    loop {
+        match opt {
+            Option::Some(value) => {
+                result = value;
+                break;
+            },
+            Option::None => {
+                break;
+            },
+        }
+    }
+    result
+}
+
+// String indexOf and lastIndexOf methods
+fn test_string_methods() {
+    let s = "hello world hello";
+    let first = s.indexOf("hello");
+    let last = s.lastIndexOf("hello");
+    println("First 'hello' at: {first}");
+    println("Last 'hello' at: {last}");
+}
+
+fn main() {
+    // Test basic enum match
+    let color = Color::Red;
+    let value = describe(color);
+    println("Color value: {value}");
+
+    // Test tuple pattern matching
+    let ok_result = Result::Ok(42);
+    let err_result = Result::Err("error");
+    println("Ok unwrapped: {}", unwrap_or_default(ok_result));
+    println("Err unwrapped: {}", unwrap_or_default(err_result));
+
+    // Test match with break - single iteration loop
+    let some_val = Option::Some(100);
+    let none_val = Option::None;
+    println("Some value: {}", sum_until_none(some_val));
+    println("None value: {}", sum_until_none(none_val));
+
+    // Test string methods
+    test_string_methods();
+}
+
+#[cfg(test)]
+#[test]
+fn test_describe() {
+    assert_eq(describe(Color::Red), 1);
+    assert_eq(describe(Color::Blue), 2);
+}
+
+#[cfg(test)]
+#[test]
+fn test_unwrap_or_default() {
+    assert_eq(unwrap_or_default(Result::Ok(42)), 42);
+    assert_eq(unwrap_or_default(Result::Err("error")), 0);
+}
+
+#[cfg(test)]
+#[test]
+fn test_sum_until_none() {
+    assert_eq(sum_until_none(Option::Some(42)), 42);
+    assert_eq(sum_until_none(Option::None), 0);
+}
+
+#[cfg(test)]
+#[test]
+fn test_string_index_methods() {
+    let s = "hello world hello";
+    assert_eq(s.indexOf("hello"), 0);
+    assert_eq(s.lastIndexOf("hello"), 12);
+    assert_eq(s.indexOf("xyz"), -1);
+}

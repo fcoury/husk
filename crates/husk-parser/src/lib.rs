@@ -2788,6 +2788,34 @@ impl<'src> Parser<'src> {
                     kind: ExprKind::Block(block.clone()),
                     span: block.span.clone(),
                 }
+            } else if matches!(
+                self.current().kind,
+                TokenKind::Keyword(Keyword::Break) | TokenKind::Keyword(Keyword::Continue)
+            ) {
+                // Handle break/continue in match arms by wrapping in a block
+                let stmt_tok = self.current().clone();
+                let is_break =
+                    matches!(self.current().kind, TokenKind::Keyword(Keyword::Break));
+                self.advance(); // consume break or continue
+                let stmt = if is_break {
+                    Stmt {
+                        kind: StmtKind::Break,
+                        span: self.ast_span_from(&stmt_tok.span),
+                    }
+                } else {
+                    Stmt {
+                        kind: StmtKind::Continue,
+                        span: self.ast_span_from(&stmt_tok.span),
+                    }
+                };
+                let block = Block {
+                    stmts: vec![stmt],
+                    span: self.ast_span_from(&stmt_tok.span),
+                };
+                Expr {
+                    kind: ExprKind::Block(block.clone()),
+                    span: block.span.clone(),
+                }
             } else {
                 self.parse_expr()?
             };
@@ -2829,6 +2857,20 @@ impl<'src> Parser<'src> {
                 if path.len() == 1 {
                     // Single identifier: treat as binding pattern.
                     PatternKind::Binding(path.pop().unwrap())
+                } else if self.matches_token(&TokenKind::LParen) {
+                    // Enum tuple pattern: Enum::Variant(x, y)
+                    let mut fields = Vec::new();
+                    while !self.is_at_end() && self.current().kind != TokenKind::RParen {
+                        fields.push(self.parse_pattern()?);
+                        if !self.matches_token(&TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    if !self.matches_token(&TokenKind::RParen) {
+                        self.error_here("expected `)` after enum tuple pattern fields");
+                        return None;
+                    }
+                    PatternKind::EnumTuple { path, fields }
                 } else {
                     // Enum unit pattern: Enum::Variant
                     PatternKind::EnumUnit { path }
@@ -4320,6 +4362,180 @@ mod tests {
                 }
             } else {
                 panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_enum_tuple_pattern_single_binding() {
+        // Option::Some(x) should parse as EnumTuple pattern with one binding
+        let src = r#"
+fn test(opt: Option<i32>) -> i32 {
+    match opt {
+        Option::Some(x) => x,
+        Option::None => 0,
+    }
+}
+"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Expr(expr) = &body[0].kind {
+                if let ExprKind::Match { arms, .. } = &expr.kind {
+                    // First arm should be Option::Some(x)
+                    if let PatternKind::EnumTuple { path, fields } = &arms[0].pattern.kind {
+                        assert_eq!(path.len(), 2);
+                        assert_eq!(path[0].name, "Option");
+                        assert_eq!(path[1].name, "Some");
+                        assert_eq!(fields.len(), 1);
+                        if let PatternKind::Binding(id) = &fields[0].kind {
+                            assert_eq!(id.name, "x");
+                        } else {
+                            panic!("expected Binding pattern in tuple field");
+                        }
+                    } else {
+                        panic!("expected EnumTuple pattern, got {:?}", arms[0].pattern.kind);
+                    }
+                } else {
+                    panic!("expected Match expression");
+                }
+            } else {
+                panic!("expected Expr statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_enum_tuple_pattern_result_variants() {
+        // Result::Ok(val) and Result::Err(msg) patterns
+        let src = r#"
+fn test(r: Result<i32, String>) -> i32 {
+    match r {
+        Result::Ok(val) => val,
+        Result::Err(msg) => 0,
+    }
+}
+"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Expr(expr) = &body[0].kind {
+                if let ExprKind::Match { arms, .. } = &expr.kind {
+                    // First arm should be Result::Ok(val)
+                    if let PatternKind::EnumTuple { path, fields } = &arms[0].pattern.kind {
+                        assert_eq!(path[1].name, "Ok");
+                        assert_eq!(fields.len(), 1);
+                        if let PatternKind::Binding(id) = &fields[0].kind {
+                            assert_eq!(id.name, "val");
+                        } else {
+                            panic!("expected Binding pattern");
+                        }
+                    } else {
+                        panic!("expected EnumTuple pattern");
+                    }
+                    // Second arm should be Result::Err(msg)
+                    if let PatternKind::EnumTuple { path, fields } = &arms[1].pattern.kind {
+                        assert_eq!(path[1].name, "Err");
+                        assert_eq!(fields.len(), 1);
+                        if let PatternKind::Binding(id) = &fields[0].kind {
+                            assert_eq!(id.name, "msg");
+                        } else {
+                            panic!("expected Binding pattern");
+                        }
+                    } else {
+                        panic!("expected EnumTuple pattern");
+                    }
+                } else {
+                    panic!("expected Match expression");
+                }
+            } else {
+                panic!("expected Expr statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_break_in_match_arm() {
+        // break in a match arm should be wrapped in a block expression
+        let src = r#"
+fn test(opt: Option<i32>) {
+    loop {
+        match opt {
+            Option::Some(x) => x,
+            Option::None => break,
+        }
+    }
+}
+"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Loop { body: loop_body } = &body[0].kind {
+                if let StmtKind::Expr(match_expr) = &loop_body.stmts[0].kind {
+                    if let ExprKind::Match { arms, .. } = &match_expr.kind {
+                        // Second arm should have break wrapped in a block
+                        if let ExprKind::Block(block) = &arms[1].expr.kind {
+                            assert_eq!(block.stmts.len(), 1);
+                            assert!(matches!(block.stmts[0].kind, StmtKind::Break));
+                        } else {
+                            panic!("expected Block expression for break arm, got {:?}", arms[1].expr.kind);
+                        }
+                    } else {
+                        panic!("expected Match expression");
+                    }
+                } else {
+                    panic!("expected Expr statement in loop");
+                }
+            } else {
+                panic!("expected Loop statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_continue_in_match_arm() {
+        // continue in a match arm should be wrapped in a block expression
+        let src = r#"
+fn test() {
+    loop {
+        match x {
+            _ => continue,
+        }
+    }
+}
+"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Loop { body: loop_body } = &body[0].kind {
+                if let StmtKind::Expr(match_expr) = &loop_body.stmts[0].kind {
+                    if let ExprKind::Match { arms, .. } = &match_expr.kind {
+                        if let ExprKind::Block(block) = &arms[0].expr.kind {
+                            assert_eq!(block.stmts.len(), 1);
+                            assert!(matches!(block.stmts[0].kind, StmtKind::Continue));
+                        } else {
+                            panic!("expected Block expression for continue arm");
+                        }
+                    } else {
+                        panic!("expected Match expression");
+                    }
+                } else {
+                    panic!("expected Expr statement in loop");
+                }
+            } else {
+                panic!("expected Loop statement");
             }
         } else {
             panic!("expected Fn item");
