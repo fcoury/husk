@@ -590,6 +590,8 @@ impl ExternProperty {
 /// A method in an impl block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplMethod {
+    /// Attributes on this method (e.g., #[js_name = "..."])
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub receiver: Option<SelfReceiver>,
     pub params: Vec<Param>,
@@ -597,6 +599,16 @@ pub struct ImplMethod {
     pub body: Vec<Stmt>,
     /// If true, this is an `extern "js" fn` declaration (no body, direct JS call)
     pub is_extern: bool,
+}
+
+impl ImplMethod {
+    /// Returns the JS name if specified via #[js_name = "..."], otherwise None.
+    pub fn js_name(&self) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|a| a.name.name == "js_name")
+            .and_then(|a| a.value.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

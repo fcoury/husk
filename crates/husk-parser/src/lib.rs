@@ -1112,6 +1112,7 @@ impl<'src> Parser<'src> {
             let end = self.previous().span.range.end;
             Some(ImplItem {
                 kind: ImplItemKind::Method(ImplMethod {
+                    attributes,
                     name,
                     receiver,
                     params,
@@ -1129,6 +1130,7 @@ impl<'src> Parser<'src> {
             let end = body_block.span.range.end;
             Some(ImplItem {
                 kind: ImplItemKind::Method(ImplMethod {
+                    attributes,
                     name,
                     receiver,
                     params,
