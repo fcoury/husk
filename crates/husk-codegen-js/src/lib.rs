@@ -117,12 +117,6 @@ impl<'a> CodegenContext<'a> {
         }
     }
 
-    /// Look up a variant pattern at the given span.
-    /// Returns Some((enum_name, variant_name)) if this pattern is an imported variant.
-    fn get_variant_pattern(&self, span: &Span) -> Option<&(String, String)> {
-        self.variant_patterns.get(&(span.range.start, span.range.end))
-    }
-
     /// Get the resolved name for a variable at the given span.
     /// Returns the original name if not found in resolution map.
     fn resolve_name(&self, name: &str, span: &Span) -> String {
@@ -4468,6 +4462,111 @@ mod tests {
             }
         } else {
             panic!("expected JsStmt::If, got {:?}", js_stmt);
+        }
+    }
+
+    #[test]
+    fn lowers_imported_unit_variant() {
+        // Test: use Option::*; let x = None;
+        // Should generate: {tag: "None"}
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        let none_ident = ident("None", 0);
+        let none_expr = husk_ast::Expr {
+            kind: HuskExprKind::Ident(none_ident.clone()),
+            span: none_ident.span.clone(),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let empty_type_resolution = HashMap::new();
+        let mut variant_calls = HashMap::new();
+        variant_calls.insert((0, 4), ("Option".to_string(), "None".to_string()));
+        let empty_variant_patterns = HashMap::new();
+
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &variant_calls,
+            &empty_variant_patterns,
+        );
+
+        let js_expr = lower_expr(&none_expr, &ctx);
+
+        if let JsExpr::Object(fields) = js_expr {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].0, "tag");
+            assert!(matches!(&fields[0].1, JsExpr::String(s) if s == "None"));
+        } else {
+            panic!("expected JsExpr::Object, got {:?}", js_expr);
+        }
+    }
+
+    #[test]
+    fn lowers_imported_variant_constructor() {
+        // Test: use Option::*; let x = Some(42);
+        // Should generate: {tag: "Some", value: 42}
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build: Some(42) where Some is an imported variant
+        let some_ident = ident("Some", 0);
+        let callee = husk_ast::Expr {
+            kind: HuskExprKind::Ident(some_ident.clone()),
+            span: some_ident.span.clone(),
+        };
+
+        let arg = husk_ast::Expr {
+            kind: HuskExprKind::Literal(HuskLiteral {
+                kind: HuskLiteralKind::Int(42),
+                span: span(5, 7),
+            }),
+            span: span(5, 7),
+        };
+
+        let call_expr = husk_ast::Expr {
+            kind: HuskExprKind::Call {
+                callee: Box::new(callee),
+                type_args: vec![],
+                args: vec![arg],
+            },
+            span: span(0, 8),
+        };
+
+        let accessors = PropertyAccessors::default();
+        let empty_resolution = HashMap::new();
+        let empty_type_resolution = HashMap::new();
+        let mut variant_calls = HashMap::new();
+        // Register the call span as an imported variant
+        variant_calls.insert((0, 8), ("Option".to_string(), "Some".to_string()));
+        let empty_variant_patterns = HashMap::new();
+
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &variant_calls,
+            &empty_variant_patterns,
+        );
+
+        let js_expr = lower_expr(&call_expr, &ctx);
+
+        if let JsExpr::Object(fields) = js_expr {
+            assert_eq!(fields.len(), 2, "expected 2 fields (tag and value)");
+            assert_eq!(fields[0].0, "tag");
+            assert!(matches!(&fields[0].1, JsExpr::String(s) if s == "Some"));
+            assert_eq!(fields[1].0, "value");
+            assert!(matches!(&fields[1].1, JsExpr::Number(42)));
+        } else {
+            panic!("expected JsExpr::Object, got {:?}", js_expr);
         }
     }
 }
