@@ -223,6 +223,17 @@ pub fn offset_to_line_col(source: &str, offset: usize) -> (u32, u32) {
     (line, col)
 }
 
+/// Pattern element for array destructuring (supports nesting).
+#[derive(Debug, Clone, PartialEq)]
+pub enum DestructurePattern {
+    /// A simple binding: `a`
+    Binding(String),
+    /// A wildcard/ignored position: `_` (not actually bound)
+    Wildcard,
+    /// A nested array pattern: `[a, b]`
+    Array(Vec<DestructurePattern>),
+}
+
 /// JavaScript statements (subset).
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsStmt {
@@ -248,8 +259,8 @@ pub enum JsStmt {
     Return(JsExpr),
     /// `let name = expr;`
     Let { name: String, init: Option<JsExpr> },
-    /// `let [name1, name2, ...] = expr;` (array destructuring)
-    LetDestructure { names: Vec<String>, init: Option<JsExpr> },
+    /// `let [pattern, ...] = expr;` (array destructuring, supports nesting)
+    LetDestructure { pattern: Vec<DestructurePattern>, init: Option<JsExpr> },
     /// Expression statement: `expr;`
     Expr(JsExpr),
     /// `try { ... } catch (e) { ... }`
@@ -1181,6 +1192,22 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
     }
 }
 
+/// Convert a Husk pattern to a JS destructure pattern (supports nesting).
+fn pattern_to_destructure(pattern: &Pattern, ctx: &CodegenContext) -> DestructurePattern {
+    match &pattern.kind {
+        PatternKind::Binding(name) => {
+            DestructurePattern::Binding(ctx.resolve_name(&name.name, &name.span))
+        }
+        PatternKind::Wildcard => DestructurePattern::Wildcard,
+        PatternKind::Tuple { fields } => {
+            let elements = fields.iter().map(|p| pattern_to_destructure(p, ctx)).collect();
+            DestructurePattern::Array(elements)
+        }
+        // For other patterns (enum patterns, etc.), treat as wildcard
+        _ => DestructurePattern::Wildcard,
+    }
+}
+
 /// Lower a let statement with a pattern (handles both simple identifiers and tuple patterns).
 fn lower_let_pattern(pattern: &Pattern, value: Option<&Expr>, ctx: &CodegenContext) -> JsStmt {
     match &pattern.kind {
@@ -1192,32 +1219,15 @@ fn lower_let_pattern(pattern: &Pattern, value: Option<&Expr>, ctx: &CodegenConte
             }
         }
         PatternKind::Tuple { fields } => {
-            // Tuple pattern: let (a, b, c) = expr;
-            // For now, only support simple bindings - reject nested patterns
-            let mut names: Vec<String> = Vec::new();
-            for p in fields {
-                match &p.kind {
-                    PatternKind::Binding(name) => {
-                        names.push(ctx.resolve_name(&name.name, &name.span));
-                    }
-                    PatternKind::Wildcard => {
-                        // Use a placeholder that JS will ignore
-                        names.push("_".to_string());
-                    }
-                    _ => {
-                        // Nested patterns not yet supported in let destructuring
-                        // Fall back to evaluating the expression
-                        return if let Some(e) = value {
-                            JsStmt::Expr(lower_expr(e, ctx))
-                        } else {
-                            JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
-                        };
-                    }
-                }
-            }
+            // Tuple pattern: let (a, b, c) = expr; or let ((a, b), c) = expr;
+            // Convert to JS array destructuring with nested support
+            let elements: Vec<DestructurePattern> = fields
+                .iter()
+                .map(|p| pattern_to_destructure(p, ctx))
+                .collect();
 
             JsStmt::LetDestructure {
-                names,
+                pattern: elements,
                 init: value.map(|e| lower_expr(e, ctx)),
             }
         }
@@ -2786,16 +2796,10 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             }
             out.push(';');
         }
-        JsStmt::LetDestructure { names, init } => {
+        JsStmt::LetDestructure { pattern, init } => {
             indent(indent_level, out);
-            out.push_str("let [");
-            for (i, name) in names.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                out.push_str(name);
-            }
-            out.push(']');
+            out.push_str("let ");
+            write_destructure_pattern_list(pattern, out);
             if let Some(expr) = init {
                 out.push_str(" = ");
                 write_expr(expr, out);
@@ -2945,6 +2949,29 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             out.push_str("continue;");
         }
     }
+}
+
+/// Write a single destructure pattern element (binding, wildcard, or nested array).
+fn write_destructure_pattern(pattern: &DestructurePattern, out: &mut String) {
+    match pattern {
+        DestructurePattern::Binding(name) => out.push_str(name),
+        DestructurePattern::Wildcard => out.push('_'),
+        DestructurePattern::Array(elements) => {
+            write_destructure_pattern_list(elements, out);
+        }
+    }
+}
+
+/// Write an array destructure pattern like `[a, [b, c], _]`.
+fn write_destructure_pattern_list(patterns: &[DestructurePattern], out: &mut String) {
+    out.push('[');
+    for (i, pat) in patterns.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        write_destructure_pattern(pat, out);
+    }
+    out.push(']');
 }
 
 fn write_expr(expr: &JsExpr, out: &mut String) {
@@ -4770,5 +4797,72 @@ mod tests {
         } else {
             panic!("expected JsExpr::Object, got {:?}", js_expr);
         }
+    }
+
+    #[test]
+    fn nested_tuple_destructuring_generates_nested_array_pattern() {
+        // Test that let ((a, b), c) = expr; generates let [[a, b], c] = expr;
+        use DestructurePattern::*;
+
+        let pattern = vec![
+            Array(vec![Binding("a".to_string()), Binding("b".to_string())]),
+            Binding("c".to_string()),
+        ];
+
+        let stmt = JsStmt::LetDestructure {
+            pattern,
+            init: Some(JsExpr::Ident("expr".to_string())),
+        };
+
+        let mut out = String::new();
+        write_stmt(&stmt, 0, &mut out);
+
+        assert_eq!(out, "let [[a, b], c] = expr;");
+    }
+
+    #[test]
+    fn deeply_nested_tuple_destructuring() {
+        // Test that let (((a, b), c), d) = expr; generates let [[[a, b], c], d] = expr;
+        use DestructurePattern::*;
+
+        let pattern = vec![
+            Array(vec![
+                Array(vec![Binding("a".to_string()), Binding("b".to_string())]),
+                Binding("c".to_string()),
+            ]),
+            Binding("d".to_string()),
+        ];
+
+        let stmt = JsStmt::LetDestructure {
+            pattern,
+            init: Some(JsExpr::Ident("expr".to_string())),
+        };
+
+        let mut out = String::new();
+        write_stmt(&stmt, 0, &mut out);
+
+        assert_eq!(out, "let [[[a, b], c], d] = expr;");
+    }
+
+    #[test]
+    fn tuple_destructuring_with_wildcards() {
+        // Test that let (a, _, c) = expr; generates let [a, _, c] = expr;
+        use DestructurePattern::*;
+
+        let pattern = vec![
+            Binding("a".to_string()),
+            Wildcard,
+            Binding("c".to_string()),
+        ];
+
+        let stmt = JsStmt::LetDestructure {
+            pattern,
+            init: Some(JsExpr::Ident("expr".to_string())),
+        };
+
+        let mut out = String::new();
+        write_stmt(&stmt, 0, &mut out);
+
+        assert_eq!(out, "let [a, _, c] = expr;");
     }
 }

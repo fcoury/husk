@@ -1,0 +1,19 @@
+// Test nested tuple destructuring
+
+fn main() {
+    // Nested tuple destructuring
+    let nested: ((i32, i32), String) = ((1, 2), "point");
+    let ((a, b), label) = nested;
+
+    // Use the destructured values to prove they exist
+    let sum = a + b;
+
+    // Deeper nesting
+    let deep: (((i32, i32), i32), String) = (((10, 20), 30), "deep");
+    let (((x, y), z), name) = deep;
+
+    let total = x + y + z;
+
+    // Just use the values
+    let check = sum + total;
+}
