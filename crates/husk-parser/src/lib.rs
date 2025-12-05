@@ -4082,7 +4082,6 @@ impl<'src> Parser<'src> {
             }
             // Expression in braces
             TokenKind::LBrace => {
-                let start = self.current().span.range.start;
                 self.advance();
                 let expr = self.parse_expr()?;
                 if !self.matches_token(&TokenKind::RBrace) {
@@ -5736,6 +5735,182 @@ fn test() {
                 assert!(else_block.is_some(), "expected else block in let-else");
             } else {
                 panic!("expected Let statement with else_block");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    // ========================================================================
+    // JSX Parser Tests
+    // ========================================================================
+
+    #[test]
+    fn parses_jsx_text_preserves_spacing() {
+        // Text like "Hello, world" should preserve exact spacing (not "Hello , world")
+        let src = r#"fn main() { let x = <div>Hello, world</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    assert_eq!(element.children.len(), 1, "should have 1 text child");
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "Hello, world", "text should preserve exact spacing");
+                    } else {
+                        panic!("expected Text child, got {:?}", element.children[0]);
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_text_with_colons_preserves_spacing() {
+        // "Error: 42" should not become "Error : 42"
+        let src = r#"fn main() { let x = <div>Error: 42</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "Error: 42", "text should preserve exact spacing around colon");
+                    } else {
+                        panic!("expected Text child");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_text_with_keyword_true() {
+        // Keywords like "true" should be valid JSX text content
+        let src = r#"fn main() { let x = <div>true</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    assert_eq!(element.children.len(), 1, "should have 1 text child");
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "true", "keyword 'true' should be valid text");
+                    } else {
+                        panic!("expected Text child, got {:?}", element.children[0]);
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_text_with_keyword_for() {
+        // Keywords like "for" should be valid JSX text content
+        let src = r#"fn main() { let x = <p>for</p>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "for", "keyword 'for' should be valid text");
+                    } else {
+                        panic!("expected Text child");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_closing_tag_member_expression() {
+        // Member expression closing tags should match opening tags
+        let src = r#"fn main() { let x = <Foo.Bar>content</Foo.Bar>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxElementName::Member { object, property } = &element.name {
+                        assert_eq!(object, "Foo");
+                        assert_eq!(property, "Bar");
+                    } else {
+                        panic!("expected Member element name");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_closing_tag_mismatch_error() {
+        // Mismatched closing tags should produce an error
+        let src = r#"fn main() { let x = <Foo.Bar>content</Foo.Baz>; }"#;
+        let result = parse_str(src);
+        assert!(!result.errors.is_empty(), "should have an error for mismatched closing tag");
+        assert!(
+            result.errors[0].message.contains("does not match"),
+            "error should mention tag mismatch: {:?}",
+            result.errors[0].message
+        );
+    }
+
+    #[test]
+    fn parses_jsx_numeric_text_content() {
+        // Numeric content like <div>42</div> should work
+        let src = r#"fn main() { let x = <div>42</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "42", "numeric text should be captured");
+                    } else {
+                        panic!("expected Text child");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
             }
         } else {
             panic!("expected Fn item");
