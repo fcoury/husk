@@ -21,7 +21,7 @@ fn Card(title: String, children: JsValue) -> JsValue {
 // Using a fragment
 fn List(items: [String]) -> JsValue {
     <>
-        {items.map(|item| <li>{item}</li>)}
+        {items.map(|item: String| <li>{item}</li>)}
     </>
 }
 

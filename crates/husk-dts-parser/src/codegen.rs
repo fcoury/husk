@@ -851,27 +851,27 @@ impl<'a> Codegen<'a> {
                 }
             }
             DtsType::TypeOf(_) => {
-                self.warn(WarningKind::Unsupported, "typeof type not supported");
+                self.warn_unsupported("typeof type not supported");
                 "JsValue".to_string()
             }
             DtsType::KeyOf(_) => {
-                self.warn(WarningKind::Unsupported, "keyof type not supported");
+                self.warn_unsupported("keyof type not supported");
                 "JsValue".to_string()
             }
             DtsType::IndexAccess { .. } => {
-                self.warn(WarningKind::Unsupported, "Index access type not supported");
+                self.warn_unsupported("Index access type not supported");
                 "JsValue".to_string()
             }
             DtsType::Conditional { .. } => {
-                self.warn(WarningKind::Unsupported, "Conditional type not supported");
+                self.warn_unsupported("Conditional type not supported");
                 "JsValue".to_string()
             }
             DtsType::Mapped { .. } => {
-                self.warn(WarningKind::Unsupported, "Mapped type not supported");
+                self.warn_unsupported("Mapped type not supported");
                 "JsValue".to_string()
             }
             DtsType::Infer(_) => {
-                self.warn(WarningKind::Unsupported, "infer type not supported");
+                self.warn_unsupported("infer type not supported");
                 "JsValue".to_string()
             }
             DtsType::TemplateLiteral(_) => {

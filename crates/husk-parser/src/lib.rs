@@ -3823,11 +3823,11 @@ impl<'src> Parser<'src> {
 
         // Verify closing tag name matches opening tag
         let closing_name = self.parse_jsx_element_name()?;
-        if closing_name.as_str() != name.as_str() {
+        if closing_name != name {
             self.error_here(&format!(
                 "closing tag `</{}>` does not match opening tag `<{}>`",
-                closing_name.as_str(),
-                name.as_str()
+                Self::jsx_element_name_to_string(&closing_name),
+                Self::jsx_element_name_to_string(&name)
             ));
             return None;
         }
@@ -3934,6 +3934,14 @@ impl<'src> Parser<'src> {
                 self.error_at_token(&tok, "expected JSX element name");
                 None
             }
+        }
+    }
+
+    /// Convert a JSX element name to a display string for error messages.
+    fn jsx_element_name_to_string(name: &JsxElementName) -> String {
+        match name {
+            JsxElementName::Tag(s) | JsxElementName::Component(s) => s.clone(),
+            JsxElementName::Member { object, property } => format!("{}.{}", object, property),
         }
     }
 
@@ -4083,16 +4091,17 @@ impl<'src> Parser<'src> {
                 }
                 Some(JsxChild::Expression(expr))
             }
-            // Text content - collect until we hit `<` or `{`
-            TokenKind::Ident(text) => {
+            // Text content - collect tokens until we hit `<` or `{`
+            // Handles identifiers, numbers, strings, and other literal content
+            _ if Self::is_jsx_text_token(&self.current().kind) => {
                 let start = self.current().span.range.start;
-                let mut text_content = text.clone();
+                let mut text_content = Self::token_to_jsx_text(&self.current().kind);
                 self.advance();
 
-                // Collect consecutive text tokens (simplified - in real JSX we'd handle more cases)
-                while let TokenKind::Ident(more_text) = &self.current().kind {
+                // Collect consecutive text tokens
+                while Self::is_jsx_text_token(&self.current().kind) {
                     text_content.push(' ');
-                    text_content.push_str(more_text);
+                    text_content.push_str(&Self::token_to_jsx_text(&self.current().kind));
                     self.advance();
                 }
 
@@ -4105,6 +4114,59 @@ impl<'src> Parser<'src> {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// Check if a token can be part of JSX text content.
+    /// Excludes `<`, `{`, and `}` which are JSX structural tokens.
+    fn is_jsx_text_token(kind: &TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::Ident(_)
+                | TokenKind::IntLiteral(_)
+                | TokenKind::FloatLiteral(_)
+                | TokenKind::StringLiteral(_)
+                | TokenKind::Dot
+                | TokenKind::Comma
+                | TokenKind::Colon
+                | TokenKind::Semicolon
+                | TokenKind::Bang
+                | TokenKind::Minus
+                | TokenKind::Plus
+                | TokenKind::Star
+                | TokenKind::Slash
+                | TokenKind::Percent
+                | TokenKind::Eq
+                | TokenKind::LParen
+                | TokenKind::RParen
+                | TokenKind::LBracket
+                | TokenKind::RBracket
+        )
+    }
+
+    /// Convert a token to its text representation for JSX content.
+    fn token_to_jsx_text(kind: &TokenKind) -> String {
+        match kind {
+            TokenKind::Ident(s) => s.clone(),
+            TokenKind::IntLiteral(s) => s.clone(),
+            TokenKind::FloatLiteral(s) => s.clone(),
+            TokenKind::StringLiteral(s) => s.clone(),
+            TokenKind::Dot => ".".to_string(),
+            TokenKind::Comma => ",".to_string(),
+            TokenKind::Colon => ":".to_string(),
+            TokenKind::Semicolon => ";".to_string(),
+            TokenKind::Bang => "!".to_string(),
+            TokenKind::Minus => "-".to_string(),
+            TokenKind::Plus => "+".to_string(),
+            TokenKind::Star => "*".to_string(),
+            TokenKind::Slash => "/".to_string(),
+            TokenKind::Percent => "%".to_string(),
+            TokenKind::Eq => "=".to_string(),
+            TokenKind::LParen => "(".to_string(),
+            TokenKind::RParen => ")".to_string(),
+            TokenKind::LBracket => "[".to_string(),
+            TokenKind::RBracket => "]".to_string(),
+            _ => String::new(),
         }
     }
 }

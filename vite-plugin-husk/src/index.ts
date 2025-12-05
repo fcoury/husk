@@ -7,7 +7,7 @@
  * Future versions may use WASM for in-process compilation.
  */
 
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type { Plugin, ResolvedConfig } from "vite";
@@ -50,7 +50,7 @@ interface CompilationResult {
  */
 function checkHuskc(huskc: string): boolean {
   try {
-    execSync(`${huskc} --version`, { stdio: "ignore" });
+    execFileSync(huskc, ["--version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -81,7 +81,7 @@ function compileHusk(
 
   try {
     // Use huskc to compile the file
-    const output = execSync(`${options.huskc} ${args.join(" ")}`, {
+    const output = execFileSync(options.huskc, args, {
       encoding: "utf-8",
       cwd: dirname(filePath),
     });
@@ -115,6 +115,7 @@ function injectJsxRuntime(code: string): string {
 }
 
 export default function huskPlugin(options: HuskPluginOptions = {}): Plugin {
+  const userSetSourceMaps = options.sourceMaps !== undefined;
   const resolvedOptions: Required<HuskPluginOptions> = {
     huskc: options.huskc ?? "huskc",
     jsx: options.jsx ?? true,
@@ -131,8 +132,8 @@ export default function huskPlugin(options: HuskPluginOptions = {}): Plugin {
 
     configResolved(resolvedConfig) {
       config = resolvedConfig;
-      // Disable source maps in production by default
-      if (config.command === "build" && !options.sourceMaps) {
+      // Disable source maps in production by default, unless user explicitly enabled them
+      if (config.command === "build" && !userSetSourceMaps) {
         resolvedOptions.sourceMaps = false;
       }
     },
