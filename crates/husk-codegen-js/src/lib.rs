@@ -1512,14 +1512,12 @@ fn extract_refutable_pattern_bindings(
                     return vec![(ctx.resolve_name(&ident.name, &ident.span), accessor)];
                 }
             } else {
+                // Multiple fields: access via ["0"], ["1"], etc. (no .value wrapper)
                 let mut bindings = Vec::new();
                 for (i, field) in fields.iter().enumerate() {
                     if let PatternKind::Binding(ident) = &field.kind {
                         let accessor = JsExpr::Index {
-                            object: Box::new(JsExpr::Member {
-                                object: Box::new(scrutinee_js.clone()),
-                                property: "value".to_string(),
-                            }),
+                            object: Box::new(scrutinee_js.clone()),
                             index: Box::new(JsExpr::String(i.to_string())),
                         };
                         bindings.push((ctx.resolve_name(&ident.name, &ident.span), accessor));

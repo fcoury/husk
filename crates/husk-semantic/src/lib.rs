@@ -3960,7 +3960,37 @@ impl<'a> FnContext<'a> {
                 }
             }
             PatternKind::Binding(ident) => {
-                if !self.tcx.env.variant_imports.contains_key(&ident.name) {
+                if let Some((imported_enum, _)) =
+                    self.tcx.env.variant_imports.get(&ident.name)
+                {
+                    // Validate that scrutinee type matches the imported variant's enum
+                    match scrut_ty {
+                        Type::Named { name, .. } => {
+                            if name != imported_enum {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "pattern `{}` does not match type `{}` (variant is from `{}`)",
+                                        ident.name, name, imported_enum
+                                    ),
+                                    span: span.clone(),
+                                });
+                            }
+                        }
+                        Type::Var(_) => {
+                            // Allow generic scrutinee; will be resolved later
+                        }
+                        _ => {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "pattern `{}` can only be used with enum `{}`",
+                                    ident.name, imported_enum
+                                ),
+                                span: span.clone(),
+                            });
+                        }
+                    }
+                } else {
+                    // Plain binding: irrefutable in if-let / let-else
                     self.tcx.errors.push(SemanticError {
                         message: format!(
                             "irrefutable pattern `{}`: will always match",
@@ -6575,6 +6605,29 @@ fn test() -> i32 {
         assert!(
             !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
             "expected error for non-diverging else block in let-else"
+        );
+    }
+
+    #[test]
+    fn if_let_imported_variant_wrong_scrutinee_type_errors() {
+        // Using an imported variant (None) on wrong scrutinee type (bool) should error
+        let src = r#"
+fn test() -> i32 {
+    let b: bool = true;
+    if let None = b {
+        0
+    } else {
+        1
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
+            "expected error for imported variant pattern on wrong type"
         );
     }
 }
