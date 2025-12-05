@@ -3888,7 +3888,12 @@ impl<'a> FnContext<'a> {
                 // Imported variant names (e.g., `None`, `Err`) are refutable
                 self.tcx.env.variant_imports.contains_key(&ident.name)
             }
-            PatternKind::Wildcard | PatternKind::Tuple { .. } => false,
+            PatternKind::Wildcard => false,
+            PatternKind::Tuple { fields } => {
+                // Tuple is refutable if any nested pattern is refutable
+                // e.g., (Some(x), y) contains refutable Some(x)
+                fields.iter().any(|f| self.pattern_is_refutable(f))
+            }
         }
     }
 
@@ -4144,6 +4149,10 @@ impl<'a> FnContext<'a> {
     }
 
     /// Check if an expression diverges (e.g., panic!, todo!, unreachable!)
+    // TODO: Currently only recognizes built-in diverging functions by name.
+    // Future improvements could include:
+    // - Tracking user-defined functions with `-> !` return type
+    // - Recognizing std::process::exit and similar stdlib functions
     fn expr_diverges(&self, expr: &Expr) -> bool {
         match &expr.kind {
             ExprKind::Call { callee, .. } => {

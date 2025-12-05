@@ -5269,4 +5269,78 @@ fn test() {
             panic!("expected Fn item");
         }
     }
+
+    #[test]
+    fn parses_if_let_basic() {
+        let src = r#"fn main() { if let Some(x) = opt { foo(); } }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::IfLet { pattern, then_branch, else_branch, .. } = &body[0].kind {
+                assert!(matches!(pattern.kind, husk_ast::PatternKind::EnumTuple { .. }));
+                assert_eq!(then_branch.stmts.len(), 1);
+                assert!(else_branch.is_none());
+            } else {
+                panic!("expected IfLet statement, got {:?}", body[0].kind);
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_if_let_with_else() {
+        let src = r#"fn main() { if let Some(x) = opt { foo(); } else { bar(); } }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::IfLet { else_branch, .. } = &body[0].kind {
+                assert!(else_branch.is_some(), "expected else branch");
+            } else {
+                panic!("expected IfLet statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_if_let_else_if_let_chain() {
+        let src = r#"fn main() { if let Some(x) = a { } else if let None = b { } }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::IfLet { else_branch, .. } = &body[0].kind {
+                // else branch should contain another IfLet
+                let else_stmt = else_branch.as_ref().expect("expected else branch");
+                assert!(matches!(else_stmt.kind, StmtKind::IfLet { .. }),
+                    "expected nested IfLet in else branch");
+            } else {
+                panic!("expected IfLet statement");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_let_else() {
+        let src = r#"fn main() { let Some(x) = opt else { return; }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { pattern, else_block, .. } = &body[0].kind {
+                assert!(matches!(pattern.kind, husk_ast::PatternKind::EnumTuple { .. }));
+                assert!(else_block.is_some(), "expected else block in let-else");
+            } else {
+                panic!("expected Let statement with else_block");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
 }
