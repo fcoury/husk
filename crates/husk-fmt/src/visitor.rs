@@ -1496,6 +1496,136 @@ impl<'a> Formatter<'a> {
                 self.write(".");
                 self.write(&index.to_string());
             }
+            ExprKind::Jsx(jsx_element) => {
+                // Format JSX elements (for now, just output as-is without fancy formatting)
+                self.format_jsx_element(jsx_element);
+            }
+        }
+    }
+
+    fn format_jsx_element(&mut self, element: &husk_ast::JsxElement) {
+        use husk_ast::{JsxAttribute, JsxAttributeValue, JsxChild, JsxElementName};
+
+        // Opening tag
+        self.write("<");
+        match &element.name {
+            JsxElementName::Tag(tag) => {
+                if tag.is_empty() {
+                    // Fragment, just the angle brackets
+                } else {
+                    self.write(tag);
+                }
+            }
+            JsxElementName::Component(name) => {
+                self.write(name);
+            }
+            JsxElementName::Member { object, property } => {
+                self.write(object);
+                self.write(".");
+                self.write(property);
+            }
+        }
+
+        // Attributes
+        for attr in &element.attributes {
+            self.write(" ");
+            match attr {
+                JsxAttribute::KeyValue { name, value } => {
+                    self.write(&name.name);
+                    self.write("=");
+                    match value {
+                        JsxAttributeValue::String(s, _) => {
+                            self.write("\"");
+                            self.write(s);
+                            self.write("\"");
+                        }
+                        JsxAttributeValue::Expression(expr) => {
+                            self.write("{");
+                            self.format_expr(expr);
+                            self.write("}");
+                        }
+                    }
+                }
+                JsxAttribute::Boolean(name) => {
+                    self.write(&name.name);
+                }
+                JsxAttribute::Spread(expr) => {
+                    self.write("{...");
+                    self.format_expr(expr);
+                    self.write("}");
+                }
+            }
+        }
+
+        if element.self_closing {
+            self.write(" />");
+        } else {
+            self.write(">");
+
+            // Children
+            for child in &element.children {
+                match child {
+                    JsxChild::Text(text, _) => {
+                        self.write(text);
+                    }
+                    JsxChild::Element(el) => {
+                        self.format_jsx_element(el);
+                    }
+                    JsxChild::Expression(expr) => {
+                        self.write("{");
+                        self.format_expr(expr);
+                        self.write("}");
+                    }
+                    JsxChild::Fragment(children, _) => {
+                        self.write("<>");
+                        for ch in children {
+                            self.format_jsx_child(ch);
+                        }
+                        self.write("</>");
+                    }
+                }
+            }
+
+            // Closing tag
+            self.write("</");
+            match &element.name {
+                JsxElementName::Tag(tag) => {
+                    self.write(tag);
+                }
+                JsxElementName::Component(name) => {
+                    self.write(name);
+                }
+                JsxElementName::Member { object, property } => {
+                    self.write(object);
+                    self.write(".");
+                    self.write(property);
+                }
+            }
+            self.write(">");
+        }
+    }
+
+    fn format_jsx_child(&mut self, child: &husk_ast::JsxChild) {
+        use husk_ast::JsxChild;
+        match child {
+            JsxChild::Text(text, _) => {
+                self.write(text);
+            }
+            JsxChild::Element(el) => {
+                self.format_jsx_element(el);
+            }
+            JsxChild::Expression(expr) => {
+                self.write("{");
+                self.format_expr(expr);
+                self.write("}");
+            }
+            JsxChild::Fragment(children, _) => {
+                self.write("<>");
+                for ch in children {
+                    self.format_jsx_child(ch);
+                }
+                self.write("</>");
+            }
         }
     }
 
