@@ -39,6 +39,8 @@ fn husk_example_files() -> Vec<PathBuf> {
         .filter(|p| !p.to_string_lossy().contains("advent2025"))
         // Skip array_range_test - uses unimplemented features (array indexing, ranges)
         .filter(|p| !p.to_string_lossy().contains("array_range_test"))
+        // Skip jsx_demo - requires React runtime (react/jsx-runtime)
+        .filter(|p| !p.to_string_lossy().contains("jsx_demo"))
         .collect()
 }
 

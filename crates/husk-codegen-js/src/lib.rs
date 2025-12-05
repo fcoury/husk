@@ -5453,4 +5453,103 @@ mod tests {
 
         assert_eq!(out, "let [a, _, c] = expr;");
     }
+
+    // ========================================================================
+    // JSX Codegen Tests - Testing JsExpr output directly
+    // ========================================================================
+
+    #[test]
+    fn jsx_object_assign_generates_correct_js() {
+        // Test that Object.assign with segments generates correct JS
+        // Object.assign({}, a, { b: "1" })
+        let expr = JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("Object".to_string())),
+                property: "assign".to_string(),
+            }),
+            args: vec![
+                JsExpr::Object(vec![]), // Empty target
+                JsExpr::Ident("a".to_string()), // Spread a
+                JsExpr::Object(vec![("b".to_string(), JsExpr::String("1".to_string()))]), // { b: "1" }
+            ],
+        };
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(out.contains("Object.assign"), "should contain Object.assign: {}", out);
+        // Verify ordering: {}, a, { b: "1" }
+        let empty_obj_pos = out.find("{}").expect("should have empty object");
+        let a_pos = out.find(", a,").expect("should have ', a,'");
+        let b_pos = out.find("b:").expect("should have 'b:'");
+
+        assert!(empty_obj_pos < a_pos, "empty object should come first");
+        assert!(a_pos < b_pos, "spread 'a' should come before static 'b'");
+    }
+
+    #[test]
+    fn jsx_object_assign_interleaved_generates_correct_js() {
+        // Test: Object.assign({}, { a: "1" }, b, { c: "2" })
+        // Simulates: <div a="1" {...b} c="2" />
+        let expr = JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("Object".to_string())),
+                property: "assign".to_string(),
+            }),
+            args: vec![
+                JsExpr::Object(vec![]), // Empty target
+                JsExpr::Object(vec![("a".to_string(), JsExpr::String("1".to_string()))]), // { a: "1" }
+                JsExpr::Ident("b".to_string()), // Spread b
+                JsExpr::Object(vec![("c".to_string(), JsExpr::String("2".to_string()))]), // { c: "2" }
+            ],
+        };
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(out.contains("Object.assign"), "should contain Object.assign: {}", out);
+
+        // Verify ordering: { a: "1" }, b, { c: "2" }
+        let a_pos = out.find("a:").expect("should have 'a:'");
+        let b_pos = out.find(", b,").expect("should have ', b,'");
+        let c_pos = out.find("c:").expect("should have 'c:'");
+
+        assert!(a_pos < b_pos, "static 'a' should come before spread 'b': {}", out);
+        assert!(b_pos < c_pos, "spread 'b' should come before static 'c': {}", out);
+    }
+
+    #[test]
+    fn jsx_simple_object_without_spread() {
+        // Test: { a: "1", b: "2" } - simple object without Object.assign
+        let expr = JsExpr::Object(vec![
+            ("a".to_string(), JsExpr::String("1".to_string())),
+            ("b".to_string(), JsExpr::String("2".to_string())),
+        ]);
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(!out.contains("Object.assign"), "should not use Object.assign: {}", out);
+        assert!(out.contains("a:"), "should have 'a:': {}", out);
+        assert!(out.contains("b:"), "should have 'b:': {}", out);
+    }
+
+    #[test]
+    fn jsx_call_structure() {
+        // Test: _jsx("div", { className: "test" })
+        let expr = JsExpr::Call {
+            callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+            args: vec![
+                JsExpr::String("div".to_string()),
+                JsExpr::Object(vec![("className".to_string(), JsExpr::String("test".to_string()))]),
+            ],
+        };
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(out.contains("_jsx("), "should start with _jsx(: {}", out);
+        assert!(out.contains("\"div\""), "should have \"div\": {}", out);
+        assert!(out.contains("className:"), "should have className prop: {}", out);
+    }
 }

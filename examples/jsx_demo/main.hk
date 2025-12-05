@@ -42,5 +42,5 @@ fn App() -> JsValue {
 fn main() {
     let element = <App />;
     // In a real app, you'd render this with ReactDOM
-    println!("JSX demo compiled successfully!");
+    println("JSX demo compiled successfully!");
 }
