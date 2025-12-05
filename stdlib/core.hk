@@ -248,3 +248,147 @@ extern "js" {
     /// Asserts that two values are not equal. Panics with a detailed message if equal.
     fn assert_ne(left: JsValue, right: JsValue);
 }
+
+// ============================================================================
+// Primitive Type Methods
+// ============================================================================
+//
+// These impl blocks define methods on primitive types. Method names follow
+// Rust/Husk snake_case conventions; codegen automatically converts to
+// JavaScript camelCase (e.g., index_of -> indexOf).
+//
+// Use #[js_name = "..."] for special cases that don't follow the pattern.
+
+// String methods - these declare the method signatures for type checking.
+// Codegen emits direct JS method calls (e.g., s.trim() -> s.trim()).
+impl String {
+    /// Returns the length of the string.
+    #[js_name = "length"]
+    extern "js" fn len(&self) -> i32;
+
+    /// Returns a string with whitespace removed from both ends.
+    extern "js" fn trim(&self) -> String;
+
+    /// Splits the string by a separator and returns an array of substrings.
+    extern "js" fn split(&self, separator: String) -> [String];
+
+    /// Returns the character at the specified index.
+    extern "js" fn char_at(&self, index: i32) -> String;
+
+    /// Returns a substring from start to end (exclusive).
+    extern "js" fn slice(&self, start: i32, end: i32) -> String;
+
+    /// Returns a substring from start to end (exclusive).
+    extern "js" fn substring(&self, start: i32, end: i32) -> String;
+
+    /// Returns the index of the first occurrence of the search string, or -1 if not found.
+    extern "js" fn index_of(&self, search: String) -> i32;
+
+    /// Returns the index of the last occurrence of the search string, or -1 if not found.
+    extern "js" fn last_index_of(&self, search: String) -> i32;
+
+    /// Returns true if the string starts with the specified prefix.
+    extern "js" fn starts_with(&self, prefix: String) -> bool;
+
+    /// Returns true if the string ends with the specified suffix.
+    extern "js" fn ends_with(&self, suffix: String) -> bool;
+
+    /// Returns true if the string contains the specified substring.
+    extern "js" fn includes(&self, search: String) -> bool;
+
+    /// Returns the string converted to uppercase.
+    extern "js" fn to_upper_case(&self) -> String;
+
+    /// Returns the string converted to lowercase.
+    extern "js" fn to_lower_case(&self) -> String;
+
+    /// Replaces all occurrences of a pattern with a replacement string.
+    extern "js" fn replace(&self, pattern: String, replacement: String) -> String;
+}
+
+// i32 methods
+impl i32 {
+    /// Converts the integer to a string.
+    extern "js" fn to_string(&self) -> String;
+}
+
+// i64 methods
+impl i64 {
+    /// Converts the integer to a string.
+    extern "js" fn to_string(&self) -> String;
+}
+
+// f64 methods
+impl f64 {
+    /// Converts the float to a string.
+    extern "js" fn to_string(&self) -> String;
+
+    /// Returns the largest integer less than or equal to this number.
+    extern "js" fn floor(&self) -> f64;
+
+    /// Returns the smallest integer greater than or equal to this number.
+    extern "js" fn ceil(&self) -> f64;
+
+    /// Returns the nearest integer to this number.
+    extern "js" fn round(&self) -> f64;
+
+    /// Returns the absolute value of this number.
+    extern "js" fn abs(&self) -> f64;
+}
+
+// bool methods
+impl bool {
+    /// Converts the boolean to a string ("true" or "false").
+    extern "js" fn to_string(&self) -> String;
+}
+
+// ============================================================================
+// Array Methods
+// ============================================================================
+//
+// Generic array methods. The `T` type parameter represents the element type.
+// Note: Some methods like `map`, `filter`, `reduce` take closures as parameters
+// which requires more complex type inference. For now, they remain hardcoded
+// in semantic analysis but could be moved here once closure typing is improved.
+
+impl<T> [T] {
+    /// Returns the number of elements in the array.
+    #[js_name = "length"]
+    extern "js" fn len(&self) -> i32;
+
+    /// Adds an element to the end of the array.
+    extern "js" fn push(&mut self, value: T);
+
+    /// Returns a portion of the array from start to end (exclusive).
+    extern "js" fn slice(&self, start: i32, end: i32) -> [T];
+
+    /// Joins all elements into a string using the separator.
+    extern "js" fn join(&self, separator: String) -> String;
+
+    /// Sorts the array in place and returns it.
+    extern "js" fn sort(&mut self) -> [T];
+
+    /// Reverses the array in place and returns it.
+    extern "js" fn reverse(&mut self) -> [T];
+
+    /// Returns the index of the first occurrence of the value, or -1 if not found.
+    extern "js" fn index_of(&self, value: T) -> i32;
+
+    /// Returns the index of the last occurrence of the value, or -1 if not found.
+    extern "js" fn last_index_of(&self, value: T) -> i32;
+
+    /// Returns true if the array contains the specified value.
+    extern "js" fn includes(&self, value: T) -> bool;
+
+    /// Returns a new array with all sub-array elements concatenated.
+    extern "js" fn flat(&self) -> [T];
+
+    /// Removes and returns the last element of the array.
+    extern "js" fn pop(&mut self) -> T;
+
+    /// Removes and returns the first element of the array.
+    extern "js" fn shift(&mut self) -> T;
+
+    /// Adds one or more elements to the beginning of the array.
+    extern "js" fn unshift(&mut self, value: T) -> i32;
+}

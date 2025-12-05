@@ -501,6 +501,45 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
     }
 }
 
+/// Get the canonical name for a primitive type.
+/// Used to look up impl blocks for primitive types (e.g., `impl String { ... }`).
+fn primitive_type_name(p: &PrimitiveType) -> &'static str {
+    match p {
+        PrimitiveType::String => "String",
+        PrimitiveType::I32 => "i32",
+        PrimitiveType::I64 => "i64",
+        PrimitiveType::F64 => "f64",
+        PrimitiveType::Bool => "bool",
+        PrimitiveType::Unit => "()",
+    }
+}
+
+/// Substitute a type parameter with a concrete type.
+/// Used to resolve generic array method return types like `impl<T> [T] { fn slice() -> [T] }`.
+fn substitute_type_param(ty: &Type, param: &str, replacement: &Type) -> Type {
+    match ty {
+        Type::Named { name, args } if name == param && args.is_empty() => {
+            replacement.clone()
+        }
+        Type::Named { name, args } => {
+            Type::Named {
+                name: name.clone(),
+                args: args.iter().map(|a| substitute_type_param(a, param, replacement)).collect(),
+            }
+        }
+        Type::Array(elem) => {
+            Type::Array(Box::new(substitute_type_param(elem, param, replacement)))
+        }
+        Type::Function { params, ret } => {
+            Type::Function {
+                params: params.iter().map(|p| substitute_type_param(p, param, replacement)).collect(),
+                ret: Box::new(substitute_type_param(ret, param, replacement)),
+            }
+        }
+        Type::Primitive(_) | Type::Var(_) => ty.clone(),
+    }
+}
+
 struct TypeChecker {
     env: TypeEnv,
     errors: Vec<SemanticError>,
@@ -1819,43 +1858,18 @@ impl<'a> FnContext<'a> {
                     let _ = self.check_expr(arg);
                 }
 
-                // Handle built-in methods on primitive types
-                match &receiver_ty {
-                    Type::Primitive(PrimitiveType::String) => {
-                        match method_name.as_str() {
-                            "split" => return Type::Array(Box::new(Type::Primitive(PrimitiveType::String))),
-                            "trim" => return Type::Primitive(PrimitiveType::String),
-                            "len" => return Type::Primitive(PrimitiveType::I32),
-                            "char_at" | "charAt" => return Type::Primitive(PrimitiveType::String),
-                            "slice" => return Type::Primitive(PrimitiveType::String),
-                            "substring" => return Type::Primitive(PrimitiveType::String),
-                            "indexOf" | "lastIndexOf" => return Type::Primitive(PrimitiveType::I32),
-                            "startsWith" | "endsWith" | "includes" => {
-                                return Type::Primitive(PrimitiveType::Bool)
-                            }
-                            _ => {}
-                        }
+                // Handle closure-taking array methods that require special type inference.
+                // NOTE: Most array methods are now defined in stdlib/core.hk and resolved
+                // through the `impl<T> [T] { ... }` block below. These closure methods remain
+                // hardcoded because they need return type inference from closure signatures.
+                if let Type::Array(elem_ty) = &receiver_ty {
+                    match method_name.as_str() {
+                        "some" | "every" => return Type::Primitive(PrimitiveType::Bool),
+                        "filter" => return receiver_ty.clone(),
+                        "map" => return receiver_ty.clone(), // simplified - should infer from closure
+                        "reduce" => return (**elem_ty).clone(),
+                        _ => {}
                     }
-                    Type::Primitive(PrimitiveType::I32) | Type::Primitive(PrimitiveType::F64) => {
-                        match method_name.as_str() {
-                            "toString" => return Type::Primitive(PrimitiveType::String),
-                            _ => {}
-                        }
-                    }
-                    Type::Array(elem_ty) => {
-                        match method_name.as_str() {
-                            "len" => return Type::Primitive(PrimitiveType::I32),
-                            "push" => return Type::Primitive(PrimitiveType::Unit),
-                            "slice" => return receiver_ty.clone(),
-                            "some" | "every" | "filter" => return Type::Primitive(PrimitiveType::Bool),
-                            "map" => return receiver_ty.clone(), // simplified - should infer from closure
-                            "reduce" => return (**elem_ty).clone(),
-                            "sort" | "reverse" => return receiver_ty.clone(),
-                            "join" => return Type::Primitive(PrimitiveType::String),
-                            _ => {}
-                        }
-                    }
-                    _ => {}
                 }
 
                 // Handle Result/Option unwrap methods specially to extract inner type
@@ -1878,8 +1892,12 @@ impl<'a> FnContext<'a> {
                 }
 
                 // Try to resolve the method's return type from impl blocks
+                // Include primitive types so we can find `impl String { ... }` etc.
+                // For arrays, we use "[T]" to match generic impl blocks like `impl<T> [T] { ... }`.
                 let receiver_type_name = match &receiver_ty {
                     Type::Named { name, .. } => Some(name.clone()),
+                    Type::Primitive(p) => Some(primitive_type_name(p).to_string()),
+                    Type::Array(_) => Some("[T]".to_string()),
                     _ => None,
                 };
 
@@ -1906,7 +1924,15 @@ impl<'a> FnContext<'a> {
                 match method_lookup_result {
                     Some(Some(ret_type_expr)) => {
                         // Method found with explicit return type
-                        self.tcx.resolve_type_expr(&ret_type_expr, &[])
+                        // For array methods from `impl<T> [T]`, we need to substitute T
+                        // with the actual element type of the array receiver.
+                        if let Type::Array(elem_ty) = &receiver_ty {
+                            // Resolve using "T" as a generic param, then substitute
+                            let resolved = self.tcx.resolve_type_expr(&ret_type_expr, &["T".to_string()]);
+                            substitute_type_param(&resolved, "T", elem_ty)
+                        } else {
+                            self.tcx.resolve_type_expr(&ret_type_expr, &[])
+                        }
                     }
                     Some(None) => {
                         // Method found but returns unit (no explicit return type)
