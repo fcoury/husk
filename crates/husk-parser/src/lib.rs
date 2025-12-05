@@ -1764,8 +1764,25 @@ impl<'src> Parser<'src> {
             None
         };
 
+        // Parse optional else block: `else { ... }`
+        let else_block = if self.matches_keyword(Keyword::Else) {
+            // Require initializer for let...else
+            if value.is_none() {
+                self.error_here("`let ... else` requires an initializer (`= expr`)");
+                return None;
+            }
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
         if !self.matches_token(&TokenKind::Semicolon) {
-            self.error_here("expected `;` after let binding");
+            if else_block.is_some() {
+                self.error_here("expected `;` after `let ... else` block");
+            } else {
+                self.error_here("expected `;` after let binding");
+            }
+            return None;
         }
 
         let end = self.previous().span.range.end;
@@ -1775,6 +1792,7 @@ impl<'src> Parser<'src> {
                 pattern,
                 ty,
                 value,
+                else_block,
             },
             span: Span {
                 range: let_tok.span.range.start..end,
@@ -1803,6 +1821,12 @@ impl<'src> Parser<'src> {
 
     fn parse_if_stmt(&mut self) -> Option<Stmt> {
         let if_tok = self.advance().clone(); // consume `if`
+
+        // Check for `if let` syntax
+        if self.matches_keyword(Keyword::Let) {
+            return self.parse_if_let_stmt(if_tok);
+        }
+
         // Use parse_expr_no_struct so that `if x { ... }` doesn't try to
         // parse `x { ... }` as a struct literal.
         let cond = self.parse_expr_no_struct()?;
@@ -1834,6 +1858,48 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::If {
                 cond,
+                then_branch,
+                else_branch,
+            },
+            span: Span {
+                range: if_tok.span.range.start..end,
+            },
+        })
+    }
+
+    fn parse_if_let_stmt(&mut self, if_tok: Token) -> Option<Stmt> {
+        let pattern = self.parse_pattern()?;
+
+        if !self.matches_token(&TokenKind::Eq) {
+            self.error_here("expected `=` after pattern in `if let`");
+            return None;
+        }
+
+        // Use parse_expr_no_struct to avoid brace ambiguity
+        let scrutinee = self.parse_expr_no_struct()?;
+        let then_branch = self.parse_block()?;
+
+        let else_branch = if self.matches_keyword(Keyword::Else) {
+            if matches!(self.current().kind, TokenKind::Keyword(Keyword::If)) {
+                // else if / else if let
+                Some(Box::new(self.parse_if_stmt()?))
+            } else {
+                // else { ... }
+                let block = self.parse_block()?;
+                Some(Box::new(Stmt {
+                    kind: StmtKind::Block(block.clone()),
+                    span: block.span.clone(),
+                }))
+            }
+        } else {
+            None
+        };
+
+        let end = self.previous().span.range.end;
+        Some(Stmt {
+            kind: StmtKind::IfLet {
+                pattern,
+                scrutinee,
                 then_branch,
                 else_branch,
             },

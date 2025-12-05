@@ -7,8 +7,8 @@
 //! - Source map generation for debugging.
 
 use husk_ast::{
-    EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec, Ident,
-    ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
+    Block, EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec,
+    Ident, ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
     StructField, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
@@ -132,6 +132,13 @@ impl<'a> CodegenContext<'a> {
             .get(&(span.range.start, span.range.end))
             .cloned()
             .unwrap_or_else(|| name.to_string())
+    }
+
+    /// Generate a fresh temporary variable name.
+    fn fresh_temp(&self, prefix: &str) -> String {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        format!("{}_{}", prefix, COUNTER.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -301,6 +308,11 @@ pub enum JsStmt {
     Break,
     /// `continue;`
     Continue,
+    /// A bare block: `{ stmts }`
+    Block(Vec<JsStmt>),
+    /// Multiple statements emitted at the same level (no block wrapper).
+    /// Used for let-else to emit the check and bindings without creating a scope.
+    Sequence(Vec<JsStmt>),
 }
 
 /// Assignment operators in JS.
@@ -407,6 +419,8 @@ pub enum JsBinaryOp {
     Ge,
     And,
     Or,
+    StrictEq, // ===
+    StrictNe, // !==
 }
 
 /// Output target style.
@@ -1067,8 +1081,9 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             pattern,
             ty: _,
             value,
+            else_block,
         } => {
-            lower_let_pattern(pattern, value.as_ref(), ctx)
+            lower_let_pattern(pattern, value.as_ref(), else_block.as_ref(), ctx)
         }
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
             // Special case: match expressions in statement position should be lowered
@@ -1191,6 +1206,14 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 value: lower_expr(value, ctx),
             }
         }
+        StmtKind::IfLet {
+            pattern,
+            scrutinee,
+            then_branch,
+            else_branch,
+        } => {
+            lower_if_let_stmt(pattern, scrutinee, then_branch, else_branch, ctx)
+        }
     }
 }
 
@@ -1211,9 +1234,22 @@ fn pattern_to_destructure(pattern: &Pattern, ctx: &CodegenContext) -> Destructur
 }
 
 /// Lower a let statement with a pattern (handles both simple identifiers and tuple patterns).
-fn lower_let_pattern(pattern: &Pattern, value: Option<&Expr>, ctx: &CodegenContext) -> JsStmt {
+fn lower_let_pattern(
+    pattern: &Pattern,
+    value: Option<&Expr>,
+    else_block: Option<&Block>,
+    ctx: &CodegenContext,
+) -> JsStmt {
     match &pattern.kind {
         PatternKind::Binding(name) => {
+            // Check if this is an imported variant (e.g., `let None = opt else { }`)
+            let span_key = (pattern.span.range.start, pattern.span.range.end);
+            if let Some((_, variant_name)) = ctx.variant_patterns.get(&span_key) {
+                // This is a variant pattern - needs tag check
+                if let Some(blk) = else_block {
+                    return lower_let_refutable_binding(name, variant_name, value, blk, ctx);
+                }
+            }
             // Simple identifier: let x = expr;
             JsStmt::Let {
                 name: ctx.resolve_name(&name.name, &name.span),
@@ -1241,15 +1277,354 @@ fn lower_let_pattern(pattern: &Pattern, value: Option<&Expr>, ctx: &CodegenConte
                 JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
             }
         }
-        _ => {
-            // Other patterns not yet supported in let statements
-            // For now, just evaluate the value if present
-            if let Some(e) = value {
-                JsStmt::Expr(lower_expr(e, ctx))
+        PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
+            // Refutable pattern: needs else block
+            if let Some(blk) = else_block {
+                lower_let_refutable(pattern, path, value, blk, ctx)
             } else {
-                JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
+                // Graceful fallback - semantic should catch this
+                emit_unreachable_error()
             }
         }
+        PatternKind::EnumStruct { path, fields } => {
+            // Refutable struct pattern: needs else block
+            if let Some(blk) = else_block {
+                lower_let_refutable_struct(path, fields, value, blk, ctx)
+            } else {
+                emit_unreachable_error()
+            }
+        }
+    }
+}
+
+/// Emit a visible error marker when codegen encounters an unreachable state.
+fn emit_unreachable_error() -> JsStmt {
+    JsStmt::Expr(JsExpr::Raw(
+        "/* SEMANTIC ERROR: unreachable - missing else block */ undefined".to_string(),
+    ))
+}
+
+/// Lower a refutable binding pattern (imported variant like `None`, `Err`)
+fn lower_let_refutable_binding(
+    _name: &Ident,
+    variant_name: &str,
+    value: Option<&Expr>,
+    else_block: &Block,
+    ctx: &CodegenContext,
+) -> JsStmt {
+    let expr = match value {
+        Some(e) => e,
+        None => {
+            // Should not happen - semantic should catch
+            return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+        }
+    };
+    let value_js = lower_expr(expr, ctx);
+
+    let temp_name = ctx.fresh_temp("__letelse");
+    let temp_expr = JsExpr::Ident(temp_name.clone());
+
+    // Build tag check: if (__tmp.tag !== "VariantName") { else_block }
+    let condition = JsExpr::Binary {
+        op: JsBinaryOp::StrictNe,
+        left: Box::new(JsExpr::Member {
+            object: Box::new(temp_expr.clone()),
+            property: "tag".to_string(),
+        }),
+        right: Box::new(JsExpr::String(variant_name.to_string())),
+    };
+
+    let else_stmts: Vec<JsStmt> = else_block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+
+    // Unit variants have no bindings - just tag check
+    // Use Sequence to emit statements at same level (no block scope)
+    JsStmt::Sequence(vec![
+        JsStmt::Let {
+            name: temp_name,
+            init: Some(value_js),
+        },
+        JsStmt::If {
+            cond: condition,
+            then_block: else_stmts,
+            else_block: None,
+        },
+    ])
+}
+
+/// Lower a refutable pattern (EnumUnit or EnumTuple)
+fn lower_let_refutable(
+    pattern: &Pattern,
+    path: &[Ident],
+    value: Option<&Expr>,
+    else_block: &Block,
+    ctx: &CodegenContext,
+) -> JsStmt {
+    let expr = match value {
+        Some(e) => e,
+        None => {
+            return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+        }
+    };
+    let value_js = lower_expr(expr, ctx);
+
+    let temp_name = ctx.fresh_temp("__letelse");
+    let temp_expr = JsExpr::Ident(temp_name.clone());
+
+    // Build tag check
+    let variant = path.last().map(|id| id.name.clone()).unwrap_or_default();
+    let condition = JsExpr::Binary {
+        op: JsBinaryOp::StrictNe,
+        left: Box::new(JsExpr::Member {
+            object: Box::new(temp_expr.clone()),
+            property: "tag".to_string(),
+        }),
+        right: Box::new(JsExpr::String(variant)),
+    };
+
+    let else_stmts: Vec<JsStmt> = else_block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+
+    // Extract bindings from pattern
+    let bindings = extract_refutable_pattern_bindings(pattern, &temp_expr, ctx);
+
+    let mut stmts = vec![
+        JsStmt::Let {
+            name: temp_name,
+            init: Some(value_js),
+        },
+        JsStmt::If {
+            cond: condition,
+            then_block: else_stmts,
+            else_block: None,
+        },
+    ];
+    stmts.extend(bindings.into_iter().map(|(name, accessor)| JsStmt::Let {
+        name,
+        init: Some(accessor),
+    }));
+
+    // Use Sequence to emit statements at same level (no block scope)
+    JsStmt::Sequence(stmts)
+}
+
+/// Lower a refutable struct pattern (EnumStruct)
+fn lower_let_refutable_struct(
+    path: &[Ident],
+    fields: &[(Ident, Pattern)],
+    value: Option<&Expr>,
+    else_block: &Block,
+    ctx: &CodegenContext,
+) -> JsStmt {
+    let expr = match value {
+        Some(e) => e,
+        None => {
+            return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+        }
+    };
+    let value_js = lower_expr(expr, ctx);
+
+    let temp_name = ctx.fresh_temp("__letelse");
+    let temp_expr = JsExpr::Ident(temp_name.clone());
+
+    // Build tag check
+    let variant = path.last().map(|id| id.name.clone()).unwrap_or_default();
+    let condition = JsExpr::Binary {
+        op: JsBinaryOp::StrictNe,
+        left: Box::new(JsExpr::Member {
+            object: Box::new(temp_expr.clone()),
+            property: "tag".to_string(),
+        }),
+        right: Box::new(JsExpr::String(variant)),
+    };
+
+    let else_stmts: Vec<JsStmt> = else_block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+
+    // Extract struct field bindings
+    let bindings = extract_struct_field_bindings(fields, &temp_expr, ctx);
+
+    let mut stmts = vec![
+        JsStmt::Let {
+            name: temp_name,
+            init: Some(value_js),
+        },
+        JsStmt::If {
+            cond: condition,
+            then_block: else_stmts,
+            else_block: None,
+        },
+    ];
+    stmts.extend(bindings.into_iter().map(|(name, accessor)| JsStmt::Let {
+        name,
+        init: Some(accessor),
+    }));
+
+    // Use Sequence to emit statements at same level (no block scope)
+    JsStmt::Sequence(stmts)
+}
+
+/// Extract bindings from struct enum pattern fields.
+fn extract_struct_field_bindings(
+    fields: &[(Ident, Pattern)],
+    scrutinee_js: &JsExpr,
+    ctx: &CodegenContext,
+) -> Vec<(String, JsExpr)> {
+    let mut bindings = Vec::new();
+    for (field_name, sub_pattern) in fields {
+        // Access the field from scrutinee.value.field_name
+        let field_accessor = JsExpr::Member {
+            object: Box::new(JsExpr::Member {
+                object: Box::new(scrutinee_js.clone()),
+                property: "value".to_string(),
+            }),
+            property: field_name.name.clone(),
+        };
+
+        match &sub_pattern.kind {
+            PatternKind::Binding(ident) => {
+                bindings.push((ctx.resolve_name(&ident.name, &ident.span), field_accessor));
+            }
+            PatternKind::Wildcard => {
+                // Wildcard - no binding needed
+            }
+            _ => {
+                // Nested patterns not supported - semantic should have caught this
+            }
+        }
+    }
+    bindings
+}
+
+/// Extract bindings from a refutable pattern for if-let or let-else.
+/// Uses CodegenContext for proper name resolution.
+fn extract_refutable_pattern_bindings(
+    pattern: &Pattern,
+    scrutinee_js: &JsExpr,
+    ctx: &CodegenContext,
+) -> Vec<(String, JsExpr)> {
+    match &pattern.kind {
+        PatternKind::EnumTuple { fields, .. } => {
+            // Access via __temp.value for single field, __temp["0"], __temp["1"] for multiple
+            if fields.len() == 1 {
+                if let PatternKind::Binding(ident) = &fields[0].kind {
+                    let accessor = JsExpr::Member {
+                        object: Box::new(scrutinee_js.clone()),
+                        property: "value".to_string(),
+                    };
+                    return vec![(ctx.resolve_name(&ident.name, &ident.span), accessor)];
+                }
+            } else {
+                let mut bindings = Vec::new();
+                for (i, field) in fields.iter().enumerate() {
+                    if let PatternKind::Binding(ident) = &field.kind {
+                        let accessor = JsExpr::Index {
+                            object: Box::new(JsExpr::Member {
+                                object: Box::new(scrutinee_js.clone()),
+                                property: "value".to_string(),
+                            }),
+                            index: Box::new(JsExpr::String(i.to_string())),
+                        };
+                        bindings.push((ctx.resolve_name(&ident.name, &ident.span), accessor));
+                    }
+                }
+                return bindings;
+            }
+            Vec::new()
+        }
+        PatternKind::EnumStruct { fields, .. } => {
+            extract_struct_field_bindings(fields, scrutinee_js, ctx)
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Lower an if-let statement
+fn lower_if_let_stmt(
+    pattern: &Pattern,
+    scrutinee: &Expr,
+    then_branch: &Block,
+    else_branch: &Option<Box<Stmt>>,
+    ctx: &CodegenContext,
+) -> JsStmt {
+    let scrutinee_js = lower_expr(scrutinee, ctx);
+    let temp_name = ctx.fresh_temp("__iflet");
+    let temp_expr = JsExpr::Ident(temp_name.clone());
+
+    // Build condition test
+    let condition = pattern_test_for_if_let(pattern, &temp_expr, ctx)
+        .unwrap_or(JsExpr::Bool(true));
+
+    // Extract bindings and build then block
+    let bindings = extract_refutable_pattern_bindings(pattern, &temp_expr, ctx);
+    let mut then_stmts: Vec<JsStmt> = bindings
+        .into_iter()
+        .map(|(name, accessor)| JsStmt::Let {
+            name,
+            init: Some(accessor),
+        })
+        .collect();
+    then_stmts.extend(then_branch.stmts.iter().map(|s| lower_stmt(s, ctx)));
+
+    let else_block = else_branch.as_ref().map(|else_stmt| {
+        match &else_stmt.kind {
+            StmtKind::Block(block) => block
+                .stmts
+                .iter()
+                .map(|s| lower_stmt(s, ctx))
+                .collect(),
+            StmtKind::If { .. } | StmtKind::IfLet { .. } => vec![lower_stmt(else_stmt, ctx)],
+            _ => vec![lower_stmt(else_stmt, ctx)],
+        }
+    });
+
+    JsStmt::Block(vec![
+        JsStmt::Let {
+            name: temp_name,
+            init: Some(scrutinee_js),
+        },
+        JsStmt::If {
+            cond: condition,
+            then_block: then_stmts,
+            else_block,
+        },
+    ])
+}
+
+/// Pattern test for if-let - generates the condition to check if pattern matches
+fn pattern_test_for_if_let(
+    pattern: &Pattern,
+    scrutinee_js: &JsExpr,
+    ctx: &CodegenContext,
+) -> Option<JsExpr> {
+    match &pattern.kind {
+        PatternKind::EnumUnit { path }
+        | PatternKind::EnumTuple { path, .. }
+        | PatternKind::EnumStruct { path, .. } => {
+            let variant = path.last().map(|id| id.name.clone()).unwrap_or_default();
+            Some(JsExpr::Binary {
+                op: JsBinaryOp::StrictEq,
+                left: Box::new(JsExpr::Member {
+                    object: Box::new(scrutinee_js.clone()),
+                    property: "tag".to_string(),
+                }),
+                right: Box::new(JsExpr::String(variant)),
+            })
+        }
+        PatternKind::Binding(_) => {
+            // Check variant_patterns for imported unit variants
+            let span_key = (pattern.span.range.start, pattern.span.range.end);
+            if let Some((_, variant_name)) = ctx.variant_patterns.get(&span_key) {
+                Some(JsExpr::Binary {
+                    op: JsBinaryOp::StrictEq,
+                    left: Box::new(JsExpr::Member {
+                        object: Box::new(scrutinee_js.clone()),
+                        property: "tag".to_string(),
+                    }),
+                    right: Box::new(JsExpr::String(variant_name.clone())),
+                })
+            } else {
+                None // True binding - catch-all
+            }
+        }
+        _ => None,
     }
 }
 
@@ -2946,6 +3321,26 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push_str("continue;");
         }
+        JsStmt::Block(stmts) => {
+            indent(indent_level, out);
+            out.push_str("{\n");
+            for s in stmts {
+                write_stmt(s, indent_level + 1, out);
+                out.push('\n');
+            }
+            indent(indent_level, out);
+            out.push('}');
+        }
+        JsStmt::Sequence(stmts) => {
+            // Emit statements at same level without wrapping in a block.
+            // No leading indent since this is a pseudo-statement.
+            for (i, s) in stmts.iter().enumerate() {
+                if i > 0 {
+                    out.push('\n');
+                }
+                write_stmt(s, indent_level, out);
+            }
+        }
     }
 }
 
@@ -3068,6 +3463,8 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
                 JsBinaryOp::Ge => ">=",
                 JsBinaryOp::And => "&&",
                 JsBinaryOp::Or => "||",
+                JsBinaryOp::StrictEq => "===",
+                JsBinaryOp::StrictNe => "!==",
             });
             out.push(' ');
             write_expr(right, out);

@@ -1755,6 +1755,7 @@ impl<'a> FnContext<'a> {
                 pattern,
                 ty,
                 value,
+                else_block,
             } => {
                 let annotated_ty = ty.as_ref().map(|t| self.tcx.resolve_type_expr(t, &[]));
                 // Use check_expr_with_expected to enable closure parameter inference
@@ -1763,7 +1764,7 @@ impl<'a> FnContext<'a> {
                     .as_ref()
                     .map(|expr| self.check_expr_with_expected(expr, annotated_ty.as_ref()));
 
-                let final_ty = match (annotated_ty, value_ty) {
+                let final_ty = match (annotated_ty.clone(), value_ty) {
                     (Some(a), Some(v)) => {
                         if !self.types_compatible(&a, &v) {
                             self.tcx.errors.push(SemanticError {
@@ -1787,6 +1788,34 @@ impl<'a> FnContext<'a> {
                         Type::Primitive(PrimitiveType::Unit)
                     }
                 };
+
+                // Check for refutable patterns without else block
+                let is_refutable = self.pattern_is_refutable(pattern);
+                if is_refutable && else_block.is_none() {
+                    self.tcx.errors.push(SemanticError {
+                        message: "refutable pattern in let binding requires `else` block".to_string(),
+                        span: pattern.span.clone(),
+                    });
+                }
+
+                if let Some(else_blk) = else_block {
+                    // Validate pattern is refutable (warn if irrefutable with else)
+                    self.validate_refutable_pattern(pattern, &final_ty, &stmt.span);
+
+                    // Track imported variants for codegen
+                    self.record_variant_pattern(pattern, &final_ty);
+
+                    // Check divergence
+                    if !self.block_diverges(else_blk) {
+                        self.tcx.errors.push(SemanticError {
+                            message: "`else` block in `let ... else` must diverge".to_string(),
+                            span: else_blk.span.clone(),
+                        });
+                    }
+
+                    // Type-check else block (no pattern bindings visible here)
+                    self.check_block(else_blk);
+                }
 
                 // Bind variables from pattern with shadowing support
                 // (pattern validation happens in bind_pattern_locals)
@@ -1967,6 +1996,51 @@ impl<'a> FnContext<'a> {
                 }
             }
             StmtKind::Block(block) => self.check_block(block),
+            StmtKind::IfLet {
+                pattern,
+                scrutinee,
+                then_branch,
+                else_branch,
+            } => {
+                self.check_if_let_stmt(pattern, scrutinee, then_branch, else_branch, &stmt.span);
+            }
+        }
+    }
+
+    fn check_if_let_stmt(
+        &mut self,
+        pattern: &Pattern,
+        scrutinee: &Expr,
+        then_branch: &Block,
+        else_branch: &Option<Box<Stmt>>,
+        span: &Span,
+    ) {
+        let scrut_ty = self.check_expr(scrutinee);
+
+        // Validate pattern is refutable
+        self.validate_refutable_pattern(pattern, &scrut_ty, span);
+
+        // Track imported variants for codegen
+        self.record_variant_pattern(pattern, &scrut_ty);
+
+        // Save scope
+        let old_locals = self.locals.clone();
+        let old_shadow_counts = self.shadow_counts.clone();
+        let old_resolved_names = self.resolved_names.clone();
+
+        // Bind pattern locals and check then branch
+        let mut pattern_bindings = HashSet::new();
+        self.bind_pattern_locals(pattern, &scrut_ty, &mut pattern_bindings);
+        self.check_block(then_branch);
+
+        // Restore scope (bindings don't leak)
+        self.locals = old_locals;
+        self.shadow_counts = old_shadow_counts;
+        self.resolved_names = old_resolved_names;
+
+        // Check else branch without bindings
+        if let Some(else_stmt) = else_branch {
+            self.check_stmt(else_stmt);
         }
     }
 
@@ -3798,6 +3872,299 @@ impl<'a> FnContext<'a> {
             _ => ty.clone(),
         }
     }
+
+    // =========================================================================
+    // Helper functions for if-let and let-else support
+    // =========================================================================
+
+    /// Check if a pattern is refutable (can fail to match).
+    /// Used to detect refutable patterns in let without else.
+    fn pattern_is_refutable(&self, pattern: &Pattern) -> bool {
+        match &pattern.kind {
+            PatternKind::EnumUnit { .. }
+            | PatternKind::EnumTuple { .. }
+            | PatternKind::EnumStruct { .. } => true,
+            PatternKind::Binding(ident) => {
+                // Imported variant names (e.g., `None`, `Err`) are refutable
+                self.tcx.env.variant_imports.contains_key(&ident.name)
+            }
+            PatternKind::Wildcard | PatternKind::Tuple { .. } => false,
+        }
+    }
+
+    /// Check that pattern is refutable (can fail to match).
+    /// Emits warning for irrefutable patterns used in if-let or let-else.
+    fn validate_refutable_pattern(&mut self, pattern: &Pattern, scrut_ty: &Type, span: &Span) {
+        match &pattern.kind {
+            PatternKind::EnumUnit { path }
+            | PatternKind::EnumTuple { path, .. }
+            | PatternKind::EnumStruct { path, .. } => {
+                // Verify the pattern matches an enum type (type-aware validation)
+                if let Type::Named { name, .. } = scrut_ty {
+                    let path_enum = path.first().map(|id| &id.name);
+                    if path_enum != Some(name) && !self.is_enum_type(name) {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "pattern `{}` does not match type `{}`",
+                                path.iter()
+                                    .map(|id| id.name.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("::"),
+                                name
+                            ),
+                            span: span.clone(),
+                        });
+                    }
+                }
+                // Enum patterns are refutable - OK
+
+                // Check for nested patterns in struct variants (not supported)
+                if let PatternKind::EnumStruct { fields, .. } = &pattern.kind {
+                    self.check_struct_pattern_depth(fields, span);
+                }
+            }
+            PatternKind::Binding(ident) => {
+                if !self.tcx.env.variant_imports.contains_key(&ident.name) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "irrefutable pattern `{}`: will always match",
+                            ident.name
+                        ),
+                        span: span.clone(),
+                    });
+                }
+            }
+            PatternKind::Wildcard => {
+                self.tcx.errors.push(SemanticError {
+                    message: "irrefutable pattern `_`: will always match".to_string(),
+                    span: span.clone(),
+                });
+            }
+            PatternKind::Tuple { .. } => {
+                self.tcx.errors.push(SemanticError {
+                    message: "irrefutable tuple pattern: will always match".to_string(),
+                    span: span.clone(),
+                });
+            }
+        }
+    }
+
+    /// Check that struct pattern fields don't contain nested refutable patterns.
+    /// We only support top-level field bindings in this initial implementation.
+    fn check_struct_pattern_depth(
+        &mut self,
+        fields: &[(Ident, Pattern)],
+        span: &Span,
+    ) {
+        for (_, sub_pattern) in fields {
+            match &sub_pattern.kind {
+                // Only simple bindings and wildcards are allowed
+                PatternKind::Binding(_) | PatternKind::Wildcard => {}
+                _ => {
+                    self.tcx.errors.push(SemanticError {
+                        message: "nested patterns in struct fields are not yet supported"
+                            .to_string(),
+                        span: span.clone(),
+                    });
+                    return; // One error is enough
+                }
+            }
+        }
+    }
+
+    /// Check if a name refers to an enum type.
+    fn is_enum_type(&self, name: &str) -> bool {
+        self.tcx.env.enums.contains_key(name)
+    }
+
+    /// Record imported variant patterns in variant_patterns map for codegen.
+    fn record_variant_pattern(&mut self, pattern: &Pattern, scrut_ty: &Type) {
+        if let PatternKind::Binding(ident) = &pattern.kind {
+            if let Some((imported_enum, _)) = self.tcx.env.variant_imports.get(&ident.name) {
+                // Determine if we should record this variant
+                let should_record = match scrut_ty {
+                    Type::Named { name: enum_name, .. } => imported_enum == enum_name,
+                    // Record for type variables (will be resolved later)
+                    Type::Var(_) => true,
+                    _ => false,
+                };
+
+                if should_record {
+                    self.tcx.variant_patterns.insert(
+                        (pattern.span.range.start, pattern.span.range.end),
+                        (imported_enum.clone(), ident.name.clone()),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Check if a block diverges (definitely cannot complete normally).
+    fn block_diverges(&self, block: &Block) -> bool {
+        // Check if any statement in the block unconditionally diverges
+        for stmt in &block.stmts {
+            if self.stmt_diverges(stmt) {
+                return true; // Found unconditional divergence - rest is unreachable
+            }
+        }
+        false // No unconditional divergence, block may complete normally
+    }
+
+    /// Check if a statement diverges.
+    fn stmt_diverges(&self, stmt: &Stmt) -> bool {
+        match &stmt.kind {
+            // Unconditionally divergent
+            StmtKind::Return { .. } => true,
+            StmtKind::Break => self.in_loop,
+            StmtKind::Continue => self.in_loop,
+
+            // Nested block
+            StmtKind::Block(block) => self.block_diverges(block),
+
+            // Loop: diverges unless there's a reachable break
+            StmtKind::Loop { body, .. } => !self.loop_may_complete(body),
+
+            // If: ALL branches must diverge for the if to diverge
+            StmtKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.block_diverges(then_branch)
+                    && else_branch
+                        .as_ref()
+                        .map_or(false, |e| self.stmt_diverges(e))
+            }
+
+            // IfLet: same as if - both branches must diverge
+            StmtKind::IfLet {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.block_diverges(then_branch)
+                    && else_branch
+                        .as_ref()
+                        .map_or(false, |e| self.stmt_diverges(e))
+            }
+
+            // Expression statements: check for divergent expressions (panic!, etc.)
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) => self.expr_diverges(expr),
+
+            _ => false,
+        }
+    }
+
+    /// Check if a loop may complete (has a reachable break on SOME path).
+    fn loop_may_complete(&self, block: &Block) -> bool {
+        self.block_has_reachable_break(block)
+    }
+
+    /// Check if a block has a reachable break statement.
+    fn block_has_reachable_break(&self, block: &Block) -> bool {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                StmtKind::Break => return true, // Found a reachable break
+
+                StmtKind::Block(b) => {
+                    if self.block_has_reachable_break(b) {
+                        return true;
+                    }
+                    // If block diverges, subsequent statements are unreachable
+                    if self.block_diverges(b) {
+                        return false;
+                    }
+                }
+
+                StmtKind::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    // Check both branches for breaks
+                    let then_has_break = self.block_has_reachable_break(then_branch);
+                    let else_has_break = else_branch
+                        .as_ref()
+                        .map_or(false, |e| self.stmt_has_reachable_break(e));
+
+                    if then_has_break || else_has_break {
+                        return true;
+                    }
+
+                    // If BOTH branches diverge, subsequent statements are unreachable
+                    let then_diverges = self.block_diverges(then_branch);
+                    let else_diverges = else_branch
+                        .as_ref()
+                        .map_or(false, |e| self.stmt_diverges(e));
+                    if then_diverges && else_diverges {
+                        return false;
+                    }
+                }
+
+                StmtKind::IfLet {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    let then_has_break = self.block_has_reachable_break(then_branch);
+                    let else_has_break = else_branch
+                        .as_ref()
+                        .map_or(false, |e| self.stmt_has_reachable_break(e));
+
+                    if then_has_break || else_has_break {
+                        return true;
+                    }
+
+                    let then_diverges = self.block_diverges(then_branch);
+                    let else_diverges = else_branch
+                        .as_ref()
+                        .map_or(false, |e| self.stmt_diverges(e));
+                    if then_diverges && else_diverges {
+                        return false;
+                    }
+                }
+
+                // Don't recurse into nested loops - their breaks don't affect outer loop
+                StmtKind::Loop { .. } => {}
+
+                // Check for ANY divergent statement, not just return/continue
+                _ => {
+                    if self.stmt_diverges(stmt) {
+                        return false; // Subsequent statements are unreachable
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn stmt_has_reachable_break(&self, stmt: &Stmt) -> bool {
+        match &stmt.kind {
+            StmtKind::Break => true,
+            StmtKind::Block(b) => self.block_has_reachable_break(b),
+            _ => false,
+        }
+    }
+
+    /// Check if an expression diverges (e.g., panic!, todo!, unreachable!)
+    fn expr_diverges(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Call { callee, .. } => {
+                if let ExprKind::Path { segments } = &callee.kind {
+                    let name = segments.last().map(|id| id.name.as_str()).unwrap_or("");
+                    matches!(name, "panic" | "todo" | "unreachable" | "unimplemented")
+                } else if let ExprKind::Ident(id) = &callee.kind {
+                    matches!(
+                        id.name.as_str(),
+                        "panic" | "todo" | "unreachable" | "unimplemented"
+                    )
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Resolver {
@@ -4035,6 +4402,7 @@ mod tests {
                 },
                 ty: Some(type_ident("i32", 25)),
                 value: Some(one_lit),
+                else_block: None,
             },
             span: Span { range: 20..32 },
         };
@@ -4099,6 +4467,7 @@ mod tests {
                 },
                 ty: Some(type_ident("i32", 20)),
                 value: Some(string_lit),
+                else_block: None,
             },
             span: Span { range: 15..32 },
         };
@@ -4440,6 +4809,7 @@ mod tests {
                 pattern: ident_pattern("app", 25),
                 ty: None,
                 value: Some(call_0_args),
+                else_block: None,
             },
             span: Span { range: 25..45 },
         };
@@ -4468,6 +4838,7 @@ mod tests {
                 pattern: ident_pattern("app2", 45),
                 ty: None,
                 value: Some(call_1_arg),
+                else_block: None,
             },
             span: Span { range: 45..70 },
         };
@@ -4512,6 +4883,7 @@ mod tests {
                 pattern: ident_pattern("app3", 70),
                 ty: None,
                 value: Some(call_3_args),
+                else_block: None,
             },
             span: Span { range: 70..95 },
         };
