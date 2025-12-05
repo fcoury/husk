@@ -82,9 +82,6 @@ function __husk_fmt_debug(value, pretty) {
             if (keys.length === 1 && keys[0] === "value") {
                 return tag + "(" + __husk_fmt_debug(value.value, pretty) + ")";
             }
-            if (keys.length === 1 && keys[0] === "error") {
-                return tag + "(" + __husk_fmt_debug(value.error, pretty) + ")";
-            }
             // General struct fields
             var fields = keys.map(function(k) { return k + ": " + __husk_fmt_debug(value[k], pretty); });
             if (pretty) return tag + " {\n  " + fields.join(",\n  ") + "\n}";
@@ -400,7 +397,7 @@ function __husk_unwrap(value) {
             return value.value;
         }
         if (value.tag === "Err") {
-            throw new Error("[Husk panic] called unwrap on Err: " + __husk_fmt_debug(value.error));
+            throw new Error("[Husk panic] called unwrap on Err: " + __husk_fmt_debug(value.value));
         }
         if (value.tag === "Some") {
             return value.value;
@@ -423,7 +420,7 @@ function __husk_expect(value, message) {
             return value.value;
         }
         if (value.tag === "Err") {
-            throw new Error("[Husk panic] " + message + ": " + __husk_fmt_debug(value.error));
+            throw new Error("[Husk panic] " + message + ": " + __husk_fmt_debug(value.value));
         }
         if (value.tag === "Some") {
             return value.value;
