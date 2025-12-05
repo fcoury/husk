@@ -4092,20 +4092,23 @@ impl<'src> Parser<'src> {
                 Some(JsxChild::Expression(expr))
             }
             // Text content - collect tokens until we hit `<` or `{`
-            // Handles identifiers, numbers, strings, and other literal content
+            // Handles identifiers, numbers, strings, keywords, and other literal content
             _ if Self::is_jsx_text_token(&self.current().kind) => {
                 let start = self.current().span.range.start;
-                let mut text_content = Self::token_to_jsx_text(&self.current().kind);
                 self.advance();
 
                 // Collect consecutive text tokens
                 while Self::is_jsx_text_token(&self.current().kind) {
-                    text_content.push(' ');
-                    text_content.push_str(&Self::token_to_jsx_text(&self.current().kind));
                     self.advance();
                 }
 
                 let end = self.previous().span.range.end;
+                // Use the original source text to preserve exact spacing
+                let text_content = if start < end && end <= self.source.len() {
+                    self.source[start..end].to_string()
+                } else {
+                    String::new()
+                };
                 let trimmed = text_content.trim().to_string();
                 if trimmed.is_empty() {
                     None
@@ -4126,6 +4129,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::IntLiteral(_)
                 | TokenKind::FloatLiteral(_)
                 | TokenKind::StringLiteral(_)
+                | TokenKind::Keyword(_) // Keywords can appear as text (e.g., "true", "for")
                 | TokenKind::Dot
                 | TokenKind::Comma
                 | TokenKind::Colon
@@ -4142,32 +4146,6 @@ impl<'src> Parser<'src> {
                 | TokenKind::LBracket
                 | TokenKind::RBracket
         )
-    }
-
-    /// Convert a token to its text representation for JSX content.
-    fn token_to_jsx_text(kind: &TokenKind) -> String {
-        match kind {
-            TokenKind::Ident(s) => s.clone(),
-            TokenKind::IntLiteral(s) => s.clone(),
-            TokenKind::FloatLiteral(s) => s.clone(),
-            TokenKind::StringLiteral(s) => s.clone(),
-            TokenKind::Dot => ".".to_string(),
-            TokenKind::Comma => ",".to_string(),
-            TokenKind::Colon => ":".to_string(),
-            TokenKind::Semicolon => ";".to_string(),
-            TokenKind::Bang => "!".to_string(),
-            TokenKind::Minus => "-".to_string(),
-            TokenKind::Plus => "+".to_string(),
-            TokenKind::Star => "*".to_string(),
-            TokenKind::Slash => "/".to_string(),
-            TokenKind::Percent => "%".to_string(),
-            TokenKind::Eq => "=".to_string(),
-            TokenKind::LParen => "(".to_string(),
-            TokenKind::RParen => ")".to_string(),
-            TokenKind::LBracket => "[".to_string(),
-            TokenKind::RBracket => "]".to_string(),
-            _ => String::new(),
-        }
     }
 }
 
