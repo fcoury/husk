@@ -970,10 +970,7 @@ impl<'a> Codegen<'a> {
             "Partial" | "Required" | "Readonly" | "Pick" | "Omit" | "Record" | "Exclude"
             | "Extract" | "NonNullable" | "ReturnType" | "Parameters" | "InstanceType" => {
                 // TypeScript utility types - map to JsValue
-                self.warn(
-                    WarningKind::Unsupported,
-                    format!("Utility type {} not supported", simple_name),
-                );
+                self.warn_unsupported(format!("Utility type {} not supported", simple_name));
                 "JsValue".to_string()
             }
             _ => {
