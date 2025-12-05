@@ -35,6 +35,8 @@ pub enum Type {
     Var(TypeVarId),
     /// An array type: `[T]`.
     Array(Box<Type>),
+    /// A tuple type: `(T1, T2, ...)`.
+    Tuple(Vec<Type>),
 }
 
 impl Type {
@@ -74,6 +76,10 @@ impl Type {
             params,
             ret: Box::new(ret),
         }
+    }
+
+    pub fn tuple(elements: Vec<Type>) -> Self {
+        Type::Tuple(elements)
     }
 }
 

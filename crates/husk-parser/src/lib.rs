@@ -1406,21 +1406,54 @@ impl<'src> Parser<'src> {
                     span: Span { range: start..end },
                 })
             }
-            // Unit type: `()`
+            // Unit type `()` or tuple type `(T1, T2, ...)`
             TokenKind::LParen => {
                 let start = tok.span.range.start;
                 self.advance(); // consume `(`
-                if !self.matches_token(&TokenKind::RParen) {
-                    self.error_here("expected `)` for unit type `()`");
-                    return None;
-                }
-                let end = self.previous().span.range.end;
-                // Unit type is represented as a named type "()"
-                Some(TypeExpr {
-                    kind: TypeExprKind::Named(Ident {
-                        name: "()".to_string(),
+
+                // Check for unit type `()`
+                if self.matches_token(&TokenKind::RParen) {
+                    let end = self.previous().span.range.end;
+                    // Unit type is represented as a named type "()"
+                    return Some(TypeExpr {
+                        kind: TypeExprKind::Named(Ident {
+                            name: "()".to_string(),
+                            span: Span { range: start..end },
+                        }),
                         span: Span { range: start..end },
-                    }),
+                    });
+                }
+
+                // Parse tuple type: (T1, T2, ...)
+                let mut types = Vec::new();
+                loop {
+                    let ty = self.parse_type_expr()?;
+                    types.push(ty);
+
+                    if self.matches_token(&TokenKind::RParen) {
+                        break;
+                    }
+                    if !self.matches_token(&TokenKind::Comma) {
+                        self.error_here("expected `,` or `)` in tuple type");
+                        return None;
+                    }
+                    // Allow trailing comma: (T1, T2,)
+                    if self.matches_token(&TokenKind::RParen) {
+                        break;
+                    }
+                }
+
+                let end = self.previous().span.range.end;
+
+                // Single element in parens is just grouping, not a tuple
+                // Tuples need at least 2 elements or a trailing comma: (T,)
+                if types.len() == 1 {
+                    // Just return the inner type (parenthesized type)
+                    return Some(types.pop().unwrap());
+                }
+
+                Some(TypeExpr {
+                    kind: TypeExprKind::Tuple(types),
                     span: Span { range: start..end },
                 })
             }
@@ -1710,7 +1743,7 @@ impl<'src> Parser<'src> {
         if self.matches_keyword(Keyword::Mut) {
             mutable = true;
         }
-        let name = self.parse_ident("expected binding name after `let`")?;
+        let pattern = self.parse_pattern()?;
 
         let ty = if self.matches_token(&TokenKind::Colon) {
             Some(self.parse_type_expr()?)
@@ -1732,7 +1765,7 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Let {
                 mutable,
-                name,
+                pattern,
                 ty,
                 value,
             },
@@ -2293,8 +2326,63 @@ impl<'src> Parser<'src> {
                     span,
                 };
             } else if self.matches_token(&TokenKind::Dot) {
-                // Field or method
+                // Field access, method call, or tuple field access
                 let name_tok = self.current().clone();
+
+                // Check for tuple field access: expr.0, expr.1, etc.
+                if let TokenKind::IntLiteral(ref s) = name_tok.kind {
+                    self.advance();
+                    let index = match s.parse::<usize>() {
+                        Ok(idx) => idx,
+                        Err(_) => {
+                            self.error_at_token(&name_tok, "tuple field index must be a valid non-negative integer");
+                            break;
+                        }
+                    };
+                    let span = Span {
+                        range: expr.span.range.start..name_tok.span.range.end,
+                    };
+                    expr = Expr {
+                        kind: ExprKind::TupleField {
+                            base: Box::new(expr),
+                            index,
+                        },
+                        span,
+                    };
+                    continue;
+                }
+
+                // Handle chained tuple access like .0.0 which lexes as FloatLiteral("0.0")
+                // We split it into two tuple field accesses
+                if let TokenKind::FloatLiteral(ref s) = name_tok.kind {
+                    // Check if this looks like chained tuple access (e.g., "0.0", "0.1", "1.2")
+                    if let Some((first, rest)) = s.split_once('.') {
+                        if let (Ok(idx1), Ok(idx2)) = (first.parse::<usize>(), rest.parse::<usize>()) {
+                            self.advance();
+                            // First tuple access
+                            let mid_span = Span {
+                                range: expr.span.range.start..name_tok.span.range.end,
+                            };
+                            let first_access = Expr {
+                                kind: ExprKind::TupleField {
+                                    base: Box::new(expr),
+                                    index: idx1,
+                                },
+                                span: mid_span.clone(),
+                            };
+                            // Second tuple access
+                            expr = Expr {
+                                kind: ExprKind::TupleField {
+                                    base: Box::new(first_access),
+                                    index: idx2,
+                                },
+                                span: mid_span,
+                            };
+                            continue;
+                        }
+                    }
+                }
+
                 let ident = match &name_tok.kind {
                     TokenKind::Ident(s) => {
                         self.advance();
@@ -2304,7 +2392,7 @@ impl<'src> Parser<'src> {
                         }
                     }
                     _ => {
-                        self.error_here("expected identifier after `.`");
+                        self.error_here("expected identifier or tuple index after `.`");
                         break;
                     }
                 };
@@ -3002,6 +3090,45 @@ impl<'src> Parser<'src> {
     fn parse_pattern(&mut self) -> Option<Pattern> {
         let tok = self.current().clone();
         let kind = match &tok.kind {
+            // Tuple pattern: (a, b, c)
+            TokenKind::LParen => {
+                let start = tok.span.range.start;
+                self.advance(); // consume `(`
+
+                // Empty tuple pattern: ()
+                if self.matches_token(&TokenKind::RParen) {
+                    let end = self.previous().span.range.end;
+                    return Some(Pattern {
+                        kind: PatternKind::Tuple { fields: Vec::new() },
+                        span: Span { range: start..end },
+                    });
+                }
+
+                // Parse tuple pattern fields
+                let mut fields = Vec::new();
+                loop {
+                    let field = self.parse_pattern()?;
+                    fields.push(field);
+
+                    if self.matches_token(&TokenKind::RParen) {
+                        break;
+                    }
+                    if !self.matches_token(&TokenKind::Comma) {
+                        self.error_here("expected `,` or `)` in tuple pattern");
+                        return None;
+                    }
+                    // Allow trailing comma: (a, b,)
+                    if self.matches_token(&TokenKind::RParen) {
+                        break;
+                    }
+                }
+
+                let end = self.previous().span.range.end;
+                return Some(Pattern {
+                    kind: PatternKind::Tuple { fields },
+                    span: Span { range: start..end },
+                });
+            }
             TokenKind::Ident(name) => {
                 // Could be binding (`x`) or enum path (`Enum::Variant`).
                 let first = Ident {
@@ -3009,6 +3136,14 @@ impl<'src> Parser<'src> {
                     span: self.ast_span_from(&tok.span),
                 };
                 self.advance();
+
+                // Check for wildcard `_`
+                if first.name == "_" {
+                    return Some(Pattern {
+                        kind: PatternKind::Wildcard,
+                        span: self.ast_span_from(&tok.span),
+                    });
+                }
 
                 let mut path = self.parse_path_segments(first);
 
@@ -3035,19 +3170,8 @@ impl<'src> Parser<'src> {
                 }
             }
             _ => {
-                // Wildcard `_`
-                if let TokenKind::Ident(ref name) = tok.kind {
-                    if name == "_" {
-                        self.advance();
-                        PatternKind::Wildcard
-                    } else {
-                        self.error_here("unexpected token in pattern");
-                        return None;
-                    }
-                } else {
-                    self.error_here("unexpected token in pattern");
-                    return None;
-                }
+                self.error_here("unexpected token in pattern");
+                return None;
             }
         };
 
@@ -3238,12 +3362,65 @@ impl<'src> Parser<'src> {
                 }
             }
             TokenKind::LParen => {
-                self.advance();
-                let expr = self.parse_expr()?;
-                if !self.matches_token(&TokenKind::RParen) {
-                    self.error_here("expected `)` after expression");
+                let start = tok.span.range.start;
+                self.advance(); // consume `(`
+
+                // Check for empty tuple / unit value `()`
+                if self.matches_token(&TokenKind::RParen) {
+                    let end = self.previous().span.range.end;
+                    return Some(Expr {
+                        kind: ExprKind::Tuple { elements: Vec::new() },
+                        span: Span { range: start..end },
+                    });
                 }
-                Some(expr)
+
+                // Parse the first expression
+                let first_expr = self.parse_expr()?;
+
+                // If we see `)`, it's just a grouped expression
+                if self.matches_token(&TokenKind::RParen) {
+                    return Some(first_expr);
+                }
+
+                // If we see `,`, it's a tuple
+                if !self.matches_token(&TokenKind::Comma) {
+                    self.error_here("expected `)` or `,` after expression");
+                    return None;
+                }
+
+                // Single element tuple with trailing comma: (expr,)
+                if self.matches_token(&TokenKind::RParen) {
+                    let end = self.previous().span.range.end;
+                    return Some(Expr {
+                        kind: ExprKind::Tuple { elements: vec![first_expr] },
+                        span: Span { range: start..end },
+                    });
+                }
+
+                // Multi-element tuple: (expr1, expr2, ...)
+                let mut elements = vec![first_expr];
+                loop {
+                    let expr = self.parse_expr()?;
+                    elements.push(expr);
+
+                    if self.matches_token(&TokenKind::RParen) {
+                        break;
+                    }
+                    if !self.matches_token(&TokenKind::Comma) {
+                        self.error_here("expected `,` or `)` in tuple expression");
+                        return None;
+                    }
+                    // Allow trailing comma: (a, b,)
+                    if self.matches_token(&TokenKind::RParen) {
+                        break;
+                    }
+                }
+
+                let end = self.previous().span.range.end;
+                Some(Expr {
+                    kind: ExprKind::Tuple { elements },
+                    span: Span { range: start..end },
+                })
             }
             TokenKind::LBracket => self.parse_array_expr(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expr(),

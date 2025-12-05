@@ -1,0 +1,32 @@
+// Test basic tuple functionality
+
+fn main() {
+    // Create a simple tuple
+    let pair: (i32, String) = (42, "hello");
+
+    // Access tuple fields
+    let first = pair.0;
+    let second = pair.1;
+
+    // Destructure a tuple
+    let (x, y) = pair;
+
+    // Nested tuples
+    let nested: ((i32, i32), String) = ((1, 2), "point");
+    let nested_first = nested.0.0;
+    let nested_second = nested.0.1;
+    let nested_label = nested.1;
+
+    // Tuple in function return
+    let result = create_pair(10, "world");
+    let r0 = result.0;
+    let r1 = result.1;
+
+    // Multiple element tuple
+    let triple: (i32, bool, String) = (1, true, "test");
+    let (n, flag, text) = triple;
+}
+
+fn create_pair(num: i32, text: String) -> (i32, String) {
+    (num, text)
+}

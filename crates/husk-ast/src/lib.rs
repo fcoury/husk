@@ -211,6 +211,13 @@ pub enum ExprKind {
         expr: Box<Expr>,
         target_ty: TypeExpr,
     },
+    /// Tuple literal expression: `(1, "hello", true)` or `(a, b)`
+    Tuple { elements: Vec<Expr> },
+    /// Tuple field access: `tuple.0`, `tuple.1`, etc.
+    TupleField {
+        base: Box<Expr>,
+        index: usize,
+    },
 }
 
 // ============================================================================
@@ -320,6 +327,10 @@ pub enum PatternKind {
         path: Vec<Ident>,
         fields: Vec<(Ident, Pattern)>,
     },
+    /// Tuple pattern: `(x, y, z)` for destructuring tuples
+    Tuple {
+        fields: Vec<Pattern>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -340,7 +351,7 @@ pub struct MatchArm {
 pub enum StmtKind {
     Let {
         mutable: bool,
-        name: Ident,
+        pattern: Pattern,
         ty: Option<TypeExpr>,
         value: Option<Expr>,
     },
@@ -395,6 +406,8 @@ pub enum TypeExprKind {
     Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
     /// Array type: `[ElementType]`
     Array(Box<TypeExpr>),
+    /// Tuple type: `(T1, T2, T3)`
+    Tuple(Vec<TypeExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
