@@ -52,14 +52,14 @@ struct PropertyAccessors {
     /// Maps (type_name, method_name) -> property_name for setters
     /// e.g., ("Request", "set_body") -> "body"
     setters: HashMap<(String, String), String>,
-    /// Maps method_name -> js_name for #[js_name] overrides
+    /// Maps (type_name, method_name) -> js_name for #[js_name] overrides
     /// This allows explicit control over the JavaScript method name.
-    /// e.g., "len" -> "length" (for String.len() -> str.length)
-    method_js_names: HashMap<String, String>,
-    /// Set of extern method names that should use snake_to_camel conversion.
-    /// Only extern "js" methods get automatic name conversion; user-defined
-    /// Husk methods keep their original names.
-    extern_methods: std::collections::HashSet<String>,
+    /// e.g., ("String", "len") -> "length" (for String.len() -> str.length)
+    method_js_names: HashMap<(String, String), String>,
+    /// Set of (type_name, method_name) pairs for extern "js" methods.
+    /// Only extern "js" methods get automatic snake_to_camel conversion;
+    /// user-defined Husk methods keep their original names.
+    extern_methods: std::collections::HashSet<(String, String)>,
 }
 
 /// Context for code generation, carrying compile-time state.
@@ -514,17 +514,21 @@ pub fn lower_file_to_js_with_source(
                     // DEPRECATED: Heuristic-based detection for extern methods
                     // TODO: Remove this once all code migrates to explicit properties
                     ImplItemKind::Method(method) => {
+                        let method_name = &method.name.name;
+
                         // Collect #[js_name] overrides for method name mapping
+                        // Keyed by (type_name, method_name) to avoid collisions
                         if let Some(js_name) = method.js_name() {
-                            accessors
-                                .method_js_names
-                                .insert(method.name.name.clone(), js_name.to_string());
+                            accessors.method_js_names.insert(
+                                (type_name.clone(), method_name.clone()),
+                                js_name.to_string(),
+                            );
                         }
 
                         if method.is_extern && method.receiver.is_some() {
-                            let method_name = &method.name.name;
                             // Track this as an extern method for snake_to_camel conversion
-                            accessors.extern_methods.insert(method_name.clone());
+                            // Keyed by (type_name, method_name) to avoid renaming user methods
+                            accessors.extern_methods.insert((type_name.clone(), method_name.clone()));
 
                             // Methods that should NOT be treated as getters even if they have
                             // no params and a return type. These are actual method calls in JS.
@@ -1419,19 +1423,27 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Use #[js_name] override if present, otherwise convert snake_case to camelCase
             // (but only for extern "js" methods; user-defined Husk methods keep their names)
             let base_method_name = strip_variadic_suffix(&method.name);
-            let js_method_name = ctx
-                .accessors
-                .method_js_names
-                .get(&base_method_name)
-                .cloned()
-                .unwrap_or_else(|| {
-                    // Only apply snake_to_camel for extern "js" methods
-                    if ctx.accessors.extern_methods.contains(&base_method_name) {
-                        snake_to_camel(&base_method_name)
-                    } else {
-                        base_method_name.clone()
-                    }
-                });
+
+            // Look up #[js_name] override by searching across all types.
+            // This is a heuristic since we don't have type info at codegen time.
+            let js_name_override = ctx.accessors.method_js_names
+                .iter()
+                .find(|((_, m), _)| m == &base_method_name)
+                .map(|(_, js_name)| js_name.clone());
+
+            // Check if this method is an extern "js" method for any type.
+            let is_extern_method = ctx.accessors.extern_methods
+                .iter()
+                .any(|(_, m)| m == &base_method_name);
+
+            let js_method_name = js_name_override.unwrap_or_else(|| {
+                // Only apply snake_to_camel for extern "js" methods
+                if is_extern_method {
+                    snake_to_camel(&base_method_name)
+                } else {
+                    base_method_name.clone()
+                }
+            });
             JsExpr::Call {
                 callee: Box::new(JsExpr::Member {
                     object: Box::new(lower_expr(receiver, ctx)),
