@@ -417,6 +417,17 @@ pub struct ClosureParam {
     pub ty: Option<TypeExpr>,
 }
 
+/// What kind of use import this is.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UseKind {
+    /// Import the item at the path: `use crate::foo::Bar;`
+    Item,
+    /// Glob import all variants: `use Option::*;`
+    Glob,
+    /// Import specific variants: `use Result::{Ok, Err};` or `use Result::Ok;`
+    Variants(Vec<Ident>),
+}
+
 /// Item-level definitions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ItemKind {
@@ -446,8 +457,10 @@ pub enum ItemKind {
         items: Vec<ExternItem>,
     },
     Use {
-        /// Path like `crate::foo::bar`
+        /// Path like `crate::foo::bar` or `Option` (for variant imports)
         path: Vec<Ident>,
+        /// What kind of import this is
+        kind: UseKind,
     },
     /// Trait definition: `trait Name { fn method(&self); }`
     Trait(TraitDef),

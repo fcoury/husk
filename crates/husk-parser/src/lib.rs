@@ -1562,7 +1562,34 @@ impl<'src> Parser<'src> {
     fn parse_use_item(&mut self) -> Option<Item> {
         let use_tok = self.advance().clone(); // consume `use`
         let first = self.parse_ident("expected path after `use`")?;
-        let path = self.parse_path_segments(first);
+        let path = self.parse_use_path_segments(first);
+
+        // Check for variant import syntax: ::*, ::{A, B}, or continue as normal path
+        let kind = if self.matches_token(&TokenKind::ColonColon) {
+            if self.matches_token(&TokenKind::Star) {
+                // Glob import: `use Enum::*;`
+                husk_ast::UseKind::Glob
+            } else if self.matches_token(&TokenKind::LBrace) {
+                // Selective import: `use Enum::{A, B};`
+                let variants = self.parse_use_variant_list()?;
+                if !self.matches_token(&TokenKind::RBrace) {
+                    self.error_here("expected `}` after variant list");
+                }
+                husk_ast::UseKind::Variants(variants)
+            } else {
+                // Could be single variant or continuing path - parse as identifier
+                if let Some(variant) = self.parse_ident("expected identifier, `*`, or `{` after `::`")
+                {
+                    husk_ast::UseKind::Variants(vec![variant])
+                } else {
+                    husk_ast::UseKind::Item
+                }
+            }
+        } else {
+            // Regular item import: `use crate::foo::Bar;`
+            husk_ast::UseKind::Item
+        };
+
         if !self.matches_token(&TokenKind::Semicolon) {
             self.error_here("expected `;` after use path");
         }
@@ -1570,11 +1597,68 @@ impl<'src> Parser<'src> {
         Some(Item {
             attributes: Vec::new(),
             visibility: husk_ast::Visibility::Private,
-            kind: ItemKind::Use { path },
+            kind: ItemKind::Use { path, kind },
             span: Span {
                 range: use_tok.span.range.start..end,
             },
         })
+    }
+
+    /// Parse path segments for use statements, stopping before `::*` or `::{`.
+    fn parse_use_path_segments(&mut self, first: Ident) -> Vec<Ident> {
+        let mut path = vec![first];
+        // Check for path segments `Foo::Bar`, but stop before `::*` or `::{`
+        while self.current().kind == TokenKind::ColonColon {
+            // Peek ahead to see what follows `::`
+            if let Some(next) = self.tokens.get(self.pos + 1) {
+                match next.kind {
+                    TokenKind::Star | TokenKind::LBrace => {
+                        // Stop here - let the caller handle ::* or ::{
+                        break;
+                    }
+                    TokenKind::Ident(_) => {
+                        // Continue parsing as path segment
+                        self.advance(); // consume `::`
+                        let seg = match self.parse_ident("expected identifier after `::` in path") {
+                            Some(id) => id,
+                            None => break,
+                        };
+                        path.push(seg);
+                    }
+                    _ => break,
+                }
+            } else {
+                break;
+            }
+        }
+        path
+    }
+
+    /// Parse a comma-separated list of variant identifiers: `A, B, C`
+    fn parse_use_variant_list(&mut self) -> Option<Vec<Ident>> {
+        let mut variants = Vec::new();
+
+        // Parse first variant
+        if let Some(ident) = self.parse_ident("expected variant name") {
+            variants.push(ident);
+        } else {
+            return Some(variants); // Empty list
+        }
+
+        // Parse remaining variants separated by commas
+        while self.matches_token(&TokenKind::Comma) {
+            // Allow trailing comma
+            if self.current().kind == TokenKind::RBrace {
+                break;
+            }
+            if let Some(ident) = self.parse_ident("expected variant name after `,`") {
+                variants.push(ident);
+            } else {
+                break;
+            }
+        }
+
+        Some(variants)
     }
 
     fn parse_stmt(&mut self) -> Option<Stmt> {
@@ -2907,11 +2991,8 @@ impl<'src> Parser<'src> {
 
                 let mut path = self.parse_path_segments(first);
 
-                if path.len() == 1 {
-                    // Single identifier: treat as binding pattern.
-                    PatternKind::Binding(path.pop().unwrap())
-                } else if self.matches_token(&TokenKind::LParen) {
-                    // Enum tuple pattern: Enum::Variant(x, y)
+                if self.matches_token(&TokenKind::LParen) {
+                    // Enum tuple pattern: Enum::Variant(x, y) or imported variant Some(x)
                     let mut fields = Vec::new();
                     while !self.is_at_end() && self.current().kind != TokenKind::RParen {
                         fields.push(self.parse_pattern()?);
@@ -2924,6 +3005,9 @@ impl<'src> Parser<'src> {
                         return None;
                     }
                     PatternKind::EnumTuple { path, fields }
+                } else if path.len() == 1 {
+                    // Single identifier without parens: treat as binding pattern.
+                    PatternKind::Binding(path.pop().unwrap())
                 } else {
                     // Enum unit pattern: Enum::Variant
                     PatternKind::EnumUnit { path }

@@ -86,7 +86,13 @@ fn examples_execute_with_node_when_available() {
         let filtered_file = filter_items_by_cfg(&file, &HashSet::new());
 
         // Lower to JS with preamble (bin mode: auto-call main when present).
+<<<<<<< HEAD
         let module = lower_file_to_js(&filtered_file, true, JsTarget::Cjs, &sem.name_resolution, &sem.type_resolution);
+||||||| parent of 3915757 (feat: add enum variant imports with use Enum::* syntax)
+        let module = lower_file_to_js(&filtered_file, true, JsTarget::Cjs, &sem.name_resolution);
+=======
+        let module = lower_file_to_js(&filtered_file, true, JsTarget::Cjs, &sem.name_resolution, &sem.variant_calls);
+>>>>>>> 3915757 (feat: add enum variant imports with use Enum::* syntax)
         let mut js = module.to_source_with_preamble();
 
         // For the minimal Express interop example, prepend a tiny stub `express`

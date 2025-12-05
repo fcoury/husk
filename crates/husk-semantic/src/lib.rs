@@ -86,6 +86,10 @@ pub type NameResolution = HashMap<(usize, usize), String>;
 /// Used for type-dependent operations like .into(), .parse(), .try_into().
 pub type TypeResolution = HashMap<(usize, usize), String>;
 
+/// Maps call expression spans to (enum_name, variant_name) for imported variant calls.
+/// Used by codegen to emit enum variant construction for calls like `Some(42)`.
+pub type VariantCallMap = HashMap<(usize, usize), (String, String)>;
+
 /// The result of running semantic analysis (name resolution + type checking) on a Husk file.
 #[derive(Debug)]
 pub struct SemanticResult {
@@ -95,6 +99,8 @@ pub struct SemanticResult {
     pub name_resolution: NameResolution,
     /// Maps expression spans to resolved type names for conversion methods.
     pub type_resolution: TypeResolution,
+    /// Maps call expression spans to (enum_name, variant_name) for imported variant calls.
+    pub variant_calls: VariantCallMap,
 }
 
 /// Options controlling semantic analysis.
@@ -178,12 +184,13 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let (type_errors, name_resolution, type_resolution) = checker.check_file(&filtered_file);
+    let (type_errors, name_resolution, type_resolution, variant_calls) = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
         name_resolution,
         type_resolution,
+        variant_calls,
     }
 }
 
@@ -392,6 +399,10 @@ struct TypeEnv {
     impls: Vec<ImplInfo>,
     /// Static/global variables (from `static name: Type;` in extern blocks)
     statics: HashMap<String, TypeExpr>,
+    /// Imported enum variants that can be used without the enum prefix.
+    /// Maps variant name -> (enum_name, variant_def).
+    /// Populated from `use Enum::*;` or `use Enum::{A, B};` statements.
+    variant_imports: HashMap<String, (String, VariantDef)>,
 }
 
 impl TypeEnv {
@@ -508,6 +519,8 @@ struct TypeChecker {
     name_resolution: NameResolution,
     /// Maps expression spans to resolved type names for conversion methods.
     type_resolution: TypeResolution,
+    /// Maps call expression spans to (enum_name, variant_name) for imported variant calls.
+    variant_calls: VariantCallMap,
 }
 
 impl TypeChecker {
@@ -517,6 +530,7 @@ impl TypeChecker {
             errors: Vec::new(),
             name_resolution: HashMap::new(),
             type_resolution: HashMap::new(),
+            variant_calls: HashMap::new(),
         }
     }
 
@@ -660,7 +674,9 @@ impl TypeChecker {
                         }
                     }
                 }
-                ItemKind::Use { .. } => {}
+                ItemKind::Use { path, kind } => {
+                    self.process_variant_import(path, kind);
+                }
                 ItemKind::Trait(trait_def) => {
                     let mut methods = HashMap::new();
                     for item in &trait_def.items {
@@ -732,6 +748,61 @@ impl TypeChecker {
         }
     }
 
+    /// Process a use statement that may import enum variants.
+    /// For `use Enum::*;` imports all variants.
+    /// For `use Enum::{A, B};` or `use Enum::A;` imports specific variants.
+    fn process_variant_import(&mut self, path: &[Ident], kind: &husk_ast::UseKind) {
+        // Skip regular item imports
+        if matches!(kind, husk_ast::UseKind::Item) {
+            return;
+        }
+
+        // Get the enum name (last path segment)
+        let Some(enum_ident) = path.last() else {
+            return;
+        };
+        let enum_name = &enum_ident.name;
+
+        // Look up the enum definition
+        let Some(enum_def) = self.env.enums.get(enum_name).cloned() else {
+            // The enum might not be defined yet (processed later)
+            // or it's not an enum. We'll silently skip for now.
+            // Semantic errors will be caught during type checking.
+            return;
+        };
+
+        match kind {
+            husk_ast::UseKind::Item => {
+                // Already handled above
+            }
+            husk_ast::UseKind::Glob => {
+                // Import all variants
+                for variant in &enum_def.variants {
+                    self.env.variant_imports.insert(
+                        variant.name.clone(),
+                        (enum_name.clone(), variant.clone()),
+                    );
+                }
+            }
+            husk_ast::UseKind::Variants(variant_idents) => {
+                // Import specific variants
+                for variant_ident in variant_idents {
+                    if let Some(variant) = enum_def
+                        .variants
+                        .iter()
+                        .find(|v| v.name == variant_ident.name)
+                    {
+                        self.env.variant_imports.insert(
+                            variant.name.clone(),
+                            (enum_name.clone(), variant.clone()),
+                        );
+                    }
+                    // Note: Unknown variant errors will be caught during type checking
+                }
+            }
+        }
+    }
+
     /// Verify that all trait implementations provide required methods and supertraits.
     fn verify_trait_impls(&mut self) {
         // Collect supertrait errors separately to avoid borrow issues
@@ -790,7 +861,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution, TypeResolution) {
+    fn check_file(&mut self, file: &File) -> (Vec<SemanticError>, NameResolution, TypeResolution, VariantCallMap) {
         // Verify trait implementations
         self.verify_trait_impls();
 
@@ -812,6 +883,7 @@ impl TypeChecker {
             self.errors.clone(),
             std::mem::take(&mut self.name_resolution),
             std::mem::take(&mut self.type_resolution),
+            std::mem::take(&mut self.variant_calls),
         )
     }
 
@@ -1043,6 +1115,51 @@ impl<'a> FnContext<'a> {
     }
 
     fn check_path_expr(&mut self, expr: &Expr, segments: &[Ident]) -> Type {
+        // Check for single-segment paths that might be imported variants (e.g., `Some`, `None`, `Ok`, `Err`)
+        if segments.len() == 1 {
+            let name = &segments[0].name;
+            if let Some((enum_name, variant_def)) =
+                self.tcx.env.variant_imports.get(name).cloned()
+            {
+                // This is an imported variant - resolve as if it were Enum::Variant
+                let enum_def = self.tcx.env.enums.get(&enum_name).cloned();
+                let enum_ty = Type::Named {
+                    name: enum_name.clone(),
+                    args: Vec::new(),
+                };
+
+                // Check variant fields to determine the type
+                match &variant_def.fields {
+                    EnumVariantFields::Unit => {
+                        return enum_ty;
+                    }
+                    EnumVariantFields::Tuple(field_types) => {
+                        let type_params = enum_def
+                            .as_ref()
+                            .map(|d| d.type_params.clone())
+                            .unwrap_or_default();
+                        let params: Vec<Type> = field_types
+                            .iter()
+                            .map(|ty| self.tcx.resolve_type_expr(ty, &type_params))
+                            .collect();
+                        return Type::Function {
+                            params,
+                            ret: Box::new(enum_ty),
+                        };
+                    }
+                    EnumVariantFields::Struct(_fields) => {
+                        return enum_ty;
+                    }
+                }
+            }
+            // Not an imported variant - this is an error for a single-segment Path
+            self.tcx.errors.push(SemanticError {
+                message: "path expression must have at least two segments".to_string(),
+                span: expr.span.clone(),
+            });
+            return Type::Primitive(PrimitiveType::Unit);
+        }
+
         // Handle `Enum::Variant` paths.
         if segments.len() >= 2 {
             let enum_name = &segments[0].name;
@@ -1131,8 +1248,45 @@ impl<'a> FnContext<'a> {
                 }
                 PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
                     if let Some((enum_name, variant_names)) = &enum_info {
-                        // Expect path like Enum::Variant
-                        if path.len() == 2 && path[0].name == *enum_name {
+                        // Check for single-segment imported variant (e.g., `Some`, `None`)
+                        if path.len() == 1 {
+                            let variant = path[0].name.clone();
+                            // Check if this is an imported variant for the expected enum
+                            if let Some((imported_enum, _)) =
+                                self.tcx.env.variant_imports.get(&variant)
+                            {
+                                if imported_enum == enum_name {
+                                    if !variant_names.contains(&variant) {
+                                        self.tcx.errors.push(SemanticError {
+                                            message: format!(
+                                                "unknown variant `{}` for enum `{}`",
+                                                variant, enum_name
+                                            ),
+                                            span: arm.pattern.span.clone(),
+                                        });
+                                    } else {
+                                        seen_variants.insert(variant);
+                                    }
+                                } else {
+                                    self.tcx.errors.push(SemanticError {
+                                        message: format!(
+                                            "pattern for `{}` cannot use variant `{}` from `{}`",
+                                            enum_name, variant, imported_enum
+                                        ),
+                                        span: arm.pattern.span.clone(),
+                                    });
+                                }
+                            } else {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "unknown variant `{}` (did you mean `{}::{}`?)",
+                                        variant, enum_name, variant
+                                    ),
+                                    span: arm.pattern.span.clone(),
+                                });
+                            }
+                        } else if path.len() == 2 && path[0].name == *enum_name {
+                            // Expect path like Enum::Variant
                             let variant = path[1].name.clone();
                             if !variant_names.contains(&variant) {
                                 self.tcx.errors.push(SemanticError {
@@ -1551,6 +1705,51 @@ impl<'a> FnContext<'a> {
                     return self.tcx.resolve_type_expr(&ty_expr, &[]);
                 }
 
+                // Try imported enum variant (from `use Enum::*;` or `use Enum::{A, B};`)
+                if let Some((enum_name, variant_def)) =
+                    self.tcx.env.variant_imports.get(&id.name).cloned()
+                {
+                    let enum_def = self.tcx.env.enums.get(&enum_name).cloned();
+                    let enum_ty = Type::Named {
+                        name: enum_name.clone(),
+                        args: Vec::new(),
+                    };
+
+                    // Return appropriate type based on variant fields
+                    match &variant_def.fields {
+                        EnumVariantFields::Unit => {
+                            // Record unit variant idents for codegen (they need to become {tag: "Variant"})
+                            self.tcx.variant_calls.insert(
+                                (id.span.range.start, id.span.range.end),
+                                (enum_name, id.name.clone()),
+                            );
+                            return enum_ty;
+                        }
+                        EnumVariantFields::Tuple(field_types) => {
+                            let type_params = enum_def
+                                .as_ref()
+                                .map(|d| d.type_params.clone())
+                                .unwrap_or_default();
+                            let params: Vec<Type> = field_types
+                                .iter()
+                                .map(|ty| self.tcx.resolve_type_expr(ty, &type_params))
+                                .collect();
+                            return Type::Function {
+                                params,
+                                ret: Box::new(enum_ty),
+                            };
+                        }
+                        EnumVariantFields::Struct(_fields) => {
+                            // Record struct variant idents for codegen (they need to become {tag: "Variant"})
+                            self.tcx.variant_calls.insert(
+                                (id.span.range.start, id.span.range.end),
+                                (enum_name, id.name.clone()),
+                            );
+                            return enum_ty;
+                        }
+                    }
+                }
+
                 // Built-in functions
                 match id.name.as_str() {
                     "parse_int" => {
@@ -1585,6 +1784,19 @@ impl<'a> FnContext<'a> {
                     ExprKind::Ident(id) => self.tcx.env.modules.contains_key(&id.name),
                     _ => false,
                 };
+
+                // Check if the callee is an imported enum variant and record it for codegen
+                if let ExprKind::Ident(id) = &callee.kind {
+                    if let Some((enum_name, _variant_def)) =
+                        self.tcx.env.variant_imports.get(&id.name).cloned()
+                    {
+                        // Record this call as a variant call for codegen
+                        self.tcx.variant_calls.insert(
+                            (expr.span.range.start, expr.span.range.end),
+                            (enum_name, id.name.clone()),
+                        );
+                    }
+                }
 
                 // Get the function name for looking up generic type parameters
                 let fn_name = match &callee.kind {
@@ -3893,6 +4105,113 @@ fn main() {
             result.symbols.errors,
             result.type_errors
         );
+    }
+
+    #[test]
+    fn prelude_variant_imports_allow_unqualified_some_none() {
+        // Some, None, Ok, Err should be available without enum prefix due to prelude variant imports
+        let src = r#"
+fn main() {
+    let x = Some(42);
+    let y = None;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn prelude_variant_imports_allow_unqualified_ok_err() {
+        let src = r#"
+fn main() {
+    let x: Result<i32, String> = Ok(42);
+    let y: Result<i32, String> = Err("error".to_string());
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn variant_import_match_pattern() {
+        // Using imported variants in match patterns
+        let src = r#"
+fn main() {
+    let x: Option<i32> = Some(42);
+    match x {
+        Some(v) => v,
+        None => 0,
+    };
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.symbols.errors.is_empty() && result.type_errors.is_empty(),
+            "semantic errors: symbols={:?}, types={:?}",
+            result.symbols.errors,
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn variant_import_records_variant_calls() {
+        // Verify that variant calls are recorded for codegen
+        let src = r#"
+fn main() {
+    let x = Some(42);
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty());
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(result.symbols.errors.is_empty() && result.type_errors.is_empty());
+
+        // Should have recorded the Some(42) call as a variant call
+        assert!(
+            !result.variant_calls.is_empty(),
+            "variant_calls should not be empty for Some(42)"
+        );
+
+        // Check that the variant call was recorded correctly
+        let mut found_some = false;
+        for (_span, (enum_name, variant_name)) in &result.variant_calls {
+            if enum_name == "Option" && variant_name == "Some" {
+                found_some = true;
+            }
+        }
+        assert!(found_some, "Should have recorded Some as a variant call for Option enum");
     }
 
     #[test]

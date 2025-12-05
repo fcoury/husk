@@ -3,9 +3,6 @@
 // These definitions are written in Husk itself and are intended to serve
 // as the canonical Option/Result types for user code once a module system
 // and stdlib import mechanism are in place.
-//
-// For now they are validated by the compiler tests but are not yet
-// automatically imported into user programs.
 
 enum Option<T> {
     None,
@@ -16,6 +13,11 @@ enum Result<T, E> {
     Ok(T),
     Err(E),
 }
+
+// Import enum variants into scope so users can write Some(x), None, Ok(x), Err(e)
+// directly without the enum prefix.
+use Option::*;
+use Result::*;
 
 // ============================================================================
 // Conversion Traits

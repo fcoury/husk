@@ -220,8 +220,8 @@ impl<'a> Formatter<'a> {
             ItemKind::ExternBlock { abi, items } => {
                 self.format_extern_block(abi, items, item.span.range.end);
             }
-            ItemKind::Use { path } => {
-                self.format_use(path, item.visibility == Visibility::Public);
+            ItemKind::Use { path, kind } => {
+                self.format_use(path, kind, item.visibility == Visibility::Public);
             }
             ItemKind::Trait(trait_def) => {
                 self.format_trait(trait_def, item.visibility == Visibility::Public, item.span.range.end);
@@ -618,7 +618,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn format_use(&mut self, path: &[Ident], has_visibility: bool) {
+    fn format_use(&mut self, path: &[Ident], kind: &UseKind, has_visibility: bool) {
         if !has_visibility {
             self.write_indent();
         }
@@ -628,6 +628,28 @@ impl<'a> Formatter<'a> {
                 self.write("::");
             }
             self.write(&segment.name);
+        }
+        // Format the use kind suffix
+        match kind {
+            UseKind::Item => {}
+            UseKind::Glob => {
+                self.write("::*");
+            }
+            UseKind::Variants(variants) => {
+                if variants.len() == 1 {
+                    self.write("::");
+                    self.write(&variants[0].name);
+                } else {
+                    self.write("::{");
+                    for (i, variant) in variants.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(&variant.name);
+                    }
+                    self.write("}");
+                }
+            }
         }
         self.write(";");
         self.newline();
