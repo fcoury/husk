@@ -3906,21 +3906,43 @@ impl<'a> FnContext<'a> {
             | PatternKind::EnumStruct { path, .. } => {
                 // Verify the pattern's enum matches the scrutinee's type
                 if let Type::Named { name, .. } = scrut_ty {
-                    let path_enum = path.first().map(|id| &id.name);
-                    // Error if pattern's enum name doesn't match scrutinee's type
-                    // e.g., `if let Option::Some(_) = result_val` where result_val: Result<_, _>
-                    if path_enum != Some(name) {
-                        self.tcx.errors.push(SemanticError {
-                            message: format!(
-                                "pattern `{}` does not match type `{}`",
-                                path.iter()
-                                    .map(|id| id.name.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join("::"),
-                                name
-                            ),
-                            span: span.clone(),
-                        });
+                    // For single-segment paths (e.g., `Some`), check if it's an imported variant
+                    // from the scrutinee's enum type. This allows `if let Some(x) = opt` where
+                    // `Some` is imported from Option.
+                    if path.len() == 1 {
+                        let variant_name = &path[0].name;
+                        // Check if this is a valid imported variant for the scrutinee type
+                        if let Some((imported_enum, _)) =
+                            self.tcx.env.variant_imports.get(variant_name)
+                        {
+                            if imported_enum != name {
+                                self.tcx.errors.push(SemanticError {
+                                    message: format!(
+                                        "pattern `{}` does not match type `{}` (variant is from `{}`)",
+                                        variant_name, name, imported_enum
+                                    ),
+                                    span: span.clone(),
+                                });
+                            }
+                        }
+                        // If not in variant_imports, it might be a locally defined variant
+                        // which will be caught by other type checking
+                    } else {
+                        // Multi-segment path like Option::Some - check enum name matches
+                        let path_enum = path.first().map(|id| &id.name);
+                        if path_enum != Some(name) {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "pattern `{}` does not match type `{}`",
+                                    path.iter()
+                                        .map(|id| id.name.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join("::"),
+                                    name
+                                ),
+                                span: span.clone(),
+                            });
+                        }
                     }
                 }
                 // Enum patterns are refutable - OK
@@ -3947,11 +3969,29 @@ impl<'a> FnContext<'a> {
                     span: span.clone(),
                 });
             }
-            PatternKind::Tuple { .. } => {
-                self.tcx.errors.push(SemanticError {
-                    message: "irrefutable tuple pattern: will always match".to_string(),
-                    span: span.clone(),
-                });
+            PatternKind::Tuple { fields } => {
+                // Only error if the tuple pattern is entirely irrefutable
+                // (i.e., no nested refutable patterns like Some(x))
+                if !self.pattern_is_refutable(pattern) {
+                    self.tcx.errors.push(SemanticError {
+                        message: "irrefutable tuple pattern: will always match".to_string(),
+                        span: span.clone(),
+                    });
+                } else {
+                    // Recursively validate nested patterns
+                    // Extract element types from scrutinee if it's a tuple type
+                    let elem_types: Vec<Type> = if let Type::Tuple(types) = scrut_ty {
+                        types.clone()
+                    } else {
+                        // If not a tuple type, use Unknown for each field
+                        fields.iter().map(|_| Type::unit()).collect()
+                    };
+                    for (field, elem_ty) in fields.iter().zip(elem_types.iter()) {
+                        if self.pattern_is_refutable(field) {
+                            self.validate_refutable_pattern(field, elem_ty, &field.span);
+                        }
+                    }
+                }
             }
         }
     }
