@@ -3949,6 +3949,22 @@ impl<'a> FnContext<'a> {
                                 ),
                                 span: span.clone(),
                             });
+                        } else if path.len() == 2 {
+                            // Enum name matches, now verify variant exists
+                            let variant_name = &path[1].name;
+                            if let Some(enum_def) = self.tcx.env.enums.get(name) {
+                                let variant_exists =
+                                    enum_def.variants.iter().any(|v| &v.name == variant_name);
+                                if !variant_exists {
+                                    self.tcx.errors.push(SemanticError {
+                                        message: format!(
+                                            "unknown variant `{}` for enum `{}`",
+                                            variant_name, name
+                                        ),
+                                        span: span.clone(),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -6628,6 +6644,29 @@ fn test() -> i32 {
         assert!(
             !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
             "expected error for imported variant pattern on wrong type"
+        );
+    }
+
+    #[test]
+    fn if_let_unknown_variant_errors() {
+        // Using a non-existent variant (typo: Smoe instead of Some) should error
+        let src = r#"
+fn test() -> i32 {
+    let opt: Option<i32> = Option::Some(42);
+    if let Option::Smoe(x) = opt {
+        x
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
+            "expected error for unknown variant in if-let pattern"
         );
     }
 }
