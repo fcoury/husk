@@ -1787,6 +1787,9 @@ impl<'a> FnContext<'a> {
                             "slice" => return Type::Primitive(PrimitiveType::String),
                             "substring" => return Type::Primitive(PrimitiveType::String),
                             "indexOf" | "lastIndexOf" => return Type::Primitive(PrimitiveType::I32),
+                            "startsWith" | "endsWith" | "includes" => {
+                                return Type::Primitive(PrimitiveType::Bool)
+                            }
                             _ => {}
                         }
                     }
@@ -4169,6 +4172,60 @@ fn test(s: String) -> i32 {
         assert!(
             result.type_errors.is_empty(),
             "expected no type errors for String.lastIndexOf(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_startswith_returns_bool() {
+        let src = r#"
+fn test(s: String) -> bool {
+    s.startsWith("hello")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for String.startsWith(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_endswith_returns_bool() {
+        let src = r#"
+fn test(s: String) -> bool {
+    s.endsWith("world")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for String.endsWith(), got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn string_includes_returns_bool() {
+        let src = r#"
+fn test(s: String) -> bool {
+    s.includes("sub")
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no type errors for String.includes(), got: {:?}",
             result.type_errors
         );
     }
