@@ -234,7 +234,7 @@ impl DiagnosticCollector {
                 self.stats.type_aliases += 1;
                 self.analyze_type(&alias.ty, &alias.name);
 
-                // Check for utility types
+                // Check for utility types (diagnostic only, counting is done in analyze_type)
                 if let DtsType::Named { name, .. } = &alias.ty {
                     if is_utility_type(name) {
                         self.info(
@@ -242,7 +242,6 @@ impl DiagnosticCollector {
                             DiagnosticCategory::UtilityType,
                             &format!("Utility type {} will be expanded", name),
                         );
-                        self.stats.utility_types_expanded += 1;
                     }
                 }
             }

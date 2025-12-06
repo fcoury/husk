@@ -12,6 +12,8 @@
 //!
 //! This is more ergonomic than constructing objects with many Optional fields.
 
+use heck::ToSnakeCase;
+
 use crate::ast::{DtsInterface, DtsType, InterfaceMember, Primitive, TypeParam};
 
 /// Configuration for builder generation.
@@ -329,18 +331,7 @@ fn type_to_husk_string(ty: &DtsType) -> String {
 
 /// Convert PascalCase or camelCase to snake_case.
 fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(c.to_lowercase().next().unwrap());
-        } else {
-            result.push(c);
-        }
-    }
-    result
+    s.to_snake_case()
 }
 
 /// Generate builders for all eligible interfaces.
@@ -426,7 +417,9 @@ mod tests {
     #[test]
     fn test_to_snake_case() {
         assert_eq!(to_snake_case("methodName"), "method_name");
-        assert_eq!(to_snake_case("HTTPRequest"), "h_t_t_p_request");
+        assert_eq!(to_snake_case("HTTPRequest"), "http_request");
         assert_eq!(to_snake_case("simple"), "simple");
+        assert_eq!(to_snake_case("XMLHttpRequest"), "xml_http_request");
+        assert_eq!(to_snake_case("getHTTPResponse"), "get_http_response");
     }
 }

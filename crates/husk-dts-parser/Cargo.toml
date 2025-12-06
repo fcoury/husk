@@ -15,4 +15,7 @@ oxc_ast_visit = "0.98"
 oxc_span = "0.98"
 oxc_diagnostics = "0.98"
 
+# Case conversion utilities
+heck = "0.5"
+
 [dev-dependencies]
