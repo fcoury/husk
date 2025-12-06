@@ -1,3 +1,7 @@
+/// Count accessible "@" cells in a grid based on surrounding cells
+/// The grid is represented as a 2D array of strings
+/// An "@" cell is considered accessible if fewer than 4 of its 8 surrounding cells are also "@"
+
 extern "js" {
     mod global Math {
         fn floor(x: f64) -> i32;
@@ -6,10 +10,10 @@ extern "js" {
 
 fn main() {
     let grid = include_str("input.txt").trim().split("\n").map(|row: String| row.split(""));
-    println("{grid:?}");
     println("{}", count_accessible(grid));
 }
 
+/// Count the number of accessible "@" cells in the grid
 fn count_accessible(grid: [[String]]) -> i32 {
     let total = 0;
     for row in 0..grid.length {
@@ -31,6 +35,7 @@ fn count_accessible(grid: [[String]]) -> i32 {
     total
 }
 
+/// Check if a cell is accessible based on its surroundings
 fn is_accessible(grid: [[String]], cell_row: i32, cell_col: i32) -> bool {
     let row_size = grid[0].length;
 

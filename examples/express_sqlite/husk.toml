@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Express.js + SQLite example demonstrating Husk npm integration"
 
 [build]
-entry = "main.hk"
+entry = "src/main.hk"
 output = "dist"
 target = "cjs"
 source_maps = true
