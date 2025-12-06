@@ -15,13 +15,13 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Rust's syntax meets JavaScript's flexibility" 
 authors = ["Felipe Coury <felipe.coury@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/husk-lang/husk"
-homepage = "https://hust-lang.org"
+homepage = "https://husk-lang.org"
 documentation = "https://husk-lang.org/docs/index.html"
 keywords = [
   "language",
@@ -34,12 +34,12 @@ categories = ["development-tools", "compilers", "command-line-utilities"]
 readme = "README.md"
 
 [workspace.dependencies]
-husk-ast = { version = "0.1.0", path = "crates/husk-ast" }
-husk-lexer = { version = "0.1.0", path = "crates/husk-lexer" }
-husk-parser = { version = "0.1.0", path = "crates/husk-parser" }
-husk-types = { version = "0.1.0", path = "crates/husk-types" }
-husk-semantic = { version = "0.1.0", path = "crates/husk-semantic" }
-husk-codegen-js = { version = "0.1.0", path = "crates/husk-codegen-js" }
-husk-runtime-js = { version = "0.1.0", path = "crates/husk-runtime-js" }
-husk-dts-parser = { version = "0.1.0", path = "crates/husk-dts-parser" }
-husk-fmt = { version = "0.1.0", path = "crates/husk-fmt" }
+husk-ast = { version = "0.1.3", path = "crates/husk-ast" }
+husk-lexer = { version = "0.1.3", path = "crates/husk-lexer" }
+husk-parser = { version = "0.1.3", path = "crates/husk-parser" }
+husk-types = { version = "0.1.3", path = "crates/husk-types" }
+husk-semantic = { version = "0.1.3", path = "crates/husk-semantic" }
+husk-codegen-js = { version = "0.1.3", path = "crates/husk-codegen-js" }
+husk-runtime-js = { version = "0.1.3", path = "crates/husk-runtime-js" }
+husk-dts-parser = { version = "0.1.3", path = "crates/husk-dts-parser" }
+husk-fmt = { version = "0.1.3", path = "crates/husk-fmt" }
