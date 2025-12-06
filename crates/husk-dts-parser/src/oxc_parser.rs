@@ -991,82 +991,95 @@ impl<'a> DtsVisitor<'a> {
                 block
                     .body
                     .iter()
-                    .filter_map(|stmt| self.convert_statement_to_item(stmt))
+                    .flat_map(|stmt| self.convert_statement_to_items(stmt))
                     .collect()
             }
         }
     }
 
-    fn convert_statement_to_item(&self, stmt: &Statement<'_>) -> Option<DtsItem> {
+    fn convert_statement_to_items(&self, stmt: &Statement<'_>) -> Vec<DtsItem> {
         match stmt {
             Statement::TSInterfaceDeclaration(decl) => {
-                Some(DtsItem::Interface(self.convert_interface_declaration(decl)))
+                vec![DtsItem::Interface(self.convert_interface_declaration(decl))]
             }
             Statement::TSTypeAliasDeclaration(decl) => {
-                Some(DtsItem::TypeAlias(self.convert_type_alias(decl)))
+                vec![DtsItem::TypeAlias(self.convert_type_alias(decl))]
             }
             Statement::ClassDeclaration(decl) => self
                 .convert_class_declaration(decl)
-                .map(DtsItem::Class),
+                .map(|c| vec![DtsItem::Class(c)])
+                .unwrap_or_default(),
             Statement::FunctionDeclaration(decl) => self
                 .convert_function_declaration(decl)
-                .map(DtsItem::Function),
-            Statement::VariableDeclaration(decl) => {
-                let vars = self.convert_variable_declaration(decl);
-                vars.into_iter().next().map(DtsItem::Variable)
-            }
-            Statement::TSModuleDeclaration(decl) => self.convert_module_declaration(decl),
+                .map(|f| vec![DtsItem::Function(f)])
+                .unwrap_or_default(),
+            Statement::VariableDeclaration(decl) => self
+                .convert_variable_declaration(decl)
+                .into_iter()
+                .map(DtsItem::Variable)
+                .collect(),
+            Statement::TSModuleDeclaration(decl) => self
+                .convert_module_declaration(decl)
+                .into_iter()
+                .collect(),
             Statement::ExportNamedDeclaration(export) => {
                 if let Some(decl) = &export.declaration {
-                    self.convert_declaration_to_item(decl)
+                    self.convert_declaration_to_items(decl)
                 } else {
-                    None
+                    vec![]
                 }
             }
             Statement::ExportDefaultDeclaration(export) => match &export.declaration {
                 ExportDefaultDeclarationKind::FunctionDeclaration(decl) => self
                     .convert_function_declaration(decl)
-                    .map(DtsItem::Function),
+                    .map(|f| vec![DtsItem::Function(f)])
+                    .unwrap_or_default(),
                 ExportDefaultDeclarationKind::ClassDeclaration(decl) => self
                     .convert_class_declaration(decl)
-                    .map(DtsItem::Class),
+                    .map(|c| vec![DtsItem::Class(c)])
+                    .unwrap_or_default(),
                 ExportDefaultDeclarationKind::TSInterfaceDeclaration(decl) => {
-                    Some(DtsItem::Interface(self.convert_interface_declaration(decl)))
+                    vec![DtsItem::Interface(self.convert_interface_declaration(decl))]
                 }
-                _ => None,
+                _ => vec![],
             },
             Statement::TSExportAssignment(assign) => {
                 if let Expression::Identifier(id) = &assign.expression {
-                    Some(DtsItem::Export(DtsExport::Equals(id.name.to_string())))
+                    vec![DtsItem::Export(DtsExport::Equals(id.name.to_string()))]
                 } else {
-                    None
+                    vec![]
                 }
             }
-            _ => None,
+            _ => vec![],
         }
     }
 
-    fn convert_declaration_to_item(&self, decl: &Declaration<'_>) -> Option<DtsItem> {
+    fn convert_declaration_to_items(&self, decl: &Declaration<'_>) -> Vec<DtsItem> {
         match decl {
             Declaration::FunctionDeclaration(func) => self
                 .convert_function_declaration(func)
-                .map(DtsItem::Function),
+                .map(|f| vec![DtsItem::Function(f)])
+                .unwrap_or_default(),
             Declaration::ClassDeclaration(class) => self
                 .convert_class_declaration(class)
-                .map(DtsItem::Class),
-            Declaration::VariableDeclaration(var) => {
-                let vars = self.convert_variable_declaration(var);
-                vars.into_iter().next().map(DtsItem::Variable)
-            }
+                .map(|c| vec![DtsItem::Class(c)])
+                .unwrap_or_default(),
+            Declaration::VariableDeclaration(var) => self
+                .convert_variable_declaration(var)
+                .into_iter()
+                .map(DtsItem::Variable)
+                .collect(),
             Declaration::TSInterfaceDeclaration(iface) => {
-                Some(DtsItem::Interface(self.convert_interface_declaration(iface)))
+                vec![DtsItem::Interface(self.convert_interface_declaration(iface))]
             }
             Declaration::TSTypeAliasDeclaration(alias) => {
-                Some(DtsItem::TypeAlias(self.convert_type_alias(alias)))
+                vec![DtsItem::TypeAlias(self.convert_type_alias(alias))]
             }
-            Declaration::TSModuleDeclaration(module) => self.convert_module_declaration(module),
-            Declaration::TSEnumDeclaration(_) => None, // Enums not yet supported
-            Declaration::TSImportEqualsDeclaration(_) => None,
+            Declaration::TSModuleDeclaration(module) => {
+                self.convert_module_declaration(module).into_iter().collect()
+            }
+            Declaration::TSEnumDeclaration(_) => vec![], // Enums not yet supported
+            Declaration::TSImportEqualsDeclaration(_) => vec![],
         }
     }
 }
@@ -1075,9 +1088,7 @@ impl<'a> Visit<'a> for DtsVisitor<'a> {
     fn visit_program(&mut self, program: &Program<'a>) {
         // Process all statements in the program
         for stmt in &program.body {
-            if let Some(item) = self.convert_statement_to_item(stmt) {
-                self.items.push(item);
-            }
+            self.items.extend(self.convert_statement_to_items(stmt));
         }
     }
 }

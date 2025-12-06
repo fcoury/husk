@@ -204,11 +204,58 @@ fn check_number_enum(types: &[DtsType]) -> Option<UnionStrategy> {
 }
 
 /// Convert a number string to a valid variant name.
+///
+/// Produces valid Rust identifiers by:
+/// - Using "Neg" prefix for negative numbers
+/// - Replacing non-alphanumeric characters (like '.') with '_'
+/// - Collapsing consecutive underscores
+/// - Trimming leading/trailing underscores
+/// - Prefixing with 'N' if the result would start with a digit
+///
+/// Examples:
+/// - "1" -> "N1"
+/// - "-1" -> "Neg1"
+/// - "1.5" -> "N1_5"
+/// - "-1.5" -> "Neg1_5"
+/// - "0.25" -> "N0_25"
 fn number_to_variant_name(n: &str) -> String {
-    if n.starts_with('-') {
-        format!("Neg{}", &n[1..])
+    // Check for negative prefix
+    let (is_negative, num_part) = if let Some(stripped) = n.strip_prefix('-') {
+        (true, stripped)
     } else {
-        format!("N{}", n)
+        (false, n)
+    };
+
+    // Replace non-alphanumeric characters with underscores
+    let sanitized: String = num_part
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+
+    // Collapse consecutive underscores
+    let mut collapsed = String::new();
+    let mut prev_underscore = false;
+    for c in sanitized.chars() {
+        if c == '_' {
+            if !prev_underscore {
+                collapsed.push(c);
+            }
+            prev_underscore = true;
+        } else {
+            collapsed.push(c);
+            prev_underscore = false;
+        }
+    }
+
+    // Trim leading and trailing underscores
+    let trimmed = collapsed.trim_matches('_');
+
+    // Build the final name
+    if is_negative {
+        format!("Neg{}", trimmed)
+    } else {
+        // Prefix with 'N' since variant names can't start with a digit
+        format!("N{}", trimmed)
     }
 }
 
@@ -549,5 +596,29 @@ mod tests {
         assert_eq!(string_to_pascal_case("hello-world"), "HelloWorld");
         assert_eq!(string_to_pascal_case("GET"), "GET");
         assert_eq!(string_to_pascal_case("some_thing"), "SomeThing");
+    }
+
+    #[test]
+    fn test_number_to_variant_name() {
+        // Simple integers
+        assert_eq!(number_to_variant_name("1"), "N1");
+        assert_eq!(number_to_variant_name("42"), "N42");
+
+        // Negative numbers
+        assert_eq!(number_to_variant_name("-1"), "Neg1");
+        assert_eq!(number_to_variant_name("-42"), "Neg42");
+
+        // Floating point numbers (decimal point becomes underscore)
+        assert_eq!(number_to_variant_name("1.5"), "N1_5");
+        assert_eq!(number_to_variant_name("-1.5"), "Neg1_5");
+        assert_eq!(number_to_variant_name("3.14159"), "N3_14159");
+
+        // Scientific notation
+        assert_eq!(number_to_variant_name("1e10"), "N1e10");
+        assert_eq!(number_to_variant_name("1.5e-3"), "N1_5e_3");
+
+        // Edge cases
+        assert_eq!(number_to_variant_name("0"), "N0");
+        assert_eq!(number_to_variant_name("-0"), "Neg0");
     }
 }

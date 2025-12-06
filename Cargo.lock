@@ -508,6 +508,7 @@ dependencies = [
 name = "husk-dts-parser"
 version = "0.1.3"
 dependencies = [
+ "heck",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
