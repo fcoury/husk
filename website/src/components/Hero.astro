@@ -3,16 +3,19 @@ import { Image } from 'astro:assets';
 import logo from '../assets/logo.png';
 import CodeBlock from './CodeBlock.astro';
 
-const codeExample = `enum Result<T, E> {
-    Ok(T),
-    Err(E),
+const codeExample = `fn divide(a: i32, b: i32) -> Result<i32, String> {
+    if b == 0 {
+        Err("Division by zero")
+    } else {
+        Ok(a / b)
+    }
 }
 
 fn main() {
-    let result = Result::Ok(42);
-    match result {
-        Result::Ok(n) => println!("Got: {}", n),
-        Result::Err(e) => println!("Error: {}", e),
+    // Compiler ensures all cases are handled!
+    match divide(10, 2) {
+        Ok(value) => println("Result: {}", value),
+        Err(err) => println("Error: {}", err),
     }
 }`;
 ---

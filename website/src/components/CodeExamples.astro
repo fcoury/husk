@@ -6,23 +6,18 @@ const examples = [
     id: 'pattern-matching',
     title: 'Pattern Matching',
     description: 'Exhaustive pattern matching with algebraic data types',
-    code: `enum Result<T, E> {
-    Ok(T),
-    Err(E),
-}
-
-fn divide(a: int, b: int) -> Result<int, string> {
+    code: `fn divide(a: i32, b: i32) -> Result<i32, String> {
     if b == 0 {
-        Result::Err("Division by zero")
+        Err("Division by zero")
     } else {
-        Result::Ok(a / b)
+        Ok(a / b)
     }
 }
 
 fn main() {
     match divide(10, 2) {
-        Result::Ok(value) => println!("Result: {}", value),
-        Result::Err(err) => println!("Error: {}", err),
+        Ok(value) => println("Result: {}", value),
+        Err(err) => println("Error: {}", err),
     }
     // Compiler ensures all cases are handled!
 }`,
@@ -32,24 +27,24 @@ fn main() {
     title: 'Structs & Methods',
     description: 'Define types with associated methods',
     code: `struct User {
-    name: string,
-    email: string,
-    age: int,
+    name: String,
+    email: String,
+    age: i32,
 }
 
 impl User {
-    fn new(name: string, email: string, age: int) -> User {
+    fn new(name: String, email: String, age: i32) -> User {
         User { name, email, age }
     }
 
-    fn greet(&self) -> string {
-        format!("Hi, I'm {} and I'm {} years old", self.name, self.age)
+    fn greet(&self) -> String {
+        format("Hi, I'm {} and I'm {} years old", self.name, self.age)
     }
 }
 
 fn main() {
     let user = User::new("Alice", "alice@example.com", 30);
-    println!("{}", user.greet());
+    println("{}", user.greet());
 }`,
   },
   {
@@ -60,8 +55,8 @@ fn main() {
 extern fn express() -> Express;
 
 struct Express {
-    extern fn get(&self, path: string, handler: fn(Request, Response) -> void) -> void;
-    extern fn listen(&self, port: int, callback: fn() -> void) -> void;
+    extern fn get(&self, path: String, handler: fn(Request, Response) -> void) -> void;
+    extern fn listen(&self, port: i32, callback: fn() -> void) -> void;
 }
 
 fn main() {
@@ -72,7 +67,7 @@ fn main() {
     });
 
     app.listen(3000, || {
-        println!("Server running on port 3000");
+        println("Server running on port 3000");
     });
 }`,
   },
