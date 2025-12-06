@@ -76,6 +76,18 @@ pub struct DtsEntry {
     pub include: Option<Vec<String>>,
     /// Types to exclude (filter).
     pub exclude: Option<Vec<String>>,
+    /// Union handling strategy: "enum", "jsvalue", or "auto".
+    pub union_strategy: Option<String>,
+    /// Generate builder patterns for interfaces with many optional props.
+    pub generate_builders: Option<bool>,
+    /// Minimum optional properties to trigger builder generation.
+    pub builder_min_optional: Option<usize>,
+    /// Expand utility types (Partial, Pick, etc.) inline.
+    pub expand_utility_types: Option<bool>,
+    /// Follow import graph and include dependencies.
+    pub follow_imports: Option<bool>,
+    /// Maximum depth for import resolution.
+    pub max_import_depth: Option<usize>,
 }
 
 /// Global options for DTS management.
@@ -87,6 +99,16 @@ pub struct DtsOptions {
     pub auto_update: Option<bool>,
     /// Warning level: "all", "simplified", "none".
     pub warn_level: Option<String>,
+    /// Generate diagnostic report (dts-report.md).
+    pub generate_report: Option<bool>,
+    /// Default union handling strategy: "enum", "jsvalue", or "auto".
+    pub default_union_strategy: Option<String>,
+    /// Default setting for builder generation.
+    pub default_generate_builders: Option<bool>,
+    /// Default setting for utility type expansion.
+    pub default_expand_utility_types: Option<bool>,
+    /// Node modules search paths.
+    pub node_modules_paths: Option<Vec<String>>,
 }
 
 /// Runtime configuration for `huskc run`.

@@ -840,7 +840,11 @@ impl<'src> Parser<'src> {
         }
 
         self.expect(&TokenKind::RBrace)?;
-        Ok(DtsModule { name, items })
+        Ok(DtsModule {
+            name,
+            items,
+            is_ambient: false,
+        })
     }
 
     fn parse_type_params(&mut self) -> ParseResult<Vec<TypeParam>> {

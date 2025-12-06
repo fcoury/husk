@@ -5,9 +5,15 @@
 //! `extern "js"` declarations.
 
 mod ast;
+pub mod builder;
 mod codegen;
+pub mod diagnostics;
 mod lexer;
+pub mod oxc_parser;
 mod parser;
+pub mod resolver;
+pub mod unions;
+pub mod utility_types;
 
 pub use ast::*;
 pub use codegen::{generate, CodegenOptions, CodegenResult, Warning, WarningKind};
