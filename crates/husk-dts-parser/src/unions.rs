@@ -393,11 +393,15 @@ fn check_function_overloads(types: &[DtsType]) -> Option<UnionStrategy> {
 /// Check if all types are named types that could become enum variants.
 fn check_type_enum(types: &[DtsType]) -> Option<UnionStrategy> {
     let mut variants = Vec::new();
+    let mut seen = HashSet::new();
 
     for ty in types {
         match ty {
             DtsType::Named { name, type_args } if type_args.is_empty() => {
-                variants.push(name.clone());
+                // Only add if not already seen (preserves order, deduplicates)
+                if seen.insert(name.clone()) {
+                    variants.push(name.clone());
+                }
             }
             _ => return None,
         }
@@ -607,6 +611,44 @@ mod tests {
             assert_eq!(variants[2], "PUT");
         } else {
             panic!("expected StringEnum");
+        }
+    }
+
+    #[test]
+    fn test_type_enum_deduplicates() {
+        // Test that duplicate named types are deduplicated while preserving order
+        let types = vec![
+            DtsType::Named {
+                name: "Foo".to_string(),
+                type_args: vec![],
+            },
+            DtsType::Named {
+                name: "Bar".to_string(),
+                type_args: vec![],
+            },
+            DtsType::Named {
+                name: "Foo".to_string(), // duplicate
+                type_args: vec![],
+            },
+            DtsType::Named {
+                name: "Baz".to_string(),
+                type_args: vec![],
+            },
+            DtsType::Named {
+                name: "Bar".to_string(), // duplicate
+                type_args: vec![],
+            },
+        ];
+        let strategy = analyze_union(&types);
+        if let UnionStrategy::TypeEnum { variants } = strategy {
+            // Should only have 3 unique variants
+            assert_eq!(variants.len(), 3);
+            // Order should be preserved (first occurrence)
+            assert_eq!(variants[0], "Foo");
+            assert_eq!(variants[1], "Bar");
+            assert_eq!(variants[2], "Baz");
+        } else {
+            panic!("expected TypeEnum, got {:?}", strategy);
         }
     }
 
