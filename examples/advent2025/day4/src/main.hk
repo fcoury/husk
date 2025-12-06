@@ -10,7 +10,21 @@ extern "js" {
 
 fn main() {
     let grid = include_str("input.txt").trim().split("\n").map(|row: String| row.split(""));
-    println("{}", count_accessible(grid));
+    if false {
+        println("{}", count_accessible(grid));
+    } else {
+        println("{}", count_removable(grid));
+    }
+}
+
+/// Print a representation of the grid
+fn print_grid(grid: [[String]]) {
+    for row in 0..grid.length {
+        for col in 0..grid[row].length {
+            print("{}", grid[row][col]);
+        }
+        println("");
+    }
 }
 
 /// Count the number of accessible "@" cells in the grid
@@ -54,6 +68,88 @@ fn is_accessible(grid: [[String]], cell_row: i32, cell_col: i32) -> bool {
     }
 
     occupied < 4
+}
+
+/// Removes all rolls that are accessible from the grid, returns the new grid
+fn resolve_grid(grid: [[String]]) -> (i32, [[String]]) {
+    let result = [];
+    let removed = 0;
+    // TODO: we need iterators!
+    for i in 0..grid.length {
+        let row = grid[i];
+        result.push([]);
+        for j in 0..row.length {
+            let cell = grid[i][j];
+            if cell == "x" {
+                result[i].push(".");
+            } else {
+                if cell == "@" && is_accessible(grid, i, j) {
+                    result[i].push("x");
+                    removed += 1;
+                } else {
+                    result[i].push(cell);
+                }
+            }
+        }
+    }
+
+    (removed, result)
+}
+
+/// Count how many paper rolls can be removed from the grid
+fn count_removable(grid: [[String]]) -> i32 {
+    let count = 0;
+    loop {
+        let result = resolve_grid(grid);
+        let removed = result.0;
+        count += removed;
+        grid = result.1;
+
+        if removed == 0 {
+            break;
+        }
+    }
+
+    count
+}
+
+#[cfg(test)]
+#[test]
+fn test_count_removable() {
+    let grid = include_str("input-test.txt").split("\n").map(|row: String| row.split(""));
+    assert_eq(43, count_removable(grid));
+}
+
+#[cfg(test)]
+#[test]
+fn test_resolve_grid_debug() {
+    let grid = include_str("input-test.txt").split("\n").map(|row: String| row.split(""));
+    let (removed, new_grid) = resolve_grid(grid);
+    assert_eq(removed, 13);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 12);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 7);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 5);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 2);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 1);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 1);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 1);
+
+    let (removed, new_grid) = resolve_grid(new_grid);
+    assert_eq(removed, 1);
 }
 
 #[cfg(test)]
