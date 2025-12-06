@@ -1,0 +1,16 @@
+{
+  "name": "husk-demo-npm",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Husk demo showcasing npm package integration via FFI",
+  "scripts": {
+    "build": "huskc build",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "nanoid": "^3.3.7",
+    "picocolors": "^1.1.1",
+    "validator": "^13.12.0"
+  }
+}
