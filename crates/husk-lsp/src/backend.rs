@@ -111,12 +111,15 @@ impl HuskBackend {
         // Simple TOML parsing for entry field - look for entry = "..."
         for line in content.lines() {
             let line = line.trim();
-            if line.starts_with("entry") {
-                if let Some(value) = line.split('=').nth(1) {
-                    let value = value.trim().trim_matches('"');
-                    let entry_path = project_root.join(value);
-                    if entry_path.exists() {
-                        return Some(entry_path);
+            // Check if this line defines the "entry" key (not "entry_point" etc.)
+            if let Some(key) = line.split('=').next() {
+                if key.trim() == "entry" {
+                    if let Some(value) = line.split('=').nth(1) {
+                        let value = value.trim().trim_matches('"');
+                        let entry_path = project_root.join(value);
+                        if entry_path.exists() {
+                            return Some(entry_path);
+                        }
                     }
                 }
             }
