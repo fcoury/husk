@@ -1,0 +1,396 @@
+// Husk core standard library types.
+//
+// These definitions are written in Husk itself and are intended to serve
+// as the canonical Option/Result types for user code once a module system
+// and stdlib import mechanism are in place.
+
+enum Option<T> {
+    None,
+    Some(T),
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+// Import enum variants into scope so users can write Some(x), None, Ok(x), Err(e)
+// directly without the enum prefix.
+use Option::*;
+use Result::*;
+
+// ============================================================================
+// Conversion Traits
+// ============================================================================
+
+// Trait for infallible type conversions.
+//
+// Used to convert a value from one type to another. If `From<T>` is
+// implemented for `U`, then `T` can be converted to `U` using `U::from(value)`
+// or `value.into()` (via the blanket impl of `Into`).
+//
+// Example:
+//   let s: String = String::from(42);   // explicit From
+//   let s: String = 42.into();          // using Into (requires type annotation)
+trait From<T> {
+    fn from(value: T) -> Self;
+}
+
+// Trait for infallible type conversions (consuming self).
+//
+// This is the reciprocal of `From<T>`. Calling `.into()` on a value converts
+// it to the target type. The target type must be inferrable from context
+// (type annotation, return type, etc.) or specified with turbofish syntax.
+//
+// Note: The compiler provides a blanket impl: if `U: From<T>`, then `T: Into<U>`.
+// You should generally implement `From` rather than `Into` directly.
+trait Into<T> {
+    fn into(self) -> T;
+}
+
+// Trait for fallible type conversions.
+//
+// Used when a conversion might fail. Returns `Result<Self, Self::Error>`.
+//
+// Example:
+//   let n: Result<i32, String> = i32::try_from("123");
+//   let n: Result<i32, String> = "123".try_into();
+trait TryFrom<T> {
+    // Note: Associated types are not yet fully supported, so we use String
+    // as the default error type for now.
+    fn try_from(value: T) -> Result<Self, String>;
+}
+
+// Trait for fallible type conversions (consuming self).
+//
+// This is the reciprocal of `TryFrom<T>`.
+trait TryInto<T> {
+    fn try_into(self) -> Result<T, String>;
+}
+
+// ============================================================================
+// Standard From/Into Implementations
+// ============================================================================
+
+// String conversions (infallible)
+// NOTE: These are trait definitions for semantic analysis.
+// Codegen replaces .into() calls with String(value) in JS.
+impl From<i32> for String {
+    fn from(value: i32) -> String {
+        value.toString()
+    }
+}
+
+impl From<i64> for String {
+    fn from(value: i64) -> String {
+        value.toString()
+    }
+}
+
+impl From<f64> for String {
+    fn from(value: f64) -> String {
+        value.toString()
+    }
+}
+
+impl From<bool> for String {
+    fn from(value: bool) -> String {
+        value.toString()
+    }
+}
+
+// Numeric widening conversions (infallible)
+impl From<i32> for i64 {
+    fn from(value: i32) -> i64 {
+        value as i64
+    }
+}
+
+impl From<i32> for f64 {
+    fn from(value: i32) -> f64 {
+        value as f64
+    }
+}
+
+impl From<i64> for f64 {
+    fn from(value: i64) -> f64 {
+        value as f64
+    }
+}
+
+// ============================================================================
+// Standard TryFrom/TryInto Implementations
+// ============================================================================
+
+// Parse string to i32
+impl TryFrom<String> for i32 {
+    fn try_from(value: String) -> Result<i32, String> {
+        // Implemented by codegen as parseInt with error handling
+        let n = parseInt(value);
+        // Note: parseInt returns NaN for invalid input
+        // This will be handled in codegen with proper JS NaN check
+        Result::Ok(n)
+    }
+}
+
+// Parse string to i64
+impl TryFrom<String> for i64 {
+    fn try_from(value: String) -> Result<i64, String> {
+        let n = parseLong(value);
+        Result::Ok(n)
+    }
+}
+
+// Parse string to f64
+impl TryFrom<String> for f64 {
+    fn try_from(value: String) -> Result<f64, String> {
+        let n = parseFloat(value);
+        Result::Ok(n)
+    }
+}
+
+// Narrowing conversion (may overflow)
+// NOTE: This is a trait definition for semantic analysis only.
+// The actual implementation with bounds checking is in the JS runtime
+// (__husk_try_into_i32), which codegen calls instead of this body.
+impl TryFrom<i64> for i32 {
+    fn try_from(value: i64) -> Result<i32, String> {
+        // Placeholder body - codegen replaces with __husk_try_into_i32(value)
+        // which performs: value < -2147483648 || value > 2147483647 check
+        Result::Ok(value as i32)
+    }
+}
+
+// ============================================================================
+// Comparison Traits
+// ============================================================================
+
+// Trait for partial equality comparisons.
+//
+// Types implementing PartialEq can be compared for equality, but the
+// comparison may not be reflexive (e.g., NaN != NaN for floating point).
+//
+// Note: This is a marker trait in Husk. The actual equality comparison
+// is performed by the runtime using JavaScript's strict equality (===)
+// for primitives and deep equality (__husk_eq) for complex types.
+trait PartialEq {}
+
+// Trait for full equivalence relations.
+//
+// Types implementing Eq guarantee that equality is:
+// - Reflexive: a == a
+// - Symmetric: a == b implies b == a
+// - Transitive: a == b and b == c implies a == c
+//
+// Eq requires PartialEq as a supertrait. Types that implement Eq must
+// also implement PartialEq.
+//
+// Note: f64 implements PartialEq but NOT Eq because NaN != NaN.
+trait Eq: PartialEq {}
+
+// ============================================================================
+// Primitive PartialEq implementations
+// ============================================================================
+
+impl PartialEq for i32 {}
+impl PartialEq for i64 {}
+impl PartialEq for f64 {}
+impl PartialEq for bool {}
+impl PartialEq for String {}
+
+// ============================================================================
+// Primitive Eq implementations (not f64 due to NaN != NaN)
+// ============================================================================
+
+impl Eq for i32 {}
+impl Eq for i64 {}
+impl Eq for bool {}
+impl Eq for String {}
+
+// Built-in functions for console output.
+// These are translated to console.log/console.error in JavaScript.
+extern "js" {
+    fn println(s: String);
+}
+
+// Parsing functions.
+// Parse strings to numeric types.
+extern "js" {
+    /// Parses a string as a 32-bit integer.
+    fn parseInt(s: String) -> i32;
+
+    /// Parses a string as a 64-bit integer (BigInt in JavaScript).
+    fn parseLong(s: String) -> i64;
+
+    /// Parses a string as a 64-bit floating point number.
+    fn parseFloat(s: String) -> f64;
+}
+
+// Compile-time functions.
+// These are evaluated at compile time and inlined into the generated JavaScript.
+extern "js" {
+    /// Reads a file at compile time and embeds its contents as a string literal.
+    /// The path is resolved relative to the source file.
+    fn include_str(path: String) -> String;
+}
+
+// Test assertion functions.
+// These are available in the runtime preamble and panic on failure.
+// Note: assert_eq and assert_ne use JsValue to accept any type.
+extern "js" {
+    /// Asserts that a condition is true. Panics if false.
+    fn assert(condition: bool);
+
+    /// Asserts that a condition is true. Panics with the given message if false.
+    fn assert_msg(condition: bool, message: String);
+
+    /// Asserts that two values are equal. Panics with a detailed message if not.
+    fn assert_eq(left: JsValue, right: JsValue);
+
+    /// Asserts that two values are not equal. Panics with a detailed message if equal.
+    fn assert_ne(left: JsValue, right: JsValue);
+}
+
+// ============================================================================
+// Primitive Type Methods
+// ============================================================================
+//
+// These impl blocks define methods on primitive types. Method names follow
+// Rust/Husk snake_case conventions; codegen automatically converts to
+// JavaScript camelCase (e.g., index_of -> indexOf).
+//
+// Use #[js_name = "..."] for special cases that don't follow the pattern.
+
+// String methods - these declare the method signatures for type checking.
+// Codegen emits direct JS method calls (e.g., s.trim() -> s.trim()).
+impl String {
+    /// Returns the length of the string.
+    #[js_name = "length"]
+    extern "js" fn len(&self) -> i32;
+
+    /// Returns a string with whitespace removed from both ends.
+    extern "js" fn trim(&self) -> String;
+
+    /// Splits the string by a separator and returns an array of substrings.
+    extern "js" fn split(&self, separator: String) -> [String];
+
+    /// Returns the character at the specified index.
+    extern "js" fn char_at(&self, index: i32) -> String;
+
+    /// Returns a substring from start to end (exclusive).
+    extern "js" fn slice(&self, start: i32, end: i32) -> String;
+
+    /// Returns a substring from start to end (exclusive).
+    extern "js" fn substring(&self, start: i32, end: i32) -> String;
+
+    /// Returns the index of the first occurrence of the search string, or -1 if not found.
+    extern "js" fn index_of(&self, search: String) -> i32;
+
+    /// Returns the index of the last occurrence of the search string, or -1 if not found.
+    extern "js" fn last_index_of(&self, search: String) -> i32;
+
+    /// Returns true if the string starts with the specified prefix.
+    extern "js" fn starts_with(&self, prefix: String) -> bool;
+
+    /// Returns true if the string ends with the specified suffix.
+    extern "js" fn ends_with(&self, suffix: String) -> bool;
+
+    /// Returns true if the string contains the specified substring.
+    extern "js" fn includes(&self, search: String) -> bool;
+
+    /// Returns the string converted to uppercase.
+    extern "js" fn to_upper_case(&self) -> String;
+
+    /// Returns the string converted to lowercase.
+    extern "js" fn to_lower_case(&self) -> String;
+
+    /// Replaces all occurrences of a pattern with a replacement string.
+    extern "js" fn replace(&self, pattern: String, replacement: String) -> String;
+}
+
+// i32 methods
+impl i32 {
+    /// Converts the integer to a string.
+    extern "js" fn to_string(&self) -> String;
+}
+
+// i64 methods
+impl i64 {
+    /// Converts the integer to a string.
+    extern "js" fn to_string(&self) -> String;
+}
+
+// f64 methods
+impl f64 {
+    /// Converts the float to a string.
+    extern "js" fn to_string(&self) -> String;
+
+    /// Returns the largest integer less than or equal to this number.
+    extern "js" fn floor(&self) -> f64;
+
+    /// Returns the smallest integer greater than or equal to this number.
+    extern "js" fn ceil(&self) -> f64;
+
+    /// Returns the nearest integer to this number.
+    extern "js" fn round(&self) -> f64;
+
+    /// Returns the absolute value of this number.
+    extern "js" fn abs(&self) -> f64;
+}
+
+// bool methods
+impl bool {
+    /// Converts the boolean to a string ("true" or "false").
+    extern "js" fn to_string(&self) -> String;
+}
+
+// ============================================================================
+// Array Methods
+// ============================================================================
+//
+// Generic array methods. The `T` type parameter represents the element type.
+// Note: Some methods like `map`, `filter`, `reduce` take closures as parameters
+// which requires more complex type inference. For now, they remain hardcoded
+// in semantic analysis but could be moved here once closure typing is improved.
+
+impl<T> [T] {
+    /// Returns the number of elements in the array.
+    #[js_name = "length"]
+    extern "js" fn len(&self) -> i32;
+
+    /// Adds an element to the end of the array.
+    extern "js" fn push(&mut self, value: T);
+
+    /// Returns a portion of the array from start to end (exclusive).
+    extern "js" fn slice(&self, start: i32, end: i32) -> [T];
+
+    /// Joins all elements into a string using the separator.
+    extern "js" fn join(&self, separator: String) -> String;
+
+    /// Sorts the array in place and returns it.
+    extern "js" fn sort(&mut self) -> [T];
+
+    /// Reverses the array in place and returns it.
+    extern "js" fn reverse(&mut self) -> [T];
+
+    /// Returns the index of the first occurrence of the value, or -1 if not found.
+    extern "js" fn index_of(&self, value: T) -> i32;
+
+    /// Returns the index of the last occurrence of the value, or -1 if not found.
+    extern "js" fn last_index_of(&self, value: T) -> i32;
+
+    /// Returns true if the array contains the specified value.
+    extern "js" fn includes(&self, value: T) -> bool;
+
+    /// Returns a new array with all sub-array elements concatenated.
+    extern "js" fn flat(&self) -> [T];
+
+    /// Removes and returns the last element of the array.
+    extern "js" fn pop(&mut self) -> T;
+
+    /// Removes and returns the first element of the array.
+    extern "js" fn shift(&mut self) -> T;
+
+    /// Adds one or more elements to the beginning of the array.
+    extern "js" fn unshift(&mut self, value: T) -> i32;
+}

@@ -236,7 +236,7 @@ pub fn analyze_file_without_prelude(file: &File) -> SemanticResult {
     )
 }
 
-static PRELUDE_SRC: &str = include_str!("../../../stdlib/core.hk");
+static PRELUDE_SRC: &str = include_str!("stdlib/core.hk");
 static PRELUDE_AST: OnceLock<File> = OnceLock::new();
 
 fn prelude_file() -> &'static File {
@@ -249,7 +249,7 @@ fn prelude_file() -> &'static File {
     })
 }
 
-static JS_GLOBALS_SRC: &str = include_str!("../../../std/js/globals.hk");
+static JS_GLOBALS_SRC: &str = include_str!("std/js/globals.hk");
 static JS_GLOBALS_AST: OnceLock<File> = OnceLock::new();
 
 fn js_globals_file() -> &'static File {
