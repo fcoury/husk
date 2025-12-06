@@ -1,138 +1,131 @@
 ---
 import { Image } from 'astro:assets';
 import logo from '../assets/logo.png';
+
+const codeExample = `<span class="keyword">enum</span> <span class="type">Result</span>&lt;<span class="type">T</span>, <span class="type">E</span>&gt; {
+    <span class="function">Ok</span>(<span class="type">T</span>),
+    <span class="function">Err</span>(<span class="type">E</span>),
+}
+
+<span class="keyword">fn</span> <span class="function">main</span>() {
+    <span class="keyword">let</span> result = <span class="type">Result</span>::<span class="function">Ok</span>(<span class="number">42</span>);
+    <span class="keyword">match</span> result {
+        <span class="type">Result</span>::<span class="function">Ok</span>(n) => <span class="function">println!</span>(<span class="string">"Got: {}"</span>, n),
+        <span class="type">Result</span>::<span class="function">Err</span>(e) => <span class="function">println!</span>(<span class="string">"Error: {}"</span>, e),
+    }
+}`;
 ---
 
 <section
   id="hero"
-  class="relative min-h-screen flex items-center justify-center overflow-hidden pt-20 bg-cream-50 dark:bg-surface-900"
+  class="relative overflow-hidden pt-24 pb-12 lg:pt-28 lg:pb-16 bg-cream-50 dark:bg-surface-900"
 >
   <!-- Background Pattern -->
   <div class="absolute inset-0 grain"></div>
 
-  <!-- Decorative wheat grains -->
+  <!-- Decorative wheat grains - smaller and more subtle -->
   <div class="absolute inset-0 overflow-hidden pointer-events-none">
-    <!-- Top left grain cluster -->
-    <svg class="absolute -top-20 -left-20 w-96 h-96 text-husk-300/40 dark:text-husk-700/20 animate-float" viewBox="0 0 200 200" fill="currentColor">
+    <svg class="absolute -top-10 -left-10 w-64 h-64 text-husk-300/30 dark:text-husk-700/15 animate-float" viewBox="0 0 200 200" fill="currentColor">
       <ellipse cx="100" cy="60" rx="25" ry="45" transform="rotate(-30 100 60)" />
       <ellipse cx="130" cy="90" rx="20" ry="40" transform="rotate(-15 130 90)" />
-      <ellipse cx="70" cy="100" rx="22" ry="42" transform="rotate(-45 70 100)" />
     </svg>
-
-    <!-- Top right decoration -->
-    <svg class="absolute -top-10 right-0 w-80 h-80 text-husk-400/30 dark:text-husk-600/15 animate-float delay-200" viewBox="0 0 200 200" fill="currentColor">
+    <svg class="absolute -top-5 right-0 w-56 h-56 text-husk-400/20 dark:text-husk-600/10 animate-float delay-200" viewBox="0 0 200 200" fill="currentColor">
       <ellipse cx="100" cy="80" rx="30" ry="55" transform="rotate(25 100 80)" />
-      <ellipse cx="140" cy="110" rx="25" ry="45" transform="rotate(40 140 110)" />
     </svg>
-
-    <!-- Bottom left -->
-    <svg class="absolute bottom-20 -left-10 w-72 h-72 text-husk-300/35 dark:text-husk-700/15 animate-float delay-400" viewBox="0 0 200 200" fill="currentColor">
+    <svg class="absolute bottom-0 -left-5 w-48 h-48 text-husk-300/25 dark:text-husk-700/10 animate-float delay-400" viewBox="0 0 200 200" fill="currentColor">
       <ellipse cx="100" cy="100" rx="28" ry="50" transform="rotate(-20 100 100)" />
-    </svg>
-
-    <!-- Bottom right cluster -->
-    <svg class="absolute -bottom-20 right-10 w-96 h-96 text-husk-400/25 dark:text-husk-600/10 animate-float delay-600" viewBox="0 0 200 200" fill="currentColor">
-      <ellipse cx="80" cy="100" rx="24" ry="45" transform="rotate(35 80 100)" />
-      <ellipse cx="120" cy="80" rx="20" ry="38" transform="rotate(20 120 80)" />
-      <ellipse cx="110" cy="130" rx="22" ry="40" transform="rotate(50 110 130)" />
     </svg>
   </div>
 
-  <!-- Gradient overlay - only for dark mode -->
-  <div class="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-cream-100 dark:via-surface-900/50 dark:to-surface-900"></div>
-
   <!-- Content -->
-  <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-    <!-- Logo with glow effect -->
-    <div class="mb-8 inline-block opacity-0 animate-fade-in-up">
-      <div class="relative">
-        <Image
-          src={logo}
-          alt="Husk Logo"
-          width={140}
-          height={140}
-          class="mx-auto drop-shadow-xl"
-        />
-        <div class="absolute inset-0 bg-husk-400/30 blur-3xl rounded-full"></div>
+  <div class="relative z-10 max-w-7xl mx-auto px-6 sm:px-8 lg:px-12">
+    <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+      <!-- Left column - Text content -->
+      <div class="text-center lg:text-left">
+        <!-- Logo + Title inline -->
+        <div class="flex items-center justify-center lg:justify-start gap-4 mb-6 opacity-0 animate-fade-in-up">
+          <div class="relative">
+            <Image
+              src={logo}
+              alt="Husk Logo"
+              width={64}
+              height={64}
+              class="drop-shadow-lg"
+            />
+            <div class="absolute inset-0 bg-husk-400/20 blur-2xl rounded-full scale-150"></div>
+          </div>
+          <h1 class="font-display text-5xl sm:text-6xl text-surface-900 dark:text-cream-50">
+            Husk
+          </h1>
+        </div>
+
+        <!-- Tagline as main headline -->
+        <p class="text-2xl sm:text-3xl lg:text-4xl font-display text-surface-800 dark:text-cream-100 mb-6 leading-snug opacity-0 animate-fade-in-up delay-100">
+          A <span class="text-husk-600 dark:text-husk-400 font-medium">Rust-inspired</span> language
+          for building <span class="text-husk-600 dark:text-husk-400 font-medium">type-safe</span> JavaScript.
+        </p>
+
+        <!-- Description -->
+        <p class="text-lg text-surface-600 dark:text-cream-100/70 mb-8 leading-relaxed opacity-0 animate-fade-in-up delay-200">
+          Pattern matching, algebraic data types, and strong static typing —
+          compiling to clean, readable JS that runs everywhere.
+        </p>
+
+        <!-- CTA Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 mb-8 opacity-0 animate-fade-in-up delay-300">
+          <a href="/docs" class="btn-primary inline-flex items-center gap-2">
+            Get Started
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </a>
+          <a
+            href="https://github.com/fcoury/husk"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-secondary inline-flex items-center gap-2"
+          >
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z" />
+            </svg>
+            GitHub
+          </a>
+        </div>
+
+        <!-- Quick install -->
+        <div class="opacity-0 animate-fade-in-up delay-400">
+          <div class="inline-flex items-center gap-3 px-4 py-2.5 bg-surface-900 dark:bg-surface-800 rounded-lg font-mono text-sm text-cream-100">
+            <span class="text-husk-400">$</span>
+            <code>cargo install huskc</code>
+            <button
+              id="copy-install"
+              class="p-1 hover:bg-surface-700 rounded transition-colors"
+              aria-label="Copy to clipboard"
+            >
+              <svg class="copy-icon w-4 h-4 text-surface-400 hover:text-cream-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              <svg class="check-icon hidden w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- Main headline -->
-    <h1 class="font-display text-5xl sm:text-6xl md:text-7xl lg:text-8xl text-surface-900 dark:text-cream-50 mb-6 opacity-0 animate-fade-in-up delay-100">
-      <span class="block">Write</span>
-      <span class="relative inline-block">
-        <span class="relative z-10 text-husk-600 dark:text-husk-400">type-safe</span>
-        <svg class="absolute -bottom-2 left-0 w-full h-4 text-husk-400/50 dark:text-husk-500/40" viewBox="0 0 200 10" preserveAspectRatio="none">
-          <path d="M0,5 Q50,0 100,5 T200,5" fill="none" stroke="currentColor" stroke-width="3" />
-        </svg>
-      </span>
-      <span class="block">JavaScript</span>
-    </h1>
-
-    <!-- Tagline -->
-    <p class="text-lg sm:text-xl md:text-2xl text-surface-600 dark:text-cream-100/80 max-w-3xl mx-auto mb-10 leading-relaxed opacity-0 animate-fade-in-up delay-200">
-      A modern, <span class="text-surface-900 dark:text-cream-50 font-medium">Rust-inspired language</span> that compiles to clean, readable JavaScript.
-      Pattern matching, algebraic data types, and strong static typing — everywhere JS runs.
-    </p>
-
-    <!-- CTA Buttons -->
-    <div class="flex flex-col sm:flex-row items-center justify-center gap-4 opacity-0 animate-fade-in-up delay-300">
-      <a
-        href="/docs"
-        class="btn-primary inline-flex items-center gap-2 text-lg"
-      >
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-        </svg>
-        Read the Docs
-      </a>
-      <a
-        href="https://github.com/fcoury/husk"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="btn-secondary inline-flex items-center gap-2 text-lg"
-      >
-        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-          <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z" />
-        </svg>
-        View on GitHub
-      </a>
-    </div>
-
-    <!-- Quick install hint -->
-    <div class="mt-12 opacity-0 animate-fade-in-up delay-400">
-      <p class="text-sm text-surface-500 dark:text-surface-500 mb-3">Quick start</p>
-      <div class="inline-flex items-center gap-3 px-5 py-3 bg-surface-900 dark:bg-surface-800 rounded-lg font-mono text-sm text-cream-100">
-        <span class="text-husk-400">$</span>
-        <code>cargo install huskc</code>
-        <button
-          id="copy-install"
-          class="ml-2 p-1.5 hover:bg-surface-700 rounded transition-colors"
-          aria-label="Copy to clipboard"
-        >
-          <svg class="copy-icon w-4 h-4 text-surface-400 hover:text-cream-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-          <svg class="check-icon hidden w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M20 6L9 17l-5-5" />
-          </svg>
-        </button>
+      <!-- Right column - Code example -->
+      <div class="opacity-0 animate-fade-in-up delay-200">
+        <div class="code-block">
+          <div class="code-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span class="ml-4 text-xs text-surface-500 font-mono">main.hk</span>
+          </div>
+          <pre class="code-content text-cream-100 text-sm leading-relaxed"><code set:html={codeExample} /></pre>
+        </div>
       </div>
-    </div>
-
-    <!-- Scroll indicator -->
-    <div class="absolute bottom-10 left-1/2 -translate-x-1/2 opacity-0 animate-fade-in delay-700">
-      <a
-        href="#features"
-        class="flex flex-col items-center gap-2 text-surface-400 dark:text-surface-500 hover:text-husk-500 dark:hover:text-husk-400 transition-colors"
-        aria-label="Scroll to features"
-      >
-        <span class="text-xs uppercase tracking-widest">Explore</span>
-        <svg class="w-5 h-5 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-        </svg>
-      </a>
     </div>
   </div>
 </section>
