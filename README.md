@@ -6,11 +6,12 @@
   <strong>A modern, Rust-inspired language that compiles to JavaScript with first-class developer experience</strong>
 </p>
 
-<!--
 <p align="center">
+  <!--
   <a href="https://github.com/fcoury/husk/actions">
     <img src="https://github.com/fcoury/husk/actions/workflows/rust.yml/badge.svg" alt="Build Status" />
   </a>
+  -->
   <a href="https://crates.io/crates/husk-lang">
     <img src="https://img.shields.io/crates/v/husk-lang.svg" alt="Crates.io" />
   </a>
@@ -21,19 +22,20 @@
     <img src="https://img.shields.io/badge/Website-husk--lang.org-orange.svg" alt="Website" />
   </a>
 </p>
--->
 
 Husk brings Rust's elegant syntax and safety to the JavaScript ecosystem. Write code with algebraic data types, pattern matching, and strong static typing, then seamlessly compile to clean, modern JavaScript that runs anywhere.
 
 ## Why Husk?
 
 **🎯 Rust-like Syntax, JavaScript Runtime**
+
 - Familiar syntax for Rust developers
 - Compiles to clean, readable ES modules or CommonJS
 - Interoperates seamlessly with npm packages
 - Zero-cost abstractions over JavaScript
 
 **⚡ Outstanding Developer Experience**
+
 - **Language Server (LSP)** with real-time diagnostics, hover info, and go-to-definition
 - **Code formatter** (`husk fmt`) for consistent style
 - **Editor support** for VS Code and Neovim with syntax highlighting and intelligent features
@@ -41,12 +43,14 @@ Husk brings Rust's elegant syntax and safety to the JavaScript ecosystem. Write 
 - **Watch mode** for instant feedback during development
 
 **🔒 Type Safety You Can Trust**
+
 - Strong static typing with inference
 - Exhaustive pattern matching on enums
 - Compile-time guarantees, runtime confidence
 - Result types (`Ok`/`Err`) for error handling
 
 **🚀 Built for Real-World Development**
+
 - Express.js integration examples
 - SQLite database support
 - npm package ecosystem access
@@ -136,9 +140,11 @@ husk fmt .
 ### Editor Support
 
 **VS Code**: Full LSP integration with syntax highlighting, diagnostics, hover, and go-to-definition
+
 - Install from `editors/vscode`
 
 **Neovim**: Syntax highlighting, indentation, and filetype detection
+
 - Install using your plugin manager: `'fcoury/husk.nvim'`
 
 ## Language Features
@@ -364,19 +370,19 @@ The compiler binary will be at `target/release/huskc`.
 
 Husk is implemented as a Rust workspace with specialized crates:
 
-| Crate | Purpose |
-|-------|---------|
-| `husk-ast` | Abstract syntax tree definitions |
-| `husk-lexer` | Tokenization and lexical analysis |
-| `husk-parser` | Recursive descent parser |
-| `husk-types` | Type system and inference |
-| `husk-semantic` | Semantic analysis and type checking |
-| `husk-codegen-js` | JavaScript code generation |
+| Crate             | Purpose                                          |
+| ----------------- | ------------------------------------------------ |
+| `husk-ast`        | Abstract syntax tree definitions                 |
+| `husk-lexer`      | Tokenization and lexical analysis                |
+| `husk-parser`     | Recursive descent parser                         |
+| `husk-types`      | Type system and inference                        |
+| `husk-semantic`   | Semantic analysis and type checking              |
+| `husk-codegen-js` | JavaScript code generation                       |
 | `husk-runtime-js` | JavaScript runtime helpers (Result, panic, etc.) |
-| `husk-lsp` | Language Server Protocol implementation |
-| `husk-fmt` | Code formatter |
-| `husk-dts-parser` | TypeScript definition parser |
-| `husk-cli` | Command-line interface |
+| `husk-lsp`        | Language Server Protocol implementation          |
+| `husk-fmt`        | Code formatter                                   |
+| `husk-dts-parser` | TypeScript definition parser                     |
+| `husk-cli`        | Command-line interface                           |
 
 ## JavaScript Runtime
 
@@ -401,6 +407,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 Husk draws inspiration from:
+
 - **Rust** - Syntax, type system, and pattern matching
 - **TypeScript** - JavaScript interop and tooling
 - **OCaml** - ML-family type inference
