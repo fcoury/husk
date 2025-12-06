@@ -77,6 +77,9 @@ pub struct DtsNamespace {
 pub struct DtsModule {
     pub name: String,
     pub items: Vec<DtsItem>,
+    /// Whether this is an ambient module (string literal name like `declare module "express"`)
+    /// vs a regular module declaration. Ambient modules augment existing packages.
+    pub is_ambient: bool,
 }
 
 /// An export statement
