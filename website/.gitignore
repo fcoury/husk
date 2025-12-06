@@ -2,6 +2,8 @@
 dist/
 # generated types
 .astro/
+# mdbook docs (generated from /docs)
+public/docs/
 
 # dependencies
 node_modules/
