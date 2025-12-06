@@ -1,0 +1,112 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Husk - A Modern Rust-Inspired Language for JavaScript',
+  description = 'Husk brings Rust\'s powerful type system and developer experience to JavaScript. Compile type-safe code with pattern matching to clean, readable JS.'
+} = Astro.props;
+
+const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://fcoury.github.io/husk');
+---
+
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Primary Meta Tags -->
+    <title>{title}</title>
+    <meta name="title" content={title} />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="/og-image.png" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content={canonicalURL} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="/og-image.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Theme Color -->
+    <meta name="theme-color" content="#e4b02d" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d0d0b" media="(prefers-color-scheme: dark)" />
+
+    <!-- Preconnect to fonts -->
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+
+    <!-- Font Stylesheets -->
+    <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" />
+
+    <!-- Dark mode script - must be in head to prevent FOUC -->
+    <script is:inline>
+      (function() {
+        const theme = localStorage.getItem('husk-theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        if (theme === 'dark' || (!theme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        } else if (theme === 'light') {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen antialiased">
+    <slot />
+
+    <!-- Theme toggle script -->
+    <script>
+      function setupThemeToggle() {
+        const toggle = document.getElementById('theme-toggle');
+        if (!toggle) return;
+
+        const html = document.documentElement;
+        const sunIcon = toggle.querySelector('.sun-icon');
+        const moonIcon = toggle.querySelector('.moon-icon');
+
+        function updateIcons() {
+          const isDark = html.classList.contains('dark');
+          if (sunIcon && moonIcon) {
+            sunIcon.classList.toggle('hidden', isDark);
+            moonIcon.classList.toggle('hidden', !isDark);
+          }
+        }
+
+        toggle.addEventListener('click', () => {
+          html.classList.toggle('dark');
+          const isDark = html.classList.contains('dark');
+          localStorage.setItem('husk-theme', isDark ? 'dark' : 'light');
+          updateIcons();
+        });
+
+        updateIcons();
+      }
+
+      // Run on initial load
+      setupThemeToggle();
+
+      // Re-run after view transitions
+      document.addEventListener('astro:after-swap', setupThemeToggle);
+    </script>
+  </body>
+</html>

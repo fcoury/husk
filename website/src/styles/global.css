@@ -1,0 +1,371 @@
+@import "tailwindcss";
+
+/* Enable dark mode with selector strategy */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================
+   HUSK - Harvest Gold Brutalism Design System
+   ============================================ */
+
+/* Custom Fonts */
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('https://fonts.gstatic.com/s/instrumentserif/v4/jizBREVLNGULH8NZL2eFqzLT3bEGJI0fKU.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('https://fonts.gstatic.com/s/instrumentserif/v4/jizDREVLNGULH8NZL2eFqzJJdjQT2oEcLi4.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Theme Variables */
+@theme {
+  /* Husk Brand Colors - Wheat/Gold Palette */
+  --color-husk-50: #fefdf8;
+  --color-husk-100: #fdf9e8;
+  --color-husk-200: #faf0c5;
+  --color-husk-300: #f5e199;
+  --color-husk-400: #edca5a;
+  --color-husk-500: #e4b02d;
+  --color-husk-600: #ca8a1d;
+  --color-husk-700: #a8661a;
+  --color-husk-800: #8a511d;
+  --color-husk-900: #72431c;
+  --color-husk-950: #42230c;
+
+  /* Accent - Warm Terracotta */
+  --color-terra-400: #e07a5f;
+  --color-terra-500: #d45d3c;
+  --color-terra-600: #b84a2e;
+
+  /* Dark Theme Surface Colors */
+  --color-surface-900: #0d0d0b;
+  --color-surface-800: #161614;
+  --color-surface-700: #1f1f1c;
+  --color-surface-600: #2a2a26;
+  --color-surface-500: #3d3d37;
+
+  /* Light Theme */
+  --color-cream-50: #fefdfb;
+  --color-cream-100: #fcf9f3;
+  --color-cream-200: #f7f1e6;
+
+  /* Font Families */
+  --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-body: 'Satoshi', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', Consolas, monospace;
+
+  /* Animation */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-expo: cubic-bezier(0.87, 0, 0.13, 1);
+}
+
+/* Base Styles */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-cream-50);
+  color: var(--color-surface-900);
+  line-height: 1.6;
+  transition: background-color 0.3s var(--ease-out-expo), color 0.3s var(--ease-out-expo);
+}
+
+/* Dark Mode */
+.dark body {
+  background-color: var(--color-surface-900);
+  color: var(--color-cream-100);
+}
+
+/* Typography */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+code, pre {
+  font-family: var(--font-mono);
+}
+
+/* Selection */
+::selection {
+  background-color: var(--color-husk-300);
+  color: var(--color-surface-900);
+}
+
+.dark ::selection {
+  background-color: var(--color-husk-600);
+  color: var(--color-cream-50);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-cream-100);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-husk-400);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-husk-500);
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: var(--color-surface-800);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-surface-500);
+}
+
+/* Focus Styles */
+:focus-visible {
+  outline: 2px solid var(--color-husk-500);
+  outline-offset: 2px;
+}
+
+/* Utility Classes */
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Grain Overlay Effect */
+.grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.dark .grain::before {
+  opacity: 0.05;
+}
+
+/* Animation Keyframes */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(228, 176, 45, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(228, 176, 45, 0.5);
+  }
+}
+
+@keyframes typing {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes blink-caret {
+  50% { border-color: transparent; }
+}
+
+/* Animation Utilities */
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s var(--ease-out-expo) forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s var(--ease-out-expo) forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.8s var(--ease-out-expo) forwards;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Stagger Delays */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+.delay-700 { animation-delay: 700ms; }
+.delay-800 { animation-delay: 800ms; }
+
+/* Code Block Styling */
+.code-block {
+  position: relative;
+  background: linear-gradient(135deg, var(--color-surface-800) 0%, var(--color-surface-900) 100%);
+  border: 1px solid var(--color-surface-600);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.code-block::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: var(--color-surface-700);
+  border-bottom: 1px solid var(--color-surface-600);
+}
+
+/* Code Window Dots */
+.code-dots {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.code-dots span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.code-dots span:nth-child(1) { background: #ff5f57; }
+.code-dots span:nth-child(2) { background: #febc2e; }
+.code-dots span:nth-child(3) { background: #28c840; }
+
+/* Syntax Highlighting (Rust-like for Husk) */
+.code-content {
+  padding: 16px 20px;
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.code-content .keyword { color: #ff7b72; }
+.code-content .function { color: #d2a8ff; }
+.code-content .string { color: #a5d6ff; }
+.code-content .type { color: #79c0ff; }
+.code-content .number { color: #ffa657; }
+.code-content .comment { color: #8b949e; font-style: italic; }
+.code-content .operator { color: #ff7b72; }
+.code-content .punctuation { color: #c9d1d9; }
+
+/* Button Styles */
+.btn-primary {
+  background: linear-gradient(135deg, var(--color-husk-500) 0%, var(--color-husk-600) 100%);
+  color: var(--color-surface-900);
+  font-weight: 600;
+  padding: 14px 32px;
+  border-radius: 8px;
+  transition: all 0.3s var(--ease-out-expo);
+  box-shadow: 0 4px 14px rgba(228, 176, 45, 0.25);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(228, 176, 45, 0.35);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 2px solid var(--color-surface-900);
+  color: var(--color-surface-900);
+  font-weight: 600;
+  padding: 12px 30px;
+  border-radius: 8px;
+  transition: all 0.3s var(--ease-out-expo);
+}
+
+.dark .btn-secondary {
+  border-color: var(--color-cream-100);
+  color: var(--color-cream-100);
+}
+
+.btn-secondary:hover {
+  background: var(--color-surface-900);
+  color: var(--color-cream-50);
+}
+
+.dark .btn-secondary:hover {
+  background: var(--color-cream-100);
+  color: var(--color-surface-900);
+}
+
+/* Card Hover Effect */
+.card-hover {
+  transition: all 0.4s var(--ease-out-expo);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+}
+
+.dark .card-hover:hover {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Section Divider - Wheat Wave */
+.wheat-divider {
+  height: 80px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 80' preserveAspectRatio='none'%3E%3Cpath fill='%23fdf9e8' d='M0,40 C360,80 720,0 1080,40 C1260,60 1380,50 1440,40 L1440,80 L0,80 Z'/%3E%3C/svg%3E") no-repeat bottom;
+  background-size: cover;
+}
+
+.dark .wheat-divider {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 80' preserveAspectRatio='none'%3E%3Cpath fill='%23161614' d='M0,40 C360,80 720,0 1080,40 C1260,60 1380,50 1440,40 L1440,80 L0,80 Z'/%3E%3C/svg%3E");
+}

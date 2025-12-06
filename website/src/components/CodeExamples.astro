@@ -1,0 +1,196 @@
+---
+const examples = [
+  {
+    id: 'pattern-matching',
+    title: 'Pattern Matching',
+    description: 'Exhaustive pattern matching with algebraic data types',
+    code: `<span class="keyword">enum</span> <span class="type">Result</span>&lt;<span class="type">T</span>, <span class="type">E</span>&gt; {
+    <span class="function">Ok</span>(<span class="type">T</span>),
+    <span class="function">Err</span>(<span class="type">E</span>),
+}
+
+<span class="keyword">fn</span> <span class="function">divide</span>(a: <span class="type">int</span>, b: <span class="type">int</span>) -> <span class="type">Result</span>&lt;<span class="type">int</span>, <span class="type">string</span>&gt; {
+    <span class="keyword">if</span> b == <span class="number">0</span> {
+        <span class="type">Result</span>::<span class="function">Err</span>(<span class="string">"Division by zero"</span>)
+    } <span class="keyword">else</span> {
+        <span class="type">Result</span>::<span class="function">Ok</span>(a / b)
+    }
+}
+
+<span class="keyword">fn</span> <span class="function">main</span>() {
+    <span class="keyword">match</span> <span class="function">divide</span>(<span class="number">10</span>, <span class="number">2</span>) {
+        <span class="type">Result</span>::<span class="function">Ok</span>(value) => <span class="function">println!</span>(<span class="string">"Result: {}"</span>, value),
+        <span class="type">Result</span>::<span class="function">Err</span>(err) => <span class="function">println!</span>(<span class="string">"Error: {}"</span>, err),
+    }
+    <span class="comment">// Compiler ensures all cases are handled!</span>
+}`,
+  },
+  {
+    id: 'structs-methods',
+    title: 'Structs & Methods',
+    description: 'Define types with associated methods',
+    code: `<span class="keyword">struct</span> <span class="type">User</span> {
+    name: <span class="type">string</span>,
+    email: <span class="type">string</span>,
+    age: <span class="type">int</span>,
+}
+
+<span class="keyword">impl</span> <span class="type">User</span> {
+    <span class="keyword">fn</span> <span class="function">new</span>(name: <span class="type">string</span>, email: <span class="type">string</span>, age: <span class="type">int</span>) -> <span class="type">User</span> {
+        <span class="type">User</span> { name, email, age }
+    }
+
+    <span class="keyword">fn</span> <span class="function">greet</span>(&<span class="keyword">self</span>) -> <span class="type">string</span> {
+        <span class="function">format!</span>(<span class="string">"Hi, I'm {} and I'm {} years old"</span>, <span class="keyword">self</span>.name, <span class="keyword">self</span>.age)
+    }
+}
+
+<span class="keyword">fn</span> <span class="function">main</span>() {
+    <span class="keyword">let</span> user = <span class="type">User</span>::<span class="function">new</span>(<span class="string">"Alice"</span>, <span class="string">"alice@example.com"</span>, <span class="number">30</span>);
+    <span class="function">println!</span>(<span class="string">"{}"</span>, user.<span class="function">greet</span>());
+}`,
+  },
+  {
+    id: 'js-interop',
+    title: 'JavaScript Interop',
+    description: 'Seamlessly use npm packages',
+    code: `<span class="comment">// Use Express.js directly from Husk</span>
+<span class="keyword">extern</span> <span class="keyword">fn</span> <span class="function">express</span>() -> <span class="type">Express</span>;
+
+<span class="keyword">struct</span> <span class="type">Express</span> {
+    <span class="keyword">extern</span> <span class="keyword">fn</span> <span class="function">get</span>(&<span class="keyword">self</span>, path: <span class="type">string</span>, handler: <span class="keyword">fn</span>(<span class="type">Request</span>, <span class="type">Response</span>) -> <span class="type">void</span>) -> <span class="type">void</span>;
+    <span class="keyword">extern</span> <span class="keyword">fn</span> <span class="function">listen</span>(&<span class="keyword">self</span>, port: <span class="type">int</span>, callback: <span class="keyword">fn</span>() -> <span class="type">void</span>) -> <span class="type">void</span>;
+}
+
+<span class="keyword">fn</span> <span class="function">main</span>() {
+    <span class="keyword">let</span> app = <span class="function">express</span>();
+
+    app.<span class="function">get</span>(<span class="string">"/"</span>, |req, res| {
+        res.<span class="function">send</span>(<span class="string">"Hello from Husk!"</span>);
+    });
+
+    app.<span class="function">listen</span>(<span class="number">3000</span>, || {
+        <span class="function">println!</span>(<span class="string">"Server running on port 3000"</span>);
+    });
+}`,
+  },
+];
+---
+
+<section id="code" class="relative py-24 sm:py-32 overflow-hidden">
+  <!-- Background -->
+  <div class="absolute inset-0 grain"></div>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Section header -->
+    <div class="text-center max-w-3xl mx-auto mb-16">
+      <h2 class="font-display text-4xl sm:text-5xl md:text-6xl text-surface-900 dark:text-cream-50 mb-6">
+        See it in <span class="text-husk-600 dark:text-husk-400 italic">action</span>
+      </h2>
+      <p class="text-lg sm:text-xl text-surface-600 dark:text-cream-100/80 leading-relaxed">
+        Clean, expressive syntax that compiles to readable JavaScript.
+        No runtime overhead, no magic — just better code.
+      </p>
+    </div>
+
+    <!-- Tab navigation -->
+    <div class="flex flex-wrap justify-center gap-2 mb-8" role="tablist">
+      {examples.map((example, index) => (
+        <button
+          role="tab"
+          aria-selected={index === 0 ? 'true' : 'false'}
+          aria-controls={`panel-${example.id}`}
+          id={`tab-${example.id}`}
+          data-tab={example.id}
+          class={`tab-button px-5 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${
+            index === 0
+              ? 'bg-husk-500 text-surface-900 shadow-lg shadow-husk-500/25'
+              : 'bg-cream-200 dark:bg-surface-700 text-surface-600 dark:text-cream-100/80 hover:bg-cream-300 dark:hover:bg-surface-600'
+          }`}
+        >
+          {example.title}
+        </button>
+      ))}
+    </div>
+
+    <!-- Code panels -->
+    <div class="relative">
+      {examples.map((example, index) => (
+        <div
+          role="tabpanel"
+          id={`panel-${example.id}`}
+          aria-labelledby={`tab-${example.id}`}
+          data-panel={example.id}
+          class={`code-panel transition-all duration-300 ${index === 0 ? '' : 'hidden'}`}
+        >
+          <!-- Description -->
+          <p class="text-center text-surface-500 dark:text-surface-400 mb-6 text-sm">
+            {example.description}
+          </p>
+
+          <!-- Code block -->
+          <div class="code-block max-w-4xl mx-auto shadow-2xl shadow-surface-900/10 dark:shadow-black/30">
+            <!-- Window chrome -->
+            <div class="code-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span class="ml-4 text-xs text-surface-500 font-mono">{example.id}.hk</span>
+            </div>
+
+            <!-- Code content -->
+            <pre class="code-content text-cream-100"><code set:html={example.code} /></pre>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <!-- Output preview hint -->
+    <div class="mt-12 text-center">
+      <div class="inline-flex items-center gap-3 px-6 py-3 bg-cream-100 dark:bg-surface-800 rounded-full border border-cream-200 dark:border-surface-700">
+        <svg class="w-5 h-5 text-husk-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <span class="text-surface-600 dark:text-cream-100/80 text-sm">
+          Compiles to <span class="font-mono text-husk-600 dark:text-husk-400">clean ES modules</span> or CommonJS
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  function setupTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const panels = document.querySelectorAll('.code-panel');
+
+    tabButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const tabId = button.getAttribute('data-tab');
+
+        // Update buttons
+        tabButtons.forEach(btn => {
+          const isActive = btn.getAttribute('data-tab') === tabId;
+          btn.setAttribute('aria-selected', String(isActive));
+          btn.classList.toggle('bg-husk-500', isActive);
+          btn.classList.toggle('text-surface-900', isActive);
+          btn.classList.toggle('shadow-lg', isActive);
+          btn.classList.toggle('shadow-husk-500/25', isActive);
+          btn.classList.toggle('bg-cream-200', !isActive);
+          btn.classList.toggle('dark:bg-surface-700', !isActive);
+          btn.classList.toggle('text-surface-600', !isActive);
+          btn.classList.toggle('dark:text-cream-100/80', !isActive);
+        });
+
+        // Update panels
+        panels.forEach(panel => {
+          const isActive = panel.getAttribute('data-panel') === tabId;
+          panel.classList.toggle('hidden', !isActive);
+        });
+      });
+    });
+  }
+
+  setupTabs();
+  document.addEventListener('astro:after-swap', setupTabs);
+</script>
