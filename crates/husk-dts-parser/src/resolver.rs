@@ -151,11 +151,15 @@ pub struct ResolveOptions {
 /// Resolver for TypeScript declaration files.
 pub struct Resolver {
     options: ResolveOptions,
-    /// Cache of parsed files
-    file_cache: HashMap<PathBuf, DtsFile>,
-    /// Track files currently being resolved (for cycle detection)
-    #[allow(dead_code)]
-    resolving: HashSet<PathBuf>,
+    /// Cache of parsed files with their imports and references
+    file_cache: HashMap<PathBuf, CachedFile>,
+}
+
+/// Cached file with its parsed content and extracted imports/references.
+struct CachedFile {
+    file: DtsFile,
+    imports: Vec<String>,
+    references: Vec<String>,
 }
 
 impl Resolver {
@@ -164,7 +168,6 @@ impl Resolver {
         Self {
             options,
             file_cache: HashMap::new(),
-            resolving: HashSet::new(),
         }
     }
 
@@ -242,16 +245,13 @@ impl Resolver {
         &mut self,
         path: &Path,
     ) -> Result<(DtsFile, Vec<String>, Vec<String>), ResolveError> {
-        // Check cache first
-        if let Some(file) = self.file_cache.get(path) {
-            // Re-extract imports (TODO: cache these too)
-            let content = std::fs::read_to_string(path).map_err(|e| ResolveError::IoError {
-                path: path.to_path_buf(),
-                message: e.to_string(),
-            })?;
-            let imports = self.extract_imports(&content);
-            let references = self.extract_references(&content);
-            return Ok((file.clone(), imports, references));
+        // Check cache first - now includes imports/references
+        if let Some(cached) = self.file_cache.get(path) {
+            return Ok((
+                cached.file.clone(),
+                cached.imports.clone(),
+                cached.references.clone(),
+            ));
         }
 
         // Read the file
@@ -272,8 +272,15 @@ impl Resolver {
         let imports = self.extract_imports(&content);
         let references = self.extract_references(&content);
 
-        // Cache the parsed file
-        self.file_cache.insert(path.to_path_buf(), file.clone());
+        // Cache the parsed file with imports/references
+        self.file_cache.insert(
+            path.to_path_buf(),
+            CachedFile {
+                file: file.clone(),
+                imports: imports.clone(),
+                references: references.clone(),
+            },
+        );
 
         Ok((file, imports, references))
     }
@@ -755,11 +762,13 @@ impl Resolver {
     }
 
     /// Read the "types" or "typings" field from package.json.
+    ///
+    /// Uses simple line-based parsing which works for standard (formatted) package.json files.
+    /// For robustness with minified or complex JSON, consider adding serde_json as a dependency.
     fn read_types_field(&self, package_json: &Path) -> Option<String> {
         let content = std::fs::read_to_string(package_json).ok()?;
 
         // Simple JSON parsing for "types" or "typings" field
-        // This is a simplified implementation; a real one would use serde_json
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("\"types\"") || trimmed.starts_with("\"typings\"") {

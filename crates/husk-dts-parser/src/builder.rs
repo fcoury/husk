@@ -14,8 +14,11 @@
 
 use heck::ToSnakeCase;
 
-use crate::ast::{DtsInterface, DtsType, InterfaceMember, Primitive, TypeParam};
-use crate::codegen::escape_keyword;
+use crate::ast::{DtsInterface, DtsType, InterfaceMember, TypeParam};
+use crate::codegen::{escape_keyword, type_to_husk_string};
+
+/// Default minimum number of optional properties to recommend a builder pattern.
+pub const DEFAULT_BUILDER_OPTIONAL_THRESHOLD: usize = 3;
 
 /// Configuration for builder generation.
 #[derive(Debug, Clone)]
@@ -33,7 +36,7 @@ pub struct BuilderConfig {
 impl Default for BuilderConfig {
     fn default() -> Self {
         Self {
-            min_optional_props: 3,
+            min_optional_props: DEFAULT_BUILDER_OPTIONAL_THRESHOLD,
             generate_new: true,
             generate_build: true,
             builder_suffix: "Builder".to_string(),
@@ -279,60 +282,6 @@ fn generate_builder_code(
     code
 }
 
-/// Convert a DtsType to a Husk type string.
-fn type_to_husk_string(ty: &DtsType) -> String {
-    match ty {
-        DtsType::Primitive(p) => match p {
-            Primitive::String => "String".to_string(),
-            Primitive::Number => "f64".to_string(),
-            Primitive::Boolean => "bool".to_string(),
-            Primitive::Void => "()".to_string(),
-            Primitive::Null | Primitive::Undefined => "()".to_string(),
-            Primitive::Any | Primitive::Unknown => "JsValue".to_string(),
-            Primitive::Never => "!".to_string(),
-            Primitive::Object => "JsObject".to_string(),
-            Primitive::Symbol => "JsValue".to_string(),
-            Primitive::BigInt => "i64".to_string(),
-        },
-        DtsType::Named { name, type_args } => {
-            if type_args.is_empty() {
-                name.clone()
-            } else {
-                let args: Vec<_> = type_args.iter().map(type_to_husk_string).collect();
-                format!("{}<{}>", name, args.join(", "))
-            }
-        }
-        DtsType::Array(inner) => format!("[{}]", type_to_husk_string(inner)),
-        DtsType::Union(types) => {
-            // For unions, use JsValue as fallback
-            if types.len() == 2 {
-                // Check for Option pattern
-                let non_null: Vec<_> = types
-                    .iter()
-                    .filter(|t| {
-                        !matches!(
-                            t,
-                            DtsType::Primitive(Primitive::Null)
-                                | DtsType::Primitive(Primitive::Undefined)
-                        )
-                    })
-                    .collect();
-                if non_null.len() == 1 {
-                    return format!("Option<{}>", type_to_husk_string(non_null[0]));
-                }
-            }
-            "JsValue".to_string()
-        }
-        DtsType::Function(_) => "JsFn".to_string(),
-        DtsType::Object(_) => "JsObject".to_string(),
-        DtsType::Tuple(elements) => {
-            let types: Vec<_> = elements.iter().map(|e| type_to_husk_string(&e.ty)).collect();
-            format!("({})", types.join(", "))
-        }
-        _ => "JsValue".to_string(),
-    }
-}
-
 /// Convert PascalCase or camelCase to snake_case.
 fn to_snake_case(s: &str) -> String {
     s.to_snake_case()
@@ -353,7 +302,7 @@ pub fn generate_all_builders(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::PropertyMember;
+    use crate::ast::{Primitive, PropertyMember};
 
     fn make_test_interface() -> DtsInterface {
         DtsInterface {

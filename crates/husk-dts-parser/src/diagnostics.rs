@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::ast::{DtsFile, DtsItem, DtsType};
+use crate::builder::DEFAULT_BUILDER_OPTIONAL_THRESHOLD;
 use crate::unions::{analyze_union, UnionStrategy};
 
 /// Severity level for diagnostics.
@@ -210,7 +211,7 @@ impl DiagnosticCollector {
                         matches!(m, crate::ast::InterfaceMember::Property(p) if p.optional)
                     })
                     .count();
-                if optional_count >= 3 {
+                if optional_count >= DEFAULT_BUILDER_OPTIONAL_THRESHOLD {
                     self.info(
                         &iface.name,
                         DiagnosticCategory::BuilderGeneration,

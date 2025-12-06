@@ -1310,6 +1310,72 @@ pub fn escape_keyword(name: &str) -> String {
     }
 }
 
+/// Convert a DtsType to a Husk type string.
+///
+/// This is a simplified conversion for use in builder patterns and union type display.
+/// For full code generation, use the Codegen struct which handles more complex cases.
+pub fn type_to_husk_string(ty: &DtsType) -> String {
+    match ty {
+        DtsType::Primitive(p) => primitive_to_husk_string(p),
+        DtsType::Named { name, type_args } => {
+            if type_args.is_empty() {
+                name.clone()
+            } else {
+                let args: Vec<_> = type_args.iter().map(type_to_husk_string).collect();
+                format!("{}<{}>", name, args.join(", "))
+            }
+        }
+        DtsType::Array(inner) => format!("[{}]", type_to_husk_string(inner)),
+        DtsType::StringLiteral(s) => format!("\"{}\"", s),
+        DtsType::NumberLiteral(n) => n.clone(),
+        DtsType::BooleanLiteral(b) => b.to_string(),
+        DtsType::Union(types) => {
+            // Check for Option pattern: T | null | undefined
+            if types.len() == 2 {
+                let non_null: Vec<_> = types
+                    .iter()
+                    .filter(|t| {
+                        !matches!(
+                            t,
+                            DtsType::Primitive(Primitive::Null)
+                                | DtsType::Primitive(Primitive::Undefined)
+                        )
+                    })
+                    .collect();
+                if non_null.len() == 1 {
+                    return format!("Option<{}>", type_to_husk_string(non_null[0]));
+                }
+            }
+            // Fall back to showing the union types
+            let strs: Vec<_> = types.iter().map(type_to_husk_string).collect();
+            strs.join(" | ")
+        }
+        DtsType::Function(_) => "JsFn".to_string(),
+        DtsType::Object(_) => "JsObject".to_string(),
+        DtsType::Tuple(elements) => {
+            let types: Vec<_> = elements.iter().map(|e| type_to_husk_string(&e.ty)).collect();
+            format!("({})", types.join(", "))
+        }
+        _ => "JsValue".to_string(),
+    }
+}
+
+/// Convert a TypeScript primitive to Husk type name.
+fn primitive_to_husk_string(p: &Primitive) -> String {
+    match p {
+        Primitive::String => "String".to_string(),
+        Primitive::Number => "f64".to_string(),
+        Primitive::Boolean => "bool".to_string(),
+        Primitive::Void => "()".to_string(),
+        Primitive::Null | Primitive::Undefined => "()".to_string(),
+        Primitive::Any | Primitive::Unknown => "JsValue".to_string(),
+        Primitive::Never => "!".to_string(),
+        Primitive::Object => "JsObject".to_string(),
+        Primitive::Symbol => "JsValue".to_string(),
+        Primitive::BigInt => "i64".to_string(),
+    }
+}
+
 /// Check if a string is a valid Husk identifier.
 fn is_valid_identifier(name: &str) -> bool {
     if name.is_empty() {
