@@ -43,36 +43,36 @@ const codeExample = `<span class="keyword">enum</span> <span class="type">Result
       <!-- Left column - Text content -->
       <div class="text-center lg:text-left">
         <!-- Logo + Title inline -->
-        <div class="flex items-center justify-center lg:justify-start gap-4 mb-6 opacity-0 animate-fade-in-up">
+        <div class="flex items-center justify-center lg:justify-start gap-3 sm:gap-4 mb-4 sm:mb-6 opacity-0 animate-fade-in-up">
           <div class="relative">
             <Image
               src={logo}
               alt="Husk Logo"
-              width={64}
-              height={64}
-              class="drop-shadow-lg"
+              width={48}
+              height={48}
+              class="drop-shadow-lg sm:w-16 sm:h-16"
             />
             <div class="absolute inset-0 bg-husk-400/20 blur-2xl rounded-full scale-150"></div>
           </div>
-          <h1 class="font-display text-5xl sm:text-6xl text-surface-900 dark:text-cream-50">
+          <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl text-surface-900 dark:text-cream-50">
             Husk
           </h1>
         </div>
 
         <!-- Tagline as main headline -->
-        <p class="text-2xl sm:text-3xl lg:text-4xl font-display text-surface-800 dark:text-cream-100 mb-6 leading-snug opacity-0 animate-fade-in-up delay-100">
+        <p class="text-xl sm:text-2xl lg:text-3xl font-display text-surface-800 dark:text-cream-100 mb-4 sm:mb-6 leading-snug opacity-0 animate-fade-in-up delay-100">
           A <span class="text-husk-600 dark:text-husk-400 font-medium">Rust-inspired</span> language
           for building <span class="text-husk-600 dark:text-husk-400 font-medium">type-safe</span> JavaScript.
         </p>
 
         <!-- Description -->
-        <p class="text-lg text-surface-600 dark:text-cream-100/70 mb-8 leading-relaxed opacity-0 animate-fade-in-up delay-200">
+        <p class="text-base sm:text-lg text-surface-600 dark:text-cream-100/70 mb-6 sm:mb-8 leading-relaxed opacity-0 animate-fade-in-up delay-200">
           Pattern matching, algebraic data types, and strong static typing —
           compiling to clean, readable JS that runs everywhere.
         </p>
 
         <!-- CTA Buttons -->
-        <div class="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 mb-8 opacity-0 animate-fade-in-up delay-300">
+        <div class="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 mb-6 sm:mb-8 opacity-0 animate-fade-in-up delay-300">
           <a href="/docs" class="btn-primary inline-flex items-center gap-2">
             Get Started
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -114,8 +114,8 @@ const codeExample = `<span class="keyword">enum</span> <span class="type">Result
         </div>
       </div>
 
-      <!-- Right column - Code example -->
-      <div class="opacity-0 animate-fade-in-up delay-200">
+      <!-- Right column - Code example (hidden on mobile) -->
+      <div class="hidden lg:block opacity-0 animate-fade-in-up delay-200">
         <div class="code-block">
           <div class="code-dots">
             <span></span>
