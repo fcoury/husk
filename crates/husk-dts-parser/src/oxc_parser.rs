@@ -109,8 +109,13 @@ impl<'a> DtsVisitor<'a> {
             TSType::TSLiteralType(lit) => match &lit.literal {
                 TSLiteral::StringLiteral(s) => DtsType::StringLiteral(s.value.to_string()),
                 TSLiteral::NumericLiteral(n) => {
-                    let raw_str = n.raw.as_ref().map(|r| r.as_str()).unwrap_or("");
-                    DtsType::NumberLiteral(raw_str.to_string())
+                    // Prefer raw string for exact representation, fall back to value for cases where raw is None
+                    let raw_str = n
+                        .raw
+                        .as_ref()
+                        .map(|r| r.as_str().to_string())
+                        .unwrap_or_else(|| n.value.to_string());
+                    DtsType::NumberLiteral(raw_str)
                 }
                 TSLiteral::BooleanLiteral(b) => DtsType::BooleanLiteral(b.value),
                 TSLiteral::BigIntLiteral(bi) => DtsType::NumberLiteral(bi.raw.as_ref().map(|r| r.to_string()).unwrap_or_default()),
@@ -403,8 +408,12 @@ impl<'a> DtsVisitor<'a> {
                     TSTupleElement::TSLiteralType(lit) => match &lit.literal {
                         TSLiteral::StringLiteral(s) => DtsType::StringLiteral(s.value.to_string()),
                         TSLiteral::NumericLiteral(n) => {
-                            let raw_str = n.raw.as_ref().map(|r| r.as_str()).unwrap_or("");
-                            DtsType::NumberLiteral(raw_str.to_string())
+                            let raw_str = n
+                                .raw
+                                .as_ref()
+                                .map(|r| r.as_str().to_string())
+                                .unwrap_or_else(|| n.value.to_string());
+                            DtsType::NumberLiteral(raw_str)
                         }
                         TSLiteral::BooleanLiteral(b) => DtsType::BooleanLiteral(b.value),
                         _ => DtsType::Primitive(Primitive::Any),

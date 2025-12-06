@@ -21,6 +21,9 @@
 use crate::ast::{DtsType, ObjectMember, Primitive, TypeParam};
 use std::collections::HashMap;
 
+/// Maximum recursion depth for type expansion to prevent stack overflow on circular types.
+const MAX_EXPANSION_DEPTH: usize = 64;
+
 /// A registry of known types for utility type expansion.
 #[derive(Debug, Clone, Default)]
 pub struct TypeRegistry {
@@ -84,6 +87,21 @@ pub fn expand_type(
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
 ) -> DtsType {
+    expand_type_with_depth(ty, registry, ctx, 0)
+}
+
+/// Internal type expansion with depth tracking to prevent stack overflow.
+fn expand_type_with_depth(
+    ty: &DtsType,
+    registry: &TypeRegistry,
+    ctx: &ExpansionContext,
+    depth: usize,
+) -> DtsType {
+    // Bail out to prevent stack overflow on circular types
+    if depth > MAX_EXPANSION_DEPTH {
+        return ty.clone();
+    }
+
     match ty {
         // Named type - might be a utility type or type parameter
         DtsType::Named { name, type_args } => {
@@ -112,12 +130,12 @@ pub fn expand_type(
                     // Try to expand from registry
                     if let Some(def) = registry.get(name) {
                         // TODO: Handle type arguments properly
-                        expand_type(def, registry, ctx)
+                        expand_type_with_depth(def, registry, ctx, depth + 1)
                     } else {
                         // Unknown type, expand type args and return
                         let expanded_args: Vec<_> = type_args
                             .iter()
-                            .map(|arg| expand_type(arg, registry, ctx))
+                            .map(|arg| expand_type_with_depth(arg, registry, ctx, depth + 1))
                             .collect();
                         DtsType::Named {
                             name: name.clone(),
@@ -132,7 +150,7 @@ pub fn expand_type(
         DtsType::Union(types) => {
             let expanded: Vec<_> = types
                 .iter()
-                .map(|t| expand_type(t, registry, ctx))
+                .map(|t| expand_type_with_depth(t, registry, ctx, depth + 1))
                 .collect();
             DtsType::Union(expanded)
         }
@@ -141,14 +159,14 @@ pub fn expand_type(
         DtsType::Intersection(types) => {
             let expanded: Vec<_> = types
                 .iter()
-                .map(|t| expand_type(t, registry, ctx))
+                .map(|t| expand_type_with_depth(t, registry, ctx, depth + 1))
                 .collect();
             DtsType::Intersection(expanded)
         }
 
         // Array - expand element type
         DtsType::Array(elem) => {
-            let expanded = expand_type(elem, registry, ctx);
+            let expanded = expand_type_with_depth(elem, registry, ctx, depth + 1);
             DtsType::Array(Box::new(expanded))
         }
 
@@ -157,7 +175,7 @@ pub fn expand_type(
             let expanded: Vec<_> = elements
                 .iter()
                 .map(|elem| crate::ast::TupleElement {
-                    ty: expand_type(&elem.ty, registry, ctx),
+                    ty: expand_type_with_depth(&elem.ty, registry, ctx, depth + 1),
                     name: elem.name.clone(),
                     optional: elem.optional,
                     rest: elem.rest,
@@ -170,7 +188,7 @@ pub fn expand_type(
         DtsType::Object(members) => {
             let expanded: Vec<_> = members
                 .iter()
-                .map(|m| expand_object_member(m, registry, ctx))
+                .map(|m| expand_object_member_with_depth(m, registry, ctx, depth + 1))
                 .collect();
             DtsType::Object(expanded)
         }
@@ -182,12 +200,12 @@ pub fn expand_type(
                 .iter()
                 .map(|p| crate::ast::Param {
                     name: p.name.clone(),
-                    ty: expand_type(&p.ty, registry, ctx),
+                    ty: expand_type_with_depth(&p.ty, registry, ctx, depth + 1),
                     optional: p.optional,
                     rest: p.rest,
                 })
                 .collect();
-            let expanded_return = expand_type(&func.return_type, registry, ctx);
+            let expanded_return = expand_type_with_depth(&func.return_type, registry, ctx, depth + 1);
 
             DtsType::Function(Box::new(crate::ast::FunctionType {
                 type_params: func.type_params.clone(),
@@ -202,10 +220,20 @@ pub fn expand_type(
     }
 }
 
+#[allow(dead_code)]
 fn expand_object_member(
     member: &ObjectMember,
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+) -> ObjectMember {
+    expand_object_member_with_depth(member, registry, ctx, 0)
+}
+
+fn expand_object_member_with_depth(
+    member: &ObjectMember,
+    registry: &TypeRegistry,
+    ctx: &ExpansionContext,
+    depth: usize,
 ) -> ObjectMember {
     match member {
         ObjectMember::Property {
@@ -215,7 +243,7 @@ fn expand_object_member(
             readonly,
         } => ObjectMember::Property {
             name: name.clone(),
-            ty: expand_type(ty, registry, ctx),
+            ty: expand_type_with_depth(ty, registry, ctx, depth),
             optional: *optional,
             readonly: *readonly,
         },
@@ -230,7 +258,7 @@ fn expand_object_member(
                 .iter()
                 .map(|p| crate::ast::Param {
                     name: p.name.clone(),
-                    ty: expand_type(&p.ty, registry, ctx),
+                    ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
                     optional: p.optional,
                     rest: p.rest,
                 })
@@ -239,17 +267,44 @@ fn expand_object_member(
                 name: name.clone(),
                 type_params: type_params.clone(),
                 params: expanded_params,
-                return_type: return_type.as_ref().map(|rt| expand_type(rt, registry, ctx)),
+                return_type: return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
                 optional: *optional,
             }
         }
         ObjectMember::IndexSignature(sig) => ObjectMember::IndexSignature(crate::ast::IndexSignature {
             key_name: sig.key_name.clone(),
-            key_type: expand_type(&sig.key_type, registry, ctx),
-            value_type: expand_type(&sig.value_type, registry, ctx),
+            key_type: expand_type_with_depth(&sig.key_type, registry, ctx, depth),
+            value_type: expand_type_with_depth(&sig.value_type, registry, ctx, depth),
             readonly: sig.readonly,
         }),
-        _ => member.clone(),
+        ObjectMember::CallSignature(sig) => ObjectMember::CallSignature(crate::ast::CallSignature {
+            type_params: sig.type_params.clone(),
+            params: sig
+                .params
+                .iter()
+                .map(|p| crate::ast::Param {
+                    name: p.name.clone(),
+                    ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
+                    optional: p.optional,
+                    rest: p.rest,
+                })
+                .collect(),
+            return_type: sig.return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
+        }),
+        ObjectMember::ConstructSignature(sig) => ObjectMember::ConstructSignature(crate::ast::ConstructSignature {
+            type_params: sig.type_params.clone(),
+            params: sig
+                .params
+                .iter()
+                .map(|p| crate::ast::Param {
+                    name: p.name.clone(),
+                    ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
+                    optional: p.optional,
+                    rest: p.rest,
+                })
+                .collect(),
+            return_type: sig.return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
+        }),
     }
 }
 

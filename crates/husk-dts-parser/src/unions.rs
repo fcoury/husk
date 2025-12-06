@@ -12,6 +12,7 @@
 use std::collections::HashSet;
 
 use crate::ast::{DtsType, Primitive};
+use crate::codegen::type_to_husk_string;
 
 /// Strategy for representing a TypeScript union in Husk.
 #[derive(Debug, Clone, PartialEq)]
@@ -121,7 +122,11 @@ pub fn analyze_union(types: &[DtsType]) -> UnionStrategy {
     }
 }
 
-/// Check if the union is nullable (contains null/undefined and one other type).
+/// Check if the union is nullable (contains null/undefined and exactly one other type).
+///
+/// Note: Only simple nullable unions like `T | null` or `T | undefined` are handled.
+/// Complex unions like `string | number | null` fall through to other strategies
+/// because they cannot be cleanly represented as `Option<T>`.
 fn check_nullable(types: &[DtsType]) -> Option<UnionStrategy> {
     let mut non_null_types = Vec::new();
     let mut has_null = false;
@@ -311,6 +316,11 @@ fn check_discriminated_union(types: &[DtsType]) -> Option<UnionStrategy> {
 }
 
 /// Find a field that exists in all objects with a string literal type.
+///
+/// Uses a curated list of common discriminant field names rather than detecting
+/// any field with unique values. This approach is more conservative and avoids
+/// false positives from fields that happen to have unique string values but
+/// aren't intended as discriminants (e.g., `id`, `name`).
 fn find_discriminant(objects: &[&Vec<crate::ast::ObjectMember>]) -> Option<String> {
     use crate::ast::ObjectMember;
 
@@ -318,7 +328,7 @@ fn find_discriminant(objects: &[&Vec<crate::ast::ObjectMember>]) -> Option<Strin
         return None;
     }
 
-    // Common discriminant field names
+    // Common discriminant field names used in tagged union patterns
     let candidates = ["type", "kind", "tag", "_tag", "status", "action"];
 
     for candidate in &candidates {
@@ -507,50 +517,6 @@ pub fn generate_union_code(strategy: &UnionStrategy, union_name: Option<&str>) -
             let type_strs: Vec<_> = types.iter().map(type_to_husk_string).collect();
             format!("/* {} */", type_strs.join(" | "))
         }
-    }
-}
-
-/// Convert a DtsType to a Husk type string (simplified).
-fn type_to_husk_string(ty: &DtsType) -> String {
-    match ty {
-        DtsType::Primitive(p) => primitive_to_husk(p),
-        DtsType::Named { name, type_args } => {
-            if type_args.is_empty() {
-                name.clone()
-            } else {
-                let args: Vec<_> = type_args.iter().map(type_to_husk_string).collect();
-                format!("{}<{}>", name, args.join(", "))
-            }
-        }
-        DtsType::Array(inner) => format!("[{}]", type_to_husk_string(inner)),
-        DtsType::StringLiteral(s) => format!("\"{}\"", s),
-        DtsType::NumberLiteral(n) => n.clone(),
-        DtsType::BooleanLiteral(b) => b.to_string(),
-        DtsType::Union(types) => {
-            let strs: Vec<_> = types.iter().map(type_to_husk_string).collect();
-            strs.join(" | ")
-        }
-        DtsType::Function(_) => "fn(...)".to_string(),
-        DtsType::Object(_) => "{ ... }".to_string(),
-        _ => "JsValue".to_string(),
-    }
-}
-
-/// Convert a TypeScript primitive to Husk type name.
-fn primitive_to_husk(p: &Primitive) -> String {
-    match p {
-        Primitive::String => "String".to_string(),
-        Primitive::Number => "f64".to_string(),
-        Primitive::Boolean => "bool".to_string(),
-        Primitive::Void => "()".to_string(),
-        Primitive::Null => "()".to_string(),
-        Primitive::Undefined => "()".to_string(),
-        Primitive::Any => "JsValue".to_string(),
-        Primitive::Unknown => "JsValue".to_string(),
-        Primitive::Never => "!".to_string(),
-        Primitive::Object => "JsObject".to_string(),
-        Primitive::Symbol => "JsValue".to_string(),
-        Primitive::BigInt => "i64".to_string(),
     }
 }
 
