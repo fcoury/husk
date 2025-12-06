@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://fcoury.github.io/husk/sitemap.xml
+Sitemap: https://husk-lang.org/sitemap.xml
