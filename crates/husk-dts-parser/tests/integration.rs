@@ -38,6 +38,7 @@ fn test_simple_express_like() {
     let result = generate(&file, &CodegenOptions {
         module_name: Some("express".to_string()),
         verbose: false,
+        ..Default::default()
     });
 
     // Check generated code
@@ -269,6 +270,7 @@ fn test_module_name_variants() {
     let result = generate(&file, &CodegenOptions {
         module_name: Some("express".to_string()),
         verbose: false,
+        ..Default::default()
     });
     assert!(result.code.contains("mod express;"));
 
@@ -276,6 +278,7 @@ fn test_module_name_variants() {
     let result = generate(&file, &CodegenOptions {
         module_name: Some("lodash-es".to_string()),
         verbose: false,
+        ..Default::default()
     });
     assert!(result.code.contains(r#"mod "lodash-es" as lodash_es;"#));
 
@@ -283,6 +286,7 @@ fn test_module_name_variants() {
     let result = generate(&file, &CodegenOptions {
         module_name: Some("@types/node".to_string()),
         verbose: false,
+        ..Default::default()
     });
     assert!(result.code.contains(r#"mod "@types/node" as node;"#));
 }

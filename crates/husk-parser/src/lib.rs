@@ -6,6 +6,7 @@ use husk_ast::{
     AssignOp, Attribute, BinaryOp, Block, CfgPredicate, ClosureParam, EnumVariant,
     EnumVariantFields, Expr, ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment,
     FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind,
+    JsxAttribute, JsxAttributeValue, JsxChild, JsxElement, JsxElementName,
     Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind,
     StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
 };
@@ -3510,6 +3511,8 @@ impl<'src> Parser<'src> {
             TokenKind::LBracket => self.parse_array_expr(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match_expr(),
             TokenKind::Keyword(Keyword::Js) => self.parse_js_literal(),
+            // JSX element expression: `<div>...</div>` or `<Component />`
+            TokenKind::Lt => self.parse_jsx_element(),
             _ => {
                 self.error_at_token(&tok, "expected expression");
                 None
@@ -3748,6 +3751,384 @@ impl<'src> Parser<'src> {
             kind: ExprKind::Struct { name, fields },
             span: Span { range: start..end },
         })
+    }
+
+    // ========================================================================
+    // JSX Parsing
+    // ========================================================================
+
+    /// Parse a JSX element expression: `<div class="x">{child}</div>` or `<Component />`
+    ///
+    /// JSX parsing uses a combination of manual character scanning (for JSX-specific syntax)
+    /// and recursive calls back to parse_expr() for embedded expressions.
+    fn parse_jsx_element(&mut self) -> Option<Expr> {
+        let start_tok = self.current().clone();
+        let start = start_tok.span.range.start;
+
+        // Consume the `<` token
+        if !self.matches_token(&TokenKind::Lt) {
+            self.error_here("expected `<` to start JSX element");
+            return None;
+        }
+
+        // Check for fragment: `<>...</>`
+        if self.current().kind == TokenKind::Gt {
+            return self.parse_jsx_fragment(start);
+        }
+
+        // Parse the element name (tag or component)
+        let name = self.parse_jsx_element_name()?;
+
+        // Parse attributes
+        let attributes = self.parse_jsx_attributes();
+
+        // Check for self-closing: `/>`
+        if self.current().kind == TokenKind::Slash {
+            self.advance(); // consume `/`
+            if !self.matches_token(&TokenKind::Gt) {
+                self.error_here("expected `>` after `/` in self-closing JSX element");
+                return None;
+            }
+            let end = self.previous().span.range.end;
+            return Some(Expr {
+                kind: ExprKind::Jsx(JsxElement {
+                    name,
+                    attributes,
+                    children: Vec::new(),
+                    self_closing: true,
+                    span: Span::new(start, end),
+                }),
+                span: Span::new(start, end),
+            });
+        }
+
+        // Consume `>`
+        if !self.matches_token(&TokenKind::Gt) {
+            self.error_here("expected `>` to end JSX opening tag");
+            return None;
+        }
+
+        // Parse children
+        let children = self.parse_jsx_children(&name)?;
+
+        // Parse closing tag: `</name>`
+        if !self.matches_token(&TokenKind::Lt) {
+            self.error_here("expected closing tag for JSX element");
+            return None;
+        }
+        if !self.matches_token(&TokenKind::Slash) {
+            self.error_here("expected `/` in JSX closing tag");
+            return None;
+        }
+
+        // Verify closing tag name matches opening tag
+        let closing_name = self.parse_jsx_element_name()?;
+        if closing_name != name {
+            self.error_here(&format!(
+                "closing tag `</{}>` does not match opening tag `<{}>`",
+                Self::jsx_element_name_to_string(&closing_name),
+                Self::jsx_element_name_to_string(&name)
+            ));
+            return None;
+        }
+
+        if !self.matches_token(&TokenKind::Gt) {
+            self.error_here("expected `>` to end JSX closing tag");
+            return None;
+        }
+
+        let end = self.previous().span.range.end;
+        Some(Expr {
+            kind: ExprKind::Jsx(JsxElement {
+                name,
+                attributes,
+                children,
+                self_closing: false,
+                span: Span::new(start, end),
+            }),
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse a JSX fragment: `<>...</>`
+    fn parse_jsx_fragment(&mut self, start: usize) -> Option<Expr> {
+        // Consume the `>` after `<`
+        self.advance();
+
+        // Parse children until we see `</>`
+        let mut children = Vec::new();
+        loop {
+            // Check for closing fragment: `</>`
+            if self.current().kind == TokenKind::Lt {
+                // Look ahead for `</>`
+                let saved_pos = self.pos;
+                self.advance();
+                if self.current().kind == TokenKind::Slash {
+                    self.advance();
+                    if self.current().kind == TokenKind::Gt {
+                        self.advance(); // consume `>`
+                        break;
+                    }
+                }
+                // Not a closing fragment, restore position
+                self.pos = saved_pos;
+            }
+
+            if self.is_at_end() {
+                self.error_here("unclosed JSX fragment");
+                return None;
+            }
+
+            if let Some(child) = self.parse_jsx_child() {
+                children.push(child);
+            } else {
+                break;
+            }
+        }
+
+        let end = self.previous().span.range.end;
+        let fragment_span = Span::new(start, end);
+        Some(Expr {
+            kind: ExprKind::Jsx(JsxElement {
+                name: JsxElementName::Tag(String::new()), // Empty name for fragment
+                attributes: Vec::new(),
+                children,
+                self_closing: false,
+                span: fragment_span.clone(),
+            }),
+            span: fragment_span,
+        })
+    }
+
+    /// Parse a JSX element name: tag, Component, or Foo.Bar
+    fn parse_jsx_element_name(&mut self) -> Option<JsxElementName> {
+        let tok = self.current().clone();
+        match &tok.kind {
+            TokenKind::Ident(name) => {
+                self.advance();
+
+                // Check for member expression: Foo.Bar
+                if self.current().kind == TokenKind::Dot {
+                    self.advance();
+                    if let TokenKind::Ident(property) = &self.current().kind.clone() {
+                        self.advance();
+                        return Some(JsxElementName::Member {
+                            object: name.clone(),
+                            property: property.clone(),
+                        });
+                    } else {
+                        self.error_here("expected identifier after `.` in JSX element name");
+                        return None;
+                    }
+                }
+
+                // Check if it's a component (starts with uppercase) or HTML tag (lowercase)
+                let first_char = name.chars().next().unwrap_or('a');
+                if first_char.is_ascii_uppercase() {
+                    Some(JsxElementName::Component(name.clone()))
+                } else {
+                    Some(JsxElementName::Tag(name.clone()))
+                }
+            }
+            _ => {
+                self.error_at_token(&tok, "expected JSX element name");
+                None
+            }
+        }
+    }
+
+    /// Convert a JSX element name to a display string for error messages.
+    fn jsx_element_name_to_string(name: &JsxElementName) -> String {
+        match name {
+            JsxElementName::Tag(s) | JsxElementName::Component(s) => s.clone(),
+            JsxElementName::Member { object, property } => format!("{}.{}", object, property),
+        }
+    }
+
+    /// Parse JSX attributes: `name="value"` or `name={expr}` or `name` or `{...spread}`
+    fn parse_jsx_attributes(&mut self) -> Vec<JsxAttribute> {
+        let mut attributes = Vec::new();
+
+        loop {
+            // Stop at `/` or `>` (end of opening tag)
+            match &self.current().kind {
+                TokenKind::Slash | TokenKind::Gt => break,
+                TokenKind::Eof => break,
+                _ => {}
+            }
+
+            // Check for spread: `{...expr}`
+            if self.current().kind == TokenKind::LBrace {
+                self.advance();
+                // Check for `...`
+                if self.current().kind == TokenKind::DotDot {
+                    self.advance();
+                    if self.current().kind == TokenKind::Dot {
+                        self.advance();
+                        // Parse the spread expression
+                        if let Some(expr) = self.parse_expr() {
+                            if self.matches_token(&TokenKind::RBrace) {
+                                attributes.push(JsxAttribute::Spread(expr));
+                                continue;
+                            }
+                        }
+                    }
+                }
+                self.error_here("invalid spread syntax in JSX attribute");
+                continue;
+            }
+
+            // Parse attribute name
+            let tok = self.current().clone();
+            if let TokenKind::Ident(attr_name) = &tok.kind {
+                let name_ident = Ident {
+                    name: attr_name.clone(),
+                    span: self.ast_span_from(&tok.span),
+                };
+                self.advance();
+
+                // Check for value: `=value`
+                if self.current().kind == TokenKind::Eq {
+                    self.advance();
+
+                    // Value can be string literal or expression in braces
+                    match &self.current().kind.clone() {
+                        TokenKind::StringLiteral(s) => {
+                            let string_span = self.ast_span_from(&self.current().span);
+                            self.advance();
+                            attributes.push(JsxAttribute::KeyValue {
+                                name: name_ident,
+                                value: JsxAttributeValue::String(s.clone(), string_span),
+                            });
+                        }
+                        TokenKind::LBrace => {
+                            self.advance();
+                            if let Some(expr) = self.parse_expr() {
+                                if self.matches_token(&TokenKind::RBrace) {
+                                    attributes.push(JsxAttribute::KeyValue {
+                                        name: name_ident,
+                                        value: JsxAttributeValue::Expression(Box::new(expr)),
+                                    });
+                                } else {
+                                    self.error_here("expected `}` after JSX attribute expression");
+                                }
+                            }
+                        }
+                        _ => {
+                            self.error_here("expected string literal or expression in JSX attribute value");
+                        }
+                    }
+                } else {
+                    // Boolean attribute (no value)
+                    attributes.push(JsxAttribute::Boolean(name_ident));
+                }
+            } else {
+                // Not a valid attribute start, break
+                break;
+            }
+        }
+
+        attributes
+    }
+
+    /// Parse JSX children between opening and closing tags
+    fn parse_jsx_children(&mut self, parent_name: &JsxElementName) -> Option<Vec<JsxChild>> {
+        let mut children = Vec::new();
+
+        loop {
+            // Check for closing tag: `</`
+            if self.current().kind == TokenKind::Lt {
+                // Look ahead to check if this is a closing tag
+                let saved_pos = self.pos;
+                self.advance();
+                if self.current().kind == TokenKind::Slash {
+                    // This is a closing tag, restore and return
+                    self.pos = saved_pos;
+                    break;
+                }
+                // This is a child element, restore and continue
+                self.pos = saved_pos;
+            }
+
+            if self.is_at_end() {
+                self.error_here(&format!(
+                    "unclosed JSX element `<{}>`",
+                    Self::jsx_element_name_to_string(parent_name)
+                ));
+                return None;
+            }
+
+            if let Some(child) = self.parse_jsx_child() {
+                children.push(child);
+            } else {
+                break;
+            }
+        }
+
+        Some(children)
+    }
+
+    /// Parse a single JSX child: text, element, or expression
+    fn parse_jsx_child(&mut self) -> Option<JsxChild> {
+        match &self.current().kind {
+            // Nested JSX element
+            TokenKind::Lt => {
+                let element_expr = self.parse_jsx_element()?;
+                if let ExprKind::Jsx(element) = element_expr.kind {
+                    Some(JsxChild::Element(Box::new(element)))
+                } else {
+                    None
+                }
+            }
+            // Expression in braces
+            TokenKind::LBrace => {
+                self.advance();
+                let expr = self.parse_expr()?;
+                if !self.matches_token(&TokenKind::RBrace) {
+                    self.error_here("expected `}` after JSX expression");
+                    return None;
+                }
+                Some(JsxChild::Expression(expr))
+            }
+            // Text content - collect tokens until we hit `<` or `{`
+            // Handles identifiers, numbers, strings, keywords, and other literal content
+            _ if Self::is_jsx_text_token(&self.current().kind) => {
+                let start = self.current().span.range.start;
+                self.advance();
+
+                // Collect consecutive text tokens
+                while Self::is_jsx_text_token(&self.current().kind) {
+                    self.advance();
+                }
+
+                let end = self.previous().span.range.end;
+                // Use the original source text to preserve exact spacing
+                let text_content = if start < end && end <= self.source.len() {
+                    self.source[start..end].to_string()
+                } else {
+                    String::new()
+                };
+                let trimmed = text_content.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(JsxChild::Text(trimmed, Span::new(start, end)))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if a token can be part of JSX text content.
+    ///
+    /// Uses exclusion-based logic: anything that is *not* a JSX structural marker
+    /// (`<`, `{`, `}`, or EOF) is treated as text. This matches the JSX model of
+    /// "text runs until `<` or `{`" and is robust to new token kinds.
+    fn is_jsx_text_token(kind: &TokenKind) -> bool {
+        !matches!(
+            kind,
+            TokenKind::Lt | TokenKind::LBrace | TokenKind::RBrace | TokenKind::Eof
+        )
     }
 }
 
@@ -5338,6 +5719,182 @@ fn test() {
                 assert!(else_block.is_some(), "expected else block in let-else");
             } else {
                 panic!("expected Let statement with else_block");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    // ========================================================================
+    // JSX Parser Tests
+    // ========================================================================
+
+    #[test]
+    fn parses_jsx_text_preserves_spacing() {
+        // Text like "Hello, world" should preserve exact spacing (not "Hello , world")
+        let src = r#"fn main() { let x = <div>Hello, world</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    assert_eq!(element.children.len(), 1, "should have 1 text child");
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "Hello, world", "text should preserve exact spacing");
+                    } else {
+                        panic!("expected Text child, got {:?}", element.children[0]);
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_text_with_colons_preserves_spacing() {
+        // "Error: 42" should not become "Error : 42"
+        let src = r#"fn main() { let x = <div>Error: 42</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "Error: 42", "text should preserve exact spacing around colon");
+                    } else {
+                        panic!("expected Text child");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_text_with_keyword_true() {
+        // Keywords like "true" should be valid JSX text content
+        let src = r#"fn main() { let x = <div>true</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    assert_eq!(element.children.len(), 1, "should have 1 text child");
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "true", "keyword 'true' should be valid text");
+                    } else {
+                        panic!("expected Text child, got {:?}", element.children[0]);
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_text_with_keyword_for() {
+        // Keywords like "for" should be valid JSX text content
+        let src = r#"fn main() { let x = <p>for</p>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "for", "keyword 'for' should be valid text");
+                    } else {
+                        panic!("expected Text child");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_closing_tag_member_expression() {
+        // Member expression closing tags should match opening tags
+        let src = r#"fn main() { let x = <Foo.Bar>content</Foo.Bar>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxElementName::Member { object, property } = &element.name {
+                        assert_eq!(object, "Foo");
+                        assert_eq!(property, "Bar");
+                    } else {
+                        panic!("expected Member element name");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
+            }
+        } else {
+            panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_jsx_closing_tag_mismatch_error() {
+        // Mismatched closing tags should produce an error
+        let src = r#"fn main() { let x = <Foo.Bar>content</Foo.Baz>; }"#;
+        let result = parse_str(src);
+        assert!(!result.errors.is_empty(), "should have an error for mismatched closing tag");
+        assert!(
+            result.errors[0].message.contains("does not match"),
+            "error should mention tag mismatch: {:?}",
+            result.errors[0].message
+        );
+    }
+
+    #[test]
+    fn parses_jsx_numeric_text_content() {
+        // Numeric content like <div>42</div> should work
+        let src = r#"fn main() { let x = <div>42</div>; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Fn { body, .. } = &file.items[0].kind {
+            if let StmtKind::Let { value: Some(expr), .. } = &body[0].kind {
+                if let ExprKind::Jsx(element) = &expr.kind {
+                    if let husk_ast::JsxChild::Text(text, _) = &element.children[0] {
+                        assert_eq!(text, "42", "numeric text should be captured");
+                    } else {
+                        panic!("expected Text child");
+                    }
+                } else {
+                    panic!("expected Jsx expression");
+                }
+            } else {
+                panic!("expected Let statement with value");
             }
         } else {
             panic!("expected Fn item");
