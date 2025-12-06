@@ -205,6 +205,15 @@ enum DtsAction {
     Update {
         /// Specific package to update (updates all if omitted)
         package: Option<String>,
+        /// Use Oxc parser with multi-file resolution (experimental)
+        #[arg(long)]
+        oxc: bool,
+        /// Follow import graph and include dependencies
+        #[arg(long)]
+        follow_imports: bool,
+        /// Generate diagnostic report (dts-report.md)
+        #[arg(long)]
+        report: bool,
     },
     /// List configured dts entries
     List,
@@ -1138,7 +1147,7 @@ fn run_build(
     if let Some(ref dts_options) = config.dts_options {
         if dts_options.auto_update.unwrap_or(false) && !config.dts.is_empty() {
             debug_log("[huskc] auto-updating dts files before build");
-            run_dts_update(None, config);
+            run_dts_update(None, false, false, false, config);
         }
     }
 
@@ -1697,7 +1706,9 @@ process.exit(failed > 0 ? 1 : 0);
 fn run_dts(action: DtsAction, config: &HuskConfig) {
     match action {
         DtsAction::Add { package, types, output } => run_dts_add(&package, types.as_deref(), output.as_deref(), config),
-        DtsAction::Update { package } => run_dts_update(package.as_deref(), config),
+        DtsAction::Update { package, oxc, follow_imports, report } => {
+            run_dts_update(package.as_deref(), oxc, follow_imports, report, config)
+        }
         DtsAction::List => run_dts_list(config),
         DtsAction::Remove { package } => run_dts_remove(&package),
     }
@@ -1766,7 +1777,15 @@ fn run_dts_add(package: &str, types: Option<&str>, output: Option<&str>, config:
     println!("Run 'npm install {types_pkg}' to install types, then 'huskc dts update' to generate .hk file.");
 }
 
-fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
+fn run_dts_update(
+    package: Option<&str>,
+    use_oxc: bool,
+    follow_imports: bool,
+    generate_report: bool,
+    config: &HuskConfig,
+) {
+    use husk_dts_parser::{oxc_parser, resolver, diagnostics};
+
     if config.dts.is_empty() {
         eprintln!("No dts entries configured in husk.toml");
         eprintln!("Use 'huskc dts add <package>' to add one.");
@@ -1792,6 +1811,13 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         .unwrap_or("all");
     let show_warnings = warn_level != "none";
     let verbose_warnings = warn_level == "all";
+
+    // Diagnostic collector for report generation
+    let mut diagnostics_collector = if generate_report {
+        Some(diagnostics::DiagnosticCollector::new())
+    } else {
+        None
+    };
 
     for entry in entries {
         println!("Updating {}", entry.package);
@@ -1822,22 +1848,74 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             }
         };
 
-        // Read and parse .d.ts
-        let dts_content = match fs::read_to_string(dts_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("  Failed to read {}: {e}", dts_path);
-                continue;
+        // Parse .d.ts using either legacy or Oxc parser
+        let dts_file = if use_oxc {
+            // Use Oxc parser
+            if follow_imports {
+                // Use resolver for multi-file resolution
+                let options = resolver::ResolveOptions {
+                    base_dir: Some(PathBuf::from(".")),
+                    module_paths: vec![PathBuf::from("node_modules")],
+                    follow_references: true,
+                    max_depth: Some(10),
+                };
+                let mut resolver = resolver::Resolver::new(options);
+                let resolved = resolver.resolve(Path::new(dts_path));
+
+                // Report resolution errors
+                for err in &resolved.errors {
+                    eprintln!("  Resolution error: {}", err);
+                }
+
+                // Get the entry file
+                match resolved.files.get(&resolved.entry_path) {
+                    Some(f) => f.clone(),
+                    None => {
+                        eprintln!("  Failed to resolve {}", dts_path);
+                        continue;
+                    }
+                }
+            } else {
+                // Single-file parsing with Oxc
+                let dts_content = match fs::read_to_string(dts_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("  Failed to read {}: {e}", dts_path);
+                        continue;
+                    }
+                };
+
+                match oxc_parser::parse_with_oxc(&dts_content, dts_path) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("  Failed to parse {} with Oxc: {}", dts_path, e.message);
+                        continue;
+                    }
+                }
+            }
+        } else {
+            // Use legacy parser
+            let dts_content = match fs::read_to_string(dts_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("  Failed to read {}: {e}", dts_path);
+                    continue;
+                }
+            };
+
+            match parse_dts(&dts_content) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("  Failed to parse {}: {e}", dts_path);
+                    continue;
+                }
             }
         };
 
-        let dts_file = match parse_dts(&dts_content) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("  Failed to parse {}: {e}", dts_path);
-                continue;
-            }
-        };
+        // Collect diagnostics if generating report
+        if let Some(ref mut collector) = diagnostics_collector {
+            collector.process_file(&dts_file, dts_path);
+        }
 
         // Generate Husk code
         let options = DtsCodegenOptions {
@@ -1914,6 +1992,16 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             } else {
                 println!("  {} warnings (use warn_level = \"all\" to see details)", result.warnings.len());
             }
+        }
+    }
+
+    // Generate diagnostic report if requested
+    if let Some(collector) = diagnostics_collector {
+        let report = collector.generate_report("DTS Conversion Report");
+        let report_path = "dts-report.md";
+        match fs::write(report_path, &report) {
+            Ok(()) => println!("\nGenerated {}", report_path),
+            Err(e) => eprintln!("\nFailed to write report: {e}"),
         }
     }
 }
