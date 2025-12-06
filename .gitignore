@@ -7,3 +7,5 @@ yarn.lock
 dist
 .osgrep
 plans
+.playwright-mcp
+.DS_Store
