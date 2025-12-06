@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "concurrently \"cd ../docs && mdbook watch\" \"astro dev\"",
     "dev:site": "astro dev",
-    "build": "cd ../docs && mdbook build && astro build",
+    "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
