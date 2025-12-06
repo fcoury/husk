@@ -2,20 +2,6 @@
 
 These instructions apply to all files in this repository unless overridden by a more specific `AGENTS.md` in a subdirectory.
 
-## Planning and Roadmapping
-
-- Before starting any new task, or before continuing to the next task:
-  - Read `plan.md` to understand the overall design, architecture, and priorities.
-  - Review `roadmap.md` to see current progress and decide where the next change fits.
-
-- After finishing a task:
-  - Update `roadmap.md` to reflect the new status of any relevant items (e.g., change `[ ]` to `[x]`).
-  - If the work materially affects the project direction or design, update `plan.md` as needed to keep it accurate.
-
-- Always consult `plan.md` before making significant decisions about design or architecture.
-- Use `roadmap.md` as the primary checklist for tracking progress.
-- When you complete a unit of work, ensure the relevant checkboxes in `roadmap.md` are updated in the same change set when possible.
-
 ## General Coding Guidance
 
 - Favor small, focused changes that clearly map to items in `roadmap.md`.
