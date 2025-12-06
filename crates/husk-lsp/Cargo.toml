@@ -1,7 +1,9 @@
 [package]
 name = "husk-lsp"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Language Server Protocol implementation for Husk"
 
 [[bin]]
@@ -17,8 +19,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Reuse existing Husk crates
-husk-lexer = { path = "../husk-lexer" }
-husk-parser = { path = "../husk-parser" }
-husk-semantic = { path = "../husk-semantic" }
-husk-ast = { path = "../husk-ast" }
-husk-types = { path = "../husk-types" }
+husk-lexer.workspace = true
+husk-parser.workspace = true
+husk-semantic.workspace = true
+husk-ast.workspace = true
+husk-types.workspace = true

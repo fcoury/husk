@@ -1,10 +1,13 @@
 [package]
 name = "husk-codegen-js"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "JavaScript code generation for the Husk programming language"
 
 [dependencies]
-husk-ast = { path = "../husk-ast" }
-husk-runtime-js = { path = "../husk-runtime-js" }
-husk-semantic = { path = "../husk-semantic" }
+husk-ast.workspace = true
+husk-runtime-js.workspace = true
+husk-semantic.workspace = true
 sourcemap = "9"

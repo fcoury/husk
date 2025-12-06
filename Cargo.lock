@@ -439,11 +439,35 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "husk-ast"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
-name = "husk-cli"
-version = "0.1.0"
+name = "husk-codegen-js"
+version = "0.1.1"
+dependencies = [
+ "husk-ast",
+ "husk-runtime-js",
+ "husk-semantic",
+ "sourcemap",
+]
+
+[[package]]
+name = "husk-dts-parser"
+version = "0.1.1"
+
+[[package]]
+name = "husk-fmt"
+version = "0.1.1"
+dependencies = [
+ "husk-ast",
+ "husk-lexer",
+ "husk-parser",
+ "thiserror",
+]
+
+[[package]]
+name = "husk-lang"
+version = "0.1.1"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -465,36 +489,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "husk-codegen-js"
-version = "0.1.0"
-dependencies = [
- "husk-ast",
- "husk-runtime-js",
- "husk-semantic",
- "sourcemap",
-]
-
-[[package]]
-name = "husk-dts-parser"
-version = "0.1.0"
-
-[[package]]
-name = "husk-fmt"
-version = "0.1.0"
-dependencies = [
- "husk-ast",
- "husk-lexer",
- "husk-parser",
- "thiserror",
-]
-
-[[package]]
 name = "husk-lexer"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "husk-lsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dashmap 6.1.0",
  "husk-ast",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "husk-parser"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "husk-ast",
  "husk-lexer",
@@ -519,11 +519,11 @@ dependencies = [
 
 [[package]]
 name = "husk-runtime-js"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "husk-semantic"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "husk-ast",
  "husk-parser",
@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "husk-types"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "icu_collections"

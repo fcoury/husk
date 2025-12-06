@@ -5,7 +5,7 @@
 If you have Rust installed, you can install Husk using Cargo:
 
 ```bash
-cargo install husk-cli
+cargo install husk-lang
 ```
 
 ## Verify Installation

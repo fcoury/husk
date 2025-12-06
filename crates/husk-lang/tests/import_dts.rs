@@ -22,7 +22,7 @@ fn workspace_root() -> PathBuf {
 fn huskc_command() -> Command {
     let root = workspace_root();
     let mut cmd = Command::new("cargo");
-    cmd.args(["run", "-q", "-p", "husk-cli", "--"]);
+    cmd.args(["run", "-q", "-p", "husk-lang", "--"]);
     cmd.current_dir(root);
     cmd
 }

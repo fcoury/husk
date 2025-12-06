@@ -62,7 +62,7 @@ Husk brings Rust's elegant syntax and safety to the JavaScript ecosystem. Write 
 
 ```bash
 # Install from source (requires Rust)
-cargo install --path crates/husk-cli
+cargo install --path crates/husk-lang
 
 # Or build locally
 git clone https://github.com/fcoury/husk.git
@@ -382,7 +382,7 @@ Husk is implemented as a Rust workspace with specialized crates:
 | `husk-lsp`        | Language Server Protocol implementation          |
 | `husk-fmt`        | Code formatter                                   |
 | `husk-dts-parser` | TypeScript definition parser                     |
-| `husk-cli`        | Command-line interface                           |
+| `husk-lang`       | Command-line interface (main crate)              |
 
 ## JavaScript Runtime
 
