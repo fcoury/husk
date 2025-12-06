@@ -6,7 +6,7 @@ const navLinks = [
   { href: '#features', label: 'Features' },
   { href: '#code', label: 'Examples' },
   { href: '#community', label: 'Community' },
-  { href: '/docs', label: 'Docs' },
+  { href: '/docs/', label: 'Docs', external: true },
 ];
 ---
 
@@ -42,9 +42,16 @@ const navLinks = [
         {navLinks.map((link) => (
           <a
             href={link.href}
-            class="relative px-4 py-2 text-sm font-medium text-surface-700 dark:text-cream-200 hover:text-surface-900 dark:hover:text-cream-50 transition-colors duration-200 group"
+            target={link.external ? '_blank' : undefined}
+            rel={link.external ? 'noopener noreferrer' : undefined}
+            class="relative px-4 py-2 text-sm font-medium text-surface-700 dark:text-cream-200 hover:text-surface-900 dark:hover:text-cream-50 transition-colors duration-200 group inline-flex items-center gap-1"
           >
             {link.label}
+            {link.external && (
+              <svg class="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            )}
             <span class="absolute bottom-0 left-1/2 w-0 h-0.5 bg-husk-500 transition-all duration-300 group-hover:w-[calc(100%-2rem)] group-hover:left-4"></span>
           </a>
         ))}
@@ -106,9 +113,16 @@ const navLinks = [
       {navLinks.map((link) => (
         <a
           href={link.href}
-          class="block py-3 px-4 text-lg font-medium text-surface-700 dark:text-cream-200 hover:text-husk-600 dark:hover:text-husk-400 hover:bg-cream-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+          target={link.external ? '_blank' : undefined}
+          rel={link.external ? 'noopener noreferrer' : undefined}
+          class="flex items-center gap-2 py-3 px-4 text-lg font-medium text-surface-700 dark:text-cream-200 hover:text-husk-600 dark:hover:text-husk-400 hover:bg-cream-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
         >
           {link.label}
+          {link.external && (
+            <svg class="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          )}
         </a>
       ))}
 

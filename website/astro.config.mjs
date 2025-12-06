@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 // https://astro.build/config
 export default defineConfig({
   site: 'https://husk-lang.org',
+  trailingSlash: 'always',
   vite: {
     plugins: [tailwindcss()]
   }
