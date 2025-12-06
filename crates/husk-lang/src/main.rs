@@ -1120,17 +1120,6 @@ fn detect_target_from_package_json() -> Target {
     Target::Cjs
 }
 
-/// Check for missing node_modules when package.json exists
-fn check_npm_deps() -> Option<String> {
-    let pkg_json = Path::new("package.json");
-    let node_modules = Path::new("node_modules");
-
-    if pkg_json.exists() && !node_modules.exists() {
-        Some("Warning: node_modules not found. Run 'npm install' before executing.".into())
-    } else {
-        None
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 fn run_build(
@@ -1380,11 +1369,6 @@ fn run_run(file: Option<&str>, target: Option<Target>, no_prelude: bool, args: &
         .and_then(|s| s.to_str())
         .unwrap_or("main");
     let js_file = PathBuf::from(output_dir).join(format!("{stem}.js"));
-
-    // Check for missing npm deps
-    if let Some(warning) = check_npm_deps() {
-        eprintln!("{warning}");
-    }
 
     // Execute with Node.js
     debug_log(&format!("[huskc] running with node: {}", js_file.display()));
