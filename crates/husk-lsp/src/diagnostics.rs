@@ -45,7 +45,7 @@ fn analyze_document(text: &str) -> Vec<Diagnostic> {
 }
 
 /// Convert a parse error to an LSP diagnostic.
-fn parse_error_to_diagnostic(text: &str, error: &ParseError) -> Diagnostic {
+pub fn parse_error_to_diagnostic(text: &str, error: &ParseError) -> Diagnostic {
     let range = span_to_range(text, error.span.range.start, error.span.range.end);
 
     Diagnostic {
@@ -62,7 +62,7 @@ fn parse_error_to_diagnostic(text: &str, error: &ParseError) -> Diagnostic {
 }
 
 /// Convert a semantic error to an LSP diagnostic.
-fn semantic_error_to_diagnostic(text: &str, error: &SemanticError) -> Diagnostic {
+pub fn semantic_error_to_diagnostic(text: &str, error: &SemanticError) -> Diagnostic {
     let range = span_to_range(text, error.span.range.start, error.span.range.end);
 
     Diagnostic {
@@ -79,7 +79,7 @@ fn semantic_error_to_diagnostic(text: &str, error: &SemanticError) -> Diagnostic
 }
 
 /// Convert a byte span to an LSP range.
-fn span_to_range(text: &str, start: usize, end: usize) -> Range {
+pub fn span_to_range(text: &str, start: usize, end: usize) -> Range {
     Range {
         start: offset_to_position(text, start),
         end: offset_to_position(text, end),

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use glob::glob;
-use husk_cli::load::{assemble_root, load_graph};
+use husk_lang::load::{assemble_root, load_graph};
 use husk_codegen_js::{JsTarget, lower_file_to_js};
 use husk_semantic::{analyze_file, filter_items_by_cfg};
 
