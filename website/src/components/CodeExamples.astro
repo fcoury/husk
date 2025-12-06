@@ -1,76 +1,78 @@
 ---
+import CodeBlock from './CodeBlock.astro';
+
 const examples = [
   {
     id: 'pattern-matching',
     title: 'Pattern Matching',
     description: 'Exhaustive pattern matching with algebraic data types',
-    code: `<span class="keyword">enum</span> <span class="type">Result</span>&lt;<span class="type">T</span>, <span class="type">E</span>&gt; {
-    <span class="function">Ok</span>(<span class="type">T</span>),
-    <span class="function">Err</span>(<span class="type">E</span>),
+    code: `enum Result<T, E> {
+    Ok(T),
+    Err(E),
 }
 
-<span class="keyword">fn</span> <span class="function">divide</span>(a: <span class="type">int</span>, b: <span class="type">int</span>) -> <span class="type">Result</span>&lt;<span class="type">int</span>, <span class="type">string</span>&gt; {
-    <span class="keyword">if</span> b == <span class="number">0</span> {
-        <span class="type">Result</span>::<span class="function">Err</span>(<span class="string">"Division by zero"</span>)
-    } <span class="keyword">else</span> {
-        <span class="type">Result</span>::<span class="function">Ok</span>(a / b)
+fn divide(a: int, b: int) -> Result<int, string> {
+    if b == 0 {
+        Result::Err("Division by zero")
+    } else {
+        Result::Ok(a / b)
     }
 }
 
-<span class="keyword">fn</span> <span class="function">main</span>() {
-    <span class="keyword">match</span> <span class="function">divide</span>(<span class="number">10</span>, <span class="number">2</span>) {
-        <span class="type">Result</span>::<span class="function">Ok</span>(value) => <span class="function">println!</span>(<span class="string">"Result: {}"</span>, value),
-        <span class="type">Result</span>::<span class="function">Err</span>(err) => <span class="function">println!</span>(<span class="string">"Error: {}"</span>, err),
+fn main() {
+    match divide(10, 2) {
+        Result::Ok(value) => println!("Result: {}", value),
+        Result::Err(err) => println!("Error: {}", err),
     }
-    <span class="comment">// Compiler ensures all cases are handled!</span>
+    // Compiler ensures all cases are handled!
 }`,
   },
   {
     id: 'structs-methods',
     title: 'Structs & Methods',
     description: 'Define types with associated methods',
-    code: `<span class="keyword">struct</span> <span class="type">User</span> {
-    name: <span class="type">string</span>,
-    email: <span class="type">string</span>,
-    age: <span class="type">int</span>,
+    code: `struct User {
+    name: string,
+    email: string,
+    age: int,
 }
 
-<span class="keyword">impl</span> <span class="type">User</span> {
-    <span class="keyword">fn</span> <span class="function">new</span>(name: <span class="type">string</span>, email: <span class="type">string</span>, age: <span class="type">int</span>) -> <span class="type">User</span> {
-        <span class="type">User</span> { name, email, age }
+impl User {
+    fn new(name: string, email: string, age: int) -> User {
+        User { name, email, age }
     }
 
-    <span class="keyword">fn</span> <span class="function">greet</span>(&<span class="keyword">self</span>) -> <span class="type">string</span> {
-        <span class="function">format!</span>(<span class="string">"Hi, I'm {} and I'm {} years old"</span>, <span class="keyword">self</span>.name, <span class="keyword">self</span>.age)
+    fn greet(&self) -> string {
+        format!("Hi, I'm {} and I'm {} years old", self.name, self.age)
     }
 }
 
-<span class="keyword">fn</span> <span class="function">main</span>() {
-    <span class="keyword">let</span> user = <span class="type">User</span>::<span class="function">new</span>(<span class="string">"Alice"</span>, <span class="string">"alice@example.com"</span>, <span class="number">30</span>);
-    <span class="function">println!</span>(<span class="string">"{}"</span>, user.<span class="function">greet</span>());
+fn main() {
+    let user = User::new("Alice", "alice@example.com", 30);
+    println!("{}", user.greet());
 }`,
   },
   {
     id: 'js-interop',
     title: 'JavaScript Interop',
     description: 'Seamlessly use npm packages',
-    code: `<span class="comment">// Use Express.js directly from Husk</span>
-<span class="keyword">extern</span> <span class="keyword">fn</span> <span class="function">express</span>() -> <span class="type">Express</span>;
+    code: `// Use Express.js directly from Husk
+extern fn express() -> Express;
 
-<span class="keyword">struct</span> <span class="type">Express</span> {
-    <span class="keyword">extern</span> <span class="keyword">fn</span> <span class="function">get</span>(&<span class="keyword">self</span>, path: <span class="type">string</span>, handler: <span class="keyword">fn</span>(<span class="type">Request</span>, <span class="type">Response</span>) -> <span class="type">void</span>) -> <span class="type">void</span>;
-    <span class="keyword">extern</span> <span class="keyword">fn</span> <span class="function">listen</span>(&<span class="keyword">self</span>, port: <span class="type">int</span>, callback: <span class="keyword">fn</span>() -> <span class="type">void</span>) -> <span class="type">void</span>;
+struct Express {
+    extern fn get(&self, path: string, handler: fn(Request, Response) -> void) -> void;
+    extern fn listen(&self, port: int, callback: fn() -> void) -> void;
 }
 
-<span class="keyword">fn</span> <span class="function">main</span>() {
-    <span class="keyword">let</span> app = <span class="function">express</span>();
+fn main() {
+    let app = express();
 
-    app.<span class="function">get</span>(<span class="string">"/"</span>, |req, res| {
-        res.<span class="function">send</span>(<span class="string">"Hello from Husk!"</span>);
+    app.get("/", |req, res| {
+        res.send("Hello from Husk!");
     });
 
-    app.<span class="function">listen</span>(<span class="number">3000</span>, || {
-        <span class="function">println!</span>(<span class="string">"Server running on port 3000"</span>);
+    app.listen(3000, || {
+        println!("Server running on port 3000");
     });
 }`,
   },
@@ -129,17 +131,8 @@ const examples = [
           </p>
 
           <!-- Code block -->
-          <div class="code-block max-w-4xl mx-auto shadow-2xl shadow-surface-900/10 dark:shadow-black/30">
-            <!-- Window chrome -->
-            <div class="code-dots">
-              <span></span>
-              <span></span>
-              <span></span>
-              <span class="ml-4 text-xs text-cream-100/60 font-mono whitespace-nowrap">{example.id}.hk</span>
-            </div>
-
-            <!-- Code content -->
-            <pre class="code-content text-cream-100"><code set:html={example.code} /></pre>
+          <div class="max-w-4xl mx-auto shadow-2xl shadow-surface-900/10 dark:shadow-black/30">
+            <CodeBlock code={example.code} filename={`${example.id}.hk`} />
           </div>
         </div>
       ))}
