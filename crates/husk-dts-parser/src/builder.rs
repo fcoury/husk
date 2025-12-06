@@ -15,6 +15,7 @@
 use heck::ToSnakeCase;
 
 use crate::ast::{DtsInterface, DtsType, InterfaceMember, Primitive, TypeParam};
+use crate::codegen::escape_keyword;
 
 /// Configuration for builder generation.
 #[derive(Debug, Clone)]
@@ -173,7 +174,7 @@ fn generate_builder_code(
     for prop in required_props {
         code.push_str(&format!(
             "    {}: {},\n",
-            prop.name,
+            escape_keyword(&prop.name),
             type_to_husk_string(&prop.ty)
         ));
     }
@@ -182,7 +183,7 @@ fn generate_builder_code(
     for prop in optional_props {
         code.push_str(&format!(
             "    {}: Option<{}>,\n",
-            prop.name,
+            escape_keyword(&prop.name),
             type_to_husk_string(&prop.ty)
         ));
     }
@@ -199,7 +200,7 @@ fn generate_builder_code(
     if config.generate_new {
         let params: Vec<_> = required_props
             .iter()
-            .map(|p| format!("{}: {}", p.name, type_to_husk_string(&p.ty)))
+            .map(|p| format!("{}: {}", escape_keyword(&p.name), type_to_husk_string(&p.ty)))
             .collect();
 
         code.push_str(&format!(
@@ -217,10 +218,10 @@ fn generate_builder_code(
         code.push_str("        Self {\n");
 
         for prop in required_props {
-            code.push_str(&format!("            {},\n", prop.name));
+            code.push_str(&format!("            {},\n", escape_keyword(&prop.name)));
         }
         for prop in optional_props {
-            code.push_str(&format!("            {}: None,\n", prop.name));
+            code.push_str(&format!("            {}: None,\n", escape_keyword(&prop.name)));
         }
 
         code.push_str("        }\n");
@@ -229,7 +230,8 @@ fn generate_builder_code(
 
     // Builder methods for optional properties
     for prop in optional_props {
-        let method_name = to_snake_case(&prop.name);
+        let method_name = escape_keyword(&to_snake_case(&prop.name));
+        let escaped_name = escape_keyword(&prop.name);
         code.push_str(&format!(
             "    /// Set the `{}` property.\n",
             prop.name
@@ -241,7 +243,7 @@ fn generate_builder_code(
         ));
         code.push_str(&format!(
             "        self.{} = Some(value);\n",
-            prop.name
+            escaped_name
         ));
         code.push_str("        self\n");
         code.push_str("    }\n\n");
@@ -260,10 +262,12 @@ fn generate_builder_code(
         code.push_str(&format!("        {}{} {{\n", interface_name, type_args_str));
 
         for prop in required_props {
-            code.push_str(&format!("            {}: self.{},\n", prop.name, prop.name));
+            let escaped_name = escape_keyword(&prop.name);
+            code.push_str(&format!("            {}: self.{},\n", escaped_name, escaped_name));
         }
         for prop in optional_props {
-            code.push_str(&format!("            {}: self.{},\n", prop.name, prop.name));
+            let escaped_name = escape_keyword(&prop.name);
+            code.push_str(&format!("            {}: self.{},\n", escaped_name, escaped_name));
         }
 
         code.push_str("        }\n");
@@ -421,5 +425,54 @@ mod tests {
         assert_eq!(to_snake_case("simple"), "simple");
         assert_eq!(to_snake_case("XMLHttpRequest"), "xml_http_request");
         assert_eq!(to_snake_case("getHTTPResponse"), "get_http_response");
+    }
+
+    #[test]
+    fn test_builder_escapes_keywords() {
+        use crate::ast::PropertyMember;
+
+        // Create an interface with a keyword property name
+        let interface = DtsInterface {
+            name: "Options".to_string(),
+            type_params: vec![],
+            extends: vec![],
+            members: vec![
+                InterfaceMember::Property(PropertyMember {
+                    name: "type".to_string(), // 'type' is a keyword
+                    ty: DtsType::Primitive(Primitive::String),
+                    optional: true,
+                    readonly: false,
+                }),
+                InterfaceMember::Property(PropertyMember {
+                    name: "static".to_string(), // 'static' is a keyword
+                    ty: DtsType::Primitive(Primitive::Boolean),
+                    optional: true,
+                    readonly: false,
+                }),
+                InterfaceMember::Property(PropertyMember {
+                    name: "fn".to_string(), // 'fn' is a keyword
+                    ty: DtsType::Primitive(Primitive::String),
+                    optional: true,
+                    readonly: false,
+                }),
+            ],
+        };
+
+        let config = BuilderConfig {
+            min_optional_props: 1, // Lower threshold to trigger builder
+            ..Default::default()
+        };
+
+        let builder = generate_builder(&interface, &config);
+
+        // Verify that keywords are escaped in the generated code
+        assert!(builder.code.contains("type_: Option<String>"));
+        assert!(builder.code.contains("static_: Option<bool>"));
+        assert!(builder.code.contains("fn_: Option<String>"));
+
+        // Verify the builder methods use escaped names
+        assert!(builder.code.contains("self.type_ = Some(value)"));
+        assert!(builder.code.contains("self.static_ = Some(value)"));
+        assert!(builder.code.contains("self.fn_ = Some(value)"));
     }
 }

@@ -1246,7 +1246,7 @@ impl<'a> Codegen<'a> {
 
 /// Check if a string is a Husk reserved keyword or a TypeScript keyword
 /// that might conflict when used as an identifier.
-fn is_keyword(name: &str) -> bool {
+pub fn is_keyword(name: &str) -> bool {
     matches!(
         name,
         // Husk keywords
@@ -1302,7 +1302,7 @@ fn is_keyword(name: &str) -> bool {
 }
 
 /// Escape a name if it's a reserved keyword by appending an underscore.
-fn escape_keyword(name: &str) -> String {
+pub fn escape_keyword(name: &str) -> String {
     if is_keyword(name) {
         format!("{}_", name)
     } else {
