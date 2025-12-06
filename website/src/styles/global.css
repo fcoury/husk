@@ -73,6 +73,11 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Scroll offset for fixed header */
+[id] {
+  scroll-margin-top: 6rem;
+}
+
 body {
   font-family: var(--font-body);
   background-color: var(--color-cream-50);
