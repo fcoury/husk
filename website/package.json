@@ -3,8 +3,9 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
+    "dev": "concurrently \"cd ../docs && mdbook watch\" \"astro dev\"",
+    "dev:site": "astro dev",
+    "build": "cd ../docs && mdbook build && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
@@ -13,5 +14,8 @@
     "@tailwindcss/vite": "^4.1.17",
     "astro": "^5.16.4",
     "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
