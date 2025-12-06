@@ -8,10 +8,11 @@ description = "TypeScript declaration file (.d.ts) parser for Husk"
 
 [dependencies]
 # Oxc - High-performance TypeScript parser
-oxc_allocator = "0.53"
-oxc_parser = "0.53"
-oxc_ast = "0.53"
-oxc_span = "0.53"
-oxc_diagnostics = "0.53"
+oxc_allocator = "0.98"
+oxc_parser = "0.98"
+oxc_ast = "0.98"
+oxc_ast_visit = "0.98"
+oxc_span = "0.98"
+oxc_diagnostics = "0.98"
 
 [dev-dependencies]
