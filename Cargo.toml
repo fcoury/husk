@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Rust's syntax meets JavaScript's flexibility" 
 authors = ["Felipe Coury <felipe.coury@gmail.com>"]
