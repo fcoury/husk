@@ -9,6 +9,8 @@
 //! 4. **Mixed primitives** (`string | number`) → JsValue or separate overloads
 //! 5. **Boolean literal unions** (`true | false`) → bool
 
+use std::collections::HashSet;
+
 use crate::ast::{DtsType, Primitive};
 
 /// Strategy for representing a TypeScript union in Husk.
@@ -164,11 +166,15 @@ fn check_boolean_union(types: &[DtsType]) -> Option<UnionStrategy> {
 /// Check if all types are string literals → enum.
 fn check_string_enum(types: &[DtsType]) -> Option<UnionStrategy> {
     let mut variants = Vec::new();
+    let mut seen = HashSet::new();
 
     for ty in types {
         match ty {
             DtsType::StringLiteral(s) => {
-                variants.push(s.clone());
+                // Only add if not already seen (preserves order, deduplicates)
+                if seen.insert(s.clone()) {
+                    variants.push(s.clone());
+                }
             }
             _ => return None,
         }
@@ -576,6 +582,29 @@ mod tests {
         if let UnionStrategy::StringEnum { variants } = strategy {
             assert_eq!(variants.len(), 3);
             assert!(variants.contains(&"GET".to_string()));
+        } else {
+            panic!("expected StringEnum");
+        }
+    }
+
+    #[test]
+    fn test_string_enum_deduplicates() {
+        // Test that duplicate string literals are deduplicated while preserving order
+        let types = vec![
+            DtsType::StringLiteral("GET".to_string()),
+            DtsType::StringLiteral("POST".to_string()),
+            DtsType::StringLiteral("GET".to_string()), // duplicate
+            DtsType::StringLiteral("PUT".to_string()),
+            DtsType::StringLiteral("POST".to_string()), // duplicate
+        ];
+        let strategy = analyze_union(&types);
+        if let UnionStrategy::StringEnum { variants } = strategy {
+            // Should only have 3 unique variants
+            assert_eq!(variants.len(), 3);
+            // Order should be preserved (first occurrence)
+            assert_eq!(variants[0], "GET");
+            assert_eq!(variants[1], "POST");
+            assert_eq!(variants[2], "PUT");
         } else {
             panic!("expected StringEnum");
         }
