@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use husk_cli::load::{assemble_root, load_graph};
+use husk_lang::load::{assemble_root, load_graph};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js};
 use husk_semantic::analyze_file;
 

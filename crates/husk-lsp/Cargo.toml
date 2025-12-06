@@ -24,3 +24,4 @@ husk-parser.workspace = true
 husk-semantic.workspace = true
 husk-ast.workspace = true
 husk-types.workspace = true
+husk-lang = { path = "../husk-lang" }

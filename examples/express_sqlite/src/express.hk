@@ -13,6 +13,7 @@ extern "js" {
 }
 
 impl Express {
+    #[js_name = "use"]
     extern "js" fn use_middleware(self, middleware: JsValue);
     extern "js" fn get(self, path: String, handler: fn(Request, Response) -> ());
     extern "js" fn post(self, path: String, handler: fn(Request, Response) -> ());

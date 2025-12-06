@@ -1,9 +1,25 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use husk_ast::{ExternItemKind, File, Ident, Item, ItemKind, TypeExpr, TypeExprKind, Visibility};
 use husk_parser::parse_str;
+
+/// Trait for providing file content during module loading.
+/// This allows the LSP to provide in-memory content for unsaved files.
+pub trait ContentProvider {
+    fn read_file(&self, path: &Path) -> Result<String, io::Error>;
+}
+
+/// Default implementation that reads from the filesystem.
+pub struct FileSystemProvider;
+
+impl ContentProvider for FileSystemProvider {
+    fn read_file(&self, path: &Path) -> Result<String, io::Error> {
+        fs::read_to_string(path)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Module {
@@ -34,6 +50,15 @@ pub enum LoadError {
 /// Build a module graph starting from `entry` (a .hk file).
 /// Supports `use crate::a::b::Item;` where modules map to `a.hk`, `a/b.hk`, etc.
 pub fn load_graph(entry: &Path) -> Result<ModuleGraph, LoadError> {
+    load_graph_with_provider(entry, &FileSystemProvider)
+}
+
+/// Build a module graph with a custom content provider.
+/// This allows the LSP to provide in-memory content for unsaved files.
+pub fn load_graph_with_provider<P: ContentProvider>(
+    entry: &Path,
+    provider: &P,
+) -> Result<ModuleGraph, LoadError> {
     let entry_abs = canonical(entry)?;
     let root = entry_abs
         .parent()
@@ -51,18 +76,20 @@ pub fn load_graph(entry: &Path) -> Result<ModuleGraph, LoadError> {
         &mut modules,
         &mut visiting,
         &mut order,
+        provider,
     )?;
 
     Ok(ModuleGraph { modules })
 }
 
-fn dfs_load(
+fn dfs_load<P: ContentProvider>(
     path: &Path,
     root: &Path,
     module_path: Vec<String>,
     modules: &mut HashMap<Vec<String>, Module>,
     visiting: &mut HashSet<Vec<String>>,
     order: &mut Vec<Vec<String>>,
+    provider: &P,
 ) -> Result<(), LoadError> {
     if modules.contains_key(&module_path) {
         return Ok(());
@@ -71,7 +98,8 @@ fn dfs_load(
         return Err(LoadError::Cycle(module_path.join("::")));
     }
 
-    let src = fs::read_to_string(path)
+    let src = provider
+        .read_file(path)
         .map_err(|e| LoadError::Io(path.display().to_string(), e.to_string()))?;
     let parsed = parse_str(&src);
     if !parsed.errors.is_empty() {
@@ -94,7 +122,7 @@ fn dfs_load(
         if !dep_fs_path.exists() {
             return Err(LoadError::Missing(dep_mod_path.join("::")));
         }
-        dfs_load(&dep_fs_path, root, dep_mod_path, modules, visiting, order)?;
+        dfs_load(&dep_fs_path, root, dep_mod_path, modules, visiting, order, provider)?;
     }
 
     modules.insert(
@@ -113,7 +141,8 @@ fn canonical(path: &Path) -> Result<PathBuf, LoadError> {
         .map_err(|e| LoadError::Io(path.display().to_string(), e.to_string()))
 }
 
-fn module_path_to_file(root: &Path, mod_path: &[String]) -> Option<PathBuf> {
+/// Convert a module path like ["crate", "express"] to a file path like "express.hk"
+pub fn module_path_to_file(root: &Path, mod_path: &[String]) -> Option<PathBuf> {
     if mod_path.is_empty() {
         return None;
     }

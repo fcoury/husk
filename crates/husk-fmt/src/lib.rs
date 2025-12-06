@@ -297,4 +297,27 @@ pub struct User {
         assert!(result.contains("// Second trailing comment"), "Second trailing comment should be preserved. Got:\n{}", result);
         assert!(result.contains("// Third trailing comment"), "Third trailing comment should be preserved. Got:\n{}", result);
     }
+
+    #[test]
+    fn test_float_literal_preserves_decimal() {
+        // Regression test: float literals like 0.0 were being formatted as 0
+        // which causes type errors (cannot compare f64 with i32)
+        let source = r#"fn main() {
+    let x = 0.0;
+    if x > 0.0 {
+        println("positive");
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("0.0"),
+            "Float literal 0.0 should be preserved with decimal. Got:\n{}",
+            result
+        );
+        assert!(
+            !result.contains("> 0 {") && !result.contains("> 0{"),
+            "Float literal should not be formatted as integer. Got:\n{}",
+            result
+        );
+    }
 }

@@ -29,7 +29,7 @@ fn get_string_or_empty(obj: JsValue, key: String) -> String {
     }
 }
 
-// Helper to get boolean as number (0.0 or 1.0) for SQLite
+/// Helper to get boolean as number (0.0 or 1.0) for SQLite
 fn get_bool_as_number(obj: JsValue, key: String) -> f64 {
     let val = jsvalue_get(obj, key);
     if jsvalue_isNull(val) {
@@ -117,7 +117,7 @@ fn main() {
                 let completed_int = get_bool_as_number(body, "completed");
                 let result = update_stmt.run3(title, completed_int, id);
                 let changes = result.changes;
-                if changes > 0 {
+                if changes > 0.0 {
                     let response = JsObject_new().setNumber("id", id).toJsValue();
                     res.json(response);
                 } else {
@@ -139,7 +139,7 @@ fn main() {
             let id = parseFloat(id_str);
             let result = delete_stmt.run1(id);
             let changes = result.changes;
-            if changes > 0 {
+            if changes > 0.0 {
                 res.status(204).send("");
             } else {
                 let err = JsObject_new().setString("error", "Todo not found").toJsValue();
@@ -153,3 +153,4 @@ fn main() {
         println("Server running at http://localhost:3000");
     });
 }
+
