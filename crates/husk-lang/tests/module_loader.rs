@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use husk_ast::{self, ItemKind, TypeExprKind};
-use husk_cli::load::{assemble_root, load_graph};
+use husk_lang::load::{assemble_root, load_graph};
 use tempfile::tempdir;
 
 /// Helper to extract type name from a TypeExpr

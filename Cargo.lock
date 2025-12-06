@@ -498,6 +498,7 @@ version = "0.1.3"
 dependencies = [
  "dashmap 6.1.0",
  "husk-ast",
+ "husk-lang",
  "husk-lexer",
  "husk-parser",
  "husk-semantic",
