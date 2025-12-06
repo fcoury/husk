@@ -182,14 +182,14 @@ const examples = [
         tabButtons.forEach(btn => {
           const isActive = btn.getAttribute('data-tab') === tabId;
           btn.setAttribute('aria-selected', String(isActive));
-          btn.classList.toggle('bg-husk-500', isActive);
-          btn.classList.toggle('text-surface-900', isActive);
-          btn.classList.toggle('shadow-lg', isActive);
-          btn.classList.toggle('shadow-husk-500/25', isActive);
-          btn.classList.toggle('bg-cream-200', !isActive);
-          btn.classList.toggle('dark:bg-surface-700', !isActive);
-          btn.classList.toggle('text-surface-600', !isActive);
-          btn.classList.toggle('dark:text-cream-100/80', !isActive);
+
+          if (isActive) {
+            btn.classList.remove('bg-cream-200', 'dark:bg-surface-700', 'text-surface-600', 'dark:text-cream-100/80');
+            btn.classList.add('bg-husk-500', 'text-surface-900', 'shadow-lg', 'shadow-husk-500/25');
+          } else {
+            btn.classList.remove('bg-husk-500', 'text-surface-900', 'shadow-lg', 'shadow-husk-500/25');
+            btn.classList.add('bg-cream-200', 'dark:bg-surface-700', 'text-surface-600', 'dark:text-cream-100/80');
+          }
         });
 
         // Update panels
