@@ -78,7 +78,16 @@ const ogImageURL = new URL('/og-image.png', siteBase).href;
 
     <!-- Theme toggle script -->
     <script>
+      // Store handler reference for cleanup
+      let themeToggleCleanup: (() => void) | null = null;
+
       function setupThemeToggle() {
+        // Clean up previous listener if any
+        if (themeToggleCleanup) {
+          themeToggleCleanup();
+          themeToggleCleanup = null;
+        }
+
         const toggle = document.getElementById('theme-toggle');
         if (!toggle) return;
 
@@ -94,14 +103,20 @@ const ogImageURL = new URL('/og-image.png', siteBase).href;
           }
         }
 
-        toggle.addEventListener('click', () => {
+        function handleClick() {
           html.classList.toggle('dark');
           const isDark = html.classList.contains('dark');
           localStorage.setItem('husk-theme', isDark ? 'dark' : 'light');
           updateIcons();
-        });
+        }
 
+        toggle.addEventListener('click', handleClick);
         updateIcons();
+
+        // Store cleanup function
+        themeToggleCleanup = () => {
+          toggle.removeEventListener('click', handleClick);
+        };
       }
 
       // Run on initial load
