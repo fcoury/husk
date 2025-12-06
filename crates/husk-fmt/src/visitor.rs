@@ -1204,7 +1204,17 @@ impl<'a> Formatter<'a> {
             ExprKind::Literal(lit) => {
                 match &lit.kind {
                     LiteralKind::Int(n) => self.write(&n.to_string()),
-                    LiteralKind::Float(n) => self.write(&n.to_string()),
+                    LiteralKind::Float(n) => {
+                        let s = n.to_string();
+                        // Ensure float literals always have a decimal point
+                        // e.g., 0.0 should format as "0.0", not "0"
+                        if s.contains('.') || s.contains('e') || s.contains('E') {
+                            self.write(&s);
+                        } else {
+                            self.write(&s);
+                            self.write(".0");
+                        }
+                    }
                     LiteralKind::Bool(b) => self.write(if *b { "true" } else { "false" }),
                     LiteralKind::String(s) => {
                         self.write("\"");
