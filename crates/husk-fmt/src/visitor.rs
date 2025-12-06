@@ -1206,12 +1206,10 @@ impl<'a> Formatter<'a> {
                     LiteralKind::Int(n) => self.write(&n.to_string()),
                     LiteralKind::Float(n) => {
                         let s = n.to_string();
+                        self.write(&s);
                         // Ensure float literals always have a decimal point
                         // e.g., 0.0 should format as "0.0", not "0"
-                        if s.contains('.') || s.contains('e') || s.contains('E') {
-                            self.write(&s);
-                        } else {
-                            self.write(&s);
+                        if !s.contains('.') && !s.contains('e') && !s.contains('E') {
                             self.write(".0");
                         }
                     }
