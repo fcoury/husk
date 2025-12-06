@@ -813,14 +813,14 @@ impl<'src> Parser<'src> {
     fn parse_module(&mut self) -> ParseResult<DtsModule> {
         self.expect(&TokenKind::Module)?;
 
-        let name = match self.peek().clone() {
+        let (name, is_ambient) = match self.peek().clone() {
             TokenKind::StringLiteral(s) => {
                 self.advance();
-                s
+                (s, true)
             }
             TokenKind::Ident(s) => {
                 self.advance();
-                s
+                (s, false)
             }
             _ => {
                 return Err(ParseError {
@@ -843,7 +843,7 @@ impl<'src> Parser<'src> {
         Ok(DtsModule {
             name,
             items,
-            is_ambient: false,
+            is_ambient,
         })
     }
 

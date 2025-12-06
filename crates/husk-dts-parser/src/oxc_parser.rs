@@ -11,7 +11,7 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
-use oxc_ast::Visit;
+use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 use std::path::Path;
@@ -113,7 +113,7 @@ impl<'a> DtsVisitor<'a> {
                     DtsType::NumberLiteral(raw_str.to_string())
                 }
                 TSLiteral::BooleanLiteral(b) => DtsType::BooleanLiteral(b.value),
-                TSLiteral::BigIntLiteral(bi) => DtsType::NumberLiteral(bi.raw.to_string()),
+                TSLiteral::BigIntLiteral(bi) => DtsType::NumberLiteral(bi.raw.as_ref().map(|r| r.to_string()).unwrap_or_default()),
                 TSLiteral::TemplateLiteral(_) => DtsType::Primitive(Primitive::String),
                 TSLiteral::UnaryExpression(_) => DtsType::Primitive(Primitive::Number),
             },
@@ -121,7 +121,7 @@ impl<'a> DtsVisitor<'a> {
             TSType::TSTypeReference(type_ref) => {
                 let name = self.type_name_to_string(&type_ref.type_name);
                 let type_args = type_ref
-                    .type_parameters
+                    .type_arguments
                     .as_ref()
                     .map(|params| params.params.iter().map(|t| self.convert_type(t)).collect())
                     .unwrap_or_default();
@@ -227,15 +227,9 @@ impl<'a> DtsVisitor<'a> {
                     .map(|t| self.convert_type(t))
                     .unwrap_or(DtsType::Primitive(Primitive::Any));
 
-                // readonly and optional are enum values, not Options
-                let readonly_mod = match mapped.readonly {
-                    TSMappedTypeModifierOperator::None => None,
-                    other => Some(self.convert_mapped_modifier(other)),
-                };
-                let optional_mod = match mapped.optional {
-                    TSMappedTypeModifierOperator::None => None,
-                    other => Some(self.convert_mapped_modifier(other)),
-                };
+                // readonly and optional are now Option<TSMappedTypeModifierOperator>
+                let readonly_mod = mapped.readonly.map(|m| self.convert_mapped_modifier(m));
+                let optional_mod = mapped.optional.map(|m| self.convert_mapped_modifier(m));
 
                 DtsType::Mapped {
                     key_name,
@@ -319,7 +313,6 @@ impl<'a> DtsVisitor<'a> {
             TSMappedTypeModifierOperator::True => MappedModifier::Preserve,
             TSMappedTypeModifierOperator::Plus => MappedModifier::Add,
             TSMappedTypeModifierOperator::Minus => MappedModifier::Remove,
-            TSMappedTypeModifierOperator::None => MappedModifier::Preserve,
         }
     }
 
@@ -393,7 +386,7 @@ impl<'a> DtsVisitor<'a> {
                     TSTupleElement::TSTypeReference(type_ref) => {
                         let name = self.type_name_to_string(&type_ref.type_name);
                         let type_args = type_ref
-                            .type_parameters
+                            .type_arguments
                             .as_ref()
                             .map(|params| params.params.iter().map(|t| self.convert_type(t)).collect())
                             .unwrap_or_default();
@@ -499,6 +492,7 @@ impl<'a> DtsVisitor<'a> {
                 let right = qualified.right.name.to_string();
                 format!("{}.{}", left, right)
             }
+            TSTypeName::ThisExpression(_) => "this".to_string(),
         }
     }
 
@@ -511,6 +505,7 @@ impl<'a> DtsVisitor<'a> {
                 format!("{}.{}", left, right)
             }
             TSTypeQueryExprName::TSImportType(_) => "import".to_string(),
+            TSTypeQueryExprName::ThisExpression(_) => "this".to_string(),
         }
     }
 
@@ -639,26 +634,22 @@ impl<'a> DtsVisitor<'a> {
 
         let extends: Vec<DtsType> = decl
             .extends
-            .as_ref()
-            .map(|ext| {
-                ext.iter()
-                    .map(|heritage| {
-                        let name = match &heritage.expression {
-                            Expression::Identifier(id) => id.name.to_string(),
-                            _ => "Unknown".to_string(),
-                        };
-                        let type_args = heritage
-                            .type_parameters
-                            .as_ref()
-                            .map(|params| {
-                                params.params.iter().map(|t| self.convert_type(t)).collect()
-                            })
-                            .unwrap_or_default();
-                        DtsType::Named { name, type_args }
+            .iter()
+            .map(|heritage| {
+                let name = match &heritage.expression {
+                    Expression::Identifier(id) => id.name.to_string(),
+                    _ => "Unknown".to_string(),
+                };
+                let type_args = heritage
+                    .type_arguments
+                    .as_ref()
+                    .map(|params| {
+                        params.params.iter().map(|t| self.convert_type(t)).collect()
                     })
-                    .collect()
+                    .unwrap_or_default();
+                DtsType::Named { name, type_args }
             })
-            .unwrap_or_default();
+            .collect();
 
         let members: Vec<InterfaceMember> = decl
             .body
@@ -780,7 +771,7 @@ impl<'a> DtsVisitor<'a> {
         let extends = decl.super_class.as_ref().map(|sc| {
             if let Expression::Identifier(id) = sc {
                 let type_args = decl
-                    .super_type_parameters
+                    .super_type_arguments
                     .as_ref()
                     .map(|params| params.params.iter().map(|t| self.convert_type(t)).collect())
                     .unwrap_or_default();
@@ -795,24 +786,19 @@ impl<'a> DtsVisitor<'a> {
 
         let implements: Vec<DtsType> = decl
             .implements
-            .as_ref()
-            .map(|impls| {
-                impls
-                    .iter()
-                    .map(|impl_decl| {
-                        let name = self.type_name_to_string(&impl_decl.expression);
-                        let type_args = impl_decl
-                            .type_parameters
-                            .as_ref()
-                            .map(|params| {
-                                params.params.iter().map(|t| self.convert_type(t)).collect()
-                            })
-                            .unwrap_or_default();
-                        DtsType::Named { name, type_args }
+            .iter()
+            .map(|impl_decl| {
+                let name = self.type_name_to_string(&impl_decl.expression);
+                let type_args = impl_decl
+                    .type_arguments
+                    .as_ref()
+                    .map(|params| {
+                        params.params.iter().map(|t| self.convert_type(t)).collect()
                     })
-                    .collect()
+                    .unwrap_or_default();
+                DtsType::Named { name, type_args }
             })
-            .unwrap_or_default();
+            .collect();
 
         let members: Vec<ClassMember> = decl
             .body
