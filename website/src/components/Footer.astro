@@ -30,21 +30,21 @@ const links = {
   <!-- Decorative top wave -->
   <div class="absolute -top-px left-0 right-0 h-px bg-gradient-to-r from-transparent via-husk-400/50 to-transparent"></div>
 
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 lg:gap-8">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-6">
       <!-- Brand column -->
       <div class="lg:col-span-2">
-        <a href="/" class="inline-flex items-center gap-3 group mb-6">
+        <a href="/" class="inline-flex items-center gap-2 group mb-4">
           <Image
             src={logo}
             alt="Husk Logo"
-            width={40}
-            height={40}
+            width={32}
+            height={32}
             class="transition-transform duration-300 group-hover:scale-110"
           />
-          <span class="font-display text-2xl text-surface-900 dark:text-cream-50">Husk</span>
+          <span class="font-display text-xl text-surface-900 dark:text-cream-50">Husk</span>
         </a>
-        <p class="text-surface-600 dark:text-cream-400 leading-relaxed max-w-sm mb-6">
+        <p class="text-sm text-surface-600 dark:text-cream-400 leading-relaxed max-w-sm mb-4">
           A modern, Rust-inspired language that compiles to JavaScript.
           Type-safe, expressive, and ready for production.
         </p>
@@ -67,15 +67,15 @@ const links = {
 
       <!-- Learn column -->
       <div>
-        <h3 class="font-display text-lg text-surface-900 dark:text-cream-50 mb-4">Learn</h3>
-        <ul class="space-y-3">
+        <h3 class="font-display text-base text-surface-900 dark:text-cream-50 mb-3">Learn</h3>
+        <ul class="space-y-2">
           {links.learn.map((link) => (
             <li>
               <a
                 href={link.href}
                 target={link.external ? '_blank' : undefined}
                 rel={link.external ? 'noopener noreferrer' : undefined}
-                class="inline-flex items-center gap-1.5 text-surface-600 dark:text-cream-400 hover:text-husk-600 dark:hover:text-husk-400 transition-colors"
+                class="inline-flex items-center gap-1.5 text-sm text-surface-600 dark:text-cream-400 hover:text-husk-600 dark:hover:text-husk-400 transition-colors"
               >
                 {link.label}
                 {link.external && (
@@ -91,15 +91,15 @@ const links = {
 
       <!-- Community column -->
       <div>
-        <h3 class="font-display text-lg text-surface-900 dark:text-cream-50 mb-4">Community</h3>
-        <ul class="space-y-3">
+        <h3 class="font-display text-base text-surface-900 dark:text-cream-50 mb-3">Community</h3>
+        <ul class="space-y-2">
           {links.community.map((link) => (
             <li>
               <a
                 href={link.href}
                 target={link.external ? '_blank' : undefined}
                 rel={link.external ? 'noopener noreferrer' : undefined}
-                class="inline-flex items-center gap-1.5 text-surface-600 dark:text-cream-400 hover:text-husk-600 dark:hover:text-husk-400 transition-colors"
+                class="inline-flex items-center gap-1.5 text-sm text-surface-600 dark:text-cream-400 hover:text-husk-600 dark:hover:text-husk-400 transition-colors"
               >
                 {link.label}
                 {link.external && (
@@ -115,15 +115,15 @@ const links = {
 
       <!-- Resources column -->
       <div>
-        <h3 class="font-display text-lg text-surface-900 dark:text-cream-50 mb-4">Resources</h3>
-        <ul class="space-y-3">
+        <h3 class="font-display text-base text-surface-900 dark:text-cream-50 mb-3">Resources</h3>
+        <ul class="space-y-2">
           {links.resources.map((link) => (
             <li>
               <a
                 href={link.href}
                 target={link.external ? '_blank' : undefined}
                 rel={link.external ? 'noopener noreferrer' : undefined}
-                class="inline-flex items-center gap-1.5 text-surface-600 dark:text-cream-400 hover:text-husk-600 dark:hover:text-husk-400 transition-colors"
+                class="inline-flex items-center gap-1.5 text-sm text-surface-600 dark:text-cream-400 hover:text-husk-600 dark:hover:text-husk-400 transition-colors"
               >
                 {link.label}
                 {link.external && (
@@ -139,7 +139,7 @@ const links = {
     </div>
 
     <!-- Bottom bar -->
-    <div class="mt-12 pt-8 border-t border-cream-200 dark:border-surface-700">
+    <div class="mt-8 pt-6 border-t border-cream-200 dark:border-surface-700">
       <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
         <p class="text-sm text-surface-500 dark:text-surface-500">
           &copy; {currentYear} Husk. Released under the
