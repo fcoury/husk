@@ -162,7 +162,16 @@ const navLinks = [
 
 <!-- Header scroll behavior and mobile menu -->
 <script>
+  // Store handler references for cleanup
+  let headerCleanup: (() => void) | null = null;
+
   function setupHeader() {
+    // Clean up previous listeners if any
+    if (headerCleanup) {
+      headerCleanup();
+      headerCleanup = null;
+    }
+
     const header = document.getElementById('header');
     const mobileMenuBtn = document.getElementById('mobile-menu-btn');
     const mobileMenu = document.getElementById('mobile-menu');
@@ -170,22 +179,17 @@ const navLinks = [
     const closeIcon = mobileMenuBtn?.querySelector('.close-icon');
     const mobileThemeToggle = document.getElementById('mobile-theme-toggle');
 
-    let lastScrollY = 0;
     let isMenuOpen = false;
 
     // Scroll behavior
     function handleScroll() {
       if (!header) return;
-
       const scrollY = window.scrollY;
-
       if (scrollY > 50) {
         header.classList.add('bg-cream-50/90', 'dark:bg-surface-900/90', 'backdrop-blur-lg', 'shadow-sm');
       } else {
         header.classList.remove('bg-cream-50/90', 'dark:bg-surface-900/90', 'backdrop-blur-lg', 'shadow-sm');
       }
-
-      lastScrollY = scrollY;
     }
 
     // Mobile menu toggle
@@ -228,11 +232,12 @@ const navLinks = [
     }
 
     // Close menu when clicking a link
-    mobileMenu?.querySelectorAll('a').forEach(link => {
-      link.addEventListener('click', () => {
-        if (isMenuOpen) toggleMobileMenu();
-      });
-    });
+    function closeMobileMenu() {
+      if (isMenuOpen) toggleMobileMenu();
+    }
+
+    const mobileLinks = mobileMenu?.querySelectorAll('a') || [];
+    mobileLinks.forEach(link => link.addEventListener('click', closeMobileMenu));
 
     // Event listeners
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -242,6 +247,14 @@ const navLinks = [
     // Initial state
     handleScroll();
     updateMobileThemeUI();
+
+    // Store cleanup function
+    headerCleanup = () => {
+      window.removeEventListener('scroll', handleScroll);
+      mobileMenuBtn?.removeEventListener('click', toggleMobileMenu);
+      mobileThemeToggle?.removeEventListener('click', handleMobileThemeToggle);
+      mobileLinks.forEach(link => link.removeEventListener('click', closeMobileMenu));
+    };
   }
 
   setupHeader();

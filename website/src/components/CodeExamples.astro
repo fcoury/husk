@@ -160,12 +160,22 @@ const examples = [
 </section>
 
 <script>
+  // Store cleanup function for tab handlers
+  let tabsCleanup: (() => void) | null = null;
+
   function setupTabs() {
+    // Clean up previous listeners if any
+    if (tabsCleanup) {
+      tabsCleanup();
+      tabsCleanup = null;
+    }
+
     const tabButtons = document.querySelectorAll('.tab-button');
     const panels = document.querySelectorAll('.code-panel');
+    const handlers = new Map<Element, () => void>();
 
     tabButtons.forEach(button => {
-      button.addEventListener('click', () => {
+      const handler = () => {
         const tabId = button.getAttribute('data-tab');
 
         // Update buttons
@@ -187,8 +197,18 @@ const examples = [
           const isActive = panel.getAttribute('data-panel') === tabId;
           panel.classList.toggle('hidden', !isActive);
         });
-      });
+      };
+
+      button.addEventListener('click', handler);
+      handlers.set(button, handler);
     });
+
+    // Store cleanup function
+    tabsCleanup = () => {
+      handlers.forEach((handler, button) => {
+        button.removeEventListener('click', handler);
+      });
+    };
   }
 
   setupTabs();
