@@ -1786,6 +1786,11 @@ fn run_dts_update(
 ) {
     use husk_dts_parser::{oxc_parser, resolver, diagnostics};
 
+    // Warn if follow_imports is set without oxc
+    if follow_imports && !use_oxc {
+        eprintln!("Warning: --follow-imports requires --oxc; ignoring --follow-imports");
+    }
+
     if config.dts.is_empty() {
         eprintln!("No dts entries configured in husk.toml");
         eprintln!("Use 'huskc dts add <package>' to add one.");
