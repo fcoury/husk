@@ -2,3 +2,6 @@
 title = "Husk Documentation"
 authors = ["Felipe Coury"]
 language = "en"
+
+[build]
+build-dir = "../website/public/docs"

@@ -3,6 +3,10 @@ name: Deploy Website
 on:
   push:
     branches: [master]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
 
 permissions:
@@ -32,10 +36,6 @@ jobs:
         working-directory: website
         run: npm ci
 
-      - name: Build Astro site
-        working-directory: website
-        run: npm run build
-
       - name: Setup mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
@@ -44,10 +44,9 @@ jobs:
       - name: Build mdBook docs
         run: mdbook build docs
 
-      - name: Combine outputs
-        run: |
-          # Move mdBook output into Astro output under /docs
-          mv docs/book website/dist/docs
+      - name: Build Astro site
+        working-directory: website
+        run: npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
