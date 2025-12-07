@@ -454,5 +454,6 @@ fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
         ExternItemKind::Mod { binding, .. } => binding.name == name,
         ExternItemKind::Static { name: n, .. } => n.name == name,
         ExternItemKind::Const { name: n, .. } => n.name == name,
+        ExternItemKind::Impl { .. } => false, // Impl blocks don't have a top-level name
     }
 }
