@@ -1,0 +1,9 @@
+{
+  "name": "husk-dts-parser-fixtures",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TypeScript type definitions for testing husk-dts-parser",
+  "dependencies": {
+    "@types/express": "^4.17.21"
+  }
+}

@@ -1085,3 +1085,112 @@ fn test_template_literal_codegen_to_string() {
         result.code
     );
 }
+
+// ==========================================
+// Real-world Type Definition Tests
+// ==========================================
+
+/// Test parsing and generating code from the real @types/express package.
+/// This test requires `npm install` to have been run in the fixtures directory.
+#[test]
+fn test_real_express_types() {
+    use husk_dts_parser::resolver::{Resolver, ResolveOptions};
+    use husk_dts_parser::generate_from_module;
+    use std::path::Path;
+
+    let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures");
+
+    let express_entry = fixtures_dir
+        .join("node_modules")
+        .join("@types")
+        .join("express")
+        .join("index.d.ts");
+
+    // Skip test if node_modules not installed
+    if !express_entry.exists() {
+        eprintln!(
+            "Skipping test - express types not installed. Run: cd {} && npm install",
+            fixtures_dir.display()
+        );
+        return;
+    }
+
+    // Resolve the full module graph
+    let mut resolver = Resolver::new(ResolveOptions {
+        base_dir: Some(fixtures_dir.clone()),
+        follow_references: true,
+        max_depth: Some(10),
+        ..Default::default()
+    });
+
+    let resolved = resolver.resolve(&express_entry);
+
+    // Check that we resolved multiple files (express has dependencies)
+    assert!(
+        resolved.files.len() > 1,
+        "Expected multiple files to be resolved, got {}",
+        resolved.files.len()
+    );
+
+    // Generate Husk code
+    let result = generate_from_module(&resolved, &CodegenOptions {
+        module_name: Some("express".to_string()),
+        verbose: false,
+        ..Default::default()
+    });
+
+    println!("Generated {} bytes of Husk code", result.code.len());
+    println!("Resolved {} files", resolved.files.len());
+    println!("Warnings: {}", result.warnings.len());
+
+    // Basic structure checks
+    assert!(
+        result.code.contains("extern \"js\""),
+        "Should have extern block"
+    );
+    assert!(
+        result.code.contains("mod express;") || result.code.contains("mod \"express\""),
+        "Should have express module import"
+    );
+
+    // Key types from express should be present
+    assert!(
+        result.code.contains("struct Application"),
+        "Should have Application struct. Got:\n{}",
+        &result.code[..result.code.len().min(2000)]
+    );
+    assert!(
+        result.code.contains("struct Request"),
+        "Should have Request struct"
+    );
+    assert!(
+        result.code.contains("struct Response"),
+        "Should have Response struct"
+    );
+    assert!(
+        result.code.contains("struct Router"),
+        "Should have Router struct"
+    );
+
+    // Check for impl blocks
+    assert!(
+        result.code.contains("impl Application"),
+        "Should have Application impl block"
+    );
+
+    // Print a sample of the generated code for debugging
+    println!("\n=== Sample of generated code ===\n");
+    for line in result.code.lines().take(100) {
+        println!("{}", line);
+    }
+
+    // Report any resolution errors
+    if !resolved.errors.is_empty() {
+        println!("\n=== Resolution errors ===");
+        for err in &resolved.errors {
+            println!("  - {}", err);
+        }
+    }
+}
