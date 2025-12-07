@@ -18,4 +18,7 @@ oxc_diagnostics = "0.98"
 # Case conversion utilities
 heck = "0.5"
 
+# JSON parsing for package.json
+serde_json = "1.0"
+
 [dev-dependencies]
