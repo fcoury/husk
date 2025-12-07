@@ -31,6 +31,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use oxc_allocator::Allocator;
+use serde_json::Value;
 use oxc_ast::ast::*;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
@@ -92,8 +93,25 @@ pub struct ResolvedModule {
 
 impl ResolvedModule {
     /// Get all items from all files in dependency order (leaf dependencies first).
+    ///
+    /// Note: This method does not surface circular import errors. Use
+    /// `all_items_with_cycle_errors` if you need to detect cycles.
     pub fn all_items(&self) -> Vec<&DtsItem> {
-        let mut order = self.topological_order();
+        let (order, _errors) = self.topological_order();
+        self.items_from_order(order)
+    }
+
+    /// Get all items from all files in dependency order, also returning any cycle errors.
+    ///
+    /// Returns `(items, cycle_errors)` where `cycle_errors` contains any circular
+    /// import errors detected during topological sorting.
+    pub fn all_items_with_cycle_errors(&self) -> (Vec<&DtsItem>, Vec<ResolveError>) {
+        let (order, errors) = self.topological_order();
+        (self.items_from_order(order), errors)
+    }
+
+    /// Helper to extract items from an ordered list of paths.
+    fn items_from_order(&self, mut order: Vec<PathBuf>) -> Vec<&DtsItem> {
         order.reverse(); // Leaf dependencies first
 
         order
@@ -103,42 +121,62 @@ impl ResolvedModule {
     }
 
     /// Get files in topological order (dependencies before dependents).
-    fn topological_order(&self) -> Vec<PathBuf> {
+    ///
+    /// Returns both the ordered paths and any circular import errors detected.
+    fn topological_order(&self) -> (Vec<PathBuf>, Vec<ResolveError>) {
         let mut result = Vec::new();
+        let mut errors = Vec::new();
         let mut visited = HashSet::new();
-        let mut temp_visited = HashSet::new();
+        let mut temp_visited = Vec::new(); // Use Vec to preserve order for cycle detection
 
         for path in self.files.keys() {
-            self.topo_visit(path, &mut visited, &mut temp_visited, &mut result);
+            self.topo_visit(path, &mut visited, &mut temp_visited, &mut result, &mut errors);
         }
 
-        result
+        (result, errors)
     }
 
     fn topo_visit(
         &self,
         path: &Path,
         visited: &mut HashSet<PathBuf>,
-        temp_visited: &mut HashSet<PathBuf>,
+        temp_visited: &mut Vec<PathBuf>,
         result: &mut Vec<PathBuf>,
+        errors: &mut Vec<ResolveError>,
     ) {
         if visited.contains(path) {
             return;
         }
-        if temp_visited.contains(path) {
-            // Cycle detected, skip
+
+        // Check for cycle: if path is in temp_visited, we have a circular import
+        if let Some(cycle_start_idx) = temp_visited.iter().position(|p| p == path) {
+            // Collect the cycle: from the first occurrence of path to the end, plus path again
+            let mut cycle: Vec<PathBuf> = temp_visited[cycle_start_idx..].to_vec();
+            cycle.push(path.to_path_buf()); // Complete the cycle back to the starting node
+
+            errors.push(ResolveError::CircularImport {
+                path: path.to_path_buf(),
+                cycle,
+            });
+
+            // Mark as visited to avoid re-processing, but still add to result
+            // so the node appears in topological output (at a valid position)
+            if !visited.contains(path) {
+                visited.insert(path.to_path_buf());
+                result.push(path.to_path_buf());
+            }
             return;
         }
 
-        temp_visited.insert(path.to_path_buf());
+        temp_visited.push(path.to_path_buf());
 
         if let Some(deps) = self.import_graph.get(path) {
             for dep in deps {
-                self.topo_visit(dep, visited, temp_visited, result);
+                self.topo_visit(dep, visited, temp_visited, result, errors);
             }
         }
 
-        temp_visited.remove(path);
+        temp_visited.pop();
         visited.insert(path.to_path_buf());
         result.push(path.to_path_buf());
     }
@@ -917,25 +955,19 @@ impl Resolver {
         None
     }
 
-    /// Read the "types" or "typings" field from package.json.
+    /// Read the "types" or "typings" field from a package.json file.
     ///
-    /// Uses simple line-based parsing which works for standard (formatted) package.json files.
-    /// For robustness with minified or complex JSON, consider adding serde_json as a dependency.
+    /// Uses serde_json for robust parsing that handles escaped quotes,
+    /// minified JSON, and other edge cases correctly.
     fn read_types_field(&self, package_json: &Path) -> Option<String> {
         let content = std::fs::read_to_string(package_json).ok()?;
+        let json: Value = serde_json::from_str(&content).ok()?;
 
-        // Simple JSON parsing for "types" or "typings" field
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("\"types\"") || trimmed.starts_with("\"typings\"") {
-                if let Some(colon_idx) = trimmed.find(':') {
-                    let value_part = trimmed[colon_idx + 1..].trim();
-                    return extract_quoted_string(value_part);
-                }
-            }
-        }
-
-        None
+        // Try "types" first, then fall back to "typings"
+        json.get("types")
+            .or_else(|| json.get("typings"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 
     /// Try to resolve a path with TypeScript extensions.
@@ -986,23 +1018,6 @@ impl Resolver {
                 .unwrap_or_else(|_| path.to_path_buf())
         }
     }
-}
-
-/// Extract a quoted string (single or double quotes).
-fn extract_quoted_string(s: &str) -> Option<String> {
-    let trimmed = s.trim();
-
-    if trimmed.starts_with('"') {
-        let end = trimmed[1..].find('"')?;
-        return Some(trimmed[1..=end].to_string());
-    }
-
-    if trimmed.starts_with('\'') {
-        let end = trimmed[1..].find('\'')?;
-        return Some(trimmed[1..=end].to_string());
-    }
-
-    None
 }
 
 /// Extract path from a triple-slash reference.
@@ -1061,19 +1076,6 @@ mod tests {
         assert_eq!(references.len(), 2);
         assert!(references.contains(&"./types.d.ts".to_string()));
         assert!(references.contains(&"@types/node".to_string()));
-    }
-
-    #[test]
-    fn test_extract_quoted_string() {
-        assert_eq!(
-            extract_quoted_string("\"hello\""),
-            Some("hello".to_string())
-        );
-        assert_eq!(
-            extract_quoted_string("'world'"),
-            Some("world".to_string())
-        );
-        assert_eq!(extract_quoted_string("no quotes"), None);
     }
 
     #[test]
@@ -1231,5 +1233,93 @@ mod tests {
 
         let identity = module.get_module_identity(Path::new("/test.d.ts"));
         assert_eq!(identity, ModuleIdentity::StandardModule);
+    }
+
+    #[test]
+    fn test_circular_import_detection() {
+        // Create a cycle: A -> B -> C -> A
+        let file_a = DtsFile { items: vec![] };
+        let file_b = DtsFile { items: vec![] };
+        let file_c = DtsFile { items: vec![] };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/a.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+
+        module.files.insert(PathBuf::from("/a.d.ts"), file_a);
+        module.files.insert(PathBuf::from("/b.d.ts"), file_b);
+        module.files.insert(PathBuf::from("/c.d.ts"), file_c);
+
+        // Create import graph: A -> B -> C -> A
+        module.import_graph.insert(
+            PathBuf::from("/a.d.ts"),
+            vec![PathBuf::from("/b.d.ts")],
+        );
+        module.import_graph.insert(
+            PathBuf::from("/b.d.ts"),
+            vec![PathBuf::from("/c.d.ts")],
+        );
+        module.import_graph.insert(
+            PathBuf::from("/c.d.ts"),
+            vec![PathBuf::from("/a.d.ts")],
+        );
+
+        // Get items with cycle errors
+        let (_items, errors) = module.all_items_with_cycle_errors();
+
+        // Should have detected a circular import
+        assert!(!errors.is_empty(), "Expected circular import error");
+
+        // Check that the error contains the cycle
+        if let ResolveError::CircularImport { path, cycle } = &errors[0] {
+            // The cycle should contain the path that was being visited when the cycle was detected
+            assert!(cycle.len() >= 2, "Cycle should have at least 2 nodes");
+            // The cycle should end with the same path it starts with
+            assert_eq!(cycle.first(), cycle.last(), "Cycle should be closed");
+            // The path should be in the cycle
+            assert!(cycle.contains(path), "Path should be in the cycle");
+        } else {
+            panic!("Expected CircularImport error, got {:?}", errors[0]);
+        }
+    }
+
+    #[test]
+    fn test_no_cycle_no_error() {
+        // Create a DAG: A -> B -> C (no cycle)
+        let file_a = DtsFile { items: vec![] };
+        let file_b = DtsFile { items: vec![] };
+        let file_c = DtsFile { items: vec![] };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/a.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+
+        module.files.insert(PathBuf::from("/a.d.ts"), file_a);
+        module.files.insert(PathBuf::from("/b.d.ts"), file_b);
+        module.files.insert(PathBuf::from("/c.d.ts"), file_c);
+
+        // Create import graph: A -> B -> C (no cycle)
+        module.import_graph.insert(
+            PathBuf::from("/a.d.ts"),
+            vec![PathBuf::from("/b.d.ts")],
+        );
+        module.import_graph.insert(
+            PathBuf::from("/b.d.ts"),
+            vec![PathBuf::from("/c.d.ts")],
+        );
+
+        // Get items with cycle errors
+        let (_items, errors) = module.all_items_with_cycle_errors();
+
+        // Should have no errors
+        assert!(errors.is_empty(), "Expected no errors, got {:?}", errors);
     }
 }
