@@ -6,7 +6,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
-use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, DtsFile, parse as parse_dts, generate as generate_husk};
+use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, DtsFile, parse as parse_dts, generate as generate_husk, UnionStrategy};
 mod config;
 mod diagnostic;
 mod load;
@@ -1856,7 +1856,12 @@ fn run_dts_update(
 
         // Parse .d.ts using either legacy or Oxc parser
         // Also collect all resolved files for diagnostics when follow_imports is enabled
-        let (dts_file, resolved_files): (DtsFile, Option<HashMap<PathBuf, DtsFile>>) = if use_oxc {
+        // We also track module identity for CommonJS modules with `export =`
+        let (dts_file, resolved_files, module_identity): (
+            DtsFile,
+            Option<HashMap<PathBuf, DtsFile>>,
+            Option<resolver::ModuleIdentity>,
+        ) = if use_oxc {
             // Use Oxc parser
             // Check if follow_imports is enabled via CLI or per-entry config
             let should_follow_imports = follow_imports || entry.follow_imports.unwrap_or(false);
@@ -1888,9 +1893,17 @@ fn run_dts_update(
                     eprintln!("  Resolution error: {}", err);
                 }
 
+                // Get the module identity before we move the files
+                let identity = resolved.get_module_identity(&resolved.entry_path);
+                let identity = if identity == resolver::ModuleIdentity::StandardModule {
+                    None
+                } else {
+                    Some(identity)
+                };
+
                 // Get the entry file
                 match resolved.files.get(&resolved.entry_path) {
-                    Some(f) => (f.clone(), Some(resolved.files)),
+                    Some(f) => (f.clone(), Some(resolved.files), identity),
                     None => {
                         eprintln!("  Failed to resolve {}", dts_path);
                         continue;
@@ -1907,7 +1920,7 @@ fn run_dts_update(
                 };
 
                 match oxc_parser::parse_with_oxc(&dts_content, dts_path) {
-                    Ok(f) => (f, None),
+                    Ok(f) => (f, None, None),
                     Err(e) => {
                         eprintln!("  Failed to parse {} with Oxc: {}", dts_path, e.message);
                         continue;
@@ -1915,7 +1928,7 @@ fn run_dts_update(
                 }
             }
         } else {
-            // Use legacy parser
+            // Use legacy parser (no follow_imports or module identity support)
             let dts_content = match fs::read_to_string(dts_path) {
                 Ok(c) => c,
                 Err(e) => {
@@ -1925,7 +1938,7 @@ fn run_dts_update(
             };
 
             match parse_dts(&dts_content) {
-                Ok(f) => (f, None),
+                Ok(f) => (f, None, None),
                 Err(e) => {
                     eprintln!("  Failed to parse {}: {e}", dts_path);
                     continue;
@@ -1947,10 +1960,32 @@ fn run_dts_update(
         }
 
         // Generate Husk code
+        // Parse union strategy from config (per-entry or global default)
+        let union_strategy = entry
+            .union_strategy
+            .as_deref()
+            .or(config.dts_options.as_ref().and_then(|o| o.default_union_strategy.as_deref()))
+            .map(|s| match s {
+                "enum" => UnionStrategy::Enum,
+                "jsvalue" => UnionStrategy::JsValue,
+                _ => UnionStrategy::Auto,
+            })
+            .unwrap_or(UnionStrategy::Auto);
+
         let options = DtsCodegenOptions {
             module_name: Some(entry.package.clone()),
             verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
-            ..Default::default()
+            module_identity,
+            union_strategy,
+            generate_builders: entry
+                .generate_builders
+                .or(config.dts_options.as_ref().and_then(|o| o.default_generate_builders))
+                .unwrap_or(false),
+            builder_min_optional: entry.builder_min_optional.unwrap_or(3),
+            expand_utility_types: entry
+                .expand_utility_types
+                .or(config.dts_options.as_ref().and_then(|o| o.default_expand_utility_types))
+                .unwrap_or(true),
         };
         let mut result = generate_husk(&dts_file, &options);
 
