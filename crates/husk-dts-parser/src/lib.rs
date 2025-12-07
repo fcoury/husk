@@ -19,3 +19,4 @@ pub use ast::*;
 pub use codegen::{generate, CodegenOptions, CodegenResult, Warning, WarningKind};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, ParseError, ParseResult};
+pub use resolver::ModuleIdentity;
