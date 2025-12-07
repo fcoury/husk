@@ -13,6 +13,8 @@ pub struct CodegenOptions {
     pub module_name: Option<String>,
     /// Include verbose warnings as comments.
     pub verbose: bool,
+    /// User-provided generic overrides (e.g., Promise -> JsValue).
+    pub generics_overrides: HashMap<String, String>,
 }
 
 /// Warnings generated during code generation.
@@ -1033,6 +1035,11 @@ impl<'a> Codegen<'a> {
         }
         if simple_name == "Record" && type_args.len() == 2 {
             return self.expand_record(type_args[0].clone(), type_args[1].clone());
+        }
+
+        // User overrides
+        if let Some(mapped) = self.options.generics_overrides.get(simple_name) {
+            return mapped.clone();
         }
 
         // Map well-known types using simple name

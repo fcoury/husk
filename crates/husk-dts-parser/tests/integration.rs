@@ -40,6 +40,7 @@ fn test_simple_express_like() {
         &CodegenOptions {
             module_name: Some("express".to_string()),
             verbose: false,
+            generics_overrides: std::collections::HashMap::new(),
         },
     );
 
@@ -353,6 +354,7 @@ fn test_module_name_variants() {
         &CodegenOptions {
             module_name: Some("express".to_string()),
             verbose: false,
+            generics_overrides: std::collections::HashMap::new(),
         },
     );
     assert!(result.code.contains("mod express;"));
@@ -363,6 +365,7 @@ fn test_module_name_variants() {
         &CodegenOptions {
             module_name: Some("lodash-es".to_string()),
             verbose: false,
+            generics_overrides: std::collections::HashMap::new(),
         },
     );
     assert!(result.code.contains(r#"mod "lodash-es" as lodash_es;"#));
@@ -373,6 +376,7 @@ fn test_module_name_variants() {
         &CodegenOptions {
             module_name: Some("@types/node".to_string()),
             verbose: false,
+            generics_overrides: std::collections::HashMap::new(),
         },
     );
     assert!(result.code.contains(r#"mod "@types/node" as node;"#));
@@ -1346,4 +1350,52 @@ fn test_template_literal_codegen_to_string() {
         "Template literal type should map to String. Got:\n{}",
         result.code
     );
+}
+
+/// Utility type expansions should materialize concrete structs.
+#[test]
+fn test_utility_type_expansions() {
+    let dts = r#"
+interface Foo {
+    a: string;
+    readonly b?: number;
+}
+
+type PF = Partial<Foo>;
+type RF = Required<Foo>;
+type RO = Readonly<Foo>;
+type OF = Omit<Foo, "a">;
+type PK = Pick<Foo, "a">;
+type RC = Record<"id" | "name", string>;
+
+declare function takePartial(v: PF): void;
+declare function takeRequired(v: RF): void;
+declare function takeReadonly(v: RO): void;
+declare function takeOmit(v: OF): void;
+declare function takePick(v: PK): void;
+declare function takeRecord(v: RC): void;
+"#;
+
+    let file = parse(dts).expect("Failed to parse utility sample");
+    let result = generate(&file, &CodegenOptions::default());
+
+    let code = &result.code;
+    for expected in [
+        "struct Partial_Foo;",
+        "struct Required_Foo;",
+        "struct Readonly_Foo;",
+        "struct Omit_Foo_a;",
+        "struct Pick_Foo_a;",
+        "struct Record_id_name;",
+    ] {
+        assert!(
+            code.contains(expected),
+            "missing {expected} in output:\n{code}"
+        );
+    }
+
+    // Readonly_Foo should not expose a setter for b
+    assert!(!code.contains("set_b(self"));
+    // Partial_Foo keeps setters (non-readonly, optional)
+    assert!(code.contains("impl Partial_Foo"));
 }

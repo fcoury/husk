@@ -89,6 +89,8 @@ pub struct DtsOptions {
     pub warn_level: Option<String>,
     /// Enable generation of dts-report.md diagnostics.
     pub generate_report: Option<bool>,
+    /// Manual generic overrides (e.g., Promise = JsValue).
+    pub generics: Option<HashMap<String, String>>,
 }
 
 /// Runtime configuration for `huskc run`.

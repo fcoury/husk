@@ -5,7 +5,7 @@
     clippy::collapsible_str_replace
 )]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -664,6 +664,7 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
         verbose: env::var("HUSKC_DEBUG")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
+        generics_overrides: HashMap::new(),
     };
     let resolved = prepare_module_metadata(&file);
     let result = generate_husk(&file, &options, Some(resolved));
@@ -1963,6 +1964,11 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         let options = DtsCodegenOptions {
             module_name: Some(entry.package.clone()),
             verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
+            generics_overrides: config
+                .dts_options
+                .as_ref()
+                .and_then(|o| o.generics.clone())
+                .unwrap_or_default(),
         };
         let resolved = prepare_module_metadata(&dts_file);
         let mut result = generate_husk(&dts_file, &options, Some(resolved));
