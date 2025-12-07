@@ -1821,6 +1821,11 @@ impl<'a> Codegen<'a> {
         let mut sorted_structs: Vec<(&String, &Vec<String>)> = self.structs.iter().collect();
         sorted_structs.sort_by_key(|(name, _)| *name);
         for (name, type_params) in sorted_structs {
+            // Skip JS built-in types that would shadow globals
+            if is_js_builtin(name) {
+                continue;
+            }
+
             if type_params.is_empty() {
                 writeln!(self.output, "    struct {};", name).unwrap();
             } else {
@@ -1834,6 +1839,18 @@ impl<'a> Codegen<'a> {
 
         // Functions
         for f in &self.functions {
+            // Skip JS built-in functions that would shadow globals
+            if is_js_builtin(&f.name) {
+                continue;
+            }
+
+            // Skip functions that share a name with a struct (class constructors)
+            // In TypeScript, `declare class Foo { }` generates both a type and a value,
+            // but in Husk we only need the struct - use `new_()` methods for construction.
+            if self.structs.contains_key(&f.name) {
+                continue;
+            }
+
             if let Some(comment) = &f.comment {
                 writeln!(self.output, "    // {}", comment).unwrap();
             }
@@ -1890,7 +1907,15 @@ impl<'a> Codegen<'a> {
 
         writeln!(self.output).unwrap();
 
+        // Deduplicate enums by name (same union type may be defined in multiple files)
+        let mut emitted_names: HashSet<&str> = HashSet::new();
+
         for e in &self.enums {
+            // Skip duplicates
+            if !emitted_names.insert(&e.name) {
+                continue;
+            }
+
             writeln!(self.output, "#[untagged]").unwrap();
             writeln!(self.output, "enum {} {{", e.name).unwrap();
 
@@ -1932,6 +1957,11 @@ impl<'a> Codegen<'a> {
                 .unwrap_or(&[]);
 
             if methods.is_empty() && properties.is_empty() {
+                continue;
+            }
+
+            // Skip impl blocks for JS built-in types
+            if is_js_builtin(type_name) {
                 continue;
             }
 
@@ -2073,6 +2103,28 @@ impl<'a> Codegen<'a> {
             writeln!(self.output, "// {}: {}", prefix, w.message).unwrap();
         }
     }
+}
+
+/// Check if a string is a JavaScript built-in that should NOT be generated as a function.
+/// These would shadow Node.js module system globals and cause runtime errors.
+///
+/// Note: We only filter the module system builtins and singleton globals that break
+/// when shadowed. Web APIs like fetch/setTimeout are legitimate exports.
+pub fn is_js_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        // Node.js CommonJS module system globals - shadowing these breaks require()
+        "require"
+            | "module"
+            | "exports"
+            | "__dirname"
+            | "__filename"
+            // The global object itself - shadowing these is nonsensical
+            | "globalThis"
+            | "global"
+            // Singleton globals that would break if shadowed
+            | "console"
+    )
 }
 
 /// Check if a string is a Husk reserved keyword or a TypeScript keyword
