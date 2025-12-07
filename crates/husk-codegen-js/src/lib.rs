@@ -6,6 +6,13 @@
 //! - A minimal lowering from Husk AST to this JS AST for simple functions.
 //! - Source map generation for debugging.
 
+#![allow(
+    clippy::too_many_arguments,
+    clippy::collapsible_if,
+    clippy::unnecessary_filter_map,
+    clippy::let_and_return
+)]
+
 use husk_ast::{
     Block, EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec,
     Ident, ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
@@ -149,10 +156,7 @@ impl<'a> CodegenContext<'a> {
 fn handle_include_str(args: &[Expr], ctx: &CodegenContext) -> JsExpr {
     // Validate: exactly one argument
     if args.len() != 1 {
-        panic!(
-            "include_str: expected 1 argument, got {}",
-            args.len()
-        );
+        panic!("include_str: expected 1 argument, got {}", args.len());
     }
 
     // Extract the path argument (must be a string literal)
@@ -267,7 +271,10 @@ pub enum JsStmt {
     /// `let name = expr;`
     Let { name: String, init: Option<JsExpr> },
     /// `let [pattern, ...] = expr;` (array destructuring, supports nesting)
-    LetDestructure { pattern: Vec<DestructurePattern>, init: Option<JsExpr> },
+    LetDestructure {
+        pattern: Vec<DestructurePattern>,
+        init: Option<JsExpr>,
+    },
     /// Expression statement: `expr;`
     Expr(JsExpr),
     /// `try { ... } catch (e) { ... }`
@@ -399,8 +406,8 @@ pub enum JsExpr {
 /// Unary operators in JS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsUnaryOp {
-    Not,  // !
-    Neg,  // -
+    Not, // !
+    Neg, // -
 }
 
 /// Binary operators in JS (subset we need).
@@ -459,7 +466,17 @@ pub fn lower_file_to_js(
     variant_calls: &VariantCallMap,
     variant_patterns: &VariantPatternMap,
 ) -> JsModule {
-    lower_file_to_js_with_source(file, call_main, target, None, None, name_resolution, type_resolution, variant_calls, variant_patterns)
+    lower_file_to_js_with_source(
+        file,
+        call_main,
+        target,
+        None,
+        None,
+        name_resolution,
+        type_resolution,
+        variant_calls,
+        variant_patterns,
+    )
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
@@ -527,17 +544,15 @@ pub fn lower_file_to_js_with_source(
 
                         if prop.has_getter() {
                             // For property access: obj.prop_name -> obj.jsName
-                            accessors.getters.insert(
-                                (type_name.clone(), prop_name.clone()),
-                                js_name.clone(),
-                            );
+                            accessors
+                                .getters
+                                .insert((type_name.clone(), prop_name.clone()), js_name.clone());
                         }
                         if prop.has_setter() {
                             // For property assignment: obj.prop_name = val -> obj.jsName = val
-                            accessors.setters.insert(
-                                (type_name.clone(), prop_name.clone()),
-                                js_name,
-                            );
+                            accessors
+                                .setters
+                                .insert((type_name.clone(), prop_name.clone()), js_name);
                         }
                     }
                     // DEPRECATED: Heuristic-based detection for extern methods
@@ -557,25 +572,29 @@ pub fn lower_file_to_js_with_source(
                         if method.is_extern && method.receiver.is_some() {
                             // Track this as an extern method for snake_to_camel conversion
                             // Keyed by (type_name, method_name) to avoid renaming user methods
-                            accessors.extern_methods.insert((type_name.clone(), method_name.clone()));
+                            accessors
+                                .extern_methods
+                                .insert((type_name.clone(), method_name.clone()));
 
                             // Methods that should NOT be treated as getters even if they have
                             // no params and a return type. These are actual method calls in JS.
                             const NON_GETTER_METHODS: &[&str] = &[
-                                "all",         // stmt.all() in better-sqlite3
-                                "toJsValue",   // JsObject.toJsValue() builder method
-                                "open",        // db.open() check if database is open
-                                "run",         // stmt.run() execute statement
-                                "iterate",     // stmt.iterate() in better-sqlite3
-                                "bind",        // stmt.bind() in better-sqlite3
-                                "pluck",       // stmt.pluck() in better-sqlite3
-                                "raw",         // stmt.raw() in better-sqlite3
-                                "columns",     // stmt.columns() in better-sqlite3
+                                "all",       // stmt.all() in better-sqlite3
+                                "toJsValue", // JsObject.toJsValue() builder method
+                                "open",      // db.open() check if database is open
+                                "run",       // stmt.run() execute statement
+                                "iterate",   // stmt.iterate() in better-sqlite3
+                                "bind",      // stmt.bind() in better-sqlite3
+                                "pluck",     // stmt.pluck() in better-sqlite3
+                                "raw",       // stmt.raw() in better-sqlite3
+                                "columns",   // stmt.columns() in better-sqlite3
                             ];
                             let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
 
                             // Check if it's a getter: no params, has return type, and not in exclusion list
-                            if method.params.is_empty() && method.ret_type.is_some() && !is_non_getter
+                            if method.params.is_empty()
+                                && method.ret_type.is_some()
+                                && !is_non_getter
                             {
                                 accessors.getters.insert(
                                     (type_name.clone(), method_name.clone()),
@@ -589,10 +608,9 @@ pub fn lower_file_to_js_with_source(
                             {
                                 let prop_name =
                                     method_name.strip_prefix("set_").unwrap().to_string();
-                                accessors.setters.insert(
-                                    (type_name.clone(), method_name.clone()),
-                                    prop_name,
-                                );
+                                accessors
+                                    .setters
+                                    .insert((type_name.clone(), method_name.clone()), prop_name);
                             }
                         }
                     }
@@ -603,8 +621,21 @@ pub fn lower_file_to_js_with_source(
 
     // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
     let ctx = match source_path {
-        Some(path) => CodegenContext::with_source_path(&accessors, path, name_resolution, type_resolution, variant_calls, variant_patterns),
-        None => CodegenContext::new(&accessors, name_resolution, type_resolution, variant_calls, variant_patterns),
+        Some(path) => CodegenContext::with_source_path(
+            &accessors,
+            path,
+            name_resolution,
+            type_resolution,
+            variant_calls,
+            variant_patterns,
+        ),
+        None => CodegenContext::new(
+            &accessors,
+            name_resolution,
+            type_resolution,
+            variant_calls,
+            variant_patterns,
+        ),
     };
 
     // First pass: collect module imports
@@ -872,7 +903,11 @@ fn type_expr_to_js_name(ty: &TypeExpr) -> String {
         TypeExprKind::Function { params, ret } => {
             // Generate a TypeScript-style function type name for documentation
             let param_names: Vec<String> = params.iter().map(type_expr_to_js_name).collect();
-            format!("(({}) => {})", param_names.join(", "), type_expr_to_js_name(ret))
+            format!(
+                "(({}) => {})",
+                param_names.join(", "),
+                type_expr_to_js_name(ret)
+            )
         }
         TypeExprKind::Array(elem) => {
             format!("{}[]", type_expr_to_js_name(elem))
@@ -1082,9 +1117,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             ty: _,
             value,
             else_block,
-        } => {
-            lower_let_pattern(pattern, value.as_ref(), else_block.as_ref(), ctx)
-        }
+        } => lower_let_pattern(pattern, value.as_ref(), else_block.as_ref(), ctx),
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
             // Special case: match expressions in statement position should be lowered
             // to if/else statements, not ternary expressions. This allows break/continue
@@ -1127,11 +1160,9 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             let else_block = else_branch.as_ref().map(|else_stmt| {
                 // else_branch is a Box<Stmt>, which may be another If or a Block
                 match &else_stmt.kind {
-                    StmtKind::Block(block) => block
-                        .stmts
-                        .iter()
-                        .map(|s| lower_stmt(s, ctx))
-                        .collect(),
+                    StmtKind::Block(block) => {
+                        block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect()
+                    }
                     StmtKind::If { .. } => vec![lower_stmt(else_stmt, ctx)],
                     _ => vec![lower_stmt(else_stmt, ctx)],
                 }
@@ -1211,9 +1242,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             scrutinee,
             then_branch,
             else_branch,
-        } => {
-            lower_if_let_stmt(pattern, scrutinee, then_branch, else_branch, ctx)
-        }
+        } => lower_if_let_stmt(pattern, scrutinee, then_branch, else_branch, ctx),
     }
 }
 
@@ -1225,7 +1254,10 @@ fn pattern_to_destructure(pattern: &Pattern, ctx: &CodegenContext) -> Destructur
         }
         PatternKind::Wildcard => DestructurePattern::Wildcard,
         PatternKind::Tuple { fields } => {
-            let elements = fields.iter().map(|p| pattern_to_destructure(p, ctx)).collect();
+            let elements = fields
+                .iter()
+                .map(|p| pattern_to_destructure(p, ctx))
+                .collect();
             DestructurePattern::Array(elements)
         }
         // For other patterns (enum patterns, etc.), treat as wildcard
@@ -1334,7 +1366,11 @@ fn lower_let_refutable_binding(
         right: Box::new(JsExpr::String(variant_name.to_string())),
     };
 
-    let else_stmts: Vec<JsStmt> = else_block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+    let else_stmts: Vec<JsStmt> = else_block
+        .stmts
+        .iter()
+        .map(|s| lower_stmt(s, ctx))
+        .collect();
 
     // Unit variants have no bindings - just tag check
     // Use Sequence to emit statements at same level (no block scope)
@@ -1381,7 +1417,11 @@ fn lower_let_refutable(
         right: Box::new(JsExpr::String(variant)),
     };
 
-    let else_stmts: Vec<JsStmt> = else_block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+    let else_stmts: Vec<JsStmt> = else_block
+        .stmts
+        .iter()
+        .map(|s| lower_stmt(s, ctx))
+        .collect();
 
     // Extract bindings from pattern
     let bindings = extract_refutable_pattern_bindings(pattern, &temp_expr, ctx);
@@ -1436,7 +1476,11 @@ fn lower_let_refutable_struct(
         right: Box::new(JsExpr::String(variant)),
     };
 
-    let else_stmts: Vec<JsStmt> = else_block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+    let else_stmts: Vec<JsStmt> = else_block
+        .stmts
+        .iter()
+        .map(|s| lower_stmt(s, ctx))
+        .collect();
 
     // Extract struct field bindings
     let bindings = extract_struct_field_bindings(fields, &temp_expr, ctx);
@@ -1547,8 +1591,7 @@ fn lower_if_let_stmt(
     let temp_expr = JsExpr::Ident(temp_name.clone());
 
     // Build condition test
-    let condition = pattern_test_for_if_let(pattern, &temp_expr, ctx)
-        .unwrap_or(JsExpr::Bool(true));
+    let condition = pattern_test_for_if_let(pattern, &temp_expr, ctx).unwrap_or(JsExpr::Bool(true));
 
     // Extract bindings and build then block
     let bindings = extract_refutable_pattern_bindings(pattern, &temp_expr, ctx);
@@ -1561,16 +1604,10 @@ fn lower_if_let_stmt(
         .collect();
     then_stmts.extend(then_branch.stmts.iter().map(|s| lower_stmt(s, ctx)));
 
-    let else_block = else_branch.as_ref().map(|else_stmt| {
-        match &else_stmt.kind {
-            StmtKind::Block(block) => block
-                .stmts
-                .iter()
-                .map(|s| lower_stmt(s, ctx))
-                .collect(),
-            StmtKind::If { .. } | StmtKind::IfLet { .. } => vec![lower_stmt(else_stmt, ctx)],
-            _ => vec![lower_stmt(else_stmt, ctx)],
-        }
+    let else_block = else_branch.as_ref().map(|else_stmt| match &else_stmt.kind {
+        StmtKind::Block(block) => block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect(),
+        StmtKind::If { .. } | StmtKind::IfLet { .. } => vec![lower_stmt(else_stmt, ctx)],
+        _ => vec![lower_stmt(else_stmt, ctx)],
     });
 
     JsStmt::Block(vec![
@@ -1769,9 +1806,15 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Translate `self` to `this` for JavaScript method bodies
             if id.name == "self" {
                 JsExpr::Ident("this".to_string())
-            } else if let Some((_enum_name, variant_name)) = ctx.variant_calls.get(&(expr.span.range.start, expr.span.range.end)) {
+            } else if let Some((_enum_name, variant_name)) = ctx
+                .variant_calls
+                .get(&(expr.span.range.start, expr.span.range.end))
+            {
                 // Imported unit variant (e.g., `None` from `use Option::*`)
-                JsExpr::Object(vec![("tag".to_string(), JsExpr::String(variant_name.clone()))])
+                JsExpr::Object(vec![(
+                    "tag".to_string(),
+                    JsExpr::String(variant_name.clone()),
+                )])
             } else {
                 // Use resolved name from name_resolution if available
                 JsExpr::Ident(ctx.resolve_name(&id.name, &id.span))
@@ -1863,8 +1906,13 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Handle type conversion methods (.into(), .parse(), .try_into())
             // The semantic phase records the resolved target type in type_resolution
-            if (method_name == "into" || method_name == "parse" || method_name == "try_into") && args.is_empty() {
-                if let Some(target_type) = ctx.type_resolution.get(&(expr.span.range.start, expr.span.range.end)) {
+            if (method_name == "into" || method_name == "parse" || method_name == "try_into")
+                && args.is_empty()
+            {
+                if let Some(target_type) = ctx
+                    .type_resolution
+                    .get(&(expr.span.range.start, expr.span.range.end))
+                {
                     return lower_conversion_method(receiver, method_name, target_type, ctx);
                 }
             }
@@ -1877,13 +1925,17 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Look up #[js_name] override by searching across all types.
             // This is a heuristic since we don't have type info at codegen time.
-            let js_name_override = ctx.accessors.method_js_names
+            let js_name_override = ctx
+                .accessors
+                .method_js_names
                 .iter()
                 .find(|((_, m), _)| m == &base_method_name)
                 .map(|(_, js_name)| js_name.clone());
 
             // Check if this method is an extern "js" method for any type.
-            let is_extern_method = ctx.accessors.extern_methods
+            let is_extern_method = ctx
+                .accessors
+                .extern_methods
                 .iter()
                 .any(|(_, m)| m == &base_method_name);
 
@@ -1903,7 +1955,11 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
             }
         }
-        ExprKind::Call { callee, type_args: _, args } => {
+        ExprKind::Call {
+            callee,
+            type_args: _,
+            args,
+        } => {
             // Handle built-in functions like println -> console.log
             if let ExprKind::Ident(ref id) = callee.kind {
                 if id.name == "println" {
@@ -1960,7 +2016,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Handle imported variant construction: Some(x) -> {tag: "Some", value: x}
             // Check if this call is an imported variant (e.g., from `use Option::*`)
-            if let Some((_enum_name, variant_name)) = ctx.variant_calls.get(&(expr.span.range.start, expr.span.range.end)) {
+            if let Some((_enum_name, variant_name)) = ctx
+                .variant_calls
+                .get(&(expr.span.range.start, expr.span.range.end))
+            {
                 let mut fields = vec![("tag".to_string(), JsExpr::String(variant_name.clone()))];
 
                 // Add the value(s) based on argument count
@@ -2053,10 +2112,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // `Point { x: 1, y: 2 }` -> `new Point(1, 2)`
             // The order of args must match the order of fields in the struct definition.
             // For now, we pass them in the order they appear in the instantiation.
-            let args: Vec<JsExpr> = fields
-                .iter()
-                .map(|f| lower_expr(&f.value, ctx))
-                .collect();
+            let args: Vec<JsExpr> = fields.iter().map(|f| lower_expr(&f.value, ctx)).collect();
             // name is a Vec<Ident> representing the path (e.g., ["Point"] or ["module", "Point"])
             let constructor_name = name
                 .last()
@@ -2070,11 +2126,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
         ExprKind::Block(block) => {
             // Lower a block expression to an IIFE (Immediately Invoked Function Expression).
             // This allows blocks to be used as expressions in JavaScript.
-            let mut body: Vec<JsStmt> = block
-                .stmts
-                .iter()
-                .map(|s| lower_stmt(s, ctx))
-                .collect();
+            let mut body: Vec<JsStmt> = block.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
             // Wrap the last statement in a return if it's an expression.
             if let Some(last) = body.pop() {
                 match last {
@@ -2094,7 +2146,11 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 expr: Box::new(lower_expr(inner, ctx)),
             }
         }
-        ExprKind::FormatPrint { format, args, newline } => {
+        ExprKind::FormatPrint {
+            format,
+            args,
+            newline,
+        } => {
             // Generate console.log (with newline) or process.stdout.write (without newline)
             // Build the formatted string by concatenating literal segments and formatted args.
             lower_format_print(&format.segments, args, *newline, ctx)
@@ -2263,7 +2319,9 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     }
                     "bool" => {
                         // Should have been caught by semantic analysis
-                        panic!("invalid cast to bool should have been rejected by semantic analysis")
+                        panic!(
+                            "invalid cast to bool should have been rejected by semantic analysis"
+                        )
                     }
                     _ => {
                         // Unknown type, pass through (shouldn't happen for valid casts)
@@ -2373,11 +2431,7 @@ fn lower_format_print(
 }
 
 /// Lower a Format expression to a string (without console.log).
-fn lower_format_string(
-    segments: &[FormatSegment],
-    args: &[Expr],
-    ctx: &CodegenContext,
-) -> JsExpr {
+fn lower_format_string(segments: &[FormatSegment], args: &[Expr], ctx: &CodegenContext) -> JsExpr {
     // Track which argument we're using for implicit positioning
     let mut implicit_index = 0;
     let mut parts: Vec<JsExpr> = Vec::new();
@@ -2616,11 +2670,7 @@ fn extract_pattern_bindings(
     }
 }
 
-fn lower_match_expr(
-    scrutinee: &Expr,
-    arms: &[husk_ast::MatchArm],
-    ctx: &CodegenContext,
-) -> JsExpr {
+fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &CodegenContext) -> JsExpr {
     use husk_ast::PatternKind;
 
     let scrutinee_js = lower_expr(scrutinee, ctx);
@@ -2646,7 +2696,7 @@ fn lower_match_expr(
                     property: "tag".to_string(),
                 };
                 Some(JsExpr::Binary {
-                    op: JsBinaryOp::EqEq,
+                    op: JsBinaryOp::StrictEq,
                     left: Box::new(tag_access),
                     right: Box::new(JsExpr::String(variant)),
                 })
@@ -2661,7 +2711,7 @@ fn lower_match_expr(
                         property: "tag".to_string(),
                     };
                     Some(JsExpr::Binary {
-                        op: JsBinaryOp::EqEq,
+                        op: JsBinaryOp::StrictEq,
                         left: Box::new(tag_access),
                         right: Box::new(JsExpr::String(variant_name.clone())),
                     })
@@ -2729,11 +2779,7 @@ fn lower_match_expr(
 
 /// Lower a match expression to if/else statements (for use in statement position).
 /// This allows break/continue in match arms to work correctly.
-fn lower_match_stmt(
-    scrutinee: &Expr,
-    arms: &[husk_ast::MatchArm],
-    ctx: &CodegenContext,
-) -> JsStmt {
+fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &CodegenContext) -> JsStmt {
     use husk_ast::PatternKind;
 
     let scrutinee_js = lower_expr(scrutinee, ctx);
@@ -2757,7 +2803,7 @@ fn lower_match_stmt(
                     property: "tag".to_string(),
                 };
                 Some(JsExpr::Binary {
-                    op: JsBinaryOp::EqEq,
+                    op: JsBinaryOp::StrictEq,
                     left: Box::new(tag_access),
                     right: Box::new(JsExpr::String(variant)),
                 })
@@ -2772,7 +2818,7 @@ fn lower_match_stmt(
                         property: "tag".to_string(),
                     };
                     Some(JsExpr::Binary {
-                        op: JsBinaryOp::EqEq,
+                        op: JsBinaryOp::StrictEq,
                         left: Box::new(tag_access),
                         right: Box::new(JsExpr::String(variant_name.clone())),
                     })
@@ -3881,7 +3927,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -3982,7 +4036,16 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let js = lower_expr(&match_expr, &CodegenContext::new(&PropertyAccessors::default(), &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns));
+        let js = lower_expr(
+            &match_expr,
+            &CodegenContext::new(
+                &PropertyAccessors::default(),
+                &empty_resolution,
+                &empty_type_resolution,
+                &empty_variant_calls,
+                &empty_variant_patterns,
+            ),
+        );
         let mut out = String::new();
         write_expr(&js, &mut out);
 
@@ -4026,7 +4089,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
@@ -4227,7 +4298,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(src.contains("function parse"));
@@ -4304,7 +4383,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Esm,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         // Check for ESM imports at the top
@@ -4344,7 +4431,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Esm, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Esm,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(src.contains("export { main }"));
@@ -4403,7 +4498,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(src.contains("const express = require(\"express\");"));
@@ -4449,7 +4552,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -4516,7 +4625,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -4555,7 +4670,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
         write_expr(&js_expr, &mut js_str);
@@ -4606,7 +4727,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(
@@ -4667,7 +4796,15 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let module = lower_file_to_js(&file, true, JsTarget::Cjs, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
         let src = module.to_source();
 
         assert!(
@@ -4702,7 +4839,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_break = lower_stmt(&break_stmt, &ctx);
         let js_continue = lower_stmt(&continue_stmt, &ctx);
@@ -4753,7 +4896,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -4816,7 +4965,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_expr = lower_expr(&call_expr, &ctx);
 
@@ -4856,7 +5011,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_expr = lower_expr(&path_expr, &ctx);
 
@@ -4929,7 +5090,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
 
@@ -5002,7 +5169,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
 
@@ -5066,7 +5239,13 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
-        let ctx = CodegenContext::new(&accessors, &empty_resolution, &empty_type_resolution, &empty_variant_calls, &empty_variant_patterns);
+        let ctx = CodegenContext::new(
+            &accessors,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
 
@@ -5259,11 +5438,7 @@ mod tests {
         // Test that let (a, _, c) = expr; generates let [a, _, c] = expr;
         use DestructurePattern::*;
 
-        let pattern = vec![
-            Binding("a".to_string()),
-            Wildcard,
-            Binding("c".to_string()),
-        ];
+        let pattern = vec![Binding("a".to_string()), Wildcard, Binding("c".to_string())];
 
         let stmt = JsStmt::LetDestructure {
             pattern,

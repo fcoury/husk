@@ -1,3 +1,10 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::too_many_arguments,
+    clippy::print_literal,
+    clippy::collapsible_str_replace
+)]
+
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -6,12 +13,15 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
-use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, parse as parse_dts, generate as generate_husk};
+use husk_dts_parser::{
+    CodegenOptions as DtsCodegenOptions, OxcDtsParser, convert_oxc_program,
+    generate as generate_husk, prepare_module_metadata,
+};
 mod config;
 mod diagnostic;
 mod load;
 use config::HuskConfig;
-use diagnostic::{report_load_error, SourceDb};
+use diagnostic::{SourceDb, report_load_error};
 use husk_parser::parse_str;
 use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
@@ -294,14 +304,30 @@ fn main() {
             run,
             exec,
             args,
-        }) => run_watch(file.as_deref(), output.as_deref(), target, lib, no_prelude, run, exec.as_deref(), &args, &config),
+        }) => run_watch(
+            file.as_deref(),
+            output.as_deref(),
+            target,
+            lib,
+            no_prelude,
+            run,
+            exec.as_deref(),
+            &args,
+            &config,
+        ),
         Some(Command::Dts { action }) => run_dts(action, &config),
         Some(Command::Test {
             file,
             filter,
             no_prelude,
             quiet,
-        }) => run_test(file.as_deref(), filter.as_deref(), no_prelude, quiet, &config),
+        }) => run_test(
+            file.as_deref(),
+            filter.as_deref(),
+            no_prelude,
+            quiet,
+            &config,
+        ),
         Some(Command::Fmt {
             paths,
             check,
@@ -503,7 +529,17 @@ fn run_compile(
     if source_map {
         // Generate with source map
         let source_path = Path::new(path);
-        let module = lower_file_to_js_with_source(&file, !lib, js_target, Some(&content), Some(source_path), &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
+        let module = lower_file_to_js_with_source(
+            &file,
+            !lib,
+            js_target,
+            Some(&content),
+            Some(source_path),
+            &semantic.name_resolution,
+            &semantic.type_resolution,
+            &semantic.variant_calls,
+            &semantic.variant_patterns,
+        );
         let source_file = Path::new(path)
             .file_name()
             .and_then(|s| s.to_str())
@@ -546,7 +582,17 @@ fn run_compile(
     } else {
         // Standard output (no source map)
         let source_path = Path::new(path);
-        let module = lower_file_to_js_with_source(&file, !lib, js_target, None, Some(source_path), &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
+        let module = lower_file_to_js_with_source(
+            &file,
+            !lib,
+            js_target,
+            None,
+            Some(source_path),
+            &semantic.name_resolution,
+            &semantic.type_resolution,
+            &semantic.variant_calls,
+            &semantic.variant_patterns,
+        );
         let js = module.to_source_with_preamble();
 
         if let Some(output_path) = output {
@@ -590,11 +636,22 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
         }
     };
 
-    debug_log("[huskc] parsing .d.ts");
-    let file = match parse_dts(&content) {
+    debug_log("[huskc] parsing .d.ts with Oxc");
+    let parser = OxcDtsParser::new();
+    let parsed = parser.parse(&content);
+    if !parsed.errors.is_empty() {
+        for err in parsed.errors {
+            eprintln!("Parse error in {}: {:?}", path, err);
+        }
+        std::process::exit(1);
+    }
+
+    let file = match convert_oxc_program(&parsed.program) {
         Ok(f) => f,
-        Err(err) => {
-            eprintln!("Parse error in {}: {}", path, err);
+        Err(errs) => {
+            for err in errs {
+                eprintln!("Conversion error in {}: {}", path, err);
+            }
             std::process::exit(1);
         }
     };
@@ -602,9 +659,12 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
     debug_log("[huskc] generating Husk code");
     let options = DtsCodegenOptions {
         module_name: module.map(String::from),
-        verbose: env::var("HUSKC_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
+        verbose: env::var("HUSKC_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
     };
-    let result = generate_husk(&file, &options);
+    let resolved = prepare_module_metadata(&file);
+    let result = generate_husk(&file, &options, Some(resolved));
 
     // Print warnings to stderr if any
     for warning in &result.warnings {
@@ -810,18 +870,8 @@ fn run_watch(
         .unwrap_or_default();
 
     // Determine run mode from CLI args or config
-    let should_run = run_after
-        || config
-            .watch
-            .as_ref()
-            .and_then(|w| w.run)
-            .unwrap_or(false);
-    let effective_exec = exec_cmd.or_else(|| {
-        config
-            .watch
-            .as_ref()
-            .and_then(|w| w.exec.as_deref())
-    });
+    let should_run = run_after || config.watch.as_ref().and_then(|w| w.run).unwrap_or(false);
+    let effective_exec = exec_cmd.or_else(|| config.watch.as_ref().and_then(|w| w.exec.as_deref()));
 
     println!("Watching {} for changes...", watch_dir.display());
     println!("Output: {}", output_path.display());
@@ -958,7 +1008,8 @@ fn run_watch(
                     kill_child(&mut child_process);
 
                     println!("\n[{}] File changed, recompiling...", chrono_lite_time());
-                    let compile_success = compile_to_file(&path, &output_str, effective_target, lib, no_prelude);
+                    let compile_success =
+                        compile_to_file(&path, &output_str, effective_target, lib, no_prelude);
 
                     // Run after compile if successful
                     if compile_success {
@@ -1120,7 +1171,6 @@ fn detect_target_from_package_json() -> Target {
     Target::Cjs
 }
 
-
 #[allow(clippy::too_many_arguments)]
 fn run_build(
     file: Option<&str>,
@@ -1275,7 +1325,17 @@ fn run_build(
 
     if source_map {
         // Generate with source map
-        let module = lower_file_to_js_with_source(&filtered_ast, !lib, codegen_target, Some(&content), Some(&entry_path), &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
+        let module = lower_file_to_js_with_source(
+            &filtered_ast,
+            !lib,
+            codegen_target,
+            Some(&content),
+            Some(&entry_path),
+            &semantic.name_resolution,
+            &semantic.type_resolution,
+            &semantic.variant_calls,
+            &semantic.variant_patterns,
+        );
         let source_file = entry_path
             .file_name()
             .and_then(|s| s.to_str())
@@ -1304,7 +1364,15 @@ fn run_build(
         }
     } else {
         // No source map
-        let module = lower_file_to_js(&filtered_ast, !lib, codegen_target, &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
+        let module = lower_file_to_js(
+            &filtered_ast,
+            !lib,
+            codegen_target,
+            &semantic.name_resolution,
+            &semantic.type_resolution,
+            &semantic.variant_calls,
+            &semantic.variant_patterns,
+        );
         let js = module.to_source_with_preamble();
 
         if let Err(err) = fs::write(&js_file, &js) {
@@ -1332,7 +1400,13 @@ fn run_build(
     }
 }
 
-fn run_run(file: Option<&str>, target: Option<Target>, no_prelude: bool, args: &[String], config: &HuskConfig) {
+fn run_run(
+    file: Option<&str>,
+    target: Option<Target>,
+    no_prelude: bool,
+    args: &[String],
+    config: &HuskConfig,
+) {
     // Use config output dir or default to "dist"
     let output_dir = config.build.output_dir();
 
@@ -1559,12 +1633,26 @@ fn run_test(
     }
 
     if !quiet {
-        println!("running {} test{}", tests.len(), if tests.len() == 1 { "" } else { "s" });
+        println!(
+            "running {} test{}",
+            tests.len(),
+            if tests.len() == 1 { "" } else { "s" }
+        );
     }
 
     // Compile to JS with lib mode (don't auto-call main)
     let source_path = Path::new(&path);
-    let module = lower_file_to_js_with_source(&file_ast, false, JsTarget::Cjs, Some(&content), Some(source_path), &semantic.name_resolution, &semantic.type_resolution, &semantic.variant_calls, &semantic.variant_patterns);
+    let module = lower_file_to_js_with_source(
+        &file_ast,
+        false,
+        JsTarget::Cjs,
+        Some(&content),
+        Some(source_path),
+        &semantic.name_resolution,
+        &semantic.type_resolution,
+        &semantic.variant_calls,
+        &semantic.variant_patterns,
+    );
 
     // Generate source map for better error messages
     let source_file = source_path
@@ -1696,7 +1784,11 @@ process.exit(failed > 0 ? 1 : 0);
 
 fn run_dts(action: DtsAction, config: &HuskConfig) {
     match action {
-        DtsAction::Add { package, types, output } => run_dts_add(&package, types.as_deref(), output.as_deref(), config),
+        DtsAction::Add {
+            package,
+            types,
+            output,
+        } => run_dts_add(&package, types.as_deref(), output.as_deref(), config),
         DtsAction::Update { package } => run_dts_update(package.as_deref(), config),
         DtsAction::List => run_dts_list(config),
         DtsAction::Remove { package } => run_dts_remove(&package),
@@ -1717,24 +1809,21 @@ fn run_dts_add(package: &str, types: Option<&str>, output: Option<&str>, config:
         .unwrap_or("src/extern");
 
     // Derive output path if not provided
-    let output_path = output
-        .map(String::from)
-        .unwrap_or_else(|| {
-            let safe_name = package
-                .replace('@', "")
-                .replace('/', "_")
-                .replace('-', "_");
-            format!("{}/{}.hk", default_output_dir, safe_name)
-        });
+    let output_path = output.map(String::from).unwrap_or_else(|| {
+        let safe_name = package.replace('@', "").replace('/', "_").replace('-', "_");
+        format!("{}/{}.hk", default_output_dir, safe_name)
+    });
 
     // Check if husk.toml exists, if not create a minimal one
     let toml_path = Path::new("husk.toml");
     let mut doc = if toml_path.exists() {
         let content = fs::read_to_string(toml_path).unwrap_or_default();
-        content.parse::<toml_edit::DocumentMut>().unwrap_or_else(|e| {
-            eprintln!("Failed to parse husk.toml: {e}");
-            std::process::exit(1);
-        })
+        content
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to parse husk.toml: {e}");
+                std::process::exit(1);
+            })
     } else {
         toml_edit::DocumentMut::new()
     };
@@ -1747,7 +1836,10 @@ fn run_dts_add(package: &str, types: Option<&str>, output: Option<&str>, config:
 
     // Add to dts array
     if !doc.contains_key("dts") {
-        doc.insert("dts", toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
+        doc.insert(
+            "dts",
+            toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new()),
+        );
     }
     if let Some(dts_array) = doc.get_mut("dts").and_then(|v| v.as_array_of_tables_mut()) {
         dts_array.push(entry);
@@ -1763,7 +1855,9 @@ fn run_dts_add(package: &str, types: Option<&str>, output: Option<&str>, config:
     println!("  types: {types_pkg}");
     println!("  output: {output_path}");
     println!();
-    println!("Run 'npm install {types_pkg}' to install types, then 'huskc dts update' to generate .hk file.");
+    println!(
+        "Run 'npm install {types_pkg}' to install types, then 'huskc dts update' to generate .hk file."
+    );
 }
 
 fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
@@ -1772,6 +1866,8 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         eprintln!("Use 'huskc dts add <package>' to add one.");
         return;
     }
+
+    let mut oxc_parser = OxcDtsParser::new();
 
     let entries: Vec<_> = if let Some(pkg) = package {
         config.dts.iter().filter(|e| e.package == pkg).collect()
@@ -1817,7 +1913,10 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             None => {
                 eprintln!("  Could not find .d.ts file for {}", entry.package);
                 eprintln!("  Tried: {:?}", dts_paths);
-                eprintln!("  Make sure the types package is installed: npm install {}", types_pkg);
+                eprintln!(
+                    "  Make sure the types package is installed: npm install {}",
+                    types_pkg
+                );
                 continue;
             }
         };
@@ -1831,20 +1930,32 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             }
         };
 
-        let dts_file = match parse_dts(&dts_content) {
+        let parsed = oxc_parser.parse(&dts_content);
+        if !parsed.errors.is_empty() {
+            for err in parsed.errors {
+                eprintln!("  Parse error in {}: {:?}", dts_path, err);
+            }
+            continue;
+        }
+        let dts_file = match convert_oxc_program(&parsed.program) {
             Ok(f) => f,
-            Err(e) => {
-                eprintln!("  Failed to parse {}: {e}", dts_path);
+            Err(errs) => {
+                for e in errs {
+                    eprintln!("  Failed to convert {}: {e}", dts_path);
+                }
                 continue;
             }
         };
+        drop(parsed);
+        oxc_parser.reset();
 
         // Generate Husk code
         let options = DtsCodegenOptions {
             module_name: Some(entry.package.clone()),
             verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
         };
-        let mut result = generate_husk(&dts_file, &options);
+        let resolved = prepare_module_metadata(&dts_file);
+        let mut result = generate_husk(&dts_file, &options, Some(resolved));
 
         // Apply include/exclude filters to the generated code
         // Note: This is a simple post-processing filter. A more robust solution would
@@ -1854,34 +1965,38 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             let exclude_patterns = entry.exclude.as_deref().unwrap_or(&[]);
 
             // Filter code by lines - keep declarations that match include or don't match exclude
-            let filtered_lines: Vec<&str> = result.code.lines().filter(|line| {
-                // Check if this line declares something we want to include/exclude
-                let is_declaration = line.contains("extern struct")
-                    || line.contains("extern fn")
-                    || line.trim().starts_with("fn ");
+            let filtered_lines: Vec<&str> = result
+                .code
+                .lines()
+                .filter(|line| {
+                    // Check if this line declares something we want to include/exclude
+                    let is_declaration = line.contains("extern struct")
+                        || line.contains("extern fn")
+                        || line.trim().starts_with("fn ");
 
-                if !is_declaration {
-                    return true; // Keep non-declaration lines
-                }
-
-                // If include is specified, only keep matching declarations
-                if !include_patterns.is_empty() {
-                    let matches_include = include_patterns.iter().any(|pat| line.contains(pat));
-                    if !matches_include {
-                        return false;
+                    if !is_declaration {
+                        return true; // Keep non-declaration lines
                     }
-                }
 
-                // If exclude is specified, filter out matching declarations
-                if !exclude_patterns.is_empty() {
-                    let matches_exclude = exclude_patterns.iter().any(|pat| line.contains(pat));
-                    if matches_exclude {
-                        return false;
+                    // If include is specified, only keep matching declarations
+                    if !include_patterns.is_empty() {
+                        let matches_include = include_patterns.iter().any(|pat| line.contains(pat));
+                        if !matches_include {
+                            return false;
+                        }
                     }
-                }
 
-                true
-            }).collect();
+                    // If exclude is specified, filter out matching declarations
+                    if !exclude_patterns.is_empty() {
+                        let matches_exclude = exclude_patterns.iter().any(|pat| line.contains(pat));
+                        if matches_exclude {
+                            return false;
+                        }
+                    }
+
+                    true
+                })
+                .collect();
 
             result.code = filtered_lines.join("\n");
         }
@@ -1912,7 +2027,10 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
                     eprintln!("  warning: {}", warning.message);
                 }
             } else {
-                println!("  {} warnings (use warn_level = \"all\" to see details)", result.warnings.len());
+                println!(
+                    "  {} warnings (use warn_level = \"all\" to see details)",
+                    result.warnings.len()
+                );
             }
         }
     }
@@ -1948,7 +2066,10 @@ fn run_dts_list(config: &HuskConfig) {
     for entry in &config.dts {
         let types = entry.types.as_deref().unwrap_or("-");
         let version = entry.version.as_deref().unwrap_or("-");
-        println!("  {} (types: {}, version: {})", entry.package, types, version);
+        println!(
+            "  {} (types: {}, version: {})",
+            entry.package, types, version
+        );
         println!("    -> {}", entry.output);
         if let Some(ref include) = entry.include {
             println!("    include: {:?}", include);
@@ -1979,7 +2100,11 @@ fn run_dts_remove(package: &str) {
     if let Some(dts_array) = doc.get_mut("dts").and_then(|v| v.as_array_of_tables_mut()) {
         let mut i = 0;
         while i < dts_array.len() {
-            if let Some(pkg) = dts_array.get(i).and_then(|t| t.get("package")).and_then(|v| v.as_str()) {
+            if let Some(pkg) = dts_array
+                .get(i)
+                .and_then(|t| t.get("package"))
+                .and_then(|v| v.as_str())
+            {
                 if pkg == package {
                     dts_array.remove(i);
                     removed = true;
@@ -2059,7 +2184,11 @@ fn run_fmt(paths: &[PathBuf], check: bool, print: bool, max_width: usize, indent
                     continue;
                 }
                 if let Err(e) = fs::rename(&temp, file) {
-                    eprintln!("Error renaming {} to {}: {e}", temp.display(), file.display());
+                    eprintln!(
+                        "Error renaming {} to {}: {e}",
+                        temp.display(),
+                        file.display()
+                    );
                     // Try to clean up temp file
                     let _ = fs::remove_file(&temp);
                     had_errors = true;
@@ -2094,7 +2223,9 @@ fn run_fmt(paths: &[PathBuf], check: bool, print: bool, max_width: usize, indent
 /// Discover all .hk files in the given paths.
 fn discover_husk_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut files = Vec::new();
-    let excluded_dirs: HashSet<&str> = ["node_modules", "target", ".git", "dist"].into_iter().collect();
+    let excluded_dirs: HashSet<&str> = ["node_modules", "target", ".git", "dist"]
+        .into_iter()
+        .collect();
 
     for path in paths {
         if path.is_file() {

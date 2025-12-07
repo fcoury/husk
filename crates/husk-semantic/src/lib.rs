@@ -4,6 +4,17 @@
 //! - A basic symbol representation for top-level items.
 //! - A resolver that collects top-level symbols from a `husk_ast::File`.
 
+#![allow(
+    clippy::collapsible_if,
+    clippy::while_let_loop,
+    clippy::unnecessary_map_or,
+    clippy::redundant_closure,
+    clippy::only_used_in_recursion,
+    clippy::match_like_matches_macro,
+    clippy::let_and_return,
+    clippy::manual_map
+)]
+
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
@@ -207,8 +218,14 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
-    let (type_errors, name_resolution, type_resolution, variant_calls, variant_patterns, hover_info) =
-        checker.check_file(&filtered_file);
+    let (
+        type_errors,
+        name_resolution,
+        type_resolution,
+        variant_calls,
+        variant_patterns,
+        hover_info,
+    ) = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
         type_errors,
@@ -472,7 +489,12 @@ impl TypeEnv {
     fn missing_supertraits(&self, type_name: &str, trait_name: &str) -> Vec<String> {
         let mut missing = Vec::new();
         let mut visited = std::collections::HashSet::new();
-        self.collect_missing_supertraits_recursive(type_name, trait_name, &mut missing, &mut visited);
+        self.collect_missing_supertraits_recursive(
+            type_name,
+            trait_name,
+            &mut missing,
+            &mut visited,
+        );
         missing
     }
 
@@ -530,7 +552,8 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
             if args.is_empty() {
                 name.name.clone()
             } else {
-                let args_str = args.iter()
+                let args_str = args
+                    .iter()
                     .map(|a| type_expr_to_name(a))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -563,27 +586,28 @@ fn primitive_type_name(p: &PrimitiveType) -> &'static str {
 /// Used to resolve generic array method return types like `impl<T> [T] { fn slice() -> [T] }`.
 fn substitute_type_param(ty: &Type, param: &str, replacement: &Type) -> Type {
     match ty {
-        Type::Named { name, args } if name == param && args.is_empty() => {
-            replacement.clone()
-        }
-        Type::Named { name, args } => {
-            Type::Named {
-                name: name.clone(),
-                args: args.iter().map(|a| substitute_type_param(a, param, replacement)).collect(),
-            }
-        }
-        Type::Array(elem) => {
-            Type::Array(Box::new(substitute_type_param(elem, param, replacement)))
-        }
-        Type::Function { params, ret } => {
-            Type::Function {
-                params: params.iter().map(|p| substitute_type_param(p, param, replacement)).collect(),
-                ret: Box::new(substitute_type_param(ret, param, replacement)),
-            }
-        }
-        Type::Tuple(elements) => {
-            Type::Tuple(elements.iter().map(|e| substitute_type_param(e, param, replacement)).collect())
-        }
+        Type::Named { name, args } if name == param && args.is_empty() => replacement.clone(),
+        Type::Named { name, args } => Type::Named {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|a| substitute_type_param(a, param, replacement))
+                .collect(),
+        },
+        Type::Array(elem) => Type::Array(Box::new(substitute_type_param(elem, param, replacement))),
+        Type::Function { params, ret } => Type::Function {
+            params: params
+                .iter()
+                .map(|p| substitute_type_param(p, param, replacement))
+                .collect(),
+            ret: Box::new(substitute_type_param(ret, param, replacement)),
+        },
+        Type::Tuple(elements) => Type::Tuple(
+            elements
+                .iter()
+                .map(|e| substitute_type_param(e, param, replacement))
+                .collect(),
+        ),
         Type::Primitive(_) | Type::Var(_) => ty.clone(),
     }
 }
@@ -637,16 +661,27 @@ impl TypeChecker {
                     let type_params_str = if type_params.is_empty() {
                         String::new()
                     } else {
-                        format!("<{}>", type_params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "))
+                        format!(
+                            "<{}>",
+                            type_params
+                                .iter()
+                                .map(|p| p.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
                     };
-                    let fields_str = fields.iter()
+                    let fields_str = fields
+                        .iter()
                         .map(|f| format!("    {}: {}", f.name.name, self.format_type_expr(&f.ty)))
                         .collect::<Vec<_>>()
                         .join(",\n");
                     let signature = if fields.is_empty() {
                         format!("struct {}{} {{}}", name.name, type_params_str)
                     } else {
-                        format!("struct {}{} {{\n{}\n}}", name.name, type_params_str, fields_str)
+                        format!(
+                            "struct {}{} {{\n{}\n}}",
+                            name.name, type_params_str, fields_str
+                        )
                     };
                     self.hover_info.insert(
                         (name.span.range.start, name.span.range.end),
@@ -678,23 +713,39 @@ impl TypeChecker {
                     let type_params_str = if type_params.is_empty() {
                         String::new()
                     } else {
-                        format!("<{}>", type_params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", "))
+                        format!(
+                            "<{}>",
+                            type_params
+                                .iter()
+                                .map(|p| p.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
                     };
-                    let variants_str = variants.iter()
+                    let variants_str = variants
+                        .iter()
                         .map(|v| {
                             let variant_name = &v.name.name;
                             match &v.fields {
                                 EnumVariantFields::Unit => format!("    {}", variant_name),
                                 EnumVariantFields::Tuple(types) => {
-                                    let types_str = types.iter()
+                                    let types_str = types
+                                        .iter()
                                         .map(|t| self.format_type_expr(t))
                                         .collect::<Vec<_>>()
                                         .join(", ");
                                     format!("    {}({})", variant_name, types_str)
                                 }
                                 EnumVariantFields::Struct(fields) => {
-                                    let fields_str = fields.iter()
-                                        .map(|f| format!("{}: {}", f.name.name, self.format_type_expr(&f.ty)))
+                                    let fields_str = fields
+                                        .iter()
+                                        .map(|f| {
+                                            format!(
+                                                "{}: {}",
+                                                f.name.name,
+                                                self.format_type_expr(&f.ty)
+                                            )
+                                        })
                                         .collect::<Vec<_>>()
                                         .join(", ");
                                     format!("    {} {{ {} }}", variant_name, fields_str)
@@ -703,7 +754,10 @@ impl TypeChecker {
                         })
                         .collect::<Vec<_>>()
                         .join(",\n");
-                    let signature = format!("enum {}{} {{\n{}\n}}", name.name, type_params_str, variants_str);
+                    let signature = format!(
+                        "enum {}{} {{\n{}\n}}",
+                        name.name, type_params_str, variants_str
+                    );
                     self.hover_info.insert(
                         (name.span.range.start, name.span.range.end),
                         HoverInfo {
@@ -734,29 +788,40 @@ impl TypeChecker {
                     let type_params_str = if type_params.is_empty() {
                         String::new()
                     } else {
-                        format!("<{}>", type_params.iter()
-                            .map(|p| {
-                                if p.bounds.is_empty() {
-                                    p.name.name.clone()
-                                } else {
-                                    let bounds = p.bounds.iter()
-                                        .map(|b| self.format_type_expr(b))
-                                        .collect::<Vec<_>>()
-                                        .join(" + ");
-                                    format!("{}: {}", p.name.name, bounds)
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", "))
+                        format!(
+                            "<{}>",
+                            type_params
+                                .iter()
+                                .map(|p| {
+                                    if p.bounds.is_empty() {
+                                        p.name.name.clone()
+                                    } else {
+                                        let bounds = p
+                                            .bounds
+                                            .iter()
+                                            .map(|b| self.format_type_expr(b))
+                                            .collect::<Vec<_>>()
+                                            .join(" + ");
+                                        format!("{}: {}", p.name.name, bounds)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
                     };
-                    let params_str = params.iter()
+                    let params_str = params
+                        .iter()
                         .map(|p| format!("{}: {}", p.name.name, self.format_type_expr(&p.ty)))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    let ret_str = ret_type.as_ref()
+                    let ret_str = ret_type
+                        .as_ref()
                         .map(|t| self.format_type_expr(t))
                         .unwrap_or_else(|| "()".to_string());
-                    let signature = format!("fn {}{}({}) -> {}", name.name, type_params_str, params_str, ret_str);
+                    let signature = format!(
+                        "fn {}{}({}) -> {}",
+                        name.name, type_params_str, params_str, ret_str
+                    );
                     self.hover_info.insert(
                         (name.span.range.start, name.span.range.end),
                         HoverInfo {
@@ -790,7 +855,11 @@ impl TypeChecker {
                                 };
                                 self.env.functions.insert(name.name.clone(), def);
                             }
-                            husk_ast::ExternItemKind::Mod { binding, items: mod_items, .. } => {
+                            husk_ast::ExternItemKind::Mod {
+                                binding,
+                                items: mod_items,
+                                ..
+                            } => {
                                 if mod_items.is_empty() {
                                     // Simple module import becomes a callable identifier.
                                     // Try to infer return type from struct in same block:
@@ -799,7 +868,10 @@ impl TypeChecker {
                                     let capitalized = {
                                         let mut chars = binding.name.chars();
                                         match chars.next() {
-                                            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                                            Some(c) => {
+                                                c.to_uppercase().collect::<String>()
+                                                    + chars.as_str()
+                                            }
                                             None => binding.name.clone(),
                                         }
                                     };
@@ -843,7 +915,10 @@ impl TypeChecker {
                             husk_ast::ExternItemKind::Struct { name, type_params } => {
                                 // Register extern struct as a type
                                 let def = StructDef {
-                                    type_params: type_params.iter().map(|p| p.name.clone()).collect(),
+                                    type_params: type_params
+                                        .iter()
+                                        .map(|p| p.name.clone())
+                                        .collect(),
                                     fields: HashMap::new(), // Extern structs are opaque
                                 };
                                 self.env.structs.insert(name.name.clone(), def);
@@ -959,10 +1034,9 @@ impl TypeChecker {
             husk_ast::UseKind::Glob => {
                 // Import all variants
                 for variant in &enum_def.variants {
-                    self.env.variant_imports.insert(
-                        variant.name.clone(),
-                        (enum_name.clone(), variant.clone()),
-                    );
+                    self.env
+                        .variant_imports
+                        .insert(variant.name.clone(), (enum_name.clone(), variant.clone()));
                 }
             }
             husk_ast::UseKind::Variants(variant_idents) => {
@@ -973,10 +1047,9 @@ impl TypeChecker {
                         .iter()
                         .find(|v| v.name == variant_ident.name)
                     {
-                        self.env.variant_imports.insert(
-                            variant.name.clone(),
-                            (enum_name.clone(), variant.clone()),
-                        );
+                        self.env
+                            .variant_imports
+                            .insert(variant.name.clone(), (enum_name.clone(), variant.clone()));
                     }
                     // Note: Unknown variant errors will be caught during type checking
                 }
@@ -1015,7 +1088,9 @@ impl TypeChecker {
 
             // Check that all supertraits are also implemented
             // For example, `impl Eq for Foo` requires `impl PartialEq for Foo`
-            let missing = self.env.missing_supertraits(&impl_info.self_ty_name, trait_name);
+            let missing = self
+                .env
+                .missing_supertraits(&impl_info.self_ty_name, trait_name);
             if !missing.is_empty() {
                 supertrait_errors.push((
                     trait_name.clone(),
@@ -1067,7 +1142,14 @@ impl TypeChecker {
                 ..
             } = &item.kind
             {
-                self.check_fn(name, type_params, params, ret_type.as_ref(), body, item.span.clone());
+                self.check_fn(
+                    name,
+                    type_params,
+                    params,
+                    ret_type.as_ref(),
+                    body,
+                    item.span.clone(),
+                );
             }
         }
         (
@@ -1090,10 +1172,8 @@ impl TypeChecker {
         span: Span,
     ) {
         // Convert type_params to Vec<String> for resolve_type_expr
-        let generic_params: Vec<String> = type_params
-            .iter()
-            .map(|tp| tp.name.name.clone())
-            .collect();
+        let generic_params: Vec<String> =
+            type_params.iter().map(|tp| tp.name.name.clone()).collect();
 
         let ret_ty = if let Some(ty_expr) = ret_type_expr {
             self.resolve_type_expr(ty_expr, &generic_params)
@@ -1190,7 +1270,8 @@ impl TypeChecker {
                 if args.is_empty() {
                     name.name.clone()
                 } else {
-                    let args_str = args.iter()
+                    let args_str = args
+                        .iter()
                         .map(|a| self.format_type_expr(a))
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -1198,7 +1279,8 @@ impl TypeChecker {
                 }
             }
             TypeExprKind::Function { params, ret } => {
-                let params_str = params.iter()
+                let params_str = params
+                    .iter()
                     .map(|p| self.format_type_expr(p))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -1206,7 +1288,8 @@ impl TypeChecker {
             }
             TypeExprKind::Array(elem) => format!("[{}]", self.format_type_expr(elem)),
             TypeExprKind::Tuple(types) => {
-                let types_str = types.iter()
+                let types_str = types
+                    .iter()
                     .map(|t| self.format_type_expr(t))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -1333,16 +1416,16 @@ impl<'a> FnContext<'a> {
         *count += 1;
 
         // Update the current resolved name for this variable
-        self.resolved_names.insert(name.to_string(), resolved.clone());
+        self.resolved_names
+            .insert(name.to_string(), resolved.clone());
 
         // Add to locals for type checking
         self.locals.insert(name.to_string(), ty.clone());
 
         // Register in name resolution map
-        self.tcx.name_resolution.insert(
-            (span.range.start, span.range.end),
-            resolved.clone(),
-        );
+        self.tcx
+            .name_resolution
+            .insert((span.range.start, span.range.end), resolved.clone());
 
         // Register hover info for the variable binding
         let type_str = self.format_type(&ty);
@@ -1362,8 +1445,7 @@ impl<'a> FnContext<'a> {
         // Check for single-segment paths that might be imported variants (e.g., `Some`, `None`, `Ok`, `Err`)
         if segments.len() == 1 {
             let name = &segments[0].name;
-            if let Some((enum_name, variant_def)) =
-                self.tcx.env.variant_imports.get(name).cloned()
+            if let Some((enum_name, variant_def)) = self.tcx.env.variant_imports.get(name).cloned()
             {
                 // This is an imported variant - resolve as if it were Enum::Variant
                 let enum_def = self.tcx.env.enums.get(&enum_name).cloned();
@@ -1667,10 +1749,10 @@ impl<'a> FnContext<'a> {
             PatternKind::Binding(id) => {
                 // Check if this is actually an imported variant pattern, not a variable binding.
                 // We check variant_patterns which was populated by check_match_expr.
-                let is_variant_pattern = self.tcx.variant_patterns.contains_key(&(
-                    pat.span.range.start,
-                    pat.span.range.end,
-                ));
+                let is_variant_pattern = self
+                    .tcx
+                    .variant_patterns
+                    .contains_key(&(pat.span.range.start, pat.span.range.end));
 
                 if !is_variant_pattern {
                     // Check for duplicate binding within the same pattern (e.g., `(x, x)`)
@@ -1793,7 +1875,8 @@ impl<'a> FnContext<'a> {
                 let is_refutable = self.pattern_is_refutable(pattern);
                 if is_refutable && else_block.is_none() {
                     self.tcx.errors.push(SemanticError {
-                        message: "refutable pattern in let binding requires `else` block".to_string(),
+                        message: "refutable pattern in let binding requires `else` block"
+                            .to_string(),
                         span: pattern.span.clone(),
                     });
                 }
@@ -2069,10 +2152,9 @@ impl<'a> FnContext<'a> {
                 if let Some(ty) = self.locals.get(&id.name).cloned() {
                     // Register the resolved name for this variable usage
                     if let Some(resolved) = self.resolved_names.get(&id.name) {
-                        self.tcx.name_resolution.insert(
-                            (id.span.range.start, id.span.range.end),
-                            resolved.clone(),
-                        );
+                        self.tcx
+                            .name_resolution
+                            .insert((id.span.range.start, id.span.range.end), resolved.clone());
                     }
                     // Register hover info for variable usage
                     let type_str = self.format_type(&ty);
@@ -2105,11 +2187,15 @@ impl<'a> FnContext<'a> {
                         params: param_types.clone(),
                         ret: Box::new(ret_ty.clone()),
                     };
-                    let params_str = fn_def.params.iter()
+                    let params_str = fn_def
+                        .params
+                        .iter()
                         .map(|p| format!("{}: {}", p.name.name, self.tcx.format_type_expr(&p.ty)))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    let ret_str = fn_def.ret_type.as_ref()
+                    let ret_str = fn_def
+                        .ret_type
+                        .as_ref()
                         .map(|t| self.tcx.format_type_expr(t))
                         .unwrap_or_else(|| "()".to_string());
                     self.tcx.hover_info.insert(
@@ -2127,7 +2213,9 @@ impl<'a> FnContext<'a> {
                 // Modules are treated as callable with any args, returning an opaque type.
                 if let Some(module_def) = self.tcx.env.modules.get(&id.name) {
                     // Use the stored return type if available, otherwise use the module name
-                    let ret_type_name = module_def.ret_type.clone()
+                    let ret_type_name = module_def
+                        .ret_type
+                        .clone()
                         .unwrap_or_else(|| id.name.clone());
                     return Type::Function {
                         params: Vec::new(),
@@ -2216,7 +2304,11 @@ impl<'a> FnContext<'a> {
                 });
                 Type::Primitive(PrimitiveType::Unit)
             }
-            ExprKind::Call { callee, type_args: _, args } => {
+            ExprKind::Call {
+                callee,
+                type_args: _,
+                args,
+            } => {
                 // Check if the callee is a module import (which accepts any arguments)
                 let is_module_call = match &callee.kind {
                     ExprKind::Ident(id) => self.tcx.env.modules.contains_key(&id.name),
@@ -2243,9 +2335,9 @@ impl<'a> FnContext<'a> {
                 };
 
                 // Get the function definition for generic type inference
-                let fn_def = fn_name.as_ref().and_then(|name| {
-                    self.tcx.env.functions.get(name).cloned()
-                });
+                let fn_def = fn_name
+                    .as_ref()
+                    .and_then(|name| self.tcx.env.functions.get(name).cloned());
 
                 let callee_ty = self.check_expr(callee);
                 let (param_tys, ret_ty) = match callee_ty {
@@ -2273,7 +2365,8 @@ impl<'a> FnContext<'a> {
 
                 // Collect type substitutions for generic functions
                 let mut substitutions = std::collections::HashMap::new();
-                let type_param_names: Vec<String> = fn_def.as_ref()
+                let type_param_names: Vec<String> = fn_def
+                    .as_ref()
                     .map(|d| d.type_param_names())
                     .unwrap_or_default();
 
@@ -2287,7 +2380,12 @@ impl<'a> FnContext<'a> {
 
                         // Collect substitutions for generic type parameters
                         if let Some(param_ty) = expected {
-                            self.unify_types(param_ty, &arg_ty, &type_param_names, &mut substitutions);
+                            self.unify_types(
+                                param_ty,
+                                &arg_ty,
+                                &type_param_names,
+                                &mut substitutions,
+                            );
                         }
 
                         // For generic functions, we skip strict type checking since types
@@ -2329,7 +2427,11 @@ impl<'a> FnContext<'a> {
 
                                 // Check each trait bound
                                 for bound in &type_param.bounds {
-                                    if !self.tcx.env.type_implements_trait(&concrete_type_name, bound) {
+                                    if !self
+                                        .tcx
+                                        .env
+                                        .type_implements_trait(&concrete_type_name, bound)
+                                    {
                                         self.tcx.errors.push(SemanticError {
                                             message: format!(
                                                 "the trait bound `{}: {}` is not satisfied",
@@ -2356,13 +2458,20 @@ impl<'a> FnContext<'a> {
 
                             // Skip if type is JsValue or an extern type (already opaque)
                             if arg_type_name != "JsValue" && !arg_type_name.starts_with('?') {
-                                if !self.tcx.env.type_implements_trait(&arg_type_name, "PartialEq") {
+                                if !self
+                                    .tcx
+                                    .env
+                                    .type_implements_trait(&arg_type_name, "PartialEq")
+                                {
                                     self.tcx.errors.push(SemanticError {
                                         message: format!(
                                             "the trait bound `{}: PartialEq` is not satisfied",
                                             arg_type_name
                                         ),
-                                        span: args.get(i).map(|a| a.span.clone()).unwrap_or_else(|| expr.span.clone()),
+                                        span: args
+                                            .get(i)
+                                            .map(|a| a.span.clone())
+                                            .unwrap_or_else(|| expr.span.clone()),
                                     });
                                 }
                             }
@@ -2407,7 +2516,8 @@ impl<'a> FnContext<'a> {
                         if let Some(field_ty_expr) = def.fields.get(&member.name) {
                             // For now, ignore generic substitution and just resolve as-is.
                             let _ = args;
-                            let field_ty = self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
+                            let field_ty =
+                                self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
                             // Register hover info for struct field access
                             let type_str = self.format_type(&field_ty);
                             self.tcx.hover_info.insert(
@@ -2423,7 +2533,11 @@ impl<'a> FnContext<'a> {
                     }
 
                     // Then check extern properties from impl blocks
-                    let prop_ty = self.tcx.env.impls.iter()
+                    let prop_ty = self
+                        .tcx
+                        .env
+                        .impls
+                        .iter()
                         .find(|info| &info.self_ty_name == name)
                         .and_then(|info| info.properties.get(&member.name))
                         .map(|prop| prop.ty.clone());
@@ -2545,22 +2659,22 @@ impl<'a> FnContext<'a> {
 
                 // Look up the method in impl blocks and get its return type.
                 // Use Option<Option<TypeExpr>> to distinguish "method not found" from "method found with no return type"
-                let method_lookup_result: Option<Option<TypeExpr>> = if let Some(ref type_name) = receiver_type_name
-                {
-                    let mut found = None;
-                    for impl_info in &self.tcx.env.impls {
-                        if impl_info.self_ty_name == *type_name {
-                            if let Some(method_info) = impl_info.methods.get(method_name) {
-                                // Found the method - wrap ret_type in Some to indicate success
-                                found = Some(method_info.ret_type.clone());
-                                break;
+                let method_lookup_result: Option<Option<TypeExpr>> =
+                    if let Some(ref type_name) = receiver_type_name {
+                        let mut found = None;
+                        for impl_info in &self.tcx.env.impls {
+                            if impl_info.self_ty_name == *type_name {
+                                if let Some(method_info) = impl_info.methods.get(method_name) {
+                                    // Found the method - wrap ret_type in Some to indicate success
+                                    found = Some(method_info.ret_type.clone());
+                                    break;
+                                }
                             }
                         }
-                    }
-                    found
-                } else {
-                    None
-                };
+                        found
+                    } else {
+                        None
+                    };
 
                 // Resolve the return type
                 match method_lookup_result {
@@ -2570,7 +2684,9 @@ impl<'a> FnContext<'a> {
                         // with the actual element type of the array receiver.
                         if let Type::Array(elem_ty) = &receiver_ty {
                             // Resolve using "T" as a generic param, then substitute
-                            let resolved = self.tcx.resolve_type_expr(&ret_type_expr, &["T".to_string()]);
+                            let resolved = self
+                                .tcx
+                                .resolve_type_expr(&ret_type_expr, &["T".to_string()]);
                             substitute_type_param(&resolved, "T", elem_ty)
                         } else {
                             self.tcx.resolve_type_expr(&ret_type_expr, &[])
@@ -2701,7 +2817,11 @@ impl<'a> FnContext<'a> {
                     args: Vec::new(),
                 }
             }
-            ExprKind::FormatPrint { format, args, newline: _ } => {
+            ExprKind::FormatPrint {
+                format,
+                args,
+                newline: _,
+            } => {
                 // Count placeholders (excluding escaped braces which are literals)
                 let mut placeholders: Vec<&husk_ast::FormatPlaceholder> = Vec::new();
                 for segment in &format.segments {
@@ -2985,7 +3105,10 @@ impl<'a> FnContext<'a> {
                     let start_ty = self.check_expr(start_expr);
                     if !matches!(start_ty, Type::Primitive(PrimitiveType::I32)) {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("range start must be i32, found {}", self.format_type(&start_ty)),
+                            message: format!(
+                                "range start must be i32, found {}",
+                                self.format_type(&start_ty)
+                            ),
                             span: start_expr.span.clone(),
                         });
                     }
@@ -2996,7 +3119,10 @@ impl<'a> FnContext<'a> {
                     let end_ty = self.check_expr(end_expr);
                     if !matches!(end_ty, Type::Primitive(PrimitiveType::I32)) {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("range end must be i32, found {}", self.format_type(&end_ty)),
+                            message: format!(
+                                "range end must be i32, found {}",
+                                self.format_type(&end_ty)
+                            ),
                             span: end_expr.span.clone(),
                         });
                     }
@@ -3008,7 +3134,11 @@ impl<'a> FnContext<'a> {
                     args: vec![Type::Primitive(PrimitiveType::I32)],
                 }
             }
-            ExprKind::Assign { target, op: _, value } => {
+            ExprKind::Assign {
+                target,
+                op: _,
+                value,
+            } => {
                 // Type check both sides
                 let _target_ty = self.check_expr(target);
                 let value_ty = self.check_expr(value);
@@ -3034,44 +3164,35 @@ impl<'a> FnContext<'a> {
                 // Check if the cast is allowed between primitive types
                 let allowed = match (&inner_ty, &target) {
                     // Numeric conversions: i32 <-> i64 <-> f64
-                    (
-                        Type::Primitive(PrimitiveType::I32),
-                        Type::Primitive(PrimitiveType::I64),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::I64),
-                        Type::Primitive(PrimitiveType::I32),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::I32),
-                        Type::Primitive(PrimitiveType::F64),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::F64),
-                        Type::Primitive(PrimitiveType::I32),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::I64),
-                        Type::Primitive(PrimitiveType::F64),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::F64),
-                        Type::Primitive(PrimitiveType::I64),
-                    ) => true,
+                    (Type::Primitive(PrimitiveType::I32), Type::Primitive(PrimitiveType::I64)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::I64), Type::Primitive(PrimitiveType::I32)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::I32), Type::Primitive(PrimitiveType::F64)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::F64), Type::Primitive(PrimitiveType::I32)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::I64), Type::Primitive(PrimitiveType::F64)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::F64), Type::Primitive(PrimitiveType::I64)) => {
+                        true
+                    }
 
                     // Bool to numeric
-                    (
-                        Type::Primitive(PrimitiveType::Bool),
-                        Type::Primitive(PrimitiveType::I32),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::Bool),
-                        Type::Primitive(PrimitiveType::I64),
-                    ) => true,
-                    (
-                        Type::Primitive(PrimitiveType::Bool),
-                        Type::Primitive(PrimitiveType::F64),
-                    ) => true,
+                    (Type::Primitive(PrimitiveType::Bool), Type::Primitive(PrimitiveType::I32)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::Bool), Type::Primitive(PrimitiveType::I64)) => {
+                        true
+                    }
+                    (Type::Primitive(PrimitiveType::Bool), Type::Primitive(PrimitiveType::F64)) => {
+                        true
+                    }
 
                     // Primitives to String
                     (
@@ -3093,12 +3214,7 @@ impl<'a> FnContext<'a> {
 
                     // Same type (no-op, but allowed) - exclude bool since codegen
                     // doesn't support casting to bool
-                    (a, b)
-                        if a == b
-                            && !matches!(b, Type::Primitive(PrimitiveType::Bool)) =>
-                    {
-                        true
-                    }
+                    (a, b) if a == b && !matches!(b, Type::Primitive(PrimitiveType::Bool)) => true,
 
                     _ => false,
                 };
@@ -3107,7 +3223,9 @@ impl<'a> FnContext<'a> {
                     // Generate helpful error message with hint
                     let hint = match (&inner_ty, &target) {
                         (
-                            Type::Primitive(PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::F64),
+                            Type::Primitive(
+                                PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::F64,
+                            ),
                             Type::Primitive(PrimitiveType::Bool),
                         ) => Some("use explicit comparison like `x != 0` instead"),
                         (
@@ -3150,10 +3268,8 @@ impl<'a> FnContext<'a> {
             }
             ExprKind::Tuple { elements } => {
                 // Type check each element and collect their types
-                let element_types: Vec<Type> = elements
-                    .iter()
-                    .map(|elem| self.check_expr(elem))
-                    .collect();
+                let element_types: Vec<Type> =
+                    elements.iter().map(|elem| self.check_expr(elem)).collect();
                 Type::Tuple(element_types)
             }
             ExprKind::TupleField { base, index } => {
@@ -3325,7 +3441,8 @@ impl<'a> FnContext<'a> {
         match target_ty {
             Some(target) => {
                 // Verify TryFrom<String> is implemented for target type
-                if !self.type_implements_try_from(&target, &Type::Primitive(PrimitiveType::String)) {
+                if !self.type_implements_try_from(&target, &Type::Primitive(PrimitiveType::String))
+                {
                     self.tcx.errors.push(SemanticError {
                         message: format!(
                             "the trait `TryFrom<String>` is not implemented for `{}`",
@@ -3545,7 +3662,9 @@ impl<'a> FnContext<'a> {
             closure_locals.insert(param.name.name.clone(), ty);
 
             // Register closure parameter in name resolution (may shadow outer variables)
-            let count = closure_shadow_counts.entry(param.name.name.clone()).or_insert(0);
+            let count = closure_shadow_counts
+                .entry(param.name.name.clone())
+                .or_insert(0);
             let resolved = if *count == 0 {
                 param.name.name.clone()
             } else {
@@ -3587,7 +3706,8 @@ impl<'a> FnContext<'a> {
         // Create a nested context for the closure body
         let old_locals = std::mem::replace(&mut self.locals, closure_locals);
         let old_shadow_counts = std::mem::replace(&mut self.shadow_counts, closure_shadow_counts);
-        let old_resolved_names = std::mem::replace(&mut self.resolved_names, closure_resolved_names);
+        let old_resolved_names =
+            std::mem::replace(&mut self.resolved_names, closure_resolved_names);
         let old_ret_ty = std::mem::replace(&mut self.ret_ty, expected_ret_ty.clone());
 
         // Check the body and infer return type
@@ -3625,14 +3745,16 @@ impl<'a> FnContext<'a> {
             Type::Array(inner) => format!("[{}]", self.format_type(inner)),
             Type::Named { name, args } if args.is_empty() => name.clone(),
             Type::Named { name, args } => {
-                let args_str = args.iter()
+                let args_str = args
+                    .iter()
                     .map(|a| self.format_type(a))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}<{}>", name, args_str)
             }
             Type::Function { params, ret } => {
-                let params_str = params.iter()
+                let params_str = params
+                    .iter()
                     .map(|p| self.format_type(p))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -3640,7 +3762,8 @@ impl<'a> FnContext<'a> {
             }
             Type::Var(id) => format!("?{}", id.0),
             Type::Tuple(elements) => {
-                let elements_str = elements.iter()
+                let elements_str = elements
+                    .iter()
                     .map(|e| self.format_type(e))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -3671,11 +3794,16 @@ impl<'a> FnContext<'a> {
             Type::Array(elem) => format!("[{}]", self.type_to_name(elem)),
             Type::Function { params, ret } => {
                 let param_strs: Vec<String> = params.iter().map(|p| self.type_to_name(p)).collect();
-                format!("fn({}) -> {}", param_strs.join(", "), self.type_to_name(ret))
+                format!(
+                    "fn({}) -> {}",
+                    param_strs.join(", "),
+                    self.type_to_name(ret)
+                )
             }
             Type::Var(id) => format!("?{}", id.0),
             Type::Tuple(elements) => {
-                let elem_strs: Vec<String> = elements.iter().map(|e| self.type_to_name(e)).collect();
+                let elem_strs: Vec<String> =
+                    elements.iter().map(|e| self.type_to_name(e)).collect();
                 format!("({})", elem_strs.join(", "))
             }
         }
@@ -3723,9 +3851,16 @@ impl<'a> FnContext<'a> {
 
         // Handle function types: compare structurally with generic-aware compatibility
         if let (
-            Type::Function { params: expected_params, ret: expected_ret },
-            Type::Function { params: actual_params, ret: actual_ret }
-        ) = (expected, actual) {
+            Type::Function {
+                params: expected_params,
+                ret: expected_ret,
+            },
+            Type::Function {
+                params: actual_params,
+                ret: actual_ret,
+            },
+        ) = (expected, actual)
+        {
             if expected_params.len() != actual_params.len() {
                 return false;
             }
@@ -3742,9 +3877,16 @@ impl<'a> FnContext<'a> {
         // Handle Named types: if both are the same enum/struct name, treat as compatible
         // even if type args differ (MVP approach for generic enums like Result/Option)
         if let (
-            Type::Named { name: expected_name, .. },
-            Type::Named { name: actual_name, args: actual_args }
-        ) = (expected, actual) {
+            Type::Named {
+                name: expected_name,
+                ..
+            },
+            Type::Named {
+                name: actual_name,
+                args: actual_args,
+            },
+        ) = (expected, actual)
+        {
             if expected_name == actual_name {
                 // If actual has no type args (from enum constructor), allow it
                 if actual_args.is_empty() {
@@ -3811,7 +3953,11 @@ impl<'a> FnContext<'a> {
             }
             Type::Named { name, args } => {
                 // Concrete named type - recursively unify type arguments
-                if let Type::Named { name: arg_name, args: arg_args } = arg_ty {
+                if let Type::Named {
+                    name: arg_name,
+                    args: arg_args,
+                } = arg_ty
+                {
                     if name == arg_name && args.len() == arg_args.len() {
                         for (param_arg, arg_arg) in args.iter().zip(arg_args.iter()) {
                             self.unify_types(param_arg, arg_arg, type_params, substitutions);
@@ -3821,7 +3967,11 @@ impl<'a> FnContext<'a> {
             }
             Type::Function { params, ret } => {
                 // Function type - recursively unify params and return
-                if let Type::Function { params: arg_params, ret: arg_ret } = arg_ty {
+                if let Type::Function {
+                    params: arg_params,
+                    ret: arg_ret,
+                } = arg_ty
+                {
                     if params.len() == arg_params.len() {
                         for (p, a) in params.iter().zip(arg_params.iter()) {
                             self.unify_types(p, a, type_params, substitutions);
@@ -3856,19 +4006,19 @@ impl<'a> FnContext<'a> {
                 // Apply substitutions to type arguments
                 Type::Named {
                     name: name.clone(),
-                    args: args.iter()
+                    args: args
+                        .iter()
                         .map(|a| self.apply_substitutions(a, substitutions))
                         .collect(),
                 }
             }
-            Type::Function { params, ret } => {
-                Type::Function {
-                    params: params.iter()
-                        .map(|p| self.apply_substitutions(p, substitutions))
-                        .collect(),
-                    ret: Box::new(self.apply_substitutions(ret, substitutions)),
-                }
-            }
+            Type::Function { params, ret } => Type::Function {
+                params: params
+                    .iter()
+                    .map(|p| self.apply_substitutions(p, substitutions))
+                    .collect(),
+                ret: Box::new(self.apply_substitutions(ret, substitutions)),
+            },
             _ => ty.clone(),
         }
     }
@@ -3985,9 +4135,7 @@ impl<'a> FnContext<'a> {
                 }
             }
             PatternKind::Binding(ident) => {
-                if let Some((imported_enum, _)) =
-                    self.tcx.env.variant_imports.get(&ident.name)
-                {
+                if let Some((imported_enum, _)) = self.tcx.env.variant_imports.get(&ident.name) {
                     // Validate that scrutinee type matches the imported variant's enum
                     match scrut_ty {
                         Type::Named { name, .. } => {
@@ -4017,10 +4165,7 @@ impl<'a> FnContext<'a> {
                 } else {
                     // Plain binding: irrefutable in if-let / let-else
                     self.tcx.errors.push(SemanticError {
-                        message: format!(
-                            "irrefutable pattern `{}`: will always match",
-                            ident.name
-                        ),
+                        message: format!("irrefutable pattern `{}`: will always match", ident.name),
                         span: span.clone(),
                     });
                 }
@@ -4060,11 +4205,7 @@ impl<'a> FnContext<'a> {
 
     /// Check that struct pattern fields don't contain nested refutable patterns.
     /// We only support top-level field bindings in this initial implementation.
-    fn check_struct_pattern_depth(
-        &mut self,
-        fields: &[(Ident, Pattern)],
-        span: &Span,
-    ) {
+    fn check_struct_pattern_depth(&mut self, fields: &[(Ident, Pattern)], span: &Span) {
         for (_, sub_pattern) in fields {
             match &sub_pattern.kind {
                 // Only simple bindings and wildcards are allowed
@@ -4088,7 +4229,9 @@ impl<'a> FnContext<'a> {
                 // Unit variant imported as bare name (e.g., `None`)
                 if let Some((imported_enum, _)) = self.tcx.env.variant_imports.get(&ident.name) {
                     let should_record = match scrut_ty {
-                        Type::Named { name: enum_name, .. } => imported_enum == enum_name,
+                        Type::Named {
+                            name: enum_name, ..
+                        } => imported_enum == enum_name,
                         Type::Var(_) => true,
                         _ => false,
                     };
@@ -4106,11 +4249,12 @@ impl<'a> FnContext<'a> {
                 // Single-segment imported variant (e.g., `Some(x)`)
                 if path.len() == 1 {
                     let variant_name = &path[0].name;
-                    if let Some((imported_enum, _)) =
-                        self.tcx.env.variant_imports.get(variant_name)
+                    if let Some((imported_enum, _)) = self.tcx.env.variant_imports.get(variant_name)
                     {
                         let should_record = match scrut_ty {
-                            Type::Named { name: enum_name, .. } => imported_enum == enum_name,
+                            Type::Named {
+                                name: enum_name, ..
+                            } => imported_enum == enum_name,
                             Type::Var(_) => true,
                             _ => false,
                         };
@@ -5181,7 +5325,10 @@ fn main() {
                 found_some = true;
             }
         }
-        assert!(found_some, "Should have recorded Some as a variant call for Option enum");
+        assert!(
+            found_some,
+            "Should have recorded Some as a variant call for Option enum"
+        );
     }
 
     #[test]
@@ -5226,7 +5373,10 @@ fn main() {
         let result = analyze_file_without_prelude(&file);
         // Should have a type error for unknown type JsValue
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("unknown type `JsValue`")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("unknown type `JsValue`")),
             "expected unknown type error for JsValue, got: {:?}",
             result.type_errors
         );
@@ -5296,7 +5446,10 @@ fn main() {
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("`break` used outside of loop")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("`break` used outside of loop")),
             "expected break outside loop error, got: {:?}",
             result.type_errors
         );
@@ -5318,7 +5471,10 @@ fn main() {
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("`continue` used outside of loop")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("`continue` used outside of loop")),
             "expected continue outside loop error, got: {:?}",
             result.type_errors
         );
@@ -5461,7 +5617,10 @@ impl Eq for Foo {}
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("missing implementation of supertrait") && e.message.contains("PartialEq")),
+            result.type_errors.iter().any(|e| e
+                .message
+                .contains("missing implementation of supertrait")
+                && e.message.contains("PartialEq")),
             "expected supertrait error, got: {:?}",
             result.type_errors
         );
@@ -5577,7 +5736,11 @@ fn main() {
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("NoEq: PartialEq") && e.message.contains("not satisfied")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("NoEq: PartialEq")
+                    && e.message.contains("not satisfied")),
             "expected trait bound error, got: {:?}",
             result.type_errors
         );
@@ -5606,7 +5769,10 @@ impl Top for Foo {}
         let result = analyze_file(&file);
         // Should error about missing Middle (direct supertrait)
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("Middle")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("Middle")),
             "expected error about missing Middle, got: {:?}",
             result.type_errors
         );
@@ -5661,7 +5827,10 @@ impl Middle for Foo {}
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("Base")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("Base")),
             "expected error about missing Base, got: {:?}",
             result.type_errors
         );
@@ -5716,16 +5885,26 @@ fn main() {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("found f64")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("found f64")),
             "expected error message to contain 'found f64', got: {:?}",
             result.type_errors
         );
         assert!(
-            !result.type_errors.iter().any(|e| e.message.contains("Primitive")),
+            !result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("Primitive")),
             "error message should not contain 'Primitive', got: {:?}",
             result.type_errors
         );
@@ -5742,11 +5921,18 @@ fn main() {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("found String")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("found String")),
             "expected error message to contain 'found String', got: {:?}",
             result.type_errors
         );
@@ -5765,16 +5951,26 @@ fn main() {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("found Foo")),
+            result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("found Foo")),
             "expected error message to contain 'found Foo', got: {:?}",
             result.type_errors
         );
         assert!(
-            !result.type_errors.iter().any(|e| e.message.contains("Named {")),
+            !result
+                .type_errors
+                .iter()
+                .any(|e| e.message.contains("Named {")),
             "error message should not contain debug format 'Named {{', got: {:?}",
             result.type_errors
         );
@@ -5788,7 +5984,11 @@ fn test(s: String) -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5806,7 +6006,11 @@ fn test(s: String) -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5824,7 +6028,11 @@ fn test(s: String) -> bool {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5842,7 +6050,11 @@ fn test(s: String) -> bool {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5860,7 +6072,11 @@ fn test(s: String) -> bool {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5878,7 +6094,11 @@ fn test(arr: [i32]) -> [i32] {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5896,7 +6116,11 @@ fn test(arr: [String]) -> [String] {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5914,7 +6138,11 @@ fn test(arr: [String]) -> String {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5933,7 +6161,11 @@ fn test(s: String) -> String {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5947,7 +6179,11 @@ fn test(s: String) -> String {
     fn i64_type_annotation_works() {
         let src = r#"fn foo() { let x: i64 = 0 as i64; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5961,7 +6197,11 @@ fn test(s: String) -> String {
     fn i64_arithmetic_works() {
         let src = r#"fn foo() { let a: i64 = 1 as i64; let b: i64 = 2 as i64; let c = a + b; let d = a * b; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5975,7 +6215,11 @@ fn test(s: String) -> String {
     fn i64_i32_arithmetic_mismatch_error() {
         let src = r#"fn foo() { let a: i64 = 1 as i64; let b: i32 = 2; let c = a + b; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -5988,7 +6232,11 @@ fn test(s: String) -> String {
     fn i64_cast_from_i32_works() {
         let src = r#"fn foo() { let x: i32 = 42; let y: i64 = x as i64; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6002,7 +6250,11 @@ fn test(s: String) -> String {
     fn i64_cast_to_i32_works() {
         let src = r#"fn foo() { let x: i64 = 42 as i64; let y: i32 = x as i32; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6016,7 +6268,11 @@ fn test(s: String) -> String {
     fn parse_long_returns_i64() {
         let src = r#"fn foo() { let x: i64 = parseLong("123"); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6035,7 +6291,11 @@ fn test(s: String) -> String {
         // let s: String = 42.into();
         let src = r#"fn foo() { let s: String = 42.into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6055,7 +6315,11 @@ fn test(s: String) -> String {
         // let s = 42.into::<String>();
         let src = r#"fn foo() { let s = 42.into::<String>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6070,7 +6334,11 @@ fn test(s: String) -> String {
         // let s = 42.into(); // Cannot infer target type
         let src = r#"fn foo() { let s = 42.into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6090,7 +6358,11 @@ fn test(s: String) -> String {
         // let n = "123".parse::<i32>();
         let src = r#"fn foo() { let n = "123".parse::<i32>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6105,7 +6377,11 @@ fn test(s: String) -> String {
         // let n = "3.14".parse::<f64>();
         let src = r#"fn foo() { let n = "3.14".parse::<f64>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6120,7 +6396,11 @@ fn test(s: String) -> String {
         // let n = "123".parse(); // Missing type argument
         let src = r#"fn foo() { let n = "123".parse(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6134,7 +6414,11 @@ fn test(s: String) -> String {
         // let x: i64 = 42.into();
         let src = r#"fn foo() { let x: i64 = 42.into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6149,7 +6433,11 @@ fn test(s: String) -> String {
         // let x: f64 = 42.into();
         let src = r#"fn foo() { let x: f64 = 42.into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6164,7 +6452,11 @@ fn test(s: String) -> String {
         // let s: String = true.into();
         let src = r#"fn foo() { let s: String = true.into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6179,7 +6471,11 @@ fn test(s: String) -> String {
         // let x: i32 = "hello".into(); // No From<String> for i32
         let src = r#"fn foo() { let x: i32 = "hello".into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6193,7 +6489,11 @@ fn test(s: String) -> String {
         // let n = 42.parse::<i32>(); // parse only works on String
         let src = r#"fn foo() { let n = 42.parse::<i32>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6213,10 +6513,7 @@ fn test(s: String) -> String {
         assert!(result.type_errors.is_empty());
 
         // Find the entry in type_resolution - should be "String"
-        let has_string_target = result
-            .type_resolution
-            .values()
-            .any(|v| v == "String");
+        let has_string_target = result.type_resolution.values().any(|v| v == "String");
         assert!(
             has_string_target,
             "expected type_resolution to contain 'String', got: {:?}",
@@ -6237,7 +6534,11 @@ fn test(s: String) -> String {
             }
         "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6256,7 +6557,11 @@ fn test(s: String) -> String {
             fn foo() { takes_string(42.into()); }
         "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6271,7 +6576,11 @@ fn test(s: String) -> String {
         // fn to_string() -> String { 42.into() }
         let src = r#"fn to_string() -> String { 42.into() }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6286,7 +6595,11 @@ fn test(s: String) -> String {
         // let x = 42.into::<i64>();
         let src = r#"fn foo() { let x = 42.into::<i64>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6301,7 +6614,11 @@ fn test(s: String) -> String {
         // let x = "123".parse::<i64>();
         let src = r#"fn foo() { let x = "123".parse::<i64>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6316,7 +6633,11 @@ fn test(s: String) -> String {
         // let r = (42 as i64).try_into::<i32>();
         let src = r#"fn foo() { let r = (42 as i64).try_into::<i32>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6331,7 +6652,11 @@ fn test(s: String) -> String {
         // let r = (42 as i64).try_into(); // Missing type argument
         let src = r#"fn foo() { let r = (42 as i64).try_into(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6345,7 +6670,11 @@ fn test(s: String) -> String {
         // let r = true.try_into::<i32>(); // No TryFrom<bool> for i32
         let src = r#"fn foo() { let r = true.try_into::<i32>(); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6363,7 +6692,11 @@ fn test(s: String) -> String {
         // let (x, y): i32 = 5; should error
         let src = r#"fn foo() { let (x, y): i32 = 5; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6381,14 +6714,19 @@ fn test(s: String) -> String {
         // let (x, y, z): (i32, String) = (1, "hello"); should error
         let src = r#"fn foo() { let (x, y, z): (i32, String) = (1, "hello"); }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
             result
                 .type_errors
                 .iter()
-                .any(|e| e.message.contains("tuple pattern has") && e.message.contains("fields but type has")),
+                .any(|e| e.message.contains("tuple pattern has")
+                    && e.message.contains("fields but type has")),
             "expected arity mismatch error, got: {:?}",
             result.type_errors
         );
@@ -6399,7 +6737,11 @@ fn test(s: String) -> String {
         // Valid tuple destructuring
         let src = r#"fn foo() { let pair: (i32, String) = (42, "hello"); let (x, y) = pair; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6414,7 +6756,11 @@ fn test(s: String) -> String {
         // Access tuple fields
         let src = r#"fn foo() { let pair: (i32, String) = (42, "hello"); let x: i32 = pair.0; let y: String = pair.1; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6427,9 +6773,14 @@ fn test(s: String) -> String {
     #[test]
     fn tuple_field_access_wrong_type_errors() {
         // Type mismatch on tuple field access
-        let src = r#"fn foo() { let pair: (i32, String) = (42, "hello"); let x: String = pair.0; }"#;
+        let src =
+            r#"fn foo() { let pair: (i32, String) = (42, "hello"); let x: String = pair.0; }"#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6456,7 +6807,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6481,7 +6836,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6505,7 +6864,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6529,7 +6892,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6554,7 +6921,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6577,7 +6948,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6602,7 +6977,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6624,7 +7003,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6647,7 +7030,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6670,7 +7057,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -6697,7 +7088,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(

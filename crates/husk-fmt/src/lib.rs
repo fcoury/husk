@@ -3,6 +3,8 @@
 //! This crate provides formatting functionality that preserves comments
 //! and produces consistent, canonical output.
 
+#![allow(clippy::too_many_arguments, clippy::collapsible_if)]
+
 use husk_lexer::{Lexer, Token};
 use husk_parser::parse_str;
 use std::path::Path;
@@ -81,9 +83,17 @@ mod tests {
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
         // The comment should stay on the same line as the let statement
-        assert!(result.contains("let x = 10; // comment"), "Trailing comment should be on same line as statement. Got:\n{}", result);
+        assert!(
+            result.contains("let x = 10; // comment"),
+            "Trailing comment should be on same line as statement. Got:\n{}",
+            result
+        );
         // The assert should be on its own line, not concatenated with the comment
-        assert!(result.contains("\n    assert(x == 10);"), "assert should be on its own line. Got:\n{}", result);
+        assert!(
+            result.contains("\n    assert(x == 10);"),
+            "assert should be on its own line. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -94,8 +104,16 @@ mod tests {
 #[test]
 fn foo() {}"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("// Test comment"), "Leading comment should be preserved. Got:\n{}", result);
-        assert!(result.starts_with("// Test comment"), "Leading comment should be at the start. Got:\n{}", result);
+        assert!(
+            result.contains("// Test comment"),
+            "Leading comment should be preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.starts_with("// Test comment"),
+            "Leading comment should be at the start. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -107,7 +125,11 @@ fn foo() {}"#;
     fn foo();
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("/// Doc comment"), "Doc comment should be preserved. Got:\n{}", result);
+        assert!(
+            result.contains("/// Doc comment"),
+            "Doc comment should be preserved. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -119,7 +141,11 @@ pub struct User {
     name: String,
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("/// A user struct"), "Doc comment should be preserved. Got:\n{}", result);
+        assert!(
+            result.contains("/// A user struct"),
+            "Doc comment should be preserved. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -148,8 +174,16 @@ pub struct User {
     }
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("// comment one"), "First comment lost. Got:\n{}", result);
-        assert!(result.contains("// comment two"), "Second comment lost. Got:\n{}", result);
+        assert!(
+            result.contains("// comment one"),
+            "First comment lost. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("// comment two"),
+            "Second comment lost. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -174,8 +208,16 @@ pub struct User {
     // outer comment
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("// if comment"), "If block comment lost. Got:\n{}", result);
-        assert!(result.contains("// outer comment"), "Outer comment lost. Got:\n{}", result);
+        assert!(
+            result.contains("// if comment"),
+            "If block comment lost. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("// outer comment"),
+            "Outer comment lost. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -203,11 +245,31 @@ pub struct User {
     let e = "\"";
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains(r#""\n""#), "\\n not preserved. Got:\n{}", result);
-        assert!(result.contains(r#""\t""#), "\\t not preserved. Got:\n{}", result);
-        assert!(result.contains(r#""\r""#), "\\r not preserved. Got:\n{}", result);
-        assert!(result.contains(r#""\\""#), "\\\\ not preserved. Got:\n{}", result);
-        assert!(result.contains(r#""\"""#), "\\\" not preserved. Got:\n{}", result);
+        assert!(
+            result.contains(r#""\n""#),
+            "\\n not preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains(r#""\t""#),
+            "\\t not preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains(r#""\r""#),
+            "\\r not preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains(r#""\\""#),
+            "\\\\ not preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains(r#""\"""#),
+            "\\\" not preserved. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -218,8 +280,16 @@ pub struct User {
     }
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("loop {"), "Expected 'loop {{' in output. Got:\n{}", result);
-        assert!(result.contains("break;"), "Expected 'break;' in output. Got:\n{}", result);
+        assert!(
+            result.contains("loop {"),
+            "Expected 'loop {{' in output. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("break;"),
+            "Expected 'break;' in output. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -230,8 +300,16 @@ pub struct User {
     }
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("loop {"), "Expected 'loop {{' in output. Got:\n{}", result);
-        assert!(result.contains("continue;"), "Expected 'continue;' in output. Got:\n{}", result);
+        assert!(
+            result.contains("loop {"),
+            "Expected 'loop {{' in output. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("continue;"),
+            "Expected 'continue;' in output. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -245,9 +323,21 @@ pub struct User {
     }
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("loop {"), "Expected 'loop {{' in output. Got:\n{}", result);
-        assert!(result.contains("let x = 1;"), "Expected 'let x = 1;' in output. Got:\n{}", result);
-        assert!(result.contains("if x > 0"), "Expected 'if x > 0' in output. Got:\n{}", result);
+        assert!(
+            result.contains("loop {"),
+            "Expected 'loop {{' in output. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("let x = 1;"),
+            "Expected 'let x = 1;' in output. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("if x > 0"),
+            "Expected 'if x > 0' in output. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -261,9 +351,17 @@ pub struct User {
     assert(res == 888911112111);
 }"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains(r#"println("Res: {res}");"#), "Named placeholder should be preserved as {{res}}, not {{0res}}. Got:\n{}", result);
+        assert!(
+            result.contains(r#"println("Res: {res}");"#),
+            "Named placeholder should be preserved as {{res}}, not {{0res}}. Got:\n{}",
+            result
+        );
         // Should NOT contain the malformed {0res} pattern
-        assert!(!result.contains("{0res}"), "Should not contain malformed {{0res}}. Got:\n{}", result);
+        assert!(
+            !result.contains("{0res}"),
+            "Should not contain malformed {{0res}}. Got:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -293,9 +391,21 @@ pub struct User {
 // Second trailing comment
 // Third trailing comment"#;
         let result = format_str(source, &FormatConfig::default()).unwrap();
-        assert!(result.contains("// First trailing comment"), "First trailing comment should be preserved. Got:\n{}", result);
-        assert!(result.contains("// Second trailing comment"), "Second trailing comment should be preserved. Got:\n{}", result);
-        assert!(result.contains("// Third trailing comment"), "Third trailing comment should be preserved. Got:\n{}", result);
+        assert!(
+            result.contains("// First trailing comment"),
+            "First trailing comment should be preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("// Second trailing comment"),
+            "Second trailing comment should be preserved. Got:\n{}",
+            result
+        );
+        assert!(
+            result.contains("// Third trailing comment"),
+            "Third trailing comment should be preserved. Got:\n{}",
+            result
+        );
     }
 
     #[test]

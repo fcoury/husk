@@ -1,8 +1,10 @@
 //! Generate Husk `extern "js"` code from parsed .d.ts AST.
 
 use crate::ast::*;
+use crate::resolver::{ModuleKind, ResolvedModule, resolve_module};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::path::PathBuf;
 
 /// Options for code generation.
 #[derive(Debug, Clone, Default)]
@@ -34,14 +36,30 @@ pub struct CodegenResult {
     pub warnings: Vec<Warning>,
 }
 
+/// Convenience helper to build module metadata before codegen.
+pub fn prepare_module_metadata(file: &DtsFile) -> ResolvedModule {
+    // Path is unused for now; placeholder for future multi-file graph
+    resolve_module(file, &PathBuf::from("<memory>"))
+}
+
 /// Generate Husk code from a parsed .d.ts file.
-pub fn generate(file: &DtsFile, options: &CodegenOptions) -> CodegenResult {
+pub fn generate(
+    file: &DtsFile,
+    options: &CodegenOptions,
+    resolved: Option<ResolvedModule>,
+) -> CodegenResult {
     let mut codegen = Codegen::new(options);
+    codegen.resolved_module = resolved;
     codegen.generate_file(file);
     CodegenResult {
         code: codegen.output,
         warnings: codegen.warnings,
     }
+}
+
+/// Convenience wrapper retaining old call sites.
+pub fn generate_simple(file: &DtsFile, options: &CodegenOptions) -> CodegenResult {
+    generate(file, options, None)
 }
 
 struct Codegen<'a> {
@@ -66,6 +84,8 @@ struct Codegen<'a> {
     in_struct_context: bool,
     /// The name of the current struct/interface being processed (for `this` type).
     current_type_name: Option<String>,
+    /// Resolved module metadata (if provided).
+    resolved_module: Option<ResolvedModule>,
 }
 
 struct GeneratedFn {
@@ -108,6 +128,7 @@ impl<'a> Codegen<'a> {
             method_type_params: HashSet::new(),
             in_struct_context: false,
             current_type_name: None,
+            resolved_module: None,
         }
     }
 
@@ -132,6 +153,13 @@ impl<'a> Codegen<'a> {
         // Merge overloaded functions and methods
         self.merge_function_overloads();
         self.merge_method_overloads();
+
+        // Capture export= if available from resolved metadata
+        if let Some(res) = &self.resolved_module {
+            if res.export_equals.is_some() {
+                // nothing else to do now; we just keep it for emit_extern_block
+            }
+        }
 
         // Second pass: generate code
         self.emit_header();
@@ -1073,18 +1101,36 @@ impl<'a> Codegen<'a> {
         writeln!(self.output).unwrap();
     }
 
+    fn module_identity(&self) -> ModuleKind {
+        if let Some(resolved) = &self.resolved_module {
+            resolved.module_kind()
+        } else {
+            ModuleKind::Standard
+        }
+    }
+
     fn emit_extern_block(&mut self) {
         writeln!(self.output, "extern \"js\" {{").unwrap();
 
         // Module import
         if let Some(mod_name) = &self.options.module_name {
-            if is_valid_identifier(mod_name) {
-                writeln!(self.output, "    mod {};", mod_name).unwrap();
-            } else {
-                let alias = derive_binding_from_package(mod_name);
-                writeln!(self.output, "    mod \"{}\" as {};", mod_name, alias).unwrap();
+            match self.module_identity() {
+                ModuleKind::Callable { .. } => {
+                    // callable modules handled via functions; skip mod import
+                }
+                ModuleKind::Constructable { .. } => {
+                    // also handled via function signature below
+                }
+                ModuleKind::Standard => {
+                    if is_valid_identifier(mod_name) {
+                        writeln!(self.output, "    mod {};", mod_name).unwrap();
+                    } else {
+                        let alias = derive_binding_from_package(mod_name);
+                        writeln!(self.output, "    mod \"{}\" as {};", mod_name, alias).unwrap();
+                    }
+                    writeln!(self.output).unwrap();
+                }
             }
-            writeln!(self.output).unwrap();
         }
 
         // Structs
@@ -1124,6 +1170,27 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output, ";").unwrap();
+        }
+        // If module is callable/constructable, emit shim
+        if let Some(mod_name) = &self.options.module_name {
+            match self.module_identity() {
+                ModuleKind::Callable => {
+                    // If export= points to a function we already collected, skip extra shim
+                    let already = self.functions.iter().any(|f| f.name == *mod_name);
+                    if !already {
+                        writeln!(self.output, "    fn {}();", mod_name).unwrap();
+                    }
+                }
+                ModuleKind::Constructable => {
+                    let ty = self
+                        .resolved_module
+                        .as_ref()
+                        .and_then(|r| r.export_equals.clone())
+                        .unwrap_or_else(|| mod_name.to_string());
+                    writeln!(self.output, "    fn {}() -> {};", mod_name, ty).unwrap();
+                }
+                ModuleKind::Standard => {}
+            }
         }
 
         writeln!(self.output, "}}").unwrap();
@@ -1350,7 +1417,7 @@ mod tests {
     fn test_generate_simple_function() {
         let src = "declare function add(a: number, b: number): number;";
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("fn add(a: f64, b: f64) -> f64;"));
     }
@@ -1364,7 +1431,7 @@ mod tests {
             }
         "#;
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("struct Server;"));
         assert!(result.code.contains("impl Server {"));
@@ -1380,7 +1447,7 @@ mod tests {
     fn test_generate_generic_function() {
         let src = "declare function identity<T>(x: T): T;";
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("fn identity<T>(x: T) -> T;"));
     }
@@ -1389,7 +1456,7 @@ mod tests {
     fn test_generate_optional_params() {
         let src = "declare function foo(a: string, b?: number): void;";
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("fn foo(a: String, b: Option<f64>);"));
     }
@@ -1398,7 +1465,7 @@ mod tests {
     fn test_generate_callback_function() {
         let src = "declare function setTimeout(callback: () => void, ms: number): number;";
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(
             result
@@ -1414,7 +1481,7 @@ mod tests {
             declare function find(id: string): User | null;
         "#;
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("fn find(id: String) -> Option<User>;"));
     }
@@ -1423,7 +1490,7 @@ mod tests {
     fn test_generate_array_type() {
         let src = "declare function getItems(): string[];";
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("fn getItems() -> JsArray<String>;"));
     }
@@ -1435,7 +1502,7 @@ mod tests {
             declare function fetch(url: string): Promise<Response>;
         "#;
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(
             result
@@ -1454,6 +1521,7 @@ mod tests {
                 module_name: Some("express".to_string()),
                 ..Default::default()
             },
+            None,
         );
 
         assert!(result.code.contains("mod express;"));
@@ -1463,7 +1531,7 @@ mod tests {
     fn test_escaped_keywords() {
         let src = "declare function type(mod: string): void;";
         let file = parse(src).unwrap();
-        let result = generate(&file, &CodegenOptions::default());
+        let result = generate(&file, &CodegenOptions::default(), None);
 
         assert!(result.code.contains("fn type_(mod_: String);"));
     }

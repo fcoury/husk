@@ -122,15 +122,18 @@ fn dfs_load<P: ContentProvider>(
         if !dep_fs_path.exists() {
             return Err(LoadError::Missing(dep_mod_path.join("::")));
         }
-        dfs_load(&dep_fs_path, root, dep_mod_path, modules, visiting, order, provider)?;
+        dfs_load(
+            &dep_fs_path,
+            root,
+            dep_mod_path,
+            modules,
+            visiting,
+            order,
+            provider,
+        )?;
     }
 
-    modules.insert(
-        module_path.clone(),
-        Module {
-            file: file.clone(),
-        },
-    );
+    modules.insert(module_path.clone(), Module { file });
     order.push(module_path.clone());
     visiting.remove(&module_path);
     Ok(())
@@ -230,7 +233,9 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                             ItemKind::Struct { name, .. } | ItemKind::Enum { name, .. } => {
                                 imported_types.insert(name.name.clone());
                             }
-                            ItemKind::ExternBlock { items: ext_items, .. } => {
+                            ItemKind::ExternBlock {
+                                items: ext_items, ..
+                            } => {
                                 // If we're importing from an extern block, track the type
                                 for ext in ext_items {
                                     if let ExternItemKind::Struct { name, .. } = &ext.kind {
@@ -252,7 +257,10 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
 
                         // For extern blocks, avoid adding the same block multiple times
                         // (e.g., when importing multiple items from the same extern block)
-                        if let ItemKind::ExternBlock { items: ext_items, .. } = &export.kind {
+                        if let ItemKind::ExternBlock {
+                            items: ext_items, ..
+                        } = &export.kind
+                        {
                             // Check if all structs in this block have already been included
                             let all_structs_included = ext_items.iter().all(|ext| {
                                 if let ExternItemKind::Struct { name, .. } = &ext.kind {
@@ -310,7 +318,9 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
         for item in &module.file.items {
             match &item.kind {
                 // Include extern blocks that declare imported types
-                ItemKind::ExternBlock { items: ext_items, .. } => {
+                ItemKind::ExternBlock {
+                    items: ext_items, ..
+                } => {
                     let has_imported_type = ext_items.iter().any(|ext| {
                         if let ExternItemKind::Struct { name, .. } = &ext.kind {
                             imported_types.contains(&name.name)
@@ -396,7 +406,10 @@ fn find_pub_item<'a>(file: &'a File, name: &str) -> Option<&'a Item> {
 
     // Then, check extern block items (they don't have explicit visibility on individual items)
     for item in &file.items {
-        if let ItemKind::ExternBlock { items: ext_items, .. } = &item.kind {
+        if let ItemKind::ExternBlock {
+            items: ext_items, ..
+        } = &item.kind
+        {
             for ext in ext_items {
                 if matches_extern_item_name(&ext.kind, name) {
                     // Return the extern block containing this item
