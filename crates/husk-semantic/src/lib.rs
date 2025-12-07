@@ -856,6 +856,43 @@ impl TypeChecker {
                                 // Register extern const - treated same as static for lookups
                                 self.env.statics.insert(name.name.clone(), ty.clone());
                             }
+                            husk_ast::ExternItemKind::Impl { self_ty, items, .. } => {
+                                // Handle impl blocks inside extern blocks - register methods on the type
+                                let self_ty_name = type_expr_to_name(self_ty);
+                                let mut methods = HashMap::new();
+                                let mut properties = HashMap::new();
+                                for item in items {
+                                    match &item.kind {
+                                        husk_ast::ImplItemKind::Method(method) => {
+                                            methods.insert(
+                                                method.name.name.clone(),
+                                                MethodInfo {
+                                                    receiver: method.receiver,
+                                                    params: method.params.clone(),
+                                                    ret_type: method.ret_type.clone(),
+                                                },
+                                            );
+                                        }
+                                        husk_ast::ImplItemKind::Property(prop) => {
+                                            properties.insert(
+                                                prop.name.name.clone(),
+                                                PropertyInfo {
+                                                    ty: prop.ty.clone(),
+                                                    has_getter: prop.has_getter(),
+                                                    has_setter: prop.has_setter(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                                self.env.impls.push(ImplInfo {
+                                    trait_name: None, // Extern impls don't implement traits
+                                    self_ty_name,
+                                    methods,
+                                    properties,
+                                    span: ext.span.clone(),
+                                });
+                            }
                         }
                     }
                 }
@@ -4366,6 +4403,17 @@ impl Resolver {
                         }
                         husk_ast::ExternItemKind::Const { name, .. } => {
                             self.add_symbol(name, SymbolKind::ExternStatic);
+                        }
+                        husk_ast::ExternItemKind::Impl { self_ty, .. } => {
+                            // Impl blocks inside extern don't define a named symbol,
+                            // but we track them with a synthetic name
+                            let self_ty_name = type_expr_to_name(self_ty);
+                            let impl_name = format!("<extern impl {}>", self_ty_name);
+                            let synth_ident = Ident {
+                                name: impl_name,
+                                span: ext.span.clone(),
+                            };
+                            self.add_symbol(&synth_ident, SymbolKind::Impl);
                         }
                     }
                 }

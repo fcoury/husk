@@ -25,3 +25,5 @@ serde_json = "1.0"
 tempfile = "3"
 husk-parser = { path = "../husk-parser" }
 husk-lexer = { path = "../husk-lexer" }
+husk-semantic = { path = "../husk-semantic" }
+husk-codegen-js = { path = "../husk-codegen-js" }

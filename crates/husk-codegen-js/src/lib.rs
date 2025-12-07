@@ -756,6 +756,10 @@ pub fn lower_file_to_js_with_source(
                                 // Const declarations don't generate code -
                                 // they declare global JS constants accessible directly
                             }
+                            ExternItemKind::Impl { .. } => {
+                                // Impl blocks in extern are just declarations -
+                                // the actual methods live on JS objects
+                            }
                         }
                     }
                 }

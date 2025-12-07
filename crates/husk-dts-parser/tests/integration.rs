@@ -1387,3 +1387,203 @@ fn test_real_better_sqlite3_types() {
     println!("Resolved files: {}", resolved.files.len());
     println!("Parsed items: {}", bindings_ast.items.len());
 }
+
+/// End-to-end test: compile Husk code with better-sqlite3 bindings and execute with Node.js.
+/// This validates the full pipeline: parse → semantic analysis → codegen → execute.
+#[test]
+fn test_better_sqlite3_e2e_execution() {
+    use std::collections::HashSet;
+    use std::process::Command;
+
+    // Skip if Node.js not available
+    fn has_node() -> bool {
+        Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    if !has_node() {
+        eprintln!("[husk] node not found on PATH; skipping e2e execution test");
+        return;
+    }
+
+    let fixtures_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures");
+
+    // Check if better-sqlite3 is installed
+    let sqlite_check = fixtures_dir
+        .join("node_modules")
+        .join("better-sqlite3");
+
+    if !sqlite_check.exists() {
+        eprintln!(
+            "Skipping e2e test - better-sqlite3 not installed. Run: cd {} && npm install",
+            fixtures_dir.display()
+        );
+        return;
+    }
+
+    // Minimal Husk program with hand-written better-sqlite3 bindings
+    let husk_program = r#"
+// Minimal better-sqlite3 bindings
+extern "js" {
+    mod "better-sqlite3" as better_sqlite3;
+
+    struct Database;
+    struct Statement;
+    struct RunResult;
+}
+
+impl Database {
+    extern "js" fn exec(self, source: String) -> Database;
+    extern "js" fn prepare(self, source: String) -> Statement;
+    extern "js" fn close(self) -> Database;
+}
+
+impl Statement {
+    extern "js" fn run(self) -> RunResult;
+    extern "js" fn all(self) -> JsValue;
+}
+
+impl RunResult {
+    #[getter]
+    extern "js" changes: f64;
+}
+
+fn main() {
+    // Create in-memory database
+    let db = better_sqlite3(":memory:");
+
+    // Create a table
+    db.exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)");
+
+    // Insert a row
+    let insert = db.prepare("INSERT INTO test (name) VALUES ('Alice')");
+    let result = insert.run();
+
+    // Query the data
+    let query = db.prepare("SELECT * FROM test");
+    let rows = query.all();
+
+    // Close the database
+    db.close();
+
+    // Print success message that we'll check for
+    println("E2E_SUCCESS: Database operations completed");
+    println("Changes: {}", result.changes);
+}
+"#;
+
+    println!("=== Parsing Husk program ===");
+
+    // 1. Parse the Husk program
+    let parse_result = husk_parser::parse_str(husk_program);
+    if !parse_result.errors.is_empty() {
+        for err in &parse_result.errors {
+            eprintln!("Parse error: {} at {:?}", err.message, err.span);
+        }
+        panic!("Failed to parse Husk program");
+    }
+    let file = parse_result.file.expect("Should have parsed file");
+    println!("Parsed {} items", file.items.len());
+
+    // 2. Semantic analysis
+    println!("=== Running semantic analysis ===");
+    let sem = husk_semantic::analyze_file(&file);
+
+    if !sem.symbols.errors.is_empty() {
+        for err in &sem.symbols.errors {
+            eprintln!("Symbol error: {:?}", err);
+        }
+    }
+    if !sem.type_errors.is_empty() {
+        for err in &sem.type_errors {
+            eprintln!("Type error: {:?}", err);
+        }
+    }
+
+    // Note: Some warnings are expected due to simplified bindings
+    // We just check there are no fatal errors
+    let has_fatal_errors = sem.symbols.errors.iter().any(|e| {
+        // Filter out expected unresolved type errors for JsValue, etc.
+        !format!("{:?}", e).contains("JsValue")
+            && !format!("{:?}", e).contains("Unresolved")
+    });
+
+    if has_fatal_errors {
+        panic!(
+            "Semantic analysis failed with errors: symbols={:?}, types={:?}",
+            sem.symbols.errors, sem.type_errors
+        );
+    }
+    println!("Semantic analysis complete");
+
+    // 3. Code generation
+    println!("=== Generating JavaScript ===");
+
+    // Filter cfg items (none in this case)
+    let filtered_file = husk_semantic::filter_items_by_cfg(&file, &HashSet::new());
+
+    let module = husk_codegen_js::lower_file_to_js(
+        &filtered_file,
+        true, // bin mode - auto-call main
+        husk_codegen_js::JsTarget::Cjs,
+        &sem.name_resolution,
+        &sem.type_resolution,
+        &sem.variant_calls,
+        &sem.variant_patterns,
+    );
+
+    let js_code = module.to_source_with_preamble();
+    println!("Generated {} bytes of JavaScript", js_code.len());
+
+    // Save JS for debugging
+    let js_path = fixtures_dir.join("test_e2e.js");
+    std::fs::write(&js_path, &js_code).expect("Failed to write JS file");
+    println!("Saved to: {}", js_path.display());
+
+    // 4. Execute with Node.js
+    println!("=== Executing with Node.js ===");
+
+    let output = Command::new("node")
+        .arg(&js_path)
+        .current_dir(&fixtures_dir)
+        .output()
+        .expect("Failed to execute node");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    println!("stdout:\n{}", stdout);
+    if !stderr.is_empty() {
+        println!("stderr:\n{}", stderr);
+    }
+
+    // Clean up test file
+    let _ = std::fs::remove_file(&js_path);
+
+    // 5. Validate output
+    assert!(
+        output.status.success(),
+        "Node execution failed with status: {:?}\nstderr: {}",
+        output.status,
+        stderr
+    );
+
+    assert!(
+        stdout.contains("E2E_SUCCESS"),
+        "Expected success message not found in output: {}",
+        stdout
+    );
+
+    assert!(
+        stdout.contains("Changes: 1"),
+        "Expected 'Changes: 1' in output: {}",
+        stdout
+    );
+
+    println!("\n=== E2E Test PASSED ===");
+}

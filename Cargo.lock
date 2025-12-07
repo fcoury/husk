@@ -632,8 +632,10 @@ name = "husk-dts-parser"
 version = "0.1.3"
 dependencies = [
  "heck",
+ "husk-codegen-js",
  "husk-lexer",
  "husk-parser",
+ "husk-semantic",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",

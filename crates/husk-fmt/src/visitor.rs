@@ -594,6 +594,38 @@ impl<'a> Formatter<'a> {
                 self.write(";");
                 self.newline();
             }
+            ExternItemKind::Impl {
+                type_params,
+                self_ty,
+                items,
+            } => {
+                self.write_indent();
+                self.write("impl");
+                if !type_params.is_empty() {
+                    self.write("<");
+                    for (i, tp) in type_params.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(&tp.name.name);
+                    }
+                    self.write(">");
+                }
+                self.write(" ");
+                self.format_type(self_ty);
+                self.write(" {");
+                self.newline();
+                self.indent += 1;
+                for impl_item in items {
+                    self.emit_leading_trivia(&impl_item.span);
+                    self.format_impl_item(impl_item, impl_item.span.range.end);
+                    self.emit_trailing_trivia(&impl_item.span);
+                }
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+                self.newline();
+            }
         }
     }
 
