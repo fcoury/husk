@@ -1437,6 +1437,82 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output, "}}\n").unwrap();
+
+            // from_js helper
+            writeln!(self.output, "impl {} {{", u.name).unwrap();
+            writeln!(
+                self.output,
+                "    pub fn from_js(value: JsValue) -> Option<Self> {{"
+            )
+            .unwrap();
+            writeln!(self.output, "        let s = value.toString();").unwrap();
+
+            // String literal-only unions
+            if u.variants
+                .iter()
+                .all(|v| matches!(v, UnionVariant::StrLiteral(_)))
+            {
+                writeln!(self.output, "        match s.as_str() {{").unwrap();
+                for v in &u.variants {
+                    if let UnionVariant::StrLiteral(lit) = v {
+                        writeln!(
+                            self.output,
+                            "            \"{}\" => Some({}::{}),",
+                            lit,
+                            u.name,
+                            literal_variant_name(lit)
+                        )
+                        .unwrap();
+                    }
+                }
+                writeln!(self.output, "            _ => None,").unwrap();
+                writeln!(self.output, "        }}").unwrap();
+            } else {
+                // Primitive unions
+                let has_str = u
+                    .variants
+                    .iter()
+                    .any(|v| matches!(v, UnionVariant::PrimitiveStr));
+                let has_num = u
+                    .variants
+                    .iter()
+                    .any(|v| matches!(v, UnionVariant::PrimitiveNum));
+                let has_bool = u
+                    .variants
+                    .iter()
+                    .any(|v| matches!(v, UnionVariant::PrimitiveBool));
+
+                if has_num {
+                    writeln!(self.output, "        if let Ok(n) = s.parse::<f64>() {{").unwrap();
+                    writeln!(self.output, "            return Some({}::Num(n));", u.name).unwrap();
+                    writeln!(self.output, "        }}").unwrap();
+                }
+                if has_bool {
+                    writeln!(self.output, "        if s == \"true\" {{").unwrap();
+                    writeln!(
+                        self.output,
+                        "            return Some({}::Bool(true));",
+                        u.name
+                    )
+                    .unwrap();
+                    writeln!(self.output, "        }} else if s == \"false\" {{").unwrap();
+                    writeln!(
+                        self.output,
+                        "            return Some({}::Bool(false));",
+                        u.name
+                    )
+                    .unwrap();
+                    writeln!(self.output, "        }}").unwrap();
+                }
+                if has_str {
+                    writeln!(self.output, "        Some({}::Str(s))", u.name).unwrap();
+                } else {
+                    writeln!(self.output, "        None").unwrap();
+                }
+            }
+
+            writeln!(self.output, "    }}").unwrap();
+            writeln!(self.output, "}}\n").unwrap();
         }
     }
 
