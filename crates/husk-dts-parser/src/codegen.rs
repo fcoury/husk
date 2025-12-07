@@ -126,6 +126,8 @@ struct Codegen<'a> {
     keys: HashSet<String>,
     /// Collected union shims to emit (primitive + string literal unions).
     unions: Vec<GeneratedUnion>,
+    /// Original field definitions for interfaces/classes (name -> fields).
+    struct_fields: HashMap<String, Vec<FieldDef>>,
     /// Collected functions (before overload merging).
     functions: Vec<GeneratedFn>,
     /// Collected impl blocks: type name -> methods (before overload merging).
@@ -174,6 +176,13 @@ struct GeneratedProperty {
 }
 
 #[derive(Debug, Clone)]
+struct FieldDef {
+    name: String,
+    ty: DtsType,
+    optional: bool,
+}
+
+#[derive(Debug, Clone)]
 struct GeneratedUnion {
     name: String,
     variants: Vec<UnionVariant>,
@@ -196,6 +205,7 @@ impl<'a> Codegen<'a> {
             structs: HashSet::new(),
             keys: HashSet::new(),
             unions: Vec::new(),
+            struct_fields: HashMap::new(),
             functions: Vec::new(),
             impls: HashMap::new(),
             properties: HashMap::new(),
@@ -510,6 +520,7 @@ impl<'a> Codegen<'a> {
 
     fn collect_interface(&mut self, i: &DtsInterface) {
         self.structs.insert(i.name.clone());
+        self.struct_fields.entry(i.name.clone()).or_default();
         self.in_struct_context = true;
         self.current_type_name = Some(i.name.clone());
 
@@ -617,6 +628,15 @@ impl<'a> Codegen<'a> {
                             .entry(i.name.clone())
                             .or_default()
                             .push((p.name.clone(), final_type));
+
+                        self.struct_fields
+                            .entry(i.name.clone())
+                            .or_default()
+                            .push(FieldDef {
+                                name: p.name.clone(),
+                                ty: p.ty.clone(),
+                                optional: p.optional,
+                            });
                     }
                 }
                 InterfaceMember::CallSignature(_) => {
@@ -791,6 +811,15 @@ impl<'a> Codegen<'a> {
                         .entry(c.name.clone())
                         .or_default()
                         .push((p.name.clone(), haskey_ty));
+
+                    self.struct_fields
+                        .entry(c.name.clone())
+                        .or_default()
+                        .push(FieldDef {
+                            name: p.name.clone(),
+                            ty: p.ty.clone().unwrap_or(DtsType::Primitive(Primitive::Any)),
+                            optional: p.optional,
+                        });
                 }
                 ClassMember::IndexSignature(_) => {
                     self.warn(
@@ -983,6 +1012,17 @@ impl<'a> Codegen<'a> {
             return "JsValue".to_string();
         }
 
+        // Utility types first
+        if simple_name == "Partial" && type_args.len() == 1 {
+            return self.expand_partial(type_args[0].clone());
+        }
+        if simple_name == "Pick" && type_args.len() == 2 {
+            return self.expand_pick(type_args[0].clone(), type_args[1].clone());
+        }
+        if simple_name == "Omit" && type_args.len() == 2 {
+            return self.expand_omit(type_args[0].clone(), type_args[1].clone());
+        }
+
         // Map well-known types using simple name
         match simple_name {
             "Array" | "ReadonlyArray" => {
@@ -1005,8 +1045,8 @@ impl<'a> Codegen<'a> {
             "RegExp" => "JsValue".to_string(),
             "Error" => "JsValue".to_string(),
             "Function" => "JsFn".to_string(),
-            "Partial" | "Required" | "Readonly" | "Pick" | "Omit" | "Record" | "Exclude"
-            | "Extract" | "NonNullable" | "ReturnType" | "Parameters" | "InstanceType" => {
+            "Required" | "Readonly" | "Record" | "Exclude" | "Extract" | "NonNullable"
+            | "ReturnType" | "Parameters" | "InstanceType" => {
                 // TypeScript utility types - map to JsValue
                 self.warn(
                     WarningKind::Unsupported,
@@ -1313,6 +1353,179 @@ impl<'a> Codegen<'a> {
             }
             DtsType::Parenthesized(inner) => self.collect_keys_from_type(inner),
             DtsType::This => {}
+        }
+    }
+
+    fn expand_partial(&mut self, target: DtsType) -> String {
+        let base = match target {
+            DtsType::Named { name, .. } => name.split('.').last().unwrap_or(&name).to_string(),
+            _ => {
+                self.warn(WarningKind::Unsupported, "Partial<T>: unsupported target");
+                return "JsValue".to_string();
+            }
+        };
+
+        let fields = match self.struct_fields.get(&base) {
+            Some(f) if !f.is_empty() => f.clone(),
+            _ => {
+                self.warn(
+                    WarningKind::Simplified,
+                    format!("Partial<{}> mapped to JsValue (unknown target)", base),
+                );
+                return "JsValue".to_string();
+            }
+        };
+
+        let name = format!("Partial_{}", base);
+        self.build_struct_from_fields(&name, &fields, true);
+        name
+    }
+
+    fn expand_pick(&mut self, target: DtsType, keys: DtsType) -> String {
+        let base = match target {
+            DtsType::Named { name, .. } => name.split('.').last().unwrap_or(&name).to_string(),
+            _ => {
+                self.warn(WarningKind::Unsupported, "Pick<T, K>: unsupported target");
+                return "JsValue".to_string();
+            }
+        };
+
+        let Some(fields) = self.struct_fields.get(&base).cloned() else {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Pick<{}> mapped to JsValue (unknown target)", base),
+            );
+            return "JsValue".to_string();
+        };
+
+        let Some(key_list) = self.extract_string_keys(keys) else {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Pick<{}> mapped to JsValue (unsupported keys)", base),
+            );
+            return "JsValue".to_string();
+        };
+
+        let filtered: Vec<FieldDef> = fields
+            .into_iter()
+            .filter(|f| key_list.contains(&f.name))
+            .collect();
+
+        if filtered.is_empty() {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Pick<{}> empty selection mapped to JsValue", base),
+            );
+            return "JsValue".to_string();
+        }
+
+        let name = format!("Pick_{}_{}", base, key_list.join("_"));
+        self.build_struct_from_fields(&name, &filtered, false);
+        name
+    }
+
+    fn expand_omit(&mut self, target: DtsType, keys: DtsType) -> String {
+        let base = match target {
+            DtsType::Named { name, .. } => name.split('.').last().unwrap_or(&name).to_string(),
+            _ => {
+                self.warn(WarningKind::Unsupported, "Omit<T, K>: unsupported target");
+                return "JsValue".to_string();
+            }
+        };
+
+        let Some(fields) = self.struct_fields.get(&base).cloned() else {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Omit<{}> mapped to JsValue (unknown target)", base),
+            );
+            return "JsValue".to_string();
+        };
+
+        let Some(key_list) = self.extract_string_keys(keys) else {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Omit<{}> mapped to JsValue (unsupported keys)", base),
+            );
+            return "JsValue".to_string();
+        };
+
+        let filtered: Vec<FieldDef> = fields
+            .into_iter()
+            .filter(|f| !key_list.contains(&f.name))
+            .collect();
+
+        if filtered.is_empty() {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Omit<{}> removed all fields; mapped to JsValue", base),
+            );
+            return "JsValue".to_string();
+        }
+
+        let name = format!("Omit_{}_{}", base, key_list.join("_"));
+        self.build_struct_from_fields(&name, &filtered, false);
+        name
+    }
+
+    fn extract_string_keys(&self, ty: DtsType) -> Option<Vec<String>> {
+        match ty {
+            DtsType::StringLiteral(s) => Some(vec![s]),
+            DtsType::Union(list) => {
+                let mut keys = Vec::new();
+                for t in list {
+                    if let DtsType::StringLiteral(s) = t {
+                        keys.push(s);
+                    } else {
+                        return None;
+                    }
+                }
+                Some(keys)
+            }
+            _ => None,
+        }
+    }
+
+    fn build_struct_from_fields(&mut self, name: &str, fields: &[FieldDef], force_optional: bool) {
+        if self.structs.contains(name) {
+            return;
+        }
+
+        let mut props = Vec::new();
+        let mut haskey = Vec::new();
+        let mut stored = Vec::new();
+
+        for f in fields {
+            let mapped = self.map_type(&f.ty);
+            let final_type = if force_optional || f.optional {
+                format!("Option<{}>", mapped)
+            } else {
+                mapped
+            };
+
+            props.push(GeneratedProperty {
+                name: escape_keyword(&f.name),
+                ty: final_type.clone(),
+                is_readonly: false,
+                is_static: false,
+            });
+            haskey.push((f.name.clone(), final_type.clone()));
+            stored.push(FieldDef {
+                name: f.name.clone(),
+                ty: f.ty.clone(),
+                optional: force_optional || f.optional,
+            });
+        }
+
+        self.structs.insert(name.to_string());
+
+        if !props.is_empty() {
+            self.properties.insert(name.to_string(), props);
+        }
+        if !haskey.is_empty() {
+            self.haskey_fields.insert(name.to_string(), haskey);
+        }
+        if !stored.is_empty() {
+            self.struct_fields.insert(name.to_string(), stored);
         }
     }
 
