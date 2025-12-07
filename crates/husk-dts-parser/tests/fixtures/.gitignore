@@ -1,2 +1,4 @@
-node_modules/
-package-lock.json
+node_modules
+generated_bindings.husk
+test_program.husk
+test_e2e.js

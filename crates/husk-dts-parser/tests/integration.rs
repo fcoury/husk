@@ -1404,7 +1404,7 @@ fn test_better_sqlite3_e2e_execution() {
     use husk_dts_parser::resolver::{Resolver, ResolveOptions};
     use husk_dts_parser::generate_from_module;
     use std::collections::HashSet;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     // Skip if Node.js not available
@@ -1416,29 +1416,36 @@ fn test_better_sqlite3_e2e_execution() {
             .unwrap_or(false)
     }
 
-    if !has_node() {
-        eprintln!("[husk] node not found on PATH; skipping e2e execution test");
-        return;
+    assert!(
+        has_node(),
+        "[husk] node not found on PATH; install Node.js to run e2e execution test"
+    );
+
+    fn has_npm() -> bool {
+        Command::new("npm")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
+
+    assert!(
+        has_npm(),
+        "[husk] npm not found on PATH; install npm to run e2e execution test"
+    );
 
     let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures");
 
-    // Check if better-sqlite3 is installed
     let types_path = fixtures_dir
         .join("node_modules")
         .join("@types")
         .join("better-sqlite3")
         .join("index.d.ts");
 
-    if !types_path.exists() {
-        eprintln!(
-            "Skipping e2e test - @types/better-sqlite3 not installed. Run: cd {} && npm install",
-            fixtures_dir.display()
-        );
-        return;
-    }
+    println!("=== Step 0: Preparing fixture dependencies ===");
+    ensure_better_sqlite3_ready(&fixtures_dir, &types_path);
 
     // =====================================================
     // STEP 1: Parse TypeScript definitions
@@ -1494,7 +1501,7 @@ fn main() {
     // Insert a row
     let insert = db.prepare("INSERT INTO test (name) VALUES ('Alice')");
     // Note: run() takes optional bind parameters - using empty array literal
-    let result = insert.run([]);
+    let result: RunResult = insert.run([]);
 
     // Query the data
     let query = db.prepare("SELECT * FROM test");
@@ -1585,6 +1592,15 @@ fn main() {
     println!("Semantic analysis complete ({} symbol errors, {} type errors)",
              symbol_errors.len(), type_errors.len());
 
+    assert!(
+        symbol_errors.is_empty(),
+        "Semantic analysis reported symbol errors; see stderr above"
+    );
+    assert!(
+        type_errors.is_empty(),
+        "Semantic analysis reported type errors; see stderr above"
+    );
+
     // =====================================================
     // STEP 6: Code generation
     // =====================================================
@@ -1667,4 +1683,50 @@ fn main() {
     );
 
     println!("\n=== E2E Integration Test PASSED ===");
+
+    fn ensure_better_sqlite3_ready(fixtures_dir: &Path, types_path: &Path) {
+        // Quick probe: can we load and use better-sqlite3 with the current binary?
+        fn module_is_usable(fixtures_dir: &Path) -> bool {
+            Command::new("node")
+                .arg("-e")
+                .arg(
+                    "const Database = require('better-sqlite3'); const db = new Database(':memory:'); db.exec('SELECT 1');",
+                )
+                .current_dir(fixtures_dir)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+
+        fn run_npm_ci(fixtures_dir: &Path) {
+            let status = Command::new("npm")
+                .arg("ci")
+                .current_dir(fixtures_dir)
+                .status()
+                .expect("Failed to spawn npm");
+            assert!(
+                status.success(),
+                "npm ci failed in {} with status {:?}",
+                fixtures_dir.display(),
+                status
+            );
+        }
+
+        if !types_path.exists() || !module_is_usable(fixtures_dir) {
+            println!("Installing fixture dependencies with npm ci...");
+            run_npm_ci(fixtures_dir);
+        }
+
+        assert!(
+            types_path.exists(),
+            "@types/better-sqlite3 missing after npm ci in {}",
+            fixtures_dir.display()
+        );
+        assert!(
+            module_is_usable(fixtures_dir),
+            "better-sqlite3 failed to load; ensure native module is built for this host. \
+             Tried after npm ci in {}",
+            fixtures_dir.display()
+        );
+    }
 }

@@ -2020,6 +2020,49 @@ impl<'a> Codegen<'a> {
         sorted_types.sort();
 
         for type_name in sorted_types {
+            // Substitute struct-level generic parameters with JsValue because extern impl parsing
+            // does not support generics and leaving the raw parameter names creates unbound types.
+            let generic_params: Vec<String> = self
+                .structs
+                .get(type_name)
+                .cloned()
+                .unwrap_or_default();
+            let substitute_generics = |ty: &str| -> String {
+                if generic_params.is_empty() {
+                    return ty.to_string();
+                }
+
+                let is_ident_char = |c: char| c.is_ascii_alphanumeric() || c == '_';
+                let mut out = String::new();
+                let mut current = String::new();
+
+                for ch in ty.chars() {
+                    if is_ident_char(ch) {
+                        current.push(ch);
+                    } else {
+                        if !current.is_empty() {
+                            if generic_params.iter().any(|gp| gp == &current) {
+                                out.push_str("JsValue");
+                            } else {
+                                out.push_str(&current);
+                            }
+                            current.clear();
+                        }
+                        out.push(ch);
+                    }
+                }
+
+                if !current.is_empty() {
+                    if generic_params.iter().any(|gp| gp == &current) {
+                        out.push_str("JsValue");
+                    } else {
+                        out.push_str(&current);
+                    }
+                }
+
+                out
+            };
+
             let methods = self
                 .impls
                 .get(type_name)
@@ -2065,7 +2108,13 @@ impl<'a> Codegen<'a> {
                     .unwrap();
                 }
 
-                writeln!(self.output, "    extern \"js\" {}: {};", p.name, p.ty).unwrap();
+                writeln!(
+                    self.output,
+                    "    extern \"js\" {}: {};",
+                    p.name,
+                    substitute_generics(&p.ty)
+                )
+                .unwrap();
             }
 
             // Add blank line between properties and methods if both exist
@@ -2108,13 +2157,13 @@ impl<'a> Codegen<'a> {
                     if i > 0 || need_comma {
                         write!(self.output, ", ").unwrap();
                     }
-                    write!(self.output, "{}: {}", name, ty).unwrap();
+                    write!(self.output, "{}: {}", name, substitute_generics(ty)).unwrap();
                     need_comma = false; // Only need to track for first param
                 }
                 write!(self.output, ")").unwrap();
 
                 if let Some(ret) = &m.return_type {
-                    write!(self.output, " -> {}", ret).unwrap();
+                    write!(self.output, " -> {}", substitute_generics(ret)).unwrap();
                 }
 
                 writeln!(self.output, ";").unwrap();
