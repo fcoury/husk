@@ -22,6 +22,7 @@ pub struct CodegenOptions {
 pub struct Warning {
     pub message: String,
     pub kind: WarningKind,
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,14 +228,33 @@ impl<'a> Codegen<'a> {
     }
 
     fn warn(&mut self, kind: WarningKind, message: impl Into<String>) {
+        self.warn_with_context(kind, message, None);
+    }
+
+    fn warn_with_context(
+        &mut self,
+        kind: WarningKind,
+        message: impl Into<String>,
+        context: Option<String>,
+    ) {
         let msg = message.into();
+        let ctx_prefix = context
+            .as_ref()
+            .map(|c| format!("[{c}] "))
+            .unwrap_or_default();
+
         if msg.contains("JsValue") {
-            self.diag_messages.push(format!("JsValue fallback: {msg}"));
+            self.diag_messages
+                .push(format!("{}JsValue fallback: {}", ctx_prefix, msg));
         } else {
-            self.diag_messages.push(msg.clone());
+            self.diag_messages.push(format!("{}{}", ctx_prefix, msg));
         }
 
-        self.warnings.push(Warning { message: msg, kind });
+        self.warnings.push(Warning {
+            message: msg,
+            kind,
+            context,
+        });
     }
 
     fn generate_file(&mut self, file: &DtsFile) {
