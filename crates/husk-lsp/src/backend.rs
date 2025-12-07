@@ -13,8 +13,8 @@ use tower_lsp::{Client, LanguageServer};
 use tracing::{debug, info, instrument, warn};
 
 use husk_lang::load::{
-    assemble_root, load_graph_with_provider, module_path_to_file, ContentProvider, LoadError,
-    ModuleGraph,
+    ContentProvider, LoadError, ModuleGraph, assemble_root, load_graph_with_provider,
+    module_path_to_file,
 };
 use husk_lexer::Token;
 use husk_semantic::{SemanticOptions, SemanticResult};
@@ -144,9 +144,11 @@ impl HuskBackend {
         // Build module graph
         let graph = match load_graph_with_provider(entry, &provider) {
             Ok(g) => {
-                debug!("Module graph loaded with {} modules: {:?}",
+                debug!(
+                    "Module graph loaded with {} modules: {:?}",
                     g.modules.len(),
-                    g.modules.keys().collect::<Vec<_>>());
+                    g.modules.keys().collect::<Vec<_>>()
+                );
                 g
             }
             Err(err) => {
@@ -177,9 +179,11 @@ impl HuskBackend {
                 cfg_flags: HashSet::new(),
             },
         );
-        debug!("Semantic analysis: {} symbol errors, {} type errors",
+        debug!(
+            "Semantic analysis: {} symbol errors, {} type errors",
             semantic.symbols.errors.len(),
-            semantic.type_errors.len());
+            semantic.type_errors.len()
+        );
 
         // Get the project root (entry point's parent directory)
         // This is the same root used by load_graph_with_provider for module resolution
@@ -274,10 +278,7 @@ impl HuskBackend {
             LoadError::Missing(module) => {
                 // Show at workspace level via log message
                 self.client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!("Module '{}' not found", module),
-                    )
+                    .log_message(MessageType::ERROR, format!("Module '{}' not found", module))
                     .await;
             }
             LoadError::Cycle(module) => {
@@ -326,7 +327,10 @@ impl HuskBackend {
             }
             None => {
                 // No project found - fall back to single-file mode
-                debug!("No husk project found for {:?}, using single-file mode", file_path);
+                debug!(
+                    "No husk project found for {:?}, using single-file mode",
+                    file_path
+                );
                 analyze_and_publish_diagnostics(&self.client, uri, &text).await;
                 return;
             }
@@ -552,7 +556,9 @@ impl LanguageServer for HuskBackend {
         let graph = self.module_graph.read().await;
         let entry = self.entry_point.read().await.clone();
         // Get project root from entry point (same as used in module loading)
-        let project_root = entry.as_ref().and_then(|e| e.parent().map(|p| p.to_path_buf()));
+        let project_root = entry
+            .as_ref()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()));
 
         if let (Some(graph), Some(root)) = (graph.as_ref(), project_root) {
             // Search ALL modules for definition
@@ -585,10 +591,12 @@ impl LanguageServer for HuskBackend {
                                             module = module_path.join("::"),
                                             "Found cross-file definition (file not open)"
                                         );
-                                        return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                                            uri: target_uri,
-                                            range: Range { start, end },
-                                        })));
+                                        return Ok(Some(GotoDefinitionResponse::Scalar(
+                                            Location {
+                                                uri: target_uri,
+                                                range: Range { start, end },
+                                            },
+                                        )));
                                     }
                                 }
                             }
@@ -741,37 +749,26 @@ impl LanguageServer for HuskBackend {
 }
 
 /// Extract definition info from an item if it matches the given name
-fn item_definition_info<'a>(item: &'a husk_ast::Item, name: &str) -> Option<(&'a str, &'a husk_ast::Span)> {
+fn item_definition_info<'a>(
+    item: &'a husk_ast::Item,
+    name: &str,
+) -> Option<(&'a str, &'a husk_ast::Span)> {
     match &item.kind {
-        husk_ast::ItemKind::Fn {
-            name: n,
-            ..
-        } if n.name == name => Some((&n.name, &n.span)),
-        husk_ast::ItemKind::Struct {
-            name: n,
-            ..
-        } if n.name == name => Some((&n.name, &n.span)),
-        husk_ast::ItemKind::Enum {
-            name: n,
-            ..
-        } if n.name == name => Some((&n.name, &n.span)),
-        husk_ast::ItemKind::TypeAlias {
-            name: n,
-            ..
-        } if n.name == name => Some((&n.name, &n.span)),
+        husk_ast::ItemKind::Fn { name: n, .. } if n.name == name => Some((&n.name, &n.span)),
+        husk_ast::ItemKind::Struct { name: n, .. } if n.name == name => Some((&n.name, &n.span)),
+        husk_ast::ItemKind::Enum { name: n, .. } if n.name == name => Some((&n.name, &n.span)),
+        husk_ast::ItemKind::TypeAlias { name: n, .. } if n.name == name => Some((&n.name, &n.span)),
         husk_ast::ItemKind::Trait(t) if t.name.name == name => Some((&t.name.name, &t.name.span)),
         husk_ast::ItemKind::ExternBlock { items, .. } => {
             // Search within extern block
             for ext_item in items {
                 match &ext_item.kind {
-                    husk_ast::ExternItemKind::Struct {
-                        name: n,
-                        ..
-                    } if n.name == name => return Some((&n.name, &n.span)),
-                    husk_ast::ExternItemKind::Fn {
-                        name: n,
-                        ..
-                    } if n.name == name => return Some((&n.name, &n.span)),
+                    husk_ast::ExternItemKind::Struct { name: n, .. } if n.name == name => {
+                        return Some((&n.name, &n.span));
+                    }
+                    husk_ast::ExternItemKind::Fn { name: n, .. } if n.name == name => {
+                        return Some((&n.name, &n.span));
+                    }
                     _ => {}
                 }
             }

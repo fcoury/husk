@@ -1,3 +1,9 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::for_kv_map,
+    clippy::manual_unwrap_or_default
+)]
+
 //! Husk Language Server Protocol implementation.
 //!
 //! This binary provides LSP support for Husk, enabling IDE features like
@@ -14,7 +20,7 @@
 //! Log levels: error, warn, info, debug, trace
 
 use tower_lsp::{LspService, Server};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 mod backend;
 mod diagnostics;
@@ -22,8 +28,7 @@ mod document;
 
 fn init_tracing() {
     // Use HUSK_LSP_LOG env var, defaulting to "info" if not set
-    let filter = EnvFilter::try_from_env("HUSK_LSP_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_env("HUSK_LSP_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(filter)

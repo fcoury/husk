@@ -508,7 +508,13 @@ declare function foo(): void;"#;
         let src = r#""hello" 'world'"#;
         let tokens = Lexer::new(src).tokenize();
 
-        assert_eq!(tokens[0].kind, TokenKind::StringLiteral("hello".to_string()));
-        assert_eq!(tokens[1].kind, TokenKind::StringLiteral("world".to_string()));
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::StringLiteral("hello".to_string())
+        );
+        assert_eq!(
+            tokens[1].kind,
+            TokenKind::StringLiteral("world".to_string())
+        );
     }
 }

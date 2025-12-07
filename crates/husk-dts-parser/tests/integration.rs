@@ -1,6 +1,6 @@
 //! Integration tests for husk-dts-parser using real-world .d.ts samples.
 
-use husk_dts_parser::{parse, generate, CodegenOptions};
+use husk_dts_parser::{CodegenOptions, generate, parse};
 
 /// Test parsing a simple hand-crafted .d.ts file.
 #[test]
@@ -35,21 +35,45 @@ fn test_simple_express_like() {
     assert!(file.items.len() >= 4, "Expected at least 4 items");
 
     // Generate Husk code
-    let result = generate(&file, &CodegenOptions {
-        module_name: Some("express".to_string()),
-        verbose: false,
-    });
+    let result = generate(
+        &file,
+        &CodegenOptions {
+            module_name: Some("express".to_string()),
+            verbose: false,
+        },
+    );
 
     // Check generated code
-    assert!(result.code.contains("mod express;"), "Should include module import");
-    assert!(result.code.contains("struct Request;"), "Should include Request struct");
-    assert!(result.code.contains("struct Response;"), "Should include Response struct");
-    assert!(result.code.contains("struct Application;"), "Should include Application struct");
-    assert!(result.code.contains("fn createApp() -> Application;"), "Should include createApp function");
+    assert!(
+        result.code.contains("mod express;"),
+        "Should include module import"
+    );
+    assert!(
+        result.code.contains("struct Request;"),
+        "Should include Request struct"
+    );
+    assert!(
+        result.code.contains("struct Response;"),
+        "Should include Response struct"
+    );
+    assert!(
+        result.code.contains("struct Application;"),
+        "Should include Application struct"
+    );
+    assert!(
+        result.code.contains("fn createApp() -> Application;"),
+        "Should include createApp function"
+    );
 
     // Check impl blocks
-    assert!(result.code.contains("impl Response {"), "Should include Response impl");
-    assert!(result.code.contains("impl Application {"), "Should include Application impl");
+    assert!(
+        result.code.contains("impl Response {"),
+        "Should include Response impl"
+    );
+    assert!(
+        result.code.contains("impl Application {"),
+        "Should include Application impl"
+    );
 }
 
 /// Test parsing a node path-like module.
@@ -89,10 +113,26 @@ fn test_node_path_like() {
     assert!(result.code.contains("impl Path {"));
 
     // Check methods
-    assert!(result.code.contains("fn normalize(self, path: String) -> String;"));
-    assert!(result.code.contains("fn join(self, paths: JsArray<String>) -> String;"));
-    assert!(result.code.contains("fn isAbsolute(self, path: String) -> bool;"));
-    assert!(result.code.contains("fn basename(self, path: String, suffix: Option<String>) -> String;"));
+    assert!(
+        result
+            .code
+            .contains("fn normalize(self, path: String) -> String;")
+    );
+    assert!(
+        result
+            .code
+            .contains("fn join(self, paths: JsArray<String>) -> String;")
+    );
+    assert!(
+        result
+            .code
+            .contains("fn isAbsolute(self, path: String) -> bool;")
+    );
+    assert!(
+        result
+            .code
+            .contains("fn basename(self, path: String, suffix: Option<String>) -> String;")
+    );
 }
 
 /// Test parsing Promise-based async APIs.
@@ -119,8 +159,14 @@ fn test_async_api() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Check Promise handling
-    assert!(result.code.contains("fn open(path: String, mode: Option<String>) -> JsPromise<FileHandle>;"));
-    assert!(result.code.contains("fn read(self, buffer: Buffer, offset: f64, length: f64) -> JsPromise<ReadResult>;"));
+    assert!(
+        result
+            .code
+            .contains("fn open(path: String, mode: Option<String>) -> JsPromise<FileHandle>;")
+    );
+    assert!(result.code.contains(
+        "fn read(self, buffer: Buffer, offset: f64, length: f64) -> JsPromise<ReadResult>;"
+    ));
     assert!(result.code.contains("fn close(self) -> JsPromise<()>;"));
 }
 
@@ -145,11 +191,23 @@ fn test_callback_api() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Check callback functions
-    assert!(result.code.contains("fn setTimeout(callback: fn() -> (), ms: f64) -> f64;"));
-    assert!(result.code.contains("fn setInterval(callback: fn() -> (), ms: f64) -> f64;"));
+    assert!(
+        result
+            .code
+            .contains("fn setTimeout(callback: fn() -> (), ms: f64) -> f64;")
+    );
+    assert!(
+        result
+            .code
+            .contains("fn setInterval(callback: fn() -> (), ms: f64) -> f64;")
+    );
 
     // Check methods with callbacks - these have parameters so use JsFn
-    assert!(result.code.contains("fn on(self, event: String, listener: fn(JsValue) -> ());"));
+    assert!(
+        result
+            .code
+            .contains("fn on(self, event: String, listener: fn(JsValue) -> ());")
+    );
 }
 
 /// Test parsing generic types.
@@ -172,8 +230,16 @@ fn test_generic_types() {
 
     // Check generic functions
     assert!(result.code.contains("fn identity<T>(x: T) -> T;"));
-    assert!(result.code.contains("fn map<T, U>(arr: JsArray<T>, fn_: fn(T) -> U) -> JsArray<U>;"));
-    assert!(result.code.contains("fn filter<T>(arr: JsArray<T>, predicate: fn(T) -> bool) -> JsArray<T>;"));
+    assert!(
+        result
+            .code
+            .contains("fn map<T, U>(arr: JsArray<T>, fn_: fn(T) -> U) -> JsArray<U>;")
+    );
+    assert!(
+        result
+            .code
+            .contains("fn filter<T>(arr: JsArray<T>, predicate: fn(T) -> bool) -> JsArray<T>;")
+    );
 
     // Check generic interface
     assert!(result.code.contains("struct Box;"));
@@ -201,7 +267,11 @@ fn test_optional_nullable() {
 
     // Check nullable returns become Option
     assert!(result.code.contains("fn find(id: String) -> Option<User>;"));
-    assert!(result.code.contains("fn findOrCreate(id: String) -> Option<User>;"));
+    assert!(
+        result
+            .code
+            .contains("fn findOrCreate(id: String) -> Option<User>;")
+    );
 
     // Check optional params
     assert!(result.code.contains("fn process(data: Option<String>);"));
@@ -232,8 +302,16 @@ fn test_class_with_constructor() {
     assert!(result.code.contains("impl Buffer {"));
 
     // Check methods
-    assert!(result.code.contains("fn toString(self, encoding: Option<String>) -> String;"));
-    assert!(result.code.contains("fn slice(self, start: Option<f64>, end: Option<f64>) -> Buffer;"));
+    assert!(
+        result
+            .code
+            .contains("fn toString(self, encoding: Option<String>) -> String;")
+    );
+    assert!(
+        result
+            .code
+            .contains("fn slice(self, start: Option<f64>, end: Option<f64>) -> Buffer;")
+    );
 }
 
 /// Test that reserved keywords are escaped.
@@ -256,7 +334,11 @@ fn test_keyword_escaping() {
     assert!(result.code.contains("fn struct_(fn_: f64) -> bool;"));
 
     // Check escaped method names
-    assert!(result.code.contains("fn match_(self, pattern: String) -> bool;"));
+    assert!(
+        result
+            .code
+            .contains("fn match_(self, pattern: String) -> bool;")
+    );
 }
 
 /// Test module name handling.
@@ -266,24 +348,33 @@ fn test_module_name_variants() {
     let file = parse(dts).expect("Failed to parse");
 
     // Simple module name
-    let result = generate(&file, &CodegenOptions {
-        module_name: Some("express".to_string()),
-        verbose: false,
-    });
+    let result = generate(
+        &file,
+        &CodegenOptions {
+            module_name: Some("express".to_string()),
+            verbose: false,
+        },
+    );
     assert!(result.code.contains("mod express;"));
 
     // Hyphenated module name
-    let result = generate(&file, &CodegenOptions {
-        module_name: Some("lodash-es".to_string()),
-        verbose: false,
-    });
+    let result = generate(
+        &file,
+        &CodegenOptions {
+            module_name: Some("lodash-es".to_string()),
+            verbose: false,
+        },
+    );
     assert!(result.code.contains(r#"mod "lodash-es" as lodash_es;"#));
 
     // Scoped module name
-    let result = generate(&file, &CodegenOptions {
-        module_name: Some("@types/node".to_string()),
-        verbose: false,
-    });
+    let result = generate(
+        &file,
+        &CodegenOptions {
+            module_name: Some("@types/node".to_string()),
+            verbose: false,
+        },
+    );
     assert!(result.code.contains(r#"mod "@types/node" as node;"#));
 }
 
@@ -303,20 +394,31 @@ fn test_property_getters_and_setters() {
     let result = generate(&file, &CodegenOptions::default());
 
     // All properties use #[getter] syntax now
-    assert!(result.code.contains("#[getter]"),
-        "Should use #[getter] attribute");
+    assert!(
+        result.code.contains("#[getter]"),
+        "Should use #[getter] attribute"
+    );
 
     // Required property
-    assert!(result.code.contains("host: String;"),
-        "Should generate host property. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("host: String;"),
+        "Should generate host property. Got:\n{}",
+        result.code
+    );
 
     // Optional property
-    assert!(result.code.contains("port: Option<f64>;"),
-        "Should generate optional port property. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("port: Option<f64>;"),
+        "Should generate optional port property. Got:\n{}",
+        result.code
+    );
 
     // Readonly property (also uses #[getter] syntax)
-    assert!(result.code.contains("version: String;"),
-        "Should generate version property. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("version: String;"),
+        "Should generate version property. Got:\n{}",
+        result.code
+    );
 }
 
 /// Test class properties generate properly.
@@ -337,27 +439,48 @@ fn test_class_properties_with_setters() {
 
     // Class properties still use method syntax (class codegen not changed)
     // Instance readonly property - getter only
-    assert!(result.code.contains("fn length(self) -> f64;"),
-        "Should generate length getter. Got:\n{}", result.code);
-    assert!(!result.code.contains("fn set_length"),
-        "Readonly property should not have setter");
+    assert!(
+        result.code.contains("fn length(self) -> f64;"),
+        "Should generate length getter. Got:\n{}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("fn set_length"),
+        "Readonly property should not have setter"
+    );
 
     // Static property - getter and setter (no self parameter)
-    assert!(result.code.contains("fn BYTES_PER_ELEMENT() -> f64;"),
-        "Should generate static getter without self. Got:\n{}", result.code);
-    assert!(result.code.contains("fn set_BYTES_PER_ELEMENT(value: f64);"),
-        "Should generate static setter without self. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("fn BYTES_PER_ELEMENT() -> f64;"),
+        "Should generate static getter without self. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result
+            .code
+            .contains("fn set_BYTES_PER_ELEMENT(value: f64);"),
+        "Should generate static setter without self. Got:\n{}",
+        result.code
+    );
 
     // Mutable instance property - getter and setter
     // Uint8Array is unknown so it becomes JsValue
-    assert!(result.code.contains("fn data(self) -> JsValue;"),
-        "Should generate data getter with JsValue (Uint8Array unknown). Got:\n{}", result.code);
-    assert!(result.code.contains("fn set_data(self, value: JsValue);"),
-        "Should generate data setter with JsValue. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("fn data(self) -> JsValue;"),
+        "Should generate data getter with JsValue (Uint8Array unknown). Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("fn set_data(self, value: JsValue);"),
+        "Should generate data setter with JsValue. Got:\n{}",
+        result.code
+    );
 
     // Private property should be skipped entirely
-    assert!(!result.code.contains("_internal"),
-        "Private properties should be skipped");
+    assert!(
+        !result.code.contains("_internal"),
+        "Private properties should be skipped"
+    );
 }
 
 /// Test that interface properties now generate #[getter] syntax.
@@ -378,22 +501,39 @@ fn test_interface_properties_generate_getters() {
     let result = generate(&file, &CodegenOptions::default());
 
     // All properties use #[getter] syntax now
-    assert!(result.code.contains("#[getter]"),
-        "Should use #[getter] attribute. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("#[getter]"),
+        "Should use #[getter] attribute. Got:\n{}",
+        result.code
+    );
 
     // Check property declarations (no longer method syntax)
-    assert!(result.code.contains("url: String;"),
-        "Should generate url property. Got:\n{}", result.code);
-    assert!(result.code.contains("method: String;"),
-        "Should generate method property. Got:\n{}", result.code);
-    assert!(result.code.contains("body: JsValue;"),
-        "Should generate body property with JsValue for any. Got:\n{}", result.code);
-    assert!(result.code.contains("headers: Headers;"),
-        "Should generate headers property. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("url: String;"),
+        "Should generate url property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("method: String;"),
+        "Should generate method property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("body: JsValue;"),
+        "Should generate body property with JsValue for any. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("headers: Headers;"),
+        "Should generate headers property. Got:\n{}",
+        result.code
+    );
 
     // No setters in #[getter] syntax
-    assert!(!result.code.contains("fn set_"),
-        "Should not have setter methods with #[getter] syntax");
+    assert!(
+        !result.code.contains("fn set_"),
+        "Should not have setter methods with #[getter] syntax"
+    );
 }
 
 /// Test parsing interface with keyword property names.
@@ -421,24 +561,48 @@ fn test_keyword_as_property_name() {
 
     // Keywords should be escaped in generated code
     // Non-function properties use #[getter] syntax
-    assert!(result.code.contains("static_: bool;"),
-        "Should generate escaped static property. Got:\n{}", result.code);
-    assert!(result.code.contains("readonly_: String;"),
-        "Should generate escaped readonly property. Got:\n{}", result.code);
-    assert!(result.code.contains("public_: f64;"),
-        "Should generate escaped public property. Got:\n{}", result.code);
-    assert!(result.code.contains("private_: bool;"),
-        "Should generate escaped private property. Got:\n{}", result.code);
-    assert!(result.code.contains("class_: String;"),
-        "Should generate escaped class property. Got:\n{}", result.code);
-    assert!(result.code.contains("new_: String;"),
-        "Should generate escaped new property. Got:\n{}", result.code);
-    assert!(result.code.contains("default_: bool;"),
-        "Should generate escaped default property. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("static_: bool;"),
+        "Should generate escaped static property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("readonly_: String;"),
+        "Should generate escaped readonly property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("public_: f64;"),
+        "Should generate escaped public property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("private_: bool;"),
+        "Should generate escaped private property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("class_: String;"),
+        "Should generate escaped class property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("new_: String;"),
+        "Should generate escaped new property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("default_: bool;"),
+        "Should generate escaped default property. Got:\n{}",
+        result.code
+    );
 
     // Function-typed property still uses method syntax
-    assert!(result.code.contains("fn function_(self)") || result.code.contains("function_:"),
-        "Should generate escaped function property. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("fn function_(self)") || result.code.contains("function_:"),
+        "Should generate escaped function property. Got:\n{}",
+        result.code
+    );
 }
 
 /// Test disambiguating modifiers from property names.
@@ -457,16 +621,27 @@ fn test_modifier_vs_property_name() {
     let result = generate(&file, &CodegenOptions::default());
 
     // "readonly" alone is a property named "readonly" - uses #[getter] syntax
-    assert!(result.code.contains("#[getter]"),
-        "Should use #[getter] attribute. Got:\n{}", result.code);
-    assert!(result.code.contains("readonly_: bool;"),
-        "Should have readonly_ property (escaped keyword). Got:\n{}", result.code);
+    assert!(
+        result.code.contains("#[getter]"),
+        "Should use #[getter] attribute. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("readonly_: bool;"),
+        "Should have readonly_ property (escaped keyword). Got:\n{}",
+        result.code
+    );
 
     // "readonly name" means "name" is the property with readonly modifier
-    assert!(result.code.contains("name: String;"),
-        "Should have name property. Got:\n{}", result.code);
-    assert!(!result.code.contains("fn set_name"),
-        "Readonly property 'name' should not have setter");
+    assert!(
+        result.code.contains("name: String;"),
+        "Should have name property. Got:\n{}",
+        result.code
+    );
+    assert!(
+        !result.code.contains("fn set_name"),
+        "Readonly property 'name' should not have setter"
+    );
 
     // "readonly readonly" means property named "readonly" with readonly modifier
     // The second one should generate a getter for the readonly property
@@ -491,12 +666,18 @@ fn test_var_with_keyword_name() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Keywords should be escaped in function names
-    assert!(result.code.contains("fn static_() -> RequestHandler;"),
-        "Should generate escaped static constant");
-    assert!(result.code.contains("fn readonly_() -> bool;"),
-        "Should generate escaped readonly constant");
-    assert!(result.code.contains("fn public_() -> String;"),
-        "Should generate escaped public constant");
+    assert!(
+        result.code.contains("fn static_() -> RequestHandler;"),
+        "Should generate escaped static constant"
+    );
+    assert!(
+        result.code.contains("fn readonly_() -> bool;"),
+        "Should generate escaped readonly constant"
+    );
+    assert!(
+        result.code.contains("fn public_() -> String;"),
+        "Should generate escaped public constant"
+    );
 }
 
 /// Test method names can be keywords.
@@ -518,14 +699,28 @@ fn test_method_with_keyword_name() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Methods with keyword names
-    assert!(result.code.contains("fn delete(self) -> JsPromise<Response>;"),
-        "Should have delete method (not a keyword in Husk)");
-    assert!(result.code.contains("fn get(self, url: String) -> JsPromise<Response>;"),
-        "Should have get method");
-    assert!(result.code.contains("fn static_(self, value: bool);"),
-        "Should have escaped static_ method");
-    assert!(result.code.contains("fn readonly_(self, flag: bool) -> bool;"),
-        "Should have escaped readonly_ method");
+    assert!(
+        result
+            .code
+            .contains("fn delete(self) -> JsPromise<Response>;"),
+        "Should have delete method (not a keyword in Husk)"
+    );
+    assert!(
+        result
+            .code
+            .contains("fn get(self, url: String) -> JsPromise<Response>;"),
+        "Should have get method"
+    );
+    assert!(
+        result.code.contains("fn static_(self, value: bool);"),
+        "Should have escaped static_ method"
+    );
+    assert!(
+        result
+            .code
+            .contains("fn readonly_(self, flag: bool) -> bool;"),
+        "Should have escaped readonly_ method"
+    );
 }
 
 /// Test that `new(...)` in interfaces can be parsed as a method named "new".
@@ -545,8 +740,10 @@ fn test_new_as_method_name() {
 
     // `new(...)` is now parsed as a method named "new"
     // The name gets escaped to `new_` in the generated code
-    assert!(result.code.contains("fn new_"),
-        "new(...) should be parsed as method and escaped to new_");
+    assert!(
+        result.code.contains("fn new_"),
+        "new(...) should be parsed as method and escaped to new_"
+    );
 }
 
 /// Test class properties with keyword names.
@@ -566,14 +763,23 @@ fn test_class_keyword_properties() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Instance properties named with keywords
-    assert!(result.code.contains("fn static_(self) -> bool;"),
-        "Should have instance static_ getter. Got:\n{}", result.code);
-    assert!(result.code.contains("fn readonly_(self) -> String;"),
-        "Should have instance readonly_ getter. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("fn static_(self) -> bool;"),
+        "Should have instance static_ getter. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("fn readonly_(self) -> String;"),
+        "Should have instance readonly_ getter. Got:\n{}",
+        result.code
+    );
 
     // Static property named "static" - "static static: number" means static property named "static"
-    assert!(result.code.contains("fn static_() -> f64;"),
-        "Should have static static_ getter (no self). Got:\n{}", result.code);
+    assert!(
+        result.code.contains("fn static_() -> f64;"),
+        "Should have static static_ getter (no self). Got:\n{}",
+        result.code
+    );
 }
 
 /// Test object type literals with keyword property names.
@@ -633,12 +839,18 @@ fn test_better_sqlite3_readonly_property() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Interface properties now use #[getter] syntax
-    assert!(result.code.contains("#[getter]"),
-        "Should use #[getter] attribute. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("#[getter]"),
+        "Should use #[getter] attribute. Got:\n{}",
+        result.code
+    );
 
     // The property named "readonly" should be escaped
-    assert!(result.code.contains("readonly_: bool;"),
-        "Should have readonly_ property (escaped keyword). Got:\n{}", result.code);
+    assert!(
+        result.code.contains("readonly_: bool;"),
+        "Should have readonly_ property (escaped keyword). Got:\n{}",
+        result.code
+    );
 }
 
 /// Test generated code escapes TypeScript keywords.
@@ -655,10 +867,14 @@ fn test_keyword_property_codegen() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Verify keywords are escaped in generated Husk code
-    assert!(result.code.contains("static_"),
-        "static should be escaped to static_");
-    assert!(result.code.contains("readonly_"),
-        "readonly should be escaped to readonly_");
+    assert!(
+        result.code.contains("static_"),
+        "static should be escaped to static_"
+    );
+    assert!(
+        result.code.contains("readonly_"),
+        "readonly should be escaped to readonly_"
+    );
 }
 
 /// Test simple qualified type name (single dot).
@@ -674,8 +890,10 @@ fn test_qualified_type_name_simple() {
     let file = parse(dts).expect("Should parse qualified type name");
     let result = generate(&file, &CodegenOptions::default());
 
-    assert!(result.code.contains("fn run(self) -> RunResult;"),
-        "Should use simple name from qualified type");
+    assert!(
+        result.code.contains("fn run(self) -> RunResult;"),
+        "Should use simple name from qualified type"
+    );
 }
 
 /// Test nested qualified type name (multiple dots).
@@ -689,8 +907,10 @@ fn test_qualified_type_name_nested() {
     let file = parse(dts).expect("Should parse nested qualified type");
     let result = generate(&file, &CodegenOptions::default());
 
-    assert!(result.code.contains("fn create() -> Application;"),
-        "Should use last segment from deeply nested qualified type");
+    assert!(
+        result.code.contains("fn create() -> Application;"),
+        "Should use last segment from deeply nested qualified type"
+    );
 }
 
 /// Test qualified type with generic arguments.
@@ -704,8 +924,10 @@ fn test_qualified_type_with_generics() {
     let file = parse(dts).expect("Should parse qualified type with generics");
     let result = generate(&file, &CodegenOptions::default());
 
-    assert!(result.code.contains("Entry<String, f64>"),
-        "Should handle generics on qualified types");
+    assert!(
+        result.code.contains("Entry<String, f64>"),
+        "Should handle generics on qualified types"
+    );
 }
 
 /// Test qualified types in various positions (properties, parameters, return types).
@@ -726,14 +948,25 @@ fn test_qualified_type_in_various_positions() {
     let result = generate(&file, &CodegenOptions::default());
 
     // Properties now use #[getter] syntax
-    assert!(result.code.contains("#[getter]"),
-        "Should use #[getter] attribute. Got:\n{}", result.code);
-    assert!(result.code.contains("prop: Type;"),
-        "Property should use simple name from qualified type. Got:\n{}", result.code);
+    assert!(
+        result.code.contains("#[getter]"),
+        "Should use #[getter] attribute. Got:\n{}",
+        result.code
+    );
+    assert!(
+        result.code.contains("prop: Type;"),
+        "Property should use simple name from qualified type. Got:\n{}",
+        result.code
+    );
 
     // Methods still use fn syntax
-    assert!(result.code.contains("fn method(self, param: Param) -> Result;"),
-        "Method params and return should use simple names. Got:\n{}", result.code);
+    assert!(
+        result
+            .code
+            .contains("fn method(self, param: Param) -> Result;"),
+        "Method params and return should use simple names. Got:\n{}",
+        result.code
+    );
 }
 
 /// Test Express-like qualified type pattern.
@@ -768,8 +1001,10 @@ fn test_better_sqlite3_database_runresult() {
     let file = parse(dts).expect("Should parse better-sqlite3-like qualified type");
 
     let result = generate(&file, &CodegenOptions::default());
-    assert!(result.code.contains("fn run(self) -> RunResult;"),
-        "Should use RunResult (last segment) from Database.RunResult");
+    assert!(
+        result.code.contains("fn run(self) -> RunResult;"),
+        "Should use RunResult (last segment) from Database.RunResult"
+    );
 }
 
 /// Test qualified type as array element.
@@ -783,8 +1018,10 @@ fn test_qualified_type_array() {
     let file = parse(dts).expect("Should parse qualified type in array");
     let result = generate(&file, &CodegenOptions::default());
 
-    assert!(result.code.contains("JsArray<Item>"),
-        "Should handle qualified type inside array");
+    assert!(
+        result.code.contains("JsArray<Item>"),
+        "Should handle qualified type inside array"
+    );
 }
 
 /// Test backward compatibility - simple types still work.
@@ -799,10 +1036,16 @@ fn test_simple_type_still_works() {
     let file = parse(dts).expect("Simple types should still parse");
     let result = generate(&file, &CodegenOptions::default());
 
-    assert!(result.code.contains("fn simple() -> SimpleType;"),
-        "Simple types should work unchanged");
-    assert!(result.code.contains("fn withGenerics() -> JsArray<SimpleType>;"),
-        "Simple types in generics should work");
+    assert!(
+        result.code.contains("fn simple() -> SimpleType;"),
+        "Simple types should work unchanged"
+    );
+    assert!(
+        result
+            .code
+            .contains("fn withGenerics() -> JsArray<SimpleType>;"),
+        "Simple types in generics should work"
+    );
 }
 
 /// Test trailing comma in type parameter lists.
@@ -882,12 +1125,18 @@ fn test_overloaded_methods_merged() {
 
     // Should have exactly ONE get method
     let get_count = result.code.matches("fn get(").count();
-    assert_eq!(get_count, 1, "Should have exactly one get method, found {}", get_count);
+    assert_eq!(
+        get_count, 1,
+        "Should have exactly one get method, found {}",
+        get_count
+    );
 
     // The merged signature should have the second parameter as optional
     // Note: We preserve TypeScript param names (defaultValue, not default_value)
     assert!(
-        result.code.contains("fn get(self, key: String, defaultValue: Option<Value>) -> Value;"),
+        result
+            .code
+            .contains("fn get(self, key: String, defaultValue: Option<Value>) -> Value;"),
         "Should merge overloads with optional param. Got:\n{}",
         result.code
     );
@@ -905,7 +1154,11 @@ fn test_overloaded_functions_merged() {
 
     // Should have exactly ONE Database function
     let count = result.code.matches("fn Database(").count();
-    assert_eq!(count, 1, "Should have exactly one Database function, found {}", count);
+    assert_eq!(
+        count, 1,
+        "Should have exactly one Database function, found {}",
+        count
+    );
 }
 
 /// Test overloads with different first parameter types emit warning.
@@ -918,11 +1171,21 @@ fn test_overloaded_different_types_takes_first() {
         }
     "#;
     let file = parse(dts).unwrap();
-    let result = generate(&file, &CodegenOptions { verbose: true, ..Default::default() });
+    let result = generate(
+        &file,
+        &CodegenOptions {
+            verbose: true,
+            ..Default::default()
+        },
+    );
 
     // Should have exactly ONE set method
     let count = result.code.matches("fn set(").count();
-    assert_eq!(count, 1, "Should have exactly one set method, found {}", count);
+    assert_eq!(
+        count, 1,
+        "Should have exactly one set method, found {}",
+        count
+    );
 }
 
 // ==========================================
@@ -1068,7 +1331,10 @@ fn test_template_literal_codegen_to_string() {
         Ok(f) => f,
         Err(e) => {
             // If parsing fails, skip this test (Phase 4 not implemented yet)
-            eprintln!("Skipping test - template literal parsing not implemented: {}", e);
+            eprintln!(
+                "Skipping test - template literal parsing not implemented: {}",
+                e
+            );
             return;
         }
     };

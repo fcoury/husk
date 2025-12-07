@@ -179,7 +179,9 @@ pub enum ExprKind {
         body: Box<Expr>,
     },
     /// Array literal expression: `[1, 2, 3]` or `[]`
-    Array { elements: Vec<Expr> },
+    Array {
+        elements: Vec<Expr>,
+    },
     /// Array index expression: `array[index]`
     Index {
         base: Box<Expr>,
@@ -212,7 +214,9 @@ pub enum ExprKind {
         target_ty: TypeExpr,
     },
     /// Tuple literal expression: `(1, "hello", true)` or `(a, b)`
-    Tuple { elements: Vec<Expr> },
+    Tuple {
+        elements: Vec<Expr>,
+    },
     /// Tuple field access: `tuple.0`, `tuple.1`, etc.
     TupleField {
         base: Box<Expr>,
@@ -256,7 +260,7 @@ pub struct FormatPlaceholder {
 }
 
 /// Format specifier details like width, precision, alignment, etc.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct FormatSpec {
     /// Fill character for padding (default: space)
     pub fill: Option<char>,
@@ -274,21 +278,6 @@ pub struct FormatSpec {
     pub precision: Option<usize>,
     /// Type specifier: None (display), '?' (debug), 'x'/'X' (hex), 'b' (binary), 'o' (octal)
     pub ty: Option<char>,
-}
-
-impl Default for FormatSpec {
-    fn default() -> Self {
-        Self {
-            fill: None,
-            align: None,
-            sign: false,
-            alternate: false,
-            zero_pad: false,
-            width: None,
-            precision: None,
-            ty: None,
-        }
-    }
 }
 
 /// A field initializer in a struct expression.
@@ -409,9 +398,15 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeExprKind {
     Named(Ident),
-    Generic { name: Ident, args: Vec<TypeExpr> },
+    Generic {
+        name: Ident,
+        args: Vec<TypeExpr>,
+    },
     /// Function type: `fn(T, U) -> V` or `fn() -> T`
-    Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
+    Function {
+        params: Vec<TypeExpr>,
+        ret: Box<TypeExpr>,
+    },
     /// Array type: `[ElementType]`
     Array(Box<TypeExpr>),
     /// Tuple type: `(T1, T2, T3)`
@@ -684,7 +679,9 @@ impl Item {
 
     /// Returns true if this item has a #[should_panic] attribute.
     pub fn should_panic(&self) -> bool {
-        self.attributes.iter().any(|a| a.name.name == "should_panic")
+        self.attributes
+            .iter()
+            .any(|a| a.name.name == "should_panic")
     }
 
     /// Returns the expected panic message if #[should_panic(expected = "...")] is present.
@@ -739,10 +736,7 @@ pub enum ExternItemKind {
     },
     /// Static variable declaration: `static __dirname: String;`
     /// Declares a global JavaScript variable accessible from Husk code.
-    Static {
-        name: Ident,
-        ty: TypeExpr,
-    },
+    Static { name: Ident, ty: TypeExpr },
 }
 
 /// Items that may appear inside a `mod` block within an extern block.

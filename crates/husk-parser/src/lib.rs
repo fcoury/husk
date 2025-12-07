@@ -6,8 +6,9 @@ use husk_ast::{
     AssignOp, Attribute, BinaryOp, Block, CfgPredicate, ClosureParam, EnumVariant,
     EnumVariantFields, Expr, ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment,
     FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind,
-    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind,
-    StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt,
+    StmtKind, StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind,
+    TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -890,7 +891,8 @@ impl<'src> Parser<'src> {
                 (Some(pred), None)
             } else if name.name == "should_panic" {
                 // Parse optional expected = "message"
-                let val = if matches!(&self.current().kind, TokenKind::Ident(s) if s == "expected") {
+                let val = if matches!(&self.current().kind, TokenKind::Ident(s) if s == "expected")
+                {
                     self.advance(); // consume `expected`
                     if !self.matches_token(&TokenKind::Eq) {
                         self.error_here("expected `=` after `expected`");
@@ -1271,12 +1273,7 @@ impl<'src> Parser<'src> {
             return params;
         }
 
-        loop {
-            let name = match self.parse_ident("expected type parameter name") {
-                Some(id) => id,
-                None => break,
-            };
-
+        while let Some(name) = self.parse_ident("expected type parameter name") {
             // Parse optional bounds: `: Foo + Bar`
             let bounds = if self.matches_token(&TokenKind::Colon) {
                 self.parse_trait_bounds()
@@ -1302,12 +1299,8 @@ impl<'src> Parser<'src> {
     fn parse_trait_bounds(&mut self) -> Vec<TypeExpr> {
         let mut bounds = Vec::new();
 
-        loop {
-            if let Some(ty) = self.parse_type_expr() {
-                bounds.push(ty);
-            } else {
-                break;
-            }
+        while let Some(ty) = self.parse_type_expr() {
+            bounds.push(ty);
 
             if !self.matches_token(&TokenKind::Plus) {
                 break;
@@ -1620,7 +1613,8 @@ impl<'src> Parser<'src> {
                 husk_ast::UseKind::Variants(variants)
             } else {
                 // Could be single variant or continuing path - parse as identifier
-                if let Some(variant) = self.parse_ident("expected identifier, `*`, or `{` after `::`")
+                if let Some(variant) =
+                    self.parse_ident("expected identifier, `*`, or `{` after `::`")
                 {
                     husk_ast::UseKind::Variants(vec![variant])
                 } else {
@@ -1679,11 +1673,10 @@ impl<'src> Parser<'src> {
 
                         // Otherwise, continue parsing as a normal path segment.
                         self.advance(); // consume `::`
-                        let seg =
-                            match self.parse_ident("expected identifier after `::` in path") {
-                                Some(id) => id,
-                                None => break,
-                            };
+                        let seg = match self.parse_ident("expected identifier after `::` in path") {
+                            Some(id) => id,
+                            None => break,
+                        };
                         path.push(seg);
                     }
                     _ => break,
@@ -2377,11 +2370,11 @@ impl<'src> Parser<'src> {
                             expr = format_expr;
                             continue;
                         }
-                    } else if id.name == "format" {
-                        if let Some(format_expr) = self.try_parse_format(&expr) {
-                            expr = format_expr;
-                            continue;
-                        }
+                    } else if id.name == "format"
+                        && let Some(format_expr) = self.try_parse_format(&expr)
+                    {
+                        expr = format_expr;
+                        continue;
                     }
                 }
 
@@ -2408,7 +2401,10 @@ impl<'src> Parser<'src> {
                     let index = match s.parse::<usize>() {
                         Ok(idx) => idx,
                         Err(_) => {
-                            self.error_at_token(&name_tok, "tuple field index must be a valid non-negative integer");
+                            self.error_at_token(
+                                &name_tok,
+                                "tuple field index must be a valid non-negative integer",
+                            );
                             break;
                         }
                     };
@@ -2427,33 +2423,33 @@ impl<'src> Parser<'src> {
 
                 // Handle chained tuple access like .0.0 which lexes as FloatLiteral("0.0")
                 // We split it into two tuple field accesses
-                if let TokenKind::FloatLiteral(ref s) = name_tok.kind {
+                if let TokenKind::FloatLiteral(ref s) = name_tok.kind
                     // Check if this looks like chained tuple access (e.g., "0.0", "0.1", "1.2")
-                    if let Some((first, rest)) = s.split_once('.') {
-                        if let (Ok(idx1), Ok(idx2)) = (first.parse::<usize>(), rest.parse::<usize>()) {
-                            self.advance();
-                            // First tuple access
-                            let mid_span = Span {
-                                range: expr.span.range.start..name_tok.span.range.end,
-                            };
-                            let first_access = Expr {
-                                kind: ExprKind::TupleField {
-                                    base: Box::new(expr),
-                                    index: idx1,
-                                },
-                                span: mid_span.clone(),
-                            };
-                            // Second tuple access
-                            expr = Expr {
-                                kind: ExprKind::TupleField {
-                                    base: Box::new(first_access),
-                                    index: idx2,
-                                },
-                                span: mid_span,
-                            };
-                            continue;
-                        }
-                    }
+                    && let Some((first, rest)) = s.split_once('.')
+                    && let (Ok(idx1), Ok(idx2)) =
+                        (first.parse::<usize>(), rest.parse::<usize>())
+                {
+                    self.advance();
+                    // First tuple access
+                    let mid_span = Span {
+                        range: expr.span.range.start..name_tok.span.range.end,
+                    };
+                    let first_access = Expr {
+                        kind: ExprKind::TupleField {
+                            base: Box::new(expr),
+                            index: idx1,
+                        },
+                        span: mid_span.clone(),
+                    };
+                    // Second tuple access
+                    expr = Expr {
+                        kind: ExprKind::TupleField {
+                            base: Box::new(first_access),
+                            index: idx2,
+                        },
+                        span: mid_span,
+                    };
+                    continue;
                 }
 
                 let ident = match &name_tok.kind {
@@ -2516,13 +2512,14 @@ impl<'src> Parser<'src> {
                 // Check for slice syntax starting with `..` (no start bound)
                 if self.matches_token(&TokenKind::DotDot) {
                     // Slice with no start: arr[..end] or arr[..]
-                    let (end_expr, inclusive) = if matches!(self.current().kind, TokenKind::RBracket) {
-                        // arr[..] - full slice
-                        (None, false)
-                    } else {
-                        // arr[..end]
-                        (Some(Box::new(self.parse_comparison()?)), false)
-                    };
+                    let (end_expr, inclusive) =
+                        if matches!(self.current().kind, TokenKind::RBracket) {
+                            // arr[..] - full slice
+                            (None, false)
+                        } else {
+                            // arr[..end]
+                            (Some(Box::new(self.parse_comparison()?)), false)
+                        };
                     if !self.matches_token(&TokenKind::RBracket) {
                         self.error_here("expected `]` after slice expression");
                         return None;
@@ -2691,12 +2688,8 @@ impl<'src> Parser<'src> {
         }
 
         let mut type_args = Vec::new();
-        loop {
-            if let Some(ty) = self.parse_type_expr() {
-                type_args.push(ty);
-            } else {
-                break;
-            }
+        while let Some(ty) = self.parse_type_expr() {
+            type_args.push(ty);
 
             if self.matches_token(&TokenKind::Gt) {
                 break;
@@ -2909,27 +2902,27 @@ impl<'src> Parser<'src> {
         // where the synthetic arg actually ends up in the vector, regardless of how many
         // explicit args were passed by the caller.
         for segment in &mut format.segments {
-            if let FormatSegment::Placeholder(ph) = segment {
-                if let Some(name) = &ph.name {
-                    // Check if we've already seen this name
-                    if let Some(&pos) = named_positions.get(name) {
-                        // Reuse the same position
-                        ph.position = Some(pos);
-                    } else {
-                        // Synthesize at current end of args vector
-                        let pos = args.len();
-                        named_positions.insert(name.clone(), pos);
-                        ph.position = Some(pos);
+            if let FormatSegment::Placeholder(ph) = segment
+                && let Some(name) = &ph.name
+            {
+                // Check if we've already seen this name
+                if let Some(&pos) = named_positions.get(name) {
+                    // Reuse the same position
+                    ph.position = Some(pos);
+                } else {
+                    // Synthesize at current end of args vector
+                    let pos = args.len();
+                    named_positions.insert(name.clone(), pos);
+                    ph.position = Some(pos);
 
-                        // Create identifier expression for this variable
-                        args.push(Expr {
-                            kind: ExprKind::Ident(Ident {
-                                name: name.clone(),
-                                span: ph.span.clone(),
-                            }),
+                    // Create identifier expression for this variable
+                    args.push(Expr {
+                        kind: ExprKind::Ident(Ident {
+                            name: name.clone(),
                             span: ph.span.clone(),
-                        });
-                    }
+                        }),
+                        span: ph.span.clone(),
+                    });
                 }
             }
         }
@@ -3113,8 +3106,7 @@ impl<'src> Parser<'src> {
             ) {
                 // Handle break/continue in match arms by wrapping in a block
                 let stmt_tok = self.current().clone();
-                let is_break =
-                    matches!(self.current().kind, TokenKind::Keyword(Keyword::Break));
+                let is_break = matches!(self.current().kind, TokenKind::Keyword(Keyword::Break));
                 self.advance(); // consume break or continue
                 let stmt = if is_break {
                     Stmt {
@@ -3326,12 +3318,7 @@ impl<'src> Parser<'src> {
             return params;
         }
 
-        loop {
-            let name = match self.parse_ident("expected parameter name in closure") {
-                Some(id) => id,
-                None => break,
-            };
-
+        while let Some(name) = self.parse_ident("expected parameter name in closure") {
             // Optional type annotation: `: Type`
             let ty = if self.matches_token(&TokenKind::Colon) {
                 self.parse_type_expr()
@@ -3454,7 +3441,9 @@ impl<'src> Parser<'src> {
                 if self.matches_token(&TokenKind::RParen) {
                     let end = self.previous().span.range.end;
                     return Some(Expr {
-                        kind: ExprKind::Tuple { elements: Vec::new() },
+                        kind: ExprKind::Tuple {
+                            elements: Vec::new(),
+                        },
                         span: Span { range: start..end },
                     });
                 }
@@ -3477,7 +3466,9 @@ impl<'src> Parser<'src> {
                 if self.matches_token(&TokenKind::RParen) {
                     let end = self.previous().span.range.end;
                     return Some(Expr {
-                        kind: ExprKind::Tuple { elements: vec![first_expr] },
+                        kind: ExprKind::Tuple {
+                            elements: vec![first_expr],
+                        },
                         span: Span { range: start..end },
                     });
                 }
@@ -3952,7 +3943,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 assert!(
                     matches!(val.kind, ExprKind::Format { .. }),
                     "expected Format expression, got {:?}",
@@ -3973,13 +3967,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 1);
                     // Check that we have a placeholder segment
-                    let has_placeholder = format.segments.iter().any(|s| {
-                        matches!(s, husk_ast::FormatSegment::Placeholder(_))
-                    });
+                    let has_placeholder = format
+                        .segments
+                        .iter()
+                        .any(|s| matches!(s, husk_ast::FormatSegment::Placeholder(_)));
                     assert!(has_placeholder, "expected at least one placeholder");
                 } else {
                     panic!("expected Format expression");
@@ -3999,7 +3997,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { args, .. } = &val.kind {
                     assert_eq!(args.len(), 3, "expected 3 arguments");
                 } else {
@@ -4020,17 +4021,24 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 2);
                     // Check format specifiers
-                    let placeholders: Vec<_> = format.segments.iter().filter_map(|s| {
-                        if let husk_ast::FormatSegment::Placeholder(ph) = s {
-                            Some(ph)
-                        } else {
-                            None
-                        }
-                    }).collect();
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
                     assert_eq!(placeholders.len(), 2);
                     assert_eq!(placeholders[0].spec.ty, Some('x'));
                     assert_eq!(placeholders[1].spec.ty, Some('?'));
@@ -4115,7 +4123,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // Should have synthesized 1 implicit arg for `x`
                     assert_eq!(args.len(), 1, "expected 1 synthesized arg");
@@ -4158,7 +4169,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // Should have synthesized 3 implicit args
                     assert_eq!(args.len(), 3, "expected 3 synthesized args");
@@ -4208,10 +4222,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // Should have synthesized 1 arg for `x` (not 2)
-                    assert_eq!(args.len(), 1, "expected 1 synthesized arg for repeated {{x}}");
+                    assert_eq!(
+                        args.len(),
+                        1,
+                        "expected 1 synthesized arg for repeated {{x}}"
+                    );
                     // Both placeholders should point to position 0
                     let placeholders: Vec<_> = format
                         .segments
@@ -4245,7 +4266,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 1);
                     let placeholders: Vec<_> = format
@@ -4324,10 +4348,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // 2 explicit args (a, b) + 2 synthesized (x, y) = 4 total
-                    assert_eq!(args.len(), 4, "expected 4 args (2 explicit + 2 synthesized)");
+                    assert_eq!(
+                        args.len(),
+                        4,
+                        "expected 4 args (2 explicit + 2 synthesized)"
+                    );
                     // Check synthesized args are at the end
                     if let ExprKind::Ident(ident) = &args[2].kind {
                         assert_eq!(ident.name, "x");
@@ -4377,10 +4408,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // 2 explicit args (a, b) + 1 synthesized (x) = 3 total
-                    assert_eq!(args.len(), 3, "expected 3 args (2 explicit + 1 synthesized)");
+                    assert_eq!(
+                        args.len(),
+                        3,
+                        "expected 3 args (2 explicit + 1 synthesized)"
+                    );
                     // Verify synthesized arg is at the end and is 'x'
                     if let ExprKind::Ident(ident) = &args[2].kind {
                         assert_eq!(ident.name, "x");
@@ -4424,7 +4462,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 3);
                     // Verify args are a, b, c at positions 0, 1, 2
@@ -4472,7 +4513,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
                     // Check inner expression is 42
                     if let ExprKind::Literal(lit) = &expr.kind {
@@ -4504,9 +4548,16 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Outer cast: (true as i32) as f64
-                if let ExprKind::Cast { expr: outer_expr, target_ty: outer_ty } = &val.kind {
+                if let ExprKind::Cast {
+                    expr: outer_expr,
+                    target_ty: outer_ty,
+                } = &val.kind
+                {
                     // Check outer target is f64
                     if let husk_ast::TypeExprKind::Named(ident) = &outer_ty.kind {
                         assert_eq!(ident.name, "f64");
@@ -4514,7 +4565,11 @@ mod tests {
                         panic!("expected outer type 'f64'");
                     }
                     // Inner cast: true as i32
-                    if let ExprKind::Cast { expr: inner_expr, target_ty: inner_ty } = &outer_expr.kind {
+                    if let ExprKind::Cast {
+                        expr: inner_expr,
+                        target_ty: inner_ty,
+                    } = &outer_expr.kind
+                    {
                         // Check inner target is i32
                         if let husk_ast::TypeExprKind::Named(ident) = &inner_ty.kind {
                             assert_eq!(ident.name, "i32");
@@ -4549,7 +4604,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Binary(Add, 2, Cast(3, f64))
                 if let ExprKind::Binary { op, left, right } = &val.kind {
                     assert!(matches!(op, husk_ast::BinaryOp::Add));
@@ -4593,7 +4651,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Binary(Lt, x, Cast(y, i32))
                 if let ExprKind::Binary { op, left, right } = &val.kind {
                     assert!(matches!(op, husk_ast::BinaryOp::Lt));
@@ -4637,7 +4698,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Binary(Mul, 2, Cast(3, f64))
                 if let ExprKind::Binary { op, left, right } = &val.kind {
                     assert!(matches!(op, husk_ast::BinaryOp::Mul));
@@ -4681,7 +4745,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Cast(Unary(Neg, 1), f64)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
                     if let ExprKind::Unary { op, expr: inner } = &expr.kind {
@@ -4718,10 +4785,18 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Cast(Call(foo, []), i32)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
-                    if let ExprKind::Call { callee, type_args: _, args } = &expr.kind {
+                    if let ExprKind::Call {
+                        callee,
+                        type_args: _,
+                        args,
+                    } = &expr.kind
+                    {
                         if let ExprKind::Ident(ident) = &callee.kind {
                             assert_eq!(ident.name, "foo");
                         } else {
@@ -4755,7 +4830,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Cast(Index(arr, 0), f64)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
                     if let ExprKind::Index { base: arr, index } = &expr.kind {
@@ -4907,7 +4985,10 @@ fn test(opt: Option<i32>) {
                             assert_eq!(block.stmts.len(), 1);
                             assert!(matches!(block.stmts[0].kind, StmtKind::Break));
                         } else {
-                            panic!("expected Block expression for break arm, got {:?}", arms[1].expr.kind);
+                            panic!(
+                                "expected Block expression for break arm, got {:?}",
+                                arms[1].expr.kind
+                            );
                         }
                     } else {
                         panic!("expected Match expression");
@@ -4970,7 +5051,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::MethodCall {
                     receiver,
                     method,
@@ -5016,7 +5100,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::MethodCall { type_args, .. } = &val.kind {
                     assert_eq!(type_args.len(), 3);
                     let names: Vec<_> = type_args
@@ -5118,7 +5205,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Tuple { elements } = &val.kind {
                     assert_eq!(elements.len(), 3);
                 } else {
@@ -5139,7 +5229,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::TupleField { index, .. } = &val.kind {
                     assert_eq!(*index, 0);
                 } else {
@@ -5161,12 +5254,22 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Outer should be TupleField with index 0
-                if let ExprKind::TupleField { base, index: outer_idx } = &val.kind {
+                if let ExprKind::TupleField {
+                    base,
+                    index: outer_idx,
+                } = &val.kind
+                {
                     assert_eq!(*outer_idx, 0);
                     // Inner should also be TupleField with index 0
-                    if let ExprKind::TupleField { index: inner_idx, .. } = &base.kind {
+                    if let ExprKind::TupleField {
+                        index: inner_idx, ..
+                    } = &base.kind
+                    {
                         assert_eq!(*inner_idx, 0);
                     } else {
                         panic!("expected inner TupleField, got {:?}", base.kind);
@@ -5238,7 +5341,10 @@ fn test() {
                 if let husk_ast::PatternKind::Binding(ident) = &pattern.kind {
                     assert_eq!(ident.name, "x");
                 } else {
-                    panic!("expected Binding pattern for grouping, got {:?}", pattern.kind);
+                    panic!(
+                        "expected Binding pattern for grouping, got {:?}",
+                        pattern.kind
+                    );
                 }
             } else {
                 panic!("expected Let statement");
@@ -5258,7 +5364,11 @@ fn test() {
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
             if let StmtKind::Let { pattern, .. } = &body[0].kind {
                 if let husk_ast::PatternKind::Tuple { fields } = &pattern.kind {
-                    assert_eq!(fields.len(), 1, "single-element tuple pattern should have 1 field");
+                    assert_eq!(
+                        fields.len(),
+                        1,
+                        "single-element tuple pattern should have 1 field"
+                    );
                 } else {
                     panic!("expected Tuple pattern for (x,), got {:?}", pattern.kind);
                 }
@@ -5277,8 +5387,17 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::IfLet { pattern, then_branch, else_branch, .. } = &body[0].kind {
-                assert!(matches!(pattern.kind, husk_ast::PatternKind::EnumTuple { .. }));
+            if let StmtKind::IfLet {
+                pattern,
+                then_branch,
+                else_branch,
+                ..
+            } = &body[0].kind
+            {
+                assert!(matches!(
+                    pattern.kind,
+                    husk_ast::PatternKind::EnumTuple { .. }
+                ));
                 assert_eq!(then_branch.stmts.len(), 1);
                 assert!(else_branch.is_none());
             } else {
@@ -5316,8 +5435,10 @@ fn test() {
             if let StmtKind::IfLet { else_branch, .. } = &body[0].kind {
                 // else branch should contain another IfLet
                 let else_stmt = else_branch.as_ref().expect("expected else branch");
-                assert!(matches!(else_stmt.kind, StmtKind::IfLet { .. }),
-                    "expected nested IfLet in else branch");
+                assert!(
+                    matches!(else_stmt.kind, StmtKind::IfLet { .. }),
+                    "expected nested IfLet in else branch"
+                );
             } else {
                 panic!("expected IfLet statement");
             }
@@ -5333,8 +5454,16 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { pattern, else_block, .. } = &body[0].kind {
-                assert!(matches!(pattern.kind, husk_ast::PatternKind::EnumTuple { .. }));
+            if let StmtKind::Let {
+                pattern,
+                else_block,
+                ..
+            } = &body[0].kind
+            {
+                assert!(matches!(
+                    pattern.kind,
+                    husk_ast::PatternKind::EnumTuple { .. }
+                ));
                 assert!(else_block.is_some(), "expected else block in let-else");
             } else {
                 panic!("expected Let statement with else_block");

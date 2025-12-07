@@ -115,6 +115,13 @@ Use `[ ]` for pending items and `[x]` for completed items.
   - [ ] Document how to combine module imports with extern function signatures generated from `.d.ts`.
 - [ ] Add examples showing direct imports of common Node/Bun modules (e.g., `express`, `fs`, small npm libraries).
 
+## Phase 4x – DTS Importer v2 (experimental)
+
+- [x] Tracer bullet for global `HasKey` markers (50 keys) compiling successfully.
+- [x] Oxc-backed `.d.ts` parser wrapper behind an opt-in `oxc` feature with AST smoke test.
+- [ ] Map Oxc AST into Husk DTS AST/codegen across multi-file import graphs.
+- [ ] Generate `HasKey`/builder artifacts plus diagnostics report from imports.
+
 ---
 
 ## Phase 5 – Standard Library & Ecosystem

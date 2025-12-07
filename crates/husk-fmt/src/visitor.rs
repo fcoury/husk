@@ -53,7 +53,10 @@ impl<'a> Formatter<'a> {
             } else {
                 &item.span
             };
-            let has_leading_trivia = !self.trivia_map.leading_at(trivia_span.range.start).is_empty();
+            let has_leading_trivia = !self
+                .trivia_map
+                .leading_at(trivia_span.range.start)
+                .is_empty();
 
             // Add blank line between items (except for the first)
             // Only add if there's no leading trivia - trivia will provide its own spacing
@@ -198,21 +201,41 @@ impl<'a> Formatter<'a> {
                 ret_type,
                 body,
             } => {
-                self.format_fn(name, type_params, params, ret_type, body, item.visibility == Visibility::Public, item.span.range.end);
+                self.format_fn(
+                    name,
+                    type_params,
+                    params,
+                    ret_type,
+                    body,
+                    item.visibility == Visibility::Public,
+                    item.span.range.end,
+                );
             }
             ItemKind::Struct {
                 name,
                 type_params,
                 fields,
             } => {
-                self.format_struct(name, type_params, fields, item.visibility == Visibility::Public, item.span.range.end);
+                self.format_struct(
+                    name,
+                    type_params,
+                    fields,
+                    item.visibility == Visibility::Public,
+                    item.span.range.end,
+                );
             }
             ItemKind::Enum {
                 name,
                 type_params,
                 variants,
             } => {
-                self.format_enum(name, type_params, variants, item.visibility == Visibility::Public, item.span.range.end);
+                self.format_enum(
+                    name,
+                    type_params,
+                    variants,
+                    item.visibility == Visibility::Public,
+                    item.span.range.end,
+                );
             }
             ItemKind::TypeAlias { name, ty } => {
                 self.format_type_alias(name, ty, item.visibility == Visibility::Public);
@@ -224,7 +247,11 @@ impl<'a> Formatter<'a> {
                 self.format_use(path, kind, item.visibility == Visibility::Public);
             }
             ItemKind::Trait(trait_def) => {
-                self.format_trait(trait_def, item.visibility == Visibility::Public, item.span.range.end);
+                self.format_trait(
+                    trait_def,
+                    item.visibility == Visibility::Public,
+                    item.span.range.end,
+                );
             }
             ItemKind::Impl(impl_block) => {
                 self.format_impl(impl_block, item.span.range.end);
@@ -1007,7 +1034,10 @@ impl<'a> Formatter<'a> {
                 if let Some(else_stmt) = else_branch {
                     self.write(" else ");
                     // Check if it's an else-if or else-if-let
-                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                    if matches!(
+                        &else_stmt.kind,
+                        StmtKind::If { .. } | StmtKind::IfLet { .. }
+                    ) {
                         // Don't add newline, format_stmt_inline will handle the if
                         self.at_line_start = false;
                         self.format_stmt_inline(else_stmt);
@@ -1107,7 +1137,10 @@ impl<'a> Formatter<'a> {
                 if let Some(else_stmt) = else_branch {
                     self.write(" else ");
                     // Check if it's an else-if or else-if-let
-                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                    if matches!(
+                        &else_stmt.kind,
+                        StmtKind::If { .. } | StmtKind::IfLet { .. }
+                    ) {
                         self.at_line_start = false;
                         self.format_stmt_inline(else_stmt);
                     } else if let StmtKind::Block(block) = &else_stmt.kind {
@@ -1147,7 +1180,10 @@ impl<'a> Formatter<'a> {
                 self.write("}");
                 if let Some(else_stmt) = else_branch {
                     self.write(" else ");
-                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                    if matches!(
+                        &else_stmt.kind,
+                        StmtKind::If { .. } | StmtKind::IfLet { .. }
+                    ) {
                         self.format_stmt_inline(else_stmt);
                     } else if let StmtKind::Block(block) = &else_stmt.kind {
                         self.write("{");
@@ -1181,7 +1217,10 @@ impl<'a> Formatter<'a> {
                 self.write("}");
                 if let Some(else_stmt) = else_branch {
                     self.write(" else ");
-                    if matches!(&else_stmt.kind, StmtKind::If { .. } | StmtKind::IfLet { .. }) {
+                    if matches!(
+                        &else_stmt.kind,
+                        StmtKind::If { .. } | StmtKind::IfLet { .. }
+                    ) {
                         self.format_stmt_inline(else_stmt);
                     } else if let StmtKind::Block(block) = &else_stmt.kind {
                         self.write("{");
@@ -1232,7 +1271,11 @@ impl<'a> Formatter<'a> {
                     self.write(&segment.name);
                 }
             }
-            ExprKind::Call { callee, type_args, args } => {
+            ExprKind::Call {
+                callee,
+                type_args,
+                args,
+            } => {
                 self.format_expr(callee);
                 if !type_args.is_empty() {
                     self.write("::<");
@@ -1633,7 +1676,10 @@ impl<'a> Formatter<'a> {
     /// Collect the argument positions that correspond to named placeholders.
     /// These args should not be output when formatting, as named placeholders
     /// reference variables in scope without explicit arguments.
-    fn collect_named_placeholder_positions(&self, segments: &[FormatSegment]) -> std::collections::HashSet<usize> {
+    fn collect_named_placeholder_positions(
+        &self,
+        segments: &[FormatSegment],
+    ) -> std::collections::HashSet<usize> {
         use std::collections::HashSet;
 
         let mut positions = HashSet::new();

@@ -235,7 +235,10 @@ impl<'src> Parser<'src> {
             TokenKind::BigInt_ => "bigint".to_string(),
             TokenKind::True_ => "true".to_string(),
             TokenKind::False_ => "false".to_string(),
-            _ => panic!("token_to_ident_name called on non-keyword: {:?}", self.peek()),
+            _ => panic!(
+                "token_to_ident_name called on non-keyword: {:?}",
+                self.peek()
+            ),
         }
     }
 
@@ -276,7 +279,10 @@ impl<'src> Parser<'src> {
         // Example: `readonly name: string` -> readonly is modifier
         // Example: `readonly(flag: bool): bool` -> readonly is method name
         // Example: `readonly<T>(x: T): T` -> readonly is method name
-        !matches!(next, TokenKind::Colon | TokenKind::Question | TokenKind::LParen | TokenKind::LAngle)
+        !matches!(
+            next,
+            TokenKind::Colon | TokenKind::Question | TokenKind::LParen | TokenKind::LAngle
+        )
     }
 
     fn parse_file(&mut self) -> ParseResult<DtsFile> {
@@ -826,7 +832,7 @@ impl<'src> Parser<'src> {
                 return Err(ParseError {
                     message: "expected module name".to_string(),
                     pos: self.current().start,
-                })
+                });
             }
         };
 
@@ -1159,14 +1165,20 @@ impl<'src> Parser<'src> {
             let false_type = self.parse_type()?;
 
             return Ok(DtsType::Conditional {
-                check: Box::new(DtsType::Named { name: qualified_name, type_args }),
+                check: Box::new(DtsType::Named {
+                    name: qualified_name,
+                    type_args,
+                }),
                 extends: Box::new(extends),
                 true_type: Box::new(true_type),
                 false_type: Box::new(false_type),
             });
         }
 
-        Ok(DtsType::Named { name: qualified_name, type_args })
+        Ok(DtsType::Named {
+            name: qualified_name,
+            type_args,
+        })
     }
 
     fn parse_type_args(&mut self) -> ParseResult<Vec<DtsType>> {
@@ -1539,7 +1551,8 @@ impl<'src> Parser<'src> {
 
                 // Parse the type inside the interpolation
                 let type_src = &self.src[type_start..type_end];
-                let inner_type = if let Ok(file) = crate::parse(&format!("type T = {};", type_src)) {
+                let inner_type = if let Ok(file) = crate::parse(&format!("type T = {};", type_src))
+                {
                     if let Some(DtsItem::TypeAlias(ta)) = file.items.into_iter().next() {
                         ta.ty
                     } else {
@@ -1571,7 +1584,9 @@ impl<'src> Parser<'src> {
 
         // Advance the parser's token position to skip past the template literal
         // We need to find the position of the closing backtick in the token stream
-        while self.pos < self.tokens.len() && !matches!(self.peek(), TokenKind::Backtick | TokenKind::Eof) {
+        while self.pos < self.tokens.len()
+            && !matches!(self.peek(), TokenKind::Backtick | TokenKind::Eof)
+        {
             // Skip tokens that are part of the template literal content
             // (these were consumed by our character-by-character parsing)
             if self.current().start >= pos {
@@ -1699,7 +1714,10 @@ mod tests {
 
         if let DtsItem::TypeAlias(t) = &file.items[0] {
             if let DtsType::Array(inner) = &t.ty {
-                assert!(matches!(inner.as_ref(), DtsType::Primitive(Primitive::String)));
+                assert!(matches!(
+                    inner.as_ref(),
+                    DtsType::Primitive(Primitive::String)
+                ));
             } else {
                 panic!("expected array type");
             }
