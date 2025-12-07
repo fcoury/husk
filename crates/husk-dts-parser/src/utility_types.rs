@@ -110,22 +110,22 @@ fn expand_type_with_depth(
                 return bound.clone();
             }
 
-            // Check for utility types
+            // Check for utility types (pass depth to maintain recursion tracking)
             match name.as_str() {
-                "Partial" => expand_partial(type_args, registry, ctx),
-                "Required" => expand_required(type_args, registry, ctx),
-                "Readonly" => expand_readonly(type_args, registry, ctx),
-                "Pick" => expand_pick(type_args, registry, ctx),
-                "Omit" => expand_omit(type_args, registry, ctx),
-                "Record" => expand_record(type_args, registry, ctx),
-                "Exclude" => expand_exclude(type_args, registry, ctx),
-                "Extract" => expand_extract(type_args, registry, ctx),
-                "NonNullable" => expand_non_nullable(type_args, registry, ctx),
-                "ReturnType" => expand_return_type(type_args, registry, ctx),
-                "Parameters" => expand_parameters(type_args, registry, ctx),
-                "Awaited" => expand_awaited(type_args, registry, ctx),
-                "Promise" => expand_promise(type_args, registry, ctx),
-                "Array" => expand_array(type_args, registry, ctx),
+                "Partial" => expand_partial(type_args, registry, ctx, depth),
+                "Required" => expand_required(type_args, registry, ctx, depth),
+                "Readonly" => expand_readonly(type_args, registry, ctx, depth),
+                "Pick" => expand_pick(type_args, registry, ctx, depth),
+                "Omit" => expand_omit(type_args, registry, ctx, depth),
+                "Record" => expand_record(type_args, registry, ctx, depth),
+                "Exclude" => expand_exclude(type_args, registry, ctx, depth),
+                "Extract" => expand_extract(type_args, registry, ctx, depth),
+                "NonNullable" => expand_non_nullable(type_args, registry, ctx, depth),
+                "ReturnType" => expand_return_type(type_args, registry, ctx, depth),
+                "Parameters" => expand_parameters(type_args, registry, ctx, depth),
+                "Awaited" => expand_awaited(type_args, registry, ctx, depth),
+                "Promise" => expand_promise(type_args, registry, ctx, depth),
+                "Array" => expand_array(type_args, registry, ctx, depth),
                 _ => {
                     // Try to expand from registry
                     if let Some(def) = registry.get(name) {
@@ -309,16 +309,22 @@ fn expand_object_member_with_depth(
 }
 
 /// Partial<T> - make all properties optional
+///
+/// Note: This currently only affects `ObjectMember::Property` members.
+/// Methods, index signatures, and call signatures are left unchanged,
+/// which differs from full TypeScript semantics where mapped types
+/// operate over all members.
 fn expand_partial(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     match expanded {
         DtsType::Object(members) => {
@@ -346,16 +352,22 @@ fn expand_partial(
 }
 
 /// Required<T> - make all properties required
+///
+/// Note: This currently only affects `ObjectMember::Property` members.
+/// Methods, index signatures, and call signatures are left unchanged,
+/// which differs from full TypeScript semantics where mapped types
+/// operate over all members.
 fn expand_required(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     match expanded {
         DtsType::Object(members) => {
@@ -383,16 +395,21 @@ fn expand_required(
 }
 
 /// Readonly<T> - make all properties readonly
+///
+/// Note: This currently only affects `ObjectMember::Property` members.
+/// Index signatures (which can also have `readonly` in TypeScript) and
+/// other member types are left unchanged.
 fn expand_readonly(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     match expanded {
         DtsType::Object(members) => {
@@ -424,12 +441,13 @@ fn expand_pick(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let (Some(inner), Some(keys)) = (type_args.first(), type_args.get(1)) else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
     let key_set = extract_key_literals(keys);
 
     match expanded {
@@ -453,12 +471,13 @@ fn expand_omit(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let (Some(inner), Some(keys)) = (type_args.first(), type_args.get(1)) else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
     let key_set = extract_key_literals(keys);
 
     match expanded {
@@ -482,13 +501,14 @@ fn expand_record(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let (Some(key_type), Some(value_type)) = (type_args.first(), type_args.get(1)) else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded_key = expand_type(key_type, registry, ctx);
-    let expanded_value = expand_type(value_type, registry, ctx);
+    let expanded_key = expand_type_with_depth(key_type, registry, ctx, depth + 1);
+    let expanded_value = expand_type_with_depth(value_type, registry, ctx, depth + 1);
 
     // Check if key is a string literal union → create object type
     if let DtsType::Union(types) = &expanded_key {
@@ -527,13 +547,14 @@ fn expand_exclude(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let (Some(union_type), Some(excluded)) = (type_args.first(), type_args.get(1)) else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded_union = expand_type(union_type, registry, ctx);
-    let expanded_excluded = expand_type(excluded, registry, ctx);
+    let expanded_union = expand_type_with_depth(union_type, registry, ctx, depth + 1);
+    let expanded_excluded = expand_type_with_depth(excluded, registry, ctx, depth + 1);
 
     match expanded_union {
         DtsType::Union(types) => {
@@ -560,13 +581,14 @@ fn expand_extract(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let (Some(union_type), Some(extracted)) = (type_args.first(), type_args.get(1)) else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded_union = expand_type(union_type, registry, ctx);
-    let expanded_extracted = expand_type(extracted, registry, ctx);
+    let expanded_union = expand_type_with_depth(union_type, registry, ctx, depth + 1);
+    let expanded_extracted = expand_type_with_depth(extracted, registry, ctx, depth + 1);
 
     match expanded_union {
         DtsType::Union(types) => {
@@ -593,12 +615,13 @@ fn expand_non_nullable(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     match expanded {
         DtsType::Union(types) => {
@@ -630,12 +653,13 @@ fn expand_return_type(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     match expanded {
         DtsType::Function(func) => *func.return_type,
@@ -648,12 +672,13 @@ fn expand_parameters(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     match expanded {
         DtsType::Function(func) => {
@@ -678,12 +703,13 @@ fn expand_awaited(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Primitive(Primitive::Any);
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     // Recursively unwrap Promise types
     unwrap_promise(&expanded)
@@ -694,6 +720,7 @@ fn expand_promise(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Named {
@@ -702,7 +729,7 @@ fn expand_promise(
         };
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
 
     DtsType::Named {
         name: "JsPromise".to_string(),
@@ -715,12 +742,13 @@ fn expand_array(
     type_args: &[DtsType],
     registry: &TypeRegistry,
     ctx: &ExpansionContext,
+    depth: usize,
 ) -> DtsType {
     let Some(inner) = type_args.first() else {
         return DtsType::Array(Box::new(DtsType::Primitive(Primitive::Any)));
     };
 
-    let expanded = expand_type(inner, registry, ctx);
+    let expanded = expand_type_with_depth(inner, registry, ctx, depth + 1);
     DtsType::Array(Box::new(expanded))
 }
 

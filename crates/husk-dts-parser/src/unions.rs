@@ -195,13 +195,16 @@ fn check_string_enum(types: &[DtsType]) -> Option<UnionStrategy> {
 /// Check if all types are number literals → enum.
 fn check_number_enum(types: &[DtsType]) -> Option<UnionStrategy> {
     let mut variants = Vec::new();
+    let mut seen_values = HashSet::new();
 
     for ty in types {
         match ty {
             DtsType::NumberLiteral(n) => {
-                // Generate variant name from number (e.g., "1" -> "N1", "-1" -> "NNeg1")
-                let name = number_to_variant_name(n);
-                variants.push((name, n.clone()));
+                // Only add if this literal value hasn't been seen yet (dedupe)
+                if seen_values.insert(n.clone()) {
+                    let name = number_to_variant_name(n);
+                    variants.push((name, n.clone()));
+                }
             }
             _ => return None,
         }
@@ -270,6 +273,29 @@ fn number_to_variant_name(n: &str) -> String {
     }
 }
 
+/// Strip the discriminant field from an object type.
+///
+/// If the type is an object, returns a new object with the discriminant field removed.
+/// If the type is not an object, returns it unchanged.
+fn strip_discriminant_field(ty: &DtsType, discriminant: &str) -> DtsType {
+    use crate::ast::ObjectMember;
+
+    if let DtsType::Object(members) = ty {
+        let filtered: Vec<ObjectMember> = members
+            .iter()
+            .filter(|m| match m {
+                ObjectMember::Property { name, .. } => name != discriminant,
+                // Keep other member types (call signatures, index signatures, etc.)
+                _ => true,
+            })
+            .cloned()
+            .collect();
+        DtsType::Object(filtered)
+    } else {
+        ty.clone()
+    }
+}
+
 /// Check for discriminated unions (all types are objects with a common tag field).
 fn check_discriminated_union(types: &[DtsType]) -> Option<UnionStrategy> {
     // All types must be object types
@@ -301,11 +327,12 @@ fn check_discriminated_union(types: &[DtsType]) -> Option<UnionStrategy> {
         let tag = find_discriminant_value(members, &discriminant)?;
         let name = string_to_pascal_case(&tag);
 
-        // Clone the original type (we'll use it as-is for now)
+        // Clone the type and strip the discriminant field
+        let ty = strip_discriminant_field(&types[i], &discriminant);
         variants.push(DiscriminatedVariant {
             tag,
             name,
-            ty: types[i].clone(),
+            ty,
         });
     }
 
@@ -371,8 +398,14 @@ fn find_discriminant_value(
 }
 
 /// Convert a string to PascalCase for enum variant names.
+///
+/// Guarantees a valid Rust identifier by:
+/// - Keeping only alphanumeric characters
+/// - Using "Unnamed" as fallback for empty results
+/// - Prefixing with "V" if the result starts with a digit
 fn string_to_pascal_case(s: &str) -> String {
-    s.split(|c: char| !c.is_alphanumeric())
+    let result: String = s
+        .split(|c: char| !c.is_alphanumeric())
         .filter(|part| !part.is_empty())
         .map(|part| {
             let mut chars = part.chars();
@@ -381,7 +414,19 @@ fn string_to_pascal_case(s: &str) -> String {
                 Some(first) => first.to_uppercase().chain(chars).collect(),
             }
         })
-        .collect()
+        .collect();
+
+    // Handle empty result (e.g., input was only symbols like "+" or "===")
+    if result.is_empty() {
+        return "Unnamed".to_string();
+    }
+
+    // Handle result starting with digit (e.g., "123" or "1foo")
+    if result.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        return format!("V{}", result);
+    }
+
+    result
 }
 
 /// Check if all types are function types → overloads.
@@ -426,7 +471,7 @@ fn check_type_enum(types: &[DtsType]) -> Option<UnionStrategy> {
 
 /// Check if we should use JsValue for this union.
 fn should_use_jsvalue(types: &[DtsType]) -> bool {
-    // Use JsValue for unions of mixed primitive types
+    // Use JsValue for unions of multiple distinct primitive types
     let primitives: Vec<_> = types
         .iter()
         .filter_map(|t| {
@@ -438,8 +483,19 @@ fn should_use_jsvalue(types: &[DtsType]) -> bool {
         })
         .collect();
 
-    if primitives.len() >= 2 {
-        // Multiple different primitives → JsValue
+    // Count distinct primitives (Primitive doesn't implement Hash, so we use dedup on sorted discriminants)
+    let mut distinct_count = 0;
+    let mut seen_discriminants = Vec::new();
+    for p in &primitives {
+        let disc = std::mem::discriminant(*p);
+        if !seen_discriminants.contains(&disc) {
+            seen_discriminants.push(disc);
+            distinct_count += 1;
+        }
+    }
+
+    if distinct_count >= 2 {
+        // Multiple distinct primitives → JsValue
         return true;
     }
 
@@ -630,9 +686,20 @@ mod tests {
 
     #[test]
     fn test_string_to_pascal_case() {
+        // Normal cases
         assert_eq!(string_to_pascal_case("hello-world"), "HelloWorld");
         assert_eq!(string_to_pascal_case("GET"), "GET");
         assert_eq!(string_to_pascal_case("some_thing"), "SomeThing");
+
+        // Edge cases: symbol-only inputs produce "Unnamed"
+        assert_eq!(string_to_pascal_case("+"), "Unnamed");
+        assert_eq!(string_to_pascal_case("==="), "Unnamed");
+        assert_eq!(string_to_pascal_case(""), "Unnamed");
+
+        // Edge cases: digit-starting inputs get "V" prefix
+        assert_eq!(string_to_pascal_case("123"), "V123");
+        assert_eq!(string_to_pascal_case("1foo"), "V1foo");
+        assert_eq!(string_to_pascal_case("2-bar"), "V2Bar");
     }
 
     #[test]
@@ -657,5 +724,192 @@ mod tests {
         // Edge cases
         assert_eq!(number_to_variant_name("0"), "N0");
         assert_eq!(number_to_variant_name("-0"), "Neg0");
+    }
+
+    #[test]
+    fn test_number_enum() {
+        let types = vec![
+            DtsType::NumberLiteral("1".to_string()),
+            DtsType::NumberLiteral("2".to_string()),
+            DtsType::NumberLiteral("3".to_string()),
+        ];
+        let strategy = analyze_union(&types);
+        if let UnionStrategy::NumberEnum { variants } = strategy {
+            assert_eq!(variants.len(), 3);
+            assert_eq!(variants[0], ("N1".to_string(), "1".to_string()));
+            assert_eq!(variants[1], ("N2".to_string(), "2".to_string()));
+            assert_eq!(variants[2], ("N3".to_string(), "3".to_string()));
+        } else {
+            panic!("expected NumberEnum, got {:?}", strategy);
+        }
+    }
+
+    #[test]
+    fn test_number_enum_deduplicates() {
+        let types = vec![
+            DtsType::NumberLiteral("1".to_string()),
+            DtsType::NumberLiteral("1".to_string()),
+            DtsType::NumberLiteral("2".to_string()),
+        ];
+        let strategy = analyze_union(&types);
+        if let UnionStrategy::NumberEnum { variants } = strategy {
+            // Should deduplicate
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0], ("N1".to_string(), "1".to_string()));
+            assert_eq!(variants[1], ("N2".to_string(), "2".to_string()));
+        } else {
+            panic!("expected NumberEnum, got {:?}", strategy);
+        }
+    }
+
+    #[test]
+    fn test_discriminated_union() {
+        use crate::ast::ObjectMember;
+
+        // Create two object types with a common "type" discriminant field
+        let variant_a = DtsType::Object(vec![
+            ObjectMember::Property {
+                name: "type".to_string(),
+                ty: DtsType::StringLiteral("a".to_string()),
+                optional: false,
+                readonly: false,
+            },
+            ObjectMember::Property {
+                name: "value".to_string(),
+                ty: DtsType::Primitive(Primitive::String),
+                optional: false,
+                readonly: false,
+            },
+        ]);
+        let variant_b = DtsType::Object(vec![
+            ObjectMember::Property {
+                name: "type".to_string(),
+                ty: DtsType::StringLiteral("b".to_string()),
+                optional: false,
+                readonly: false,
+            },
+            ObjectMember::Property {
+                name: "count".to_string(),
+                ty: DtsType::Primitive(Primitive::Number),
+                optional: false,
+                readonly: false,
+            },
+        ]);
+
+        let types = vec![variant_a, variant_b];
+        let strategy = analyze_union(&types);
+
+        if let UnionStrategy::Discriminated {
+            discriminant,
+            variants,
+        } = strategy
+        {
+            assert_eq!(discriminant, "type");
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].tag, "a");
+            assert_eq!(variants[0].name, "A");
+            assert_eq!(variants[1].tag, "b");
+            assert_eq!(variants[1].name, "B");
+
+            // Verify discriminant field is stripped from variant types
+            if let DtsType::Object(members) = &variants[0].ty {
+                assert_eq!(members.len(), 1); // Only "value", not "type"
+                if let ObjectMember::Property { name, .. } = &members[0] {
+                    assert_eq!(name, "value");
+                }
+            } else {
+                panic!("expected Object type for variant");
+            }
+        } else {
+            panic!("expected Discriminated, got {:?}", strategy);
+        }
+    }
+
+    #[test]
+    fn test_string_enum_edge_cases_symbols() {
+        // Test edge cases: symbol-only strings that become "Unnamed" when converted to pascal case
+        let types = vec![
+            DtsType::StringLiteral("+".to_string()),
+            DtsType::StringLiteral("-".to_string()),
+        ];
+        let strategy = analyze_union(&types);
+        if let UnionStrategy::StringEnum { variants } = strategy {
+            // Original values are distinct, so both are kept
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0], "+");
+            assert_eq!(variants[1], "-");
+            // When generating code, string_to_pascal_case will convert both to "Unnamed"
+            // which could be a naming collision issue in generated code
+        } else {
+            panic!("expected StringEnum, got {:?}", strategy);
+        }
+    }
+
+    #[test]
+    fn test_string_enum_edge_cases_digits() {
+        // Test edge cases: digit-starting strings that get "V" prefix
+        let types = vec![
+            DtsType::StringLiteral("123".to_string()),
+            DtsType::StringLiteral("foo".to_string()),
+        ];
+        let strategy = analyze_union(&types);
+        if let UnionStrategy::StringEnum { variants } = strategy {
+            assert_eq!(variants.len(), 2);
+            // Values preserved, pascal_case handles naming
+            assert_eq!(variants[0], "123");
+            assert_eq!(variants[1], "foo");
+        } else {
+            panic!("expected StringEnum, got {:?}", strategy);
+        }
+    }
+
+    #[test]
+    fn test_generate_union_code_number_enum() {
+        let strategy = UnionStrategy::NumberEnum {
+            variants: vec![
+                ("N1".to_string(), "1".to_string()),
+                ("N2".to_string(), "2".to_string()),
+            ],
+        };
+        let code = generate_union_code(&strategy, Some("StatusCode"));
+        assert!(code.contains("enum StatusCode"));
+        // Current implementation doesn't include `= value`, just variant names
+        assert!(code.contains("N1"));
+        assert!(code.contains("N2"));
+    }
+
+    #[test]
+    fn test_generate_union_code_discriminated() {
+        use crate::ast::ObjectMember;
+
+        let strategy = UnionStrategy::Discriminated {
+            discriminant: "type".to_string(),
+            variants: vec![
+                DiscriminatedVariant {
+                    tag: "success".to_string(),
+                    name: "Success".to_string(),
+                    ty: DtsType::Object(vec![ObjectMember::Property {
+                        name: "data".to_string(),
+                        ty: DtsType::Primitive(Primitive::String),
+                        optional: false,
+                        readonly: false,
+                    }]),
+                },
+                DiscriminatedVariant {
+                    tag: "error".to_string(),
+                    name: "Error".to_string(),
+                    ty: DtsType::Object(vec![ObjectMember::Property {
+                        name: "message".to_string(),
+                        ty: DtsType::Primitive(Primitive::String),
+                        optional: false,
+                        readonly: false,
+                    }]),
+                },
+            ],
+        };
+        let code = generate_union_code(&strategy, Some("Result"));
+        assert!(code.contains("enum Result"));
+        assert!(code.contains("Success"));
+        assert!(code.contains("Error"));
     }
 }

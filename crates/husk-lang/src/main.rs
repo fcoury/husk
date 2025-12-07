@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,7 +6,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
-use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, parse as parse_dts, generate as generate_husk};
+use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, DtsFile, parse as parse_dts, generate as generate_husk};
 mod config;
 mod diagnostic;
 mod load;
@@ -1854,7 +1854,8 @@ fn run_dts_update(
         };
 
         // Parse .d.ts using either legacy or Oxc parser
-        let dts_file = if use_oxc {
+        // Also collect all resolved files for diagnostics when follow_imports is enabled
+        let (dts_file, resolved_files): (DtsFile, Option<HashMap<PathBuf, DtsFile>>) = if use_oxc {
             // Use Oxc parser
             if follow_imports {
                 // Use resolver for multi-file resolution
@@ -1874,7 +1875,7 @@ fn run_dts_update(
 
                 // Get the entry file
                 match resolved.files.get(&resolved.entry_path) {
-                    Some(f) => f.clone(),
+                    Some(f) => (f.clone(), Some(resolved.files)),
                     None => {
                         eprintln!("  Failed to resolve {}", dts_path);
                         continue;
@@ -1891,7 +1892,7 @@ fn run_dts_update(
                 };
 
                 match oxc_parser::parse_with_oxc(&dts_content, dts_path) {
-                    Ok(f) => f,
+                    Ok(f) => (f, None),
                     Err(e) => {
                         eprintln!("  Failed to parse {} with Oxc: {}", dts_path, e.message);
                         continue;
@@ -1909,7 +1910,7 @@ fn run_dts_update(
             };
 
             match parse_dts(&dts_content) {
-                Ok(f) => f,
+                Ok(f) => (f, None),
                 Err(e) => {
                     eprintln!("  Failed to parse {}: {e}", dts_path);
                     continue;
@@ -1919,7 +1920,15 @@ fn run_dts_update(
 
         // Collect diagnostics if generating report
         if let Some(ref mut collector) = diagnostics_collector {
-            collector.process_file(&dts_file, dts_path);
+            // If we have resolved files (from follow_imports), process all of them
+            if let Some(ref files) = resolved_files {
+                for (path, file) in files {
+                    collector.process_file(file, path.to_string_lossy().as_ref());
+                }
+            } else {
+                // Single file mode - just process the entry file
+                collector.process_file(&dts_file, dts_path);
+            }
         }
 
         // Generate Husk code

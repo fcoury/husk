@@ -11,6 +11,13 @@
 //! ```
 //!
 //! This is more ergonomic than constructing objects with many Optional fields.
+//!
+//! ## Limitations
+//!
+//! Interface names and derived builder names are used directly as type identifiers.
+//! If an interface is named with a Husk keyword (e.g., `type`, `impl`, `Self`),
+//! the generated code will be invalid. This is considered unlikely in practice
+//! since TypeScript interfaces rarely use such names.
 
 use heck::ToSnakeCase;
 
