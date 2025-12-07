@@ -92,6 +92,8 @@ pub struct DtsEntry {
     pub base_dir: Option<String>,
     /// Explicit path to .d.ts file (overrides automatic discovery).
     pub types_path: Option<String>,
+    /// Use generation gap pattern for this entry (overrides global setting).
+    pub generation_gap: Option<bool>,
 }
 
 /// Global options for DTS management.
@@ -113,6 +115,9 @@ pub struct DtsOptions {
     pub default_expand_utility_types: Option<bool>,
     /// Node modules search paths.
     pub node_modules_paths: Option<Vec<String>>,
+    /// Use generation gap pattern (*.gen.hk + *.hk wrapper).
+    /// Default: true
+    pub generation_gap: Option<bool>,
 }
 
 /// Runtime configuration for `huskc run`.
@@ -345,5 +350,37 @@ debounce_ms = 200
         assert_eq!(config.dts.len(), 1);
         assert!(config.run.is_some());
         assert!(config.watch.is_some());
+    }
+
+    #[test]
+    fn test_generation_gap_config() {
+        let toml = r#"
+[dts_options]
+generation_gap = false
+
+[[dts]]
+package = "express"
+output = "src/extern/express.hk"
+
+[[dts]]
+package = "better-sqlite3"
+output = "src/extern/sqlite.hk"
+generation_gap = true
+"#;
+        let config = HuskConfig::parse(toml).unwrap();
+
+        // Global default is false
+        assert_eq!(
+            config.dts_options.as_ref().unwrap().generation_gap,
+            Some(false)
+        );
+
+        // First entry inherits global (no override)
+        let express = &config.dts[0];
+        assert!(express.generation_gap.is_none());
+
+        // Second entry overrides global
+        let sqlite = &config.dts[1];
+        assert_eq!(sqlite.generation_gap, Some(true));
     }
 }

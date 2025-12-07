@@ -8,6 +8,7 @@ mod ast;
 pub mod builder;
 mod codegen;
 pub mod diagnostics;
+pub mod generation_gap;
 mod lexer;
 pub mod oxc_parser;
 mod parser;

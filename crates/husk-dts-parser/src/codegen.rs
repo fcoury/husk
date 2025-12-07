@@ -3,6 +3,7 @@
 use crate::ast::*;
 use crate::builder::{self, BuilderConfig};
 use crate::resolver::{ModuleIdentity, ResolvedModule};
+use crate::unions::{self, analyze_union};
 use crate::utility_types::{expand_type, ExpansionContext, TypeRegistry};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -862,13 +863,54 @@ impl<'a> Codegen<'a> {
                 self.warn(WarningKind::Unsupported, "typeof type not supported");
                 "JsValue".to_string()
             }
-            DtsType::KeyOf(_) => {
-                self.warn(WarningKind::Unsupported, "keyof type not supported");
-                "JsValue".to_string()
+            DtsType::KeyOf(target) => {
+                // Try to extract known keys from the target type
+                if let Some(keys) = self.extract_known_keys(target) {
+                    if keys.is_empty() {
+                        // No keys found - fall back to String
+                        self.warn(
+                            WarningKind::Simplified,
+                            "keyof type with no known keys mapped to String",
+                        );
+                        "String".to_string()
+                    } else if keys.len() == 1 {
+                        // Single key - just use the literal value as a String type
+                        "String".to_string()
+                    } else {
+                        // Multiple keys - create a union of string literals
+                        // Since Husk doesn't have literal types, we map to String
+                        // but warn about the loss of precision
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "keyof type with {} known keys ({}...) mapped to String",
+                                keys.len(),
+                                keys.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                            ),
+                        );
+                        "String".to_string()
+                    }
+                } else {
+                    // Cannot resolve keys - fall back to String (better than JsValue)
+                    self.warn(
+                        WarningKind::Simplified,
+                        "keyof type of unknown target mapped to String",
+                    );
+                    "String".to_string()
+                }
             }
-            DtsType::IndexAccess { .. } => {
-                self.warn(WarningKind::Unsupported, "Index access type not supported");
-                "JsValue".to_string()
+            DtsType::IndexAccess { object, index } => {
+                // Try to resolve the index access type
+                if let Some(resolved_type) = self.resolve_index_access(object, index) {
+                    self.map_type(&resolved_type)
+                } else {
+                    // Cannot resolve - fall back to JsValue
+                    self.warn(
+                        WarningKind::Simplified,
+                        "Index access type could not be resolved, mapped to JsValue",
+                    );
+                    "JsValue".to_string()
+                }
             }
             DtsType::Conditional { .. } => {
                 self.warn(WarningKind::Unsupported, "Conditional type not supported");
@@ -1102,61 +1144,317 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn map_union_type(&mut self, types: &[DtsType]) -> String {
-        // Check for nullable pattern: T | null or T | undefined
-        let non_null: Vec<&DtsType> = types
-            .iter()
-            .filter(|t| {
-                !matches!(
-                    t,
-                    DtsType::Primitive(Primitive::Null) | DtsType::Primitive(Primitive::Undefined)
-                )
-            })
-            .collect();
-
-        if non_null.len() == 1 && non_null.len() < types.len() {
-            // This is T | null or T | undefined -> Option<T>
-            let inner = self.map_type(non_null[0]);
-            return format!("Option<{}>", inner);
+    /// Extract known property keys from a type for keyof resolution.
+    ///
+    /// Returns `Some(keys)` if the type's keys can be determined,
+    /// `None` if the type cannot be resolved.
+    fn extract_known_keys(&self, ty: &DtsType) -> Option<Vec<String>> {
+        match ty {
+            // Object literal type: { a: T, b: U } -> ["a", "b"]
+            DtsType::Object(members) => {
+                let keys: Vec<String> = members
+                    .iter()
+                    .filter_map(|m| match m {
+                        ObjectMember::Property { name, .. } => Some(name.clone()),
+                        ObjectMember::Method { name, .. } => Some(name.clone()),
+                        // These don't have named keys
+                        ObjectMember::IndexSignature { .. }
+                        | ObjectMember::CallSignature(_)
+                        | ObjectMember::ConstructSignature(_) => None,
+                    })
+                    .collect();
+                Some(keys)
+            }
+            // Named type: look up in type registry
+            DtsType::Named { name, .. } => {
+                if let Some(resolved) = self.type_registry.get(name) {
+                    self.extract_known_keys(resolved)
+                } else {
+                    // Type not in registry - cannot resolve keys
+                    None
+                }
+            }
+            // Parenthesized type: unwrap
+            DtsType::Parenthesized(inner) => self.extract_known_keys(inner),
+            // Other types - cannot extract keys
+            _ => None,
         }
+    }
 
-        // Check for boolean union
-        if types.len() == 2 {
-            let has_true = types
-                .iter()
-                .any(|t| matches!(t, DtsType::BooleanLiteral(true)));
-            let has_false = types
-                .iter()
-                .any(|t| matches!(t, DtsType::BooleanLiteral(false)));
-            if has_true && has_false {
-                return "bool".to_string();
+    /// Get the type of a property in a named type, for index access resolution.
+    fn get_property_type(&self, type_name: &str, property_name: &str) -> Option<DtsType> {
+        if let Some(ty) = self.type_registry.get(type_name) {
+            self.get_property_type_from_object(ty, property_name)
+        } else {
+            None
+        }
+    }
+
+    /// Get the type of a property from an object type.
+    fn get_property_type_from_object(&self, ty: &DtsType, property_name: &str) -> Option<DtsType> {
+        match ty {
+            DtsType::Object(members) => {
+                for member in members {
+                    match member {
+                        ObjectMember::Property { name, ty, .. } if name == property_name => {
+                            return Some(ty.clone());
+                        }
+                        ObjectMember::Method { name, return_type, .. } if name == property_name => {
+                            // For methods, return the return type (or void)
+                            return Some(
+                                return_type
+                                    .clone()
+                                    .unwrap_or(DtsType::Primitive(Primitive::Void)),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            }
+            DtsType::Named { name, .. } => {
+                // Try to resolve the named type
+                if let Some(resolved) = self.type_registry.get(name) {
+                    self.get_property_type_from_object(resolved, property_name)
+                } else {
+                    None
+                }
+            }
+            DtsType::Parenthesized(inner) => self.get_property_type_from_object(inner, property_name),
+            _ => None,
+        }
+    }
+
+    /// Resolve an index access type `T[K]` to its concrete type.
+    ///
+    /// Handles common patterns:
+    /// - `T["propertyName"]` - literal string key lookup
+    /// - `T[number]` - array element access
+    /// - `T[K]` where K is a string literal type
+    fn resolve_index_access(&self, object: &DtsType, index: &DtsType) -> Option<DtsType> {
+        match (object, index) {
+            // T["propertyName"] - string literal key lookup
+            (DtsType::Named { name, .. }, DtsType::StringLiteral(key)) => {
+                self.get_property_type(name, key)
+            }
+            // { a: T, b: U }["a"] - object literal with string literal key
+            (DtsType::Object(_), DtsType::StringLiteral(key)) => {
+                self.get_property_type_from_object(object, key)
+            }
+            // T[number] - array element type
+            (DtsType::Array(elem), DtsType::Primitive(Primitive::Number)) => {
+                Some((**elem).clone())
+            }
+            // ReadonlyArray<T>[number]
+            (
+                DtsType::Named { name, type_args },
+                DtsType::Primitive(Primitive::Number),
+            ) if name == "Array" || name == "ReadonlyArray" => {
+                type_args.first().cloned()
+            }
+            // Tuple[N] - tuple element access with number literal
+            // For now, we don't handle this as we'd need NumberLiteral type
+            // (T) - parenthesized, unwrap
+            (DtsType::Parenthesized(inner), _) => self.resolve_index_access(inner, index),
+            (_, DtsType::Parenthesized(inner)) => self.resolve_index_access(object, inner),
+            // Cannot resolve
+            _ => None,
+        }
+    }
+
+    fn map_union_type(&mut self, types: &[DtsType]) -> String {
+        // Use the union analyzer to determine the best strategy
+        let analysis = analyze_union(types);
+
+        match analysis {
+            unions::UnionStrategy::Nullable { inner } => {
+                // T | null | undefined → Option<T>
+                let mapped = self.map_type(&inner);
+                format!("Option<{}>", mapped)
+            }
+
+            unions::UnionStrategy::Boolean => {
+                // true | false → bool
+                "bool".to_string()
+            }
+
+            unions::UnionStrategy::StringEnum { variants } => {
+                // String literal union - depends on config strategy
+                match self.options.union_strategy {
+                    UnionStrategy::JsValue => {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "String literal union ({} variants) mapped to JsValue per config",
+                                variants.len()
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                    UnionStrategy::Enum | UnionStrategy::Auto => {
+                        // Map to String for now - Husk doesn't have inline enum types
+                        // A more advanced implementation could generate named enums
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "String literal union ({} variants: {}...) mapped to String",
+                                variants.len(),
+                                variants.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                            ),
+                        );
+                        "String".to_string()
+                    }
+                }
+            }
+
+            unions::UnionStrategy::NumberEnum { variants } => {
+                // Number literal union
+                match self.options.union_strategy {
+                    UnionStrategy::JsValue => {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Number literal union ({} variants) mapped to JsValue per config",
+                                variants.len()
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                    UnionStrategy::Enum | UnionStrategy::Auto => {
+                        // Map to f64 for now
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Number literal union ({} variants) mapped to f64",
+                                variants.len()
+                            ),
+                        );
+                        "f64".to_string()
+                    }
+                }
+            }
+
+            unions::UnionStrategy::Discriminated { discriminant, variants } => {
+                // Discriminated/tagged union
+                match self.options.union_strategy {
+                    UnionStrategy::JsValue => {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Discriminated union (tag: {}, {} variants) mapped to JsValue per config",
+                                discriminant,
+                                variants.len()
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                    UnionStrategy::Enum | UnionStrategy::Auto => {
+                        // For discriminated unions, we could generate a Husk enum
+                        // but this requires generating a type definition, not just a type reference
+                        // For now, warn and use JsValue
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Discriminated union (tag: {}, {} variants) mapped to JsValue - enum generation pending",
+                                discriminant,
+                                variants.len()
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                }
+            }
+
+            unions::UnionStrategy::TypeEnum { variants } => {
+                // Union of named types like Foo | Bar
+                match self.options.union_strategy {
+                    UnionStrategy::JsValue => {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Type union ({} variants) mapped to JsValue per config",
+                                variants.len()
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                    UnionStrategy::Enum => {
+                        // User explicitly wants enums - warn about limitation
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Type union ({} variants: {}...) mapped to JsValue - inline enum generation not yet supported",
+                                variants.len(),
+                                variants.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                    UnionStrategy::Auto => {
+                        // For Auto with small unions, we could try to be smarter
+                        if variants.len() <= 4 {
+                            self.warn(
+                                WarningKind::Simplified,
+                                format!(
+                                    "Type union ({}) mapped to JsValue - enum generation pending",
+                                    variants.join(" | ")
+                                ),
+                            );
+                        } else {
+                            self.warn(
+                                WarningKind::Simplified,
+                                format!(
+                                    "Large type union ({} variants) mapped to JsValue",
+                                    variants.len()
+                                ),
+                            );
+                        }
+                        "JsValue".to_string()
+                    }
+                }
+            }
+
+            unions::UnionStrategy::Overloaded { .. } => {
+                // Function overloads - handled at function level, not type level
+                self.warn(
+                    WarningKind::Simplified,
+                    "Function union/overload mapped to JsValue",
+                );
+                "JsValue".to_string()
+            }
+
+            unions::UnionStrategy::JsValue => {
+                // Analysis determined JsValue is best
+                self.warn(
+                    WarningKind::Simplified,
+                    "Mixed type union mapped to JsValue",
+                );
+                "JsValue".to_string()
+            }
+
+            unions::UnionStrategy::Passthrough(ref remaining) => {
+                // Could not categorize - fall back based on config
+                match self.options.union_strategy {
+                    UnionStrategy::Enum => {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!(
+                                "Complex union ({} variants) could not generate enum, using JsValue",
+                                remaining.len()
+                            ),
+                        );
+                        "JsValue".to_string()
+                    }
+                    UnionStrategy::Auto | UnionStrategy::JsValue => {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!("Complex union ({} variants) mapped to JsValue", remaining.len()),
+                        );
+                        "JsValue".to_string()
+                    }
+                }
             }
         }
-
-        // General union - if all are string literals, use String
-        if types.iter().all(|t| matches!(t, DtsType::StringLiteral(_))) {
-            self.warn(
-                WarningKind::Simplified,
-                "String literal union mapped to String",
-            );
-            return "String".to_string();
-        }
-
-        // If all are number literals, use f64
-        if types.iter().all(|t| matches!(t, DtsType::NumberLiteral(_))) {
-            self.warn(
-                WarningKind::Simplified,
-                "Number literal union mapped to f64",
-            );
-            return "f64".to_string();
-        }
-
-        // Complex union - fallback to JsValue
-        self.warn(
-            WarningKind::Simplified,
-            "Complex union type mapped to JsValue",
-        );
-        "JsValue".to_string()
     }
 
     fn map_function_type(&mut self, f: &FunctionType) -> String {

@@ -1785,7 +1785,7 @@ fn run_dts_update(
     generate_report: bool,
     config: &HuskConfig,
 ) {
-    use husk_dts_parser::{oxc_parser, resolver, diagnostics};
+    use husk_dts_parser::{oxc_parser, resolver, diagnostics, generation_gap};
 
     // Warn if follow_imports is set without oxc
     if follow_imports && !use_oxc {
@@ -2057,24 +2057,35 @@ fn run_dts_update(
             result.code = filtered_lines.join("\n");
         }
 
-        // Ensure output directory exists
+        // Determine if generation gap pattern is enabled (per-entry or global, default true)
+        let use_generation_gap = entry
+            .generation_gap
+            .or(config.dts_options.as_ref().and_then(|o| o.generation_gap))
+            .unwrap_or(true);
+
+        // Write output using generation gap pattern
         let output_path = Path::new(&entry.output);
-        if let Some(parent) = output_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    eprintln!("  Failed to create directory: {e}");
-                    continue;
+        let writer = generation_gap::GenerationGapWriter::new(use_generation_gap);
+
+        match writer.write(output_path, &result.code) {
+            Ok(write_result) => {
+                if use_generation_gap {
+                    println!("  Generated {}", write_result.gen_path.display());
+                    if write_result.wrapper_created {
+                        println!(
+                            "  Created wrapper {}",
+                            write_result.wrapper_path.as_ref().unwrap().display()
+                        );
+                    }
+                } else {
+                    println!("  Generated {}", write_result.gen_path.display());
                 }
             }
+            Err(e) => {
+                eprintln!("  Failed to write {}: {e}", entry.output);
+                continue;
+            }
         }
-
-        // Write output
-        if let Err(e) = fs::write(output_path, &result.code) {
-            eprintln!("  Failed to write {}: {e}", entry.output);
-            continue;
-        }
-
-        println!("  Generated {}", entry.output);
 
         // Print warnings based on warn_level
         if show_warnings && !result.warnings.is_empty() {
