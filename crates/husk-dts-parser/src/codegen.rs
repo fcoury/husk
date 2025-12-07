@@ -500,18 +500,16 @@ impl<'a> Codegen<'a> {
     }
 
     fn collect_function(&mut self, f: &DtsFunction) {
-        let type_params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
-
-        // Set up known generics for type mapping
-        self.known_generics = type_params.iter().cloned().collect();
+        // NOTE: Top-level extern functions don't support type parameters in the parser,
+        // so we don't add them to known_generics. This means type params will be mapped
+        // to JsValue, which is correct for JavaScript interop.
 
         let mut comment = None;
 
-        // Check for constrained type params
-        for tp in &f.type_params {
-            if tp.constraint.is_some() {
-                comment = Some(format!("NOTE: constraint on `{}` not enforced", tp.name));
-            }
+        // Check for constrained type params - add a note if any exist
+        if !f.type_params.is_empty() {
+            let param_names: Vec<&str> = f.type_params.iter().map(|p| p.name.as_str()).collect();
+            comment = Some(format!("type params simplified: {}", param_names.join(", ")));
         }
 
         let params: Vec<(String, String)> = f
@@ -530,7 +528,7 @@ impl<'a> Codegen<'a> {
 
         self.functions.push(GeneratedFn {
             name: escape_keyword(&f.name),
-            type_params,
+            type_params: Vec::new(), // Don't emit type params for extern block functions
             params,
             return_type,
             comment,
@@ -755,7 +753,7 @@ impl<'a> Codegen<'a> {
                         .collect();
 
                     methods.push(GeneratedMethod {
-                        name: "new".to_string(),
+                        name: "new_".to_string(), // Escape keyword
                         type_params: type_params.clone(),
                         params,
                         return_type: Some(c.name.clone()),
@@ -915,12 +913,15 @@ impl<'a> Codegen<'a> {
             }
             // Named type -> variant wrapping that type
             DtsType::Named { name, type_args } => {
-                let variant_name = name.clone();
+                // Use the simple name (last segment) for the variant name and inner type
+                // This matches how map_named_type handles qualified names
+                let simple_name = name.split('.').last().unwrap_or(name);
+                let variant_name = simple_name.to_string();
                 let inner_type = if type_args.is_empty() {
-                    name.clone()
+                    simple_name.to_string()
                 } else {
                     let args: Vec<String> = type_args.iter().map(|t| self.map_type(t)).collect();
-                    format!("{}<{}>", name, args.join(", "))
+                    format!("{}<{}>", simple_name, args.join(", "))
                 };
                 Some((variant_name, Some(inner_type)))
             }
@@ -1981,10 +1982,8 @@ impl<'a> Codegen<'a> {
 
                 write!(self.output, "    extern \"js\" fn {}", m.name).unwrap();
 
-                // Type params (excluding the struct's own params for non-static methods)
-                if !m.type_params.is_empty() && m.is_static {
-                    write!(self.output, "<{}>", m.type_params.join(", ")).unwrap();
-                }
+                // NOTE: Type params are not output because the extern impl parser doesn't support them.
+                // Method type params get mapped to JsValue during type mapping.
 
                 write!(self.output, "(").unwrap();
 
@@ -2120,6 +2119,9 @@ pub fn is_keyword(name: &str) -> bool {
             | "async"
             | "await"
             | "new"
+            | "ref"
+            | "global"
+            | "js"
             | "void"
             | "null"
             | "default"
@@ -2133,12 +2135,60 @@ pub fn is_keyword(name: &str) -> bool {
     )
 }
 
+/// Sanitize an identifier by replacing invalid characters with underscores.
+/// Handles dots, colons, hyphens, slashes that appear in TypeScript identifiers.
+/// Returns (sanitized_name, needs_js_name_attr) where needs_js_name_attr is true
+/// if the original name differs from the sanitized version.
+fn sanitize_identifier(name: &str) -> (String, bool) {
+    // Check if sanitization is needed
+    let needs_sanitization = name.contains(|c: char| {
+        matches!(c, '.' | ':' | '-' | '/')
+    }) || name.starts_with(':');
+
+    if !needs_sanitization {
+        return (name.to_string(), false);
+    }
+
+    let mut result = String::with_capacity(name.len());
+    let mut prev_was_separator = false;
+
+    for (i, c) in name.chars().enumerate() {
+        match c {
+            '.' | ':' | '-' | '/' => {
+                // Skip leading separators for colon (HTTP/2 pseudo-headers)
+                if i == 0 && c == ':' {
+                    prev_was_separator = true;
+                    continue;
+                }
+                // Avoid double underscores
+                if !prev_was_separator && !result.is_empty() {
+                    result.push('_');
+                }
+                prev_was_separator = true;
+            }
+            _ => {
+                result.push(c);
+                prev_was_separator = false;
+            }
+        }
+    }
+
+    // Handle edge case: name was only special chars
+    if result.is_empty() {
+        result.push_str("value");
+    }
+
+    (result, true)
+}
+
 /// Escape a name if it's a reserved keyword by appending an underscore.
+/// Also sanitizes identifiers with special characters (dots, colons, hyphens).
 pub fn escape_keyword(name: &str) -> String {
-    if is_keyword(name) {
-        format!("{}_", name)
+    let (sanitized, _) = sanitize_identifier(name);
+    if is_keyword(&sanitized) {
+        format!("{}_", sanitized)
     } else {
-        name.to_string()
+        sanitized
     }
 }
 
@@ -2367,11 +2417,13 @@ mod tests {
 
     #[test]
     fn test_generate_generic_function() {
+        // Generic type parameters on extern functions are simplified to JsValue
+        // because the Husk parser doesn't support type params on extern block functions.
         let src = "declare function identity<T>(x: T): T;";
         let file = parse(src).unwrap();
         let result = generate(&file, &CodegenOptions::default());
 
-        assert!(result.code.contains("fn identity<T>(x: T) -> T;"));
+        assert!(result.code.contains("fn identity(x: JsValue) -> JsValue;"));
     }
 
     #[test]
