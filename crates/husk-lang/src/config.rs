@@ -87,6 +87,8 @@ pub struct DtsOptions {
     pub auto_update: Option<bool>,
     /// Warning level: "all", "simplified", "none".
     pub warn_level: Option<String>,
+    /// Enable generation of dts-report.md diagnostics.
+    pub generate_report: Option<bool>,
 }
 
 /// Runtime configuration for `huskc run`.

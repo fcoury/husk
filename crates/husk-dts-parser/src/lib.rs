@@ -30,3 +30,9 @@ pub use oxc_convert::convert_program as convert_oxc_program;
 pub use oxc_frontend::{OxcDtsParser, OxcProgram};
 pub use parser::{ParseError, ParseResult, parse};
 pub use resolver::{ModuleKind, ResolvedModule, resolve_module};
+
+/// Dts generation diagnostics, currently a minimal placeholder.
+#[derive(Default, Debug, Clone)]
+pub struct DtsDiagnostics {
+    pub warnings: Vec<String>,
+}

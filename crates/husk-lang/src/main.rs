@@ -14,14 +14,16 @@ use std::process::{Command as ProcessCommand, Stdio};
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
 use husk_dts_parser::{
-    CodegenOptions as DtsCodegenOptions, OxcDtsParser, convert_oxc_program,
+    CodegenOptions as DtsCodegenOptions, DtsDiagnostics, OxcDtsParser, convert_oxc_program,
     generate as generate_husk, prepare_module_metadata,
 };
 mod config;
 mod diagnostic;
+mod dts_report;
 mod load;
 use config::HuskConfig;
 use diagnostic::{SourceDb, report_load_error};
+use dts_report::write_dts_report;
 use husk_parser::parse_str;
 use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
@@ -1964,6 +1966,21 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         };
         let resolved = prepare_module_metadata(&dts_file);
         let mut result = generate_husk(&dts_file, &options, Some(resolved));
+
+        // Optional diagnostics report
+        let generate_report = config
+            .dts_options
+            .as_ref()
+            .and_then(|o| o.generate_report)
+            .unwrap_or(false);
+        if generate_report {
+            let diag = DtsDiagnostics {
+                warnings: result.warnings.iter().map(|w| w.message.clone()).collect(),
+            };
+            if let Err(e) = write_dts_report(&entry.output, &diag) {
+                eprintln!("  Failed to write diagnostics: {e}");
+            }
+        }
 
         // Apply include/exclude filters to the generated code
         // Note: This is a simple post-processing filter. A more robust solution would
