@@ -1797,12 +1797,20 @@ fn run_dts_update(
     package: Option<&str>,
     use_oxc: bool,
     follow_imports: bool,
-    generate_report: bool,
+    cli_generate_report: bool,
     report_format: ReportFormat,
     report_path: Option<&str>,
     config: &HuskConfig,
 ) {
     use husk_dts_parser::{oxc_parser, resolver, diagnostics, generation_gap};
+
+    // Wire generate_report from config (CLI flag overrides to enable)
+    let generate_report = cli_generate_report
+        || config
+            .dts_options
+            .as_ref()
+            .and_then(|o| o.generate_report)
+            .unwrap_or(false);
 
     // Warn if follow_imports is set without oxc
     if follow_imports && !use_oxc {
@@ -2015,7 +2023,14 @@ fn run_dts_update(
             .map(|s| match s {
                 "enum" => UnionStrategy::Enum,
                 "jsvalue" => UnionStrategy::JsValue,
-                _ => UnionStrategy::Auto,
+                "auto" => UnionStrategy::Auto,
+                other => {
+                    eprintln!(
+                        "Warning: unknown union_strategy '{}', using 'auto'. Valid values: enum, jsvalue, auto",
+                        other
+                    );
+                    UnionStrategy::Auto
+                }
             })
             .unwrap_or(UnionStrategy::Auto);
 

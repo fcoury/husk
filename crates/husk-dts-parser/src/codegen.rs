@@ -370,7 +370,7 @@ impl<'a> Codegen<'a> {
             })
             .collect();
 
-        if overloads.len() > 0 {
+        if !overloads.is_empty() {
             self.warn(
                 WarningKind::Simplified,
                 format!(
@@ -431,7 +431,7 @@ impl<'a> Codegen<'a> {
             })
             .collect();
 
-        if overloads.len() > 0 {
+        if !overloads.is_empty() {
             self.warn(
                 WarningKind::Simplified,
                 format!(
@@ -1956,7 +1956,6 @@ impl<'a> Codegen<'a> {
                     write!(self.output, ", ").unwrap();
                 }
                 write!(self.output, "{}: {}", name, ty).unwrap();
-                need_comma = false; // Only relevant for first param
             }
             write!(self.output, ")").unwrap();
 
@@ -2162,7 +2161,6 @@ impl<'a> Codegen<'a> {
                         write!(self.output, ", ").unwrap();
                     }
                     write!(self.output, "{}: {}", name, substitute_generics(ty)).unwrap();
-                    need_comma = false; // Only need to track for first param
                 }
                 write!(self.output, ")").unwrap();
 

@@ -427,7 +427,7 @@ struct TypeEnv {
     traits: HashMap<String, TraitInfo>,
     /// Impl blocks (can have multiple impls for the same type)
     impls: Vec<ImplInfo>,
-    /// Static/global variables (from `static name: Type;` in extern blocks)
+    /// Static/global variables and constants (from `static name: Type;` and `const name: Type;` in extern blocks)
     statics: HashMap<String, TypeExpr>,
     /// Imported enum variants that can be used without the enum prefix.
     /// Maps variant name -> (enum_name, variant_def).
