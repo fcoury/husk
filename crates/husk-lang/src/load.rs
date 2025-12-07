@@ -133,7 +133,7 @@ fn dfs_load<P: ContentProvider>(
         )?;
     }
 
-    modules.insert(module_path.clone(), Module { file: file.clone() });
+    modules.insert(module_path.clone(), Module { file });
     order.push(module_path.clone());
     visiting.remove(&module_path);
     Ok(())

@@ -39,6 +39,11 @@ impl OxcDtsParser {
             .with_options(options)
             .parse()
     }
+
+    /// Reset arena allocations once parsed ASTs are fully consumed.
+    pub fn reset(&mut self) {
+        self.allocator.reset();
+    }
 }
 
 /// Convenience alias for the parsed program.

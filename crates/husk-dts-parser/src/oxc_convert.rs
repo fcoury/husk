@@ -723,8 +723,11 @@ fn convert_type(ty: &oxc::TSType<'_>) -> DtsType {
                         optional: true,
                         rest: false,
                     },
-                    _ => TupleElement {
-                        ty: DtsType::Primitive(Primitive::Any),
+                    other => TupleElement {
+                        ty: other
+                            .as_ts_type()
+                            .map(convert_type)
+                            .unwrap_or(DtsType::Primitive(Primitive::Any)),
                         name: None,
                         optional: false,
                         rest: false,
@@ -889,19 +892,14 @@ fn convert_object_member(member: &oxc::TSSignature<'_>) -> Option<ObjectMember> 
             }))
         }
         oxc::TSSignature::TSIndexSignature(idx) => {
+            let (key_name, key_type) = idx
+                .parameters
+                .first()
+                .map(convert_index_parameter)
+                .unwrap_or_else(|| ("key".into(), DtsType::Primitive(Primitive::Any)));
             Some(ObjectMember::IndexSignature(IndexSignature {
-                key_name: idx
-                    .parameters
-                    .first()
-                    .map(convert_index_parameter)
-                    .map(|(n, _)| n)
-                    .unwrap_or_else(|| "key".into()),
-                key_type: idx
-                    .parameters
-                    .first()
-                    .map(convert_index_parameter)
-                    .map(|(_, t)| t)
-                    .unwrap_or(DtsType::Primitive(Primitive::Any)),
+                key_name,
+                key_type,
                 value_type: convert_type(&idx.type_annotation.type_annotation),
                 readonly: idx.readonly,
             }))

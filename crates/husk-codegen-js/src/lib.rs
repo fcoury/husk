@@ -2696,7 +2696,7 @@ fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                     property: "tag".to_string(),
                 };
                 Some(JsExpr::Binary {
-                    op: JsBinaryOp::EqEq,
+                    op: JsBinaryOp::StrictEq,
                     left: Box::new(tag_access),
                     right: Box::new(JsExpr::String(variant)),
                 })
@@ -2711,7 +2711,7 @@ fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                         property: "tag".to_string(),
                     };
                     Some(JsExpr::Binary {
-                        op: JsBinaryOp::EqEq,
+                        op: JsBinaryOp::StrictEq,
                         left: Box::new(tag_access),
                         right: Box::new(JsExpr::String(variant_name.clone())),
                     })
@@ -2803,7 +2803,7 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                     property: "tag".to_string(),
                 };
                 Some(JsExpr::Binary {
-                    op: JsBinaryOp::EqEq,
+                    op: JsBinaryOp::StrictEq,
                     left: Box::new(tag_access),
                     right: Box::new(JsExpr::String(variant)),
                 })
@@ -2818,7 +2818,7 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                         property: "tag".to_string(),
                     };
                     Some(JsExpr::Binary {
-                        op: JsBinaryOp::EqEq,
+                        op: JsBinaryOp::StrictEq,
                         left: Box::new(tag_access),
                         right: Box::new(JsExpr::String(variant_name.clone())),
                     })

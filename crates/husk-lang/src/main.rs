@@ -1866,7 +1866,7 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
         return;
     }
 
-    let oxc_parser = OxcDtsParser::new();
+    let mut oxc_parser = OxcDtsParser::new();
 
     let entries: Vec<_> = if let Some(pkg) = package {
         config.dts.iter().filter(|e| e.package == pkg).collect()
@@ -1945,6 +1945,8 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
                 continue;
             }
         };
+        drop(parsed);
+        oxc_parser.reset();
 
         // Generate Husk code
         let options = DtsCodegenOptions {
