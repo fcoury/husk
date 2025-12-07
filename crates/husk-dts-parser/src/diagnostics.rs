@@ -948,6 +948,9 @@ impl CodegenMetrics {
         self.index_access_resolved += other.index_access_resolved;
         self.index_access_fallback += other.index_access_fallback;
 
+        self.extern_consts += other.extern_consts;
+        self.legacy_const_functions += other.legacy_const_functions;
+
         // Note: warnings are not aggregated to avoid duplication
     }
 
@@ -1064,6 +1067,20 @@ impl CodegenMetrics {
             writeln!(report).unwrap();
         }
 
+        // Const handling
+        if self.extern_consts > 0 || self.legacy_const_functions > 0 {
+            writeln!(report, "## Constant Handling").unwrap();
+            writeln!(report).unwrap();
+            writeln!(report, "- Extern consts: {}", self.extern_consts).unwrap();
+            writeln!(
+                report,
+                "- Legacy const functions: {}",
+                self.legacy_const_functions
+            )
+            .unwrap();
+            writeln!(report).unwrap();
+        }
+
         // Warnings
         if !self.warnings.is_empty() {
             writeln!(report, "## Warnings").unwrap();
@@ -1139,6 +1156,16 @@ impl CodegenMetrics {
             json,
             "    \"index_access_fallback\": {}",
             self.index_access_fallback
+        )
+        .unwrap();
+        writeln!(json, "  }},").unwrap();
+
+        writeln!(json, "  \"constants\": {{").unwrap();
+        writeln!(json, "    \"extern_consts\": {},", self.extern_consts).unwrap();
+        writeln!(
+            json,
+            "    \"legacy_const_functions\": {}",
+            self.legacy_const_functions
         )
         .unwrap();
         writeln!(json, "  }},").unwrap();

@@ -12,7 +12,6 @@ husk-lexer.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-husk-lexer.workspace = true
 
 [[bench]]
 name = "parser_benchmarks"

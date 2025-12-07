@@ -51,6 +51,25 @@ pub fn parse_with_oxc(src: &str, filename: &str) -> Result<DtsFile, OxcParseErro
         });
     }
 
+    // Warn about non-fatal parse errors (syntax issues the parser recovered from)
+    if !parser_return.errors.is_empty() {
+        eprintln!(
+            "Warning: {} parse error(s) in {}: {}",
+            parser_return.errors.len(),
+            filename,
+            parser_return
+                .errors
+                .iter()
+                .take(3)
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        if parser_return.errors.len() > 3 {
+            eprintln!("  ... and {} more", parser_return.errors.len() - 3);
+        }
+    }
+
     // Visit the AST and collect declarations
     let mut visitor = DtsVisitor::new(src);
     visitor.visit_program(&parser_return.program);

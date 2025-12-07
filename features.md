@@ -25,7 +25,3 @@
 - **Impact**: Methods with explicit `this` parameter degrade
 - **Workaround**: None currently
 - **Tracking**: [issue link]
-
-```
-
-```

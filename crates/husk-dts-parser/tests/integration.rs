@@ -1242,8 +1242,9 @@ fn test_real_express_types() {
     println!("\n=== Validating generated bindings compile ===\n");
 
     // Save generated code for debugging
-    std::fs::write("/tmp/generated.husk", &result.code).expect("save generated code");
-    println!("Saved generated code to /tmp/generated.husk");
+    let debug_path = std::env::temp_dir().join("generated-express.husk");
+    std::fs::write(&debug_path, &result.code).expect("save generated code");
+    println!("Saved generated code to {}", debug_path.display());
 
     // Time lexing separately
     let lex_start = std::time::Instant::now();
@@ -1380,8 +1381,9 @@ fn test_real_better_sqlite3_types() {
     println!("\n=== Validating generated bindings compile ===\n");
 
     // Save generated code for debugging
-    std::fs::write("/tmp/generated-sqlite.husk", &result.code).expect("save generated code");
-    println!("Saved generated code to /tmp/generated-sqlite.husk");
+    let debug_path = std::env::temp_dir().join("generated-sqlite.husk");
+    std::fs::write(&debug_path, &result.code).expect("save generated code");
+    println!("Saved generated code to {}", debug_path.display());
 
     // Time lexing separately
     let lex_start = std::time::Instant::now();
