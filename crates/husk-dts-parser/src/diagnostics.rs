@@ -661,6 +661,10 @@ fn is_utility_type(name: &str) -> bool {
             | "NonNullable"
             | "ReturnType"
             | "Parameters"
+            | "ConstructorParameters"
+            | "InstanceType"
+            | "ThisParameterType"
+            | "OmitThisParameter"
             | "Awaited"
     )
 }

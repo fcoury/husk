@@ -118,7 +118,7 @@ impl<'a> DtsVisitor<'a> {
                     DtsType::NumberLiteral(raw_str)
                 }
                 TSLiteral::BooleanLiteral(b) => DtsType::BooleanLiteral(b.value),
-                TSLiteral::BigIntLiteral(bi) => DtsType::NumberLiteral(bi.raw.as_ref().map(|r| r.to_string()).unwrap_or_default()),
+                TSLiteral::BigIntLiteral(_) => DtsType::Primitive(Primitive::BigInt),
                 TSLiteral::TemplateLiteral(_) => DtsType::Primitive(Primitive::String),
                 TSLiteral::UnaryExpression(_) => DtsType::Primitive(Primitive::Number),
             },
@@ -416,6 +416,7 @@ impl<'a> DtsVisitor<'a> {
                             DtsType::NumberLiteral(raw_str)
                         }
                         TSLiteral::BooleanLiteral(b) => DtsType::BooleanLiteral(b.value),
+                        TSLiteral::BigIntLiteral(_) => DtsType::Primitive(Primitive::BigInt),
                         _ => DtsType::Primitive(Primitive::Any),
                     },
                     _ => DtsType::Primitive(Primitive::Any),

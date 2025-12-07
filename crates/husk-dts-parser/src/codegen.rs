@@ -1325,26 +1325,25 @@ pub fn type_to_husk_string(ty: &DtsType) -> String {
                 format!("{}<{}>", name, args.join(", "))
             }
         }
-        DtsType::Array(inner) => format!("[{}]", type_to_husk_string(inner)),
+        DtsType::Array(inner) => format!("JsArray<{}>", type_to_husk_string(inner)),
         DtsType::StringLiteral(s) => format!("\"{}\"", s),
         DtsType::NumberLiteral(n) => n.clone(),
         DtsType::BooleanLiteral(b) => b.to_string(),
         DtsType::Union(types) => {
-            // Check for Option pattern: T | null | undefined
-            if types.len() == 2 {
-                let non_null: Vec<_> = types
-                    .iter()
-                    .filter(|t| {
-                        !matches!(
-                            t,
-                            DtsType::Primitive(Primitive::Null)
-                                | DtsType::Primitive(Primitive::Undefined)
-                        )
-                    })
-                    .collect();
-                if non_null.len() == 1 {
-                    return format!("Option<{}>", type_to_husk_string(non_null[0]));
-                }
+            // Check for Option pattern: T | null, T | undefined, or T | null | undefined
+            let non_null: Vec<_> = types
+                .iter()
+                .filter(|t| {
+                    !matches!(
+                        t,
+                        DtsType::Primitive(Primitive::Null)
+                            | DtsType::Primitive(Primitive::Undefined)
+                    )
+                })
+                .collect();
+            // If we filtered out at least one null/undefined and have exactly one remaining type
+            if non_null.len() == 1 && non_null.len() < types.len() {
+                return format!("Option<{}>", type_to_husk_string(non_null[0]));
             }
             // Fall back to showing the union types
             let strs: Vec<_> = types.iter().map(type_to_husk_string).collect();
@@ -1369,7 +1368,7 @@ fn primitive_to_husk_string(p: &Primitive) -> String {
         Primitive::Void => "()".to_string(),
         Primitive::Null | Primitive::Undefined => "()".to_string(),
         Primitive::Any | Primitive::Unknown => "JsValue".to_string(),
-        Primitive::Never => "!".to_string(),
+        Primitive::Never => "()".to_string(), // Husk doesn't have never type
         Primitive::Object => "JsObject".to_string(),
         Primitive::Symbol => "JsValue".to_string(),
         Primitive::BigInt => "i64".to_string(),
