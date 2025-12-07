@@ -427,6 +427,8 @@ pub struct TypeExpr {
 /// Function parameter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
+    /// Attributes on the parameter, e.g., `#[this]` for explicit this binding.
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub ty: TypeExpr,
 }
@@ -694,6 +696,12 @@ impl Item {
             .find(|a| a.name.name == "should_panic")
             .and_then(|a| a.value.as_deref())
     }
+
+    /// Returns true if this item (usually an enum) has an #[untagged] attribute.
+    /// Untagged enums serialize without a tag field, matching TypeScript's untagged unions.
+    pub fn is_untagged(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "untagged")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -740,6 +748,13 @@ pub enum ExternItemKind {
     /// Static variable declaration: `static __dirname: String;`
     /// Declares a global JavaScript variable accessible from Husk code.
     Static {
+        name: Ident,
+        ty: TypeExpr,
+    },
+    /// Constant declaration: `const VERSION: String;`
+    /// Declares an immutable JavaScript constant accessible from Husk code.
+    /// Unlike `Static`, this represents a truly immutable binding from the JS side.
+    Const {
         name: Ident,
         ty: TypeExpr,
     },

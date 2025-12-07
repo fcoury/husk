@@ -176,8 +176,8 @@ fn test_generic_types() {
     assert!(result.code.contains("fn map<T, U>(arr: JsArray<T>, fn_: fn(T) -> U) -> JsArray<U>;"));
     assert!(result.code.contains("fn filter<T>(arr: JsArray<T>, predicate: fn(T) -> bool) -> JsArray<T>;"));
 
-    // Check generic interface
-    assert!(result.code.contains("struct Box;"));
+    // Check generic interface - type parameters are now preserved
+    assert!(result.code.contains("struct Box<T>;"));
 }
 
 /// Test parsing optional and nullable types.

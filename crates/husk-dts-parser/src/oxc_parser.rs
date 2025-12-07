@@ -164,11 +164,18 @@ impl<'a> DtsVisitor<'a> {
                 let params = self.convert_formal_params(&func.params);
                 let return_type = self.convert_type(&func.return_type.type_annotation);
 
+                // Extract this parameter if present
+                let this_param = func.this_param.as_ref().and_then(|tp| {
+                    tp.type_annotation
+                        .as_ref()
+                        .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+                });
+
                 DtsType::Function(Box::new(HuskFunctionType {
                     type_params,
                     params,
                     return_type: Box::new(return_type),
-                    this_param: None, // TODO: Extract this param if present
+                    this_param,
                 }))
             }
 
@@ -557,12 +564,20 @@ impl<'a> DtsVisitor<'a> {
                     .as_ref()
                     .map(|rt| self.convert_type(&rt.type_annotation));
 
+                // Extract this parameter if present
+                let this_param = method.this_param.as_ref().and_then(|tp| {
+                    tp.type_annotation
+                        .as_ref()
+                        .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+                });
+
                 Some(ObjectMember::Method {
                     name,
                     type_params,
                     params,
                     return_type,
                     optional: method.optional,
+                    this_param,
                 })
             }
 
@@ -574,10 +589,18 @@ impl<'a> DtsVisitor<'a> {
                     .as_ref()
                     .map(|rt| self.convert_type(&rt.type_annotation));
 
+                // Extract this parameter if present
+                let this_param = call.this_param.as_ref().and_then(|tp| {
+                    tp.type_annotation
+                        .as_ref()
+                        .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+                });
+
                 Some(ObjectMember::CallSignature(CallSignature {
                     type_params,
                     params,
                     return_type,
+                    this_param,
                 }))
             }
 
@@ -714,12 +737,20 @@ impl<'a> DtsVisitor<'a> {
                     .as_ref()
                     .map(|rt| self.convert_type(&rt.type_annotation));
 
+                // Extract this parameter if present
+                let this_param = method.this_param.as_ref().and_then(|tp| {
+                    tp.type_annotation
+                        .as_ref()
+                        .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+                });
+
                 Some(InterfaceMember::Method(MethodMember {
                     name,
                     type_params,
                     params,
                     return_type,
                     optional: method.optional,
+                    this_param,
                 }))
             }
 
@@ -731,10 +762,18 @@ impl<'a> DtsVisitor<'a> {
                     .as_ref()
                     .map(|rt| self.convert_type(&rt.type_annotation));
 
+                // Extract this parameter if present
+                let this_param = call.this_param.as_ref().and_then(|tp| {
+                    tp.type_annotation
+                        .as_ref()
+                        .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+                });
+
                 Some(InterfaceMember::CallSignature(CallSignature {
                     type_params,
                     params,
                     return_type,
+                    this_param,
                 }))
             }
 
@@ -889,6 +928,13 @@ impl<'a> DtsVisitor<'a> {
                     .as_ref()
                     .map(|rt| self.convert_type(&rt.type_annotation));
 
+                // Extract this parameter if present
+                let this_param = method.value.this_param.as_ref().and_then(|tp| {
+                    tp.type_annotation
+                        .as_ref()
+                        .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+                });
+
                 let visibility = match method.accessibility {
                     Some(TSAccessibility::Public) | None => Visibility::Public,
                     Some(TSAccessibility::Protected) => Visibility::Protected,
@@ -902,6 +948,7 @@ impl<'a> DtsVisitor<'a> {
                     return_type,
                     is_static: method.r#static,
                     visibility,
+                    this_param,
                 }))
             }
 

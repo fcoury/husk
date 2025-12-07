@@ -653,10 +653,51 @@ impl<'src> Parser<'src> {
                 continue;
             }
 
+            // Check for `const` declaration (extern const value)
+            if self.matches_keyword(Keyword::Const) {
+                let const_start = self.previous().span.range.start;
+                let name = match self.parse_ident("expected variable name after `const`") {
+                    Some(id) => id,
+                    None => {
+                        self.synchronize_item();
+                        continue;
+                    }
+                };
+
+                if !self.matches_token(&TokenKind::Colon) {
+                    self.error_here("expected `:` after const variable name");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                let ty = match self.parse_type_expr() {
+                    Some(t) => t,
+                    None => {
+                        self.synchronize_item();
+                        continue;
+                    }
+                };
+
+                if !self.matches_token(&TokenKind::Semicolon) {
+                    self.error_here("expected `;` after const declaration");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                let span = Span {
+                    range: const_start..self.previous().span.range.end,
+                };
+                items.push(husk_ast::ExternItem {
+                    kind: husk_ast::ExternItemKind::Const { name, ty },
+                    span,
+                });
+                continue;
+            }
+
             // Check for `fn` declaration
             let fn_start = self.current().span.range.start;
             if !self.matches_keyword(Keyword::Fn) {
-                self.error_here("expected `fn`, `mod`, `struct`, or `static` inside extern block");
+                self.error_here("expected `fn`, `mod`, `struct`, `static`, or `const` inside extern block");
                 self.synchronize_item();
                 continue;
             }
@@ -1236,7 +1277,15 @@ impl<'src> Parser<'src> {
             return (receiver, params);
         }
 
-        while let Some(name) = self.parse_ident("expected parameter name") {
+        loop {
+            // Parse optional parameter attributes like #[this]
+            let attributes = self.parse_attributes();
+
+            let name = match self.parse_ident("expected parameter name") {
+                Some(n) => n,
+                None => break,
+            };
+
             if !self.matches_token(&TokenKind::Colon) {
                 self.error_here("expected `:` after parameter name");
                 break;
@@ -1245,7 +1294,7 @@ impl<'src> Parser<'src> {
                 Some(t) => t,
                 None => break,
             };
-            params.push(Param { name, ty });
+            params.push(Param { attributes, name, ty });
 
             if self.matches_token(&TokenKind::RParen) {
                 break;
@@ -1341,7 +1390,15 @@ impl<'src> Parser<'src> {
             return params;
         }
 
-        while let Some(name) = self.parse_ident("expected parameter name") {
+        loop {
+            // Parse optional parameter attributes like #[this]
+            let attributes = self.parse_attributes();
+
+            let name = match self.parse_ident("expected parameter name") {
+                Some(n) => n,
+                None => break,
+            };
+
             if !self.matches_token(&TokenKind::Colon) {
                 self.error_here("expected `:` after parameter name");
                 break;
@@ -1350,7 +1407,7 @@ impl<'src> Parser<'src> {
                 Some(t) => t,
                 None => break,
             };
-            params.push(Param { name, ty });
+            params.push(Param { attributes, name, ty });
 
             if self.matches_token(&TokenKind::RParen) {
                 break;
@@ -5341,6 +5398,113 @@ fn test() {
             }
         } else {
             panic!("expected Fn item");
+        }
+    }
+
+    #[test]
+    fn parses_extern_const() {
+        let src = r#"extern "js" { const VERSION: String; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        assert_eq!(file.items.len(), 1);
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            assert_eq!(items.len(), 1);
+            if let husk_ast::ExternItemKind::Const { name, ty } = &items[0].kind {
+                assert_eq!(name.name, "VERSION");
+                assert!(matches!(&ty.kind, husk_ast::TypeExprKind::Named(n) if n.name == "String"));
+            } else {
+                panic!("expected Const item, got {:?}", items[0].kind);
+            }
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_extern_const_multiple() {
+        let src = r#"extern "js" {
+            const API_URL: String;
+            const MAX_RETRIES: i32;
+            fn fetch_data() -> String;
+        }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            assert_eq!(items.len(), 3);
+            assert!(matches!(&items[0].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "API_URL"));
+            assert!(matches!(&items[1].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "MAX_RETRIES"));
+            assert!(matches!(&items[2].kind, husk_ast::ExternItemKind::Fn { name, .. } if name.name == "fetch_data"));
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_extern_static_and_const_together() {
+        let src = r#"extern "js" {
+            static __dirname: String;
+            const VERSION: String;
+        }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            assert_eq!(items.len(), 2);
+            assert!(matches!(&items[0].kind, husk_ast::ExternItemKind::Static { name, .. } if name.name == "__dirname"));
+            assert!(matches!(&items[1].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "VERSION"));
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_param_with_this_attribute() {
+        let src = r#"extern "js" { fn call(#[this] context: JsValue, arg: String); }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            if let husk_ast::ExternItemKind::Fn { params, .. } = &items[0].kind {
+                assert_eq!(params.len(), 2);
+                // First param should have #[this] attribute
+                assert_eq!(params[0].attributes.len(), 1);
+                assert_eq!(params[0].attributes[0].name.name, "this");
+                assert_eq!(params[0].name.name, "context");
+                // Second param should have no attributes
+                assert!(params[1].attributes.is_empty());
+                assert_eq!(params[1].name.name, "arg");
+            } else {
+                panic!("expected Fn item");
+            }
+        } else {
+            panic!("expected ExternBlock");
+        }
+    }
+
+    #[test]
+    fn parses_method_with_this_attribute() {
+        let src = r#"
+            impl MyClass {
+                extern "js" fn call(&self, #[this] context: JsValue) -> String;
+            }
+        "#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::Impl(impl_block) = &file.items[0].kind {
+            if let husk_ast::ImplItemKind::Method(method) = &impl_block.items[0].kind {
+                // Method has receiver + one param with #[this]
+                assert!(method.receiver.is_some());
+                assert_eq!(method.params.len(), 1);
+                assert_eq!(method.params[0].attributes.len(), 1);
+                assert_eq!(method.params[0].attributes[0].name.name, "this");
+            } else {
+                panic!("expected Method");
+            }
+        } else {
+            panic!("expected Impl");
         }
     }
 }

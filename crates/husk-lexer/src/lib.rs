@@ -48,7 +48,7 @@ impl Trivia {
 pub const KEYWORDS: &[&str] = &[
     "as", "pub", "use", "fn", "let", "mod", "mut", "struct", "enum", "type", "extern", "if",
     "else", "while", "loop", "match", "return", "true", "false", "break", "continue", "trait",
-    "impl", "for", "Self", "static", "in", "global", "js",
+    "impl", "for", "Self", "static", "const", "in", "global", "js",
 ];
 
 /// Check if a string is a Husk reserved keyword.
@@ -121,6 +121,7 @@ pub enum Keyword {
     In,
     SelfType, // `Self` keyword (capital S)
     Static,
+    Const, // `const` keyword for extern constants
     Global,
     Js, // `js` keyword for embedded JavaScript blocks
 }
@@ -442,6 +443,7 @@ impl<'src> Lexer<'src> {
             "in" => TokenKind::Keyword(Keyword::In),
             "Self" => TokenKind::Keyword(Keyword::SelfType),
             "static" => TokenKind::Keyword(Keyword::Static),
+            "const" => TokenKind::Keyword(Keyword::Const),
             "global" => TokenKind::Keyword(Keyword::Global),
             "js" => TokenKind::Keyword(Keyword::Js),
             _ => TokenKind::Ident(text.to_string()),

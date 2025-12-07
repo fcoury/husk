@@ -852,6 +852,10 @@ impl TypeChecker {
                                 // Register extern static variable
                                 self.env.statics.insert(name.name.clone(), ty.clone());
                             }
+                            husk_ast::ExternItemKind::Const { name, ty } => {
+                                // Register extern const - treated same as static for lookups
+                                self.env.statics.insert(name.name.clone(), ty.clone());
+                            }
                         }
                     }
                 }
@@ -4360,6 +4364,9 @@ impl Resolver {
                         husk_ast::ExternItemKind::Static { name, .. } => {
                             self.add_symbol(name, SymbolKind::ExternStatic);
                         }
+                        husk_ast::ExternItemKind::Const { name, .. } => {
+                            self.add_symbol(name, SymbolKind::ExternStatic);
+                        }
                     }
                 }
             }
@@ -4731,6 +4738,7 @@ mod tests {
 
         let c_ident = ident("c", 40);
         let param = Param {
+            attributes: Vec::new(),
             name: c_ident.clone(),
             ty: type_ident("Color", 42),
         };
@@ -4839,6 +4847,7 @@ mod tests {
 
         let c_ident = ident("c", 40);
         let param = Param {
+            attributes: Vec::new(),
             name: c_ident.clone(),
             ty: type_ident("Color", 42),
         };

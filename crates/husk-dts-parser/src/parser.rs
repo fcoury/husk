@@ -500,6 +500,7 @@ impl<'src> Parser<'src> {
                 type_params,
                 params,
                 return_type,
+                this_param: None,
             })));
         }
 
@@ -554,6 +555,7 @@ impl<'src> Parser<'src> {
                 params,
                 return_type,
                 optional,
+                this_param: None,
             })));
         }
 
@@ -742,6 +744,7 @@ impl<'src> Parser<'src> {
                 return_type,
                 is_static,
                 visibility,
+                this_param: None,
             })));
         }
 
@@ -1335,6 +1338,7 @@ impl<'src> Parser<'src> {
                 type_params,
                 params,
                 return_type,
+                this_param: None,
             })));
         }
 
@@ -1385,6 +1389,7 @@ impl<'src> Parser<'src> {
                 params,
                 return_type,
                 optional,
+                this_param: None,
             }));
         }
 

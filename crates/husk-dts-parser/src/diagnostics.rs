@@ -812,6 +812,12 @@ pub struct CodegenMetrics {
     /// Index access types that fell back.
     pub index_access_fallback: usize,
 
+    // Const handling
+    /// Extern consts generated (new behavior).
+    pub extern_consts: usize,
+    /// Legacy const functions generated (old behavior).
+    pub legacy_const_functions: usize,
+
     /// Detailed warnings from codegen.
     pub warnings: Vec<CodegenWarning>,
 }

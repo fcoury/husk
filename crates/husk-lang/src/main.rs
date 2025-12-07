@@ -2032,6 +2032,10 @@ fn run_dts_update(
                 .expand_utility_types
                 .or(config.dts_options.as_ref().and_then(|o| o.default_expand_utility_types))
                 .unwrap_or(true),
+            use_extern_const: entry
+                .use_extern_const
+                .or(config.dts_options.as_ref().and_then(|o| o.default_use_extern_const))
+                .unwrap_or(false),
         };
 
         // Generate code from resolved module (multi-file) or single file
