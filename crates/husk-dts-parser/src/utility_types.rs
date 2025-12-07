@@ -935,4 +935,28 @@ mod tests {
 
         assert_eq!(expanded, DtsType::Primitive(Primitive::String));
     }
+
+    #[test]
+    fn test_non_nullable_null_returns_never() {
+        // NonNullable<null> should return never (not null)
+        let null_ty = DtsType::Named {
+            name: "NonNullable".to_string(),
+            type_args: vec![DtsType::Primitive(Primitive::Null)],
+        };
+
+        let registry = TypeRegistry::new();
+        let ctx = ExpansionContext::new();
+        let expanded = expand_type(&null_ty, &registry, &ctx);
+
+        assert_eq!(expanded, DtsType::Primitive(Primitive::Never));
+
+        // NonNullable<undefined> should also return never
+        let undefined_ty = DtsType::Named {
+            name: "NonNullable".to_string(),
+            type_args: vec![DtsType::Primitive(Primitive::Undefined)],
+        };
+
+        let expanded = expand_type(&undefined_ty, &registry, &ctx);
+        assert_eq!(expanded, DtsType::Primitive(Primitive::Never));
+    }
 }
