@@ -1,6 +1,6 @@
 //! Integration tests for husk-dts-parser using real-world .d.ts samples.
 
-use husk_dts_parser::{CodegenOptions, generate, parse};
+use husk_dts_parser::{CodegenOptions, generate_simple as generate, parse};
 
 /// Test parsing a simple hand-crafted .d.ts file.
 #[test]

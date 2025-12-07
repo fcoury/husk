@@ -15,7 +15,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
 use husk_dts_parser::{
     CodegenOptions as DtsCodegenOptions, OxcDtsParser, convert_oxc_program,
-    generate as generate_husk,
+    generate as generate_husk, prepare_module_metadata,
 };
 mod config;
 mod diagnostic;
@@ -663,7 +663,8 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false),
     };
-    let result = generate_husk(&file, &options);
+    let resolved = prepare_module_metadata(&file);
+    let result = generate_husk(&file, &options, Some(resolved));
 
     // Print warnings to stderr if any
     for warning in &result.warnings {
@@ -1953,7 +1954,8 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             module_name: Some(entry.package.clone()),
             verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
         };
-        let mut result = generate_husk(&dts_file, &options);
+        let resolved = prepare_module_metadata(&dts_file);
+        let mut result = generate_husk(&dts_file, &options, Some(resolved));
 
         // Apply include/exclude filters to the generated code
         // Note: This is a simple post-processing filter. A more robust solution would
