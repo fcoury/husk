@@ -59,6 +59,21 @@ pub struct BuildConfig {
     pub source_maps: Option<bool>,
     /// Inject stdlib prelude (Option/Result types).
     pub prelude: Option<bool>,
+    /// JSX mode: "legacy" (built-in lowering) or "macro" (future macro-backed path).
+    /// Default is "legacy".
+    #[allow(dead_code)] // Reserved for future JSX macro support
+    pub jsx: Option<String>,
+}
+
+/// JSX mode configuration.
+#[allow(dead_code)] // Reserved for future JSX macro support
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JsxMode {
+    /// Built-in JSX lowering to React automatic runtime.
+    #[default]
+    Legacy,
+    /// Future macro-backed JSX path.
+    Macro,
 }
 
 /// A single DTS dependency entry.
@@ -87,6 +102,15 @@ pub struct DtsOptions {
     pub auto_update: Option<bool>,
     /// Warning level: "all", "simplified", "none".
     pub warn_level: Option<String>,
+    /// Namespace allowlist for DOM/WebAPI imports.
+    /// Phase A: ["dom", "dom.iterable"]
+    /// Phase B: ["fetch", "url", "events"]
+    /// Phase C: ["webworker", "streams", "encoding"]
+    pub namespace_allowlist: Option<Vec<String>>,
+    /// Enable callable interface support (e.g., `interface Fn { (evt: Event): void }`)
+    pub enable_callables: Option<bool>,
+    /// Enable indexer support (e.g., `foo[index: number]`)
+    pub enable_indexers: Option<bool>,
 }
 
 /// Runtime configuration for `huskc run`.
@@ -162,6 +186,15 @@ impl BuildConfig {
     /// Get whether to emit .d.ts (default: false).
     pub fn emit_dts(&self) -> bool {
         self.emit_dts.unwrap_or(false)
+    }
+
+    /// Get the JSX mode (default: Legacy).
+    #[allow(dead_code)] // Reserved for future JSX macro support
+    pub fn jsx_mode(&self) -> JsxMode {
+        match self.jsx.as_deref() {
+            Some("macro") => JsxMode::Macro,
+            _ => JsxMode::Legacy,
+        }
     }
 }
 

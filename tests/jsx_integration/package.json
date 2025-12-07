@@ -1,0 +1,14 @@
+{
+  "name": "husk-jsx-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests for Husk JSX codegen",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "react": "^18.2.0"
+  }
+}

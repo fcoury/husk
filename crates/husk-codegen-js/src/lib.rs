@@ -8,8 +8,9 @@
 
 use husk_ast::{
     Block, EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec,
-    Ident, ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
-    StructField, TypeExpr, TypeExprKind, TypeParam,
+    Ident, ImplItemKind, ItemKind, JsxAttribute, JsxAttributeValue, JsxChild, JsxElement,
+    JsxElementName, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField,
+    TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
@@ -1845,6 +1846,38 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
             }
 
+            // Handle callable interface: __call__(args) -> obj(args)
+            // This is used for TypeScript interfaces with call signatures.
+            // Note: These dunder names are reserved for DTS importer-generated externs.
+            // User-defined methods with these names will also be rewritten, but this is
+            // unlikely to occur in practice and the naming convention makes intent clear.
+            if method_name == "__call__" {
+                return JsExpr::Call {
+                    callee: Box::new(lower_expr(receiver, ctx)),
+                    args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+                };
+            }
+
+            // Handle indexer get: __index__(key) -> obj[key]
+            if method_name == "__index__" && args.len() == 1 {
+                return JsExpr::Index {
+                    object: Box::new(lower_expr(receiver, ctx)),
+                    index: Box::new(lower_expr(&args[0], ctx)),
+                };
+            }
+
+            // Handle indexer set: __index_set__(key, value) -> obj[key] = value
+            if method_name == "__index_set__" && args.len() == 2 {
+                return JsExpr::Assignment {
+                    left: Box::new(JsExpr::Index {
+                        object: Box::new(lower_expr(receiver, ctx)),
+                        index: Box::new(lower_expr(&args[0], ctx)),
+                    }),
+                    op: JsAssignOp::Assign,
+                    right: Box::new(lower_expr(&args[1], ctx)),
+                };
+            }
+
             // Handle Result/Option unwrap and expect methods
             if method_name == "unwrap" && args.is_empty() {
                 // result.unwrap() -> __husk_unwrap(result)
@@ -2287,6 +2320,202 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             JsExpr::Index {
                 object: Box::new(js_base),
                 index: Box::new(JsExpr::Number(*index as i64)),
+            }
+        }
+        ExprKind::Jsx(jsx_element) => lower_jsx_element(jsx_element, ctx),
+    }
+}
+
+// ============================================================================
+// JSX Lowering - React Automatic Runtime
+// ============================================================================
+
+/// Lower a JSX element to React automatic runtime calls.
+///
+/// Uses the React 17+ automatic runtime:
+/// - `<div>` becomes `_jsx("div", { children: ... })`
+/// - `<Component>` becomes `_jsx(Component, { children: ... })`
+/// - Fragments `<>` become `_jsxs(Fragment, { children: [...] })`
+///
+/// The automatic runtime must be imported at the top of the file:
+/// ```js
+/// import { jsx as _jsx, jsxs as _jsxs, Fragment } from "react/jsx-runtime";
+/// ```
+///
+/// Note: The Vite plugin (vite-plugin-husk) automatically injects this import
+/// when JSX is detected in the generated output.
+fn lower_jsx_element(element: &JsxElement, ctx: &CodegenContext) -> JsExpr {
+    // Determine the tag/component reference
+    let type_expr = match &element.name {
+        JsxElementName::Tag(tag) => {
+            // HTML tag: pass as string "div", "span", etc.
+            // Empty string means fragment
+            if tag.is_empty() {
+                JsExpr::Ident("Fragment".to_string())
+            } else {
+                JsExpr::String(tag.clone())
+            }
+        }
+        JsxElementName::Component(name) => {
+            // Component: pass as identifier
+            JsExpr::Ident(name.clone())
+        }
+        JsxElementName::Member { object, property } => {
+            // Member expression: Foo.Bar
+            JsExpr::Member {
+                object: Box::new(JsExpr::Ident(object.clone())),
+                property: property.clone(),
+            }
+        }
+    };
+
+    // Build props while preserving the order between static attributes and spreads.
+    // We group contiguous static props into object literals and keep spreads as separate segments.
+    // This ensures JSX semantics where later attributes override earlier ones:
+    //   <div {...a} b="1" {...c} />  =>  Object.assign({}, a, { b: "1" }, c)
+    let mut has_spread = false;
+    let mut segments: Vec<JsExpr> = Vec::new();
+    let mut current_props: Vec<(String, JsExpr)> = Vec::new();
+
+    for attr in &element.attributes {
+        match attr {
+            JsxAttribute::KeyValue { name, value } => {
+                let prop_value = match value {
+                    JsxAttributeValue::String(s, _) => JsExpr::String(s.clone()),
+                    JsxAttributeValue::Expression(expr) => lower_expr(expr, ctx),
+                };
+                current_props.push((name.name.clone(), prop_value));
+            }
+            JsxAttribute::Boolean(name) => {
+                current_props.push((name.name.clone(), JsExpr::Bool(true)));
+            }
+            JsxAttribute::Spread(expr) => {
+                has_spread = true;
+                // Flush accumulated static props as an object segment before the spread
+                if !current_props.is_empty() {
+                    segments.push(JsExpr::Object(std::mem::take(&mut current_props)));
+                }
+                segments.push(lower_expr(expr, ctx));
+            }
+        }
+    }
+
+    // Lower children first to select the correct jsx function and append them
+    // as the last property group so `children` ends up last in the config.
+    let children = lower_jsx_children(&element.children, ctx);
+    let children_count = children.len();
+
+    if children_count > 0 {
+        if children_count == 1 {
+            current_props.push((
+                "children".to_string(),
+                children.into_iter().next().unwrap(),
+            ));
+        } else {
+            current_props.push(("children".to_string(), JsExpr::Array(children)));
+        }
+    }
+
+    // Flush any remaining static props (including children)
+    if !current_props.is_empty() {
+        segments.push(JsExpr::Object(current_props));
+    }
+
+    // Determine which jsx function to use based on *lowered* children count
+    // - _jsx for single child or no children
+    // - _jsxs for multiple children (static children array)
+    let jsx_fn = if children_count > 1 {
+        "_jsxs"
+    } else {
+        "_jsx"
+    };
+
+    // Build the props expression
+    let props_expr = if !has_spread {
+        // No spreads: either no props at all or a single object literal segment
+        match segments.len() {
+            0 => JsExpr::Object(Vec::new()),
+            1 => segments.into_iter().next().unwrap(),
+            _ => unreachable!("multiple segments without spreads should be impossible"),
+        }
+    } else {
+        // At least one spread: merge all segments in source order.
+        // Object.assign({}, ...segments) preserves correct override semantics.
+        let mut args = Vec::with_capacity(1 + segments.len());
+        args.push(JsExpr::Object(Vec::new())); // Empty target object
+        args.extend(segments);
+        JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("Object".to_string())),
+                property: "assign".to_string(),
+            }),
+            args,
+        }
+    };
+
+    // Build the call: _jsx(type, props) or _jsxs(type, props)
+    JsExpr::Call {
+        callee: Box::new(JsExpr::Ident(jsx_fn.to_string())),
+        args: vec![type_expr, props_expr],
+    }
+}
+
+/// Lower JSX children to JavaScript expressions.
+fn lower_jsx_children(children: &[JsxChild], ctx: &CodegenContext) -> Vec<JsExpr> {
+    children
+        .iter()
+        .filter_map(|child| lower_jsx_child(child, ctx))
+        .collect()
+}
+
+/// Lower a single JSX child to a JavaScript expression.
+fn lower_jsx_child(child: &JsxChild, ctx: &CodegenContext) -> Option<JsExpr> {
+    match child {
+        JsxChild::Text(text, _) => {
+            // Skip whitespace-only text nodes (trimmed in parser)
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(JsExpr::String(text.clone()))
+            }
+        }
+        JsxChild::Element(element) => Some(lower_jsx_element(element, ctx)),
+        JsxChild::Expression(expr) => Some(lower_expr(expr, ctx)),
+        JsxChild::Fragment(children, _) => {
+            // Fragments must be preserved in output - React's automatic runtime always
+            // emits Fragment elements. Removing them would change reconciliation semantics
+            // (e.g., keyed fragments, React DevTools representation).
+            let child_exprs = lower_jsx_children(children, ctx);
+            if child_exprs.is_empty() {
+                // Empty fragment: _jsx(Fragment, {})
+                Some(JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+                    args: vec![
+                        JsExpr::Ident("Fragment".to_string()),
+                        JsExpr::Object(vec![]),
+                    ],
+                })
+            } else if child_exprs.len() == 1 {
+                // Single child: _jsx(Fragment, { children: <child> }) - no array wrapper
+                Some(JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+                    args: vec![
+                        JsExpr::Ident("Fragment".to_string()),
+                        JsExpr::Object(vec![(
+                            "children".to_string(),
+                            child_exprs.into_iter().next().unwrap(),
+                        )]),
+                    ],
+                })
+            } else {
+                // Multiple children: _jsxs(Fragment, { children: [...] })
+                Some(JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("_jsxs".to_string())),
+                    args: vec![
+                        JsExpr::Ident("Fragment".to_string()),
+                        JsExpr::Object(vec![("children".to_string(), JsExpr::Array(child_exprs))]),
+                    ],
+                })
             }
         }
     }
@@ -5274,5 +5503,104 @@ mod tests {
         write_stmt(&stmt, 0, &mut out);
 
         assert_eq!(out, "let [a, _, c] = expr;");
+    }
+
+    // ========================================================================
+    // JSX Codegen Tests - Testing JsExpr output directly
+    // ========================================================================
+
+    #[test]
+    fn jsx_object_assign_generates_correct_js() {
+        // Test that Object.assign with segments generates correct JS
+        // Object.assign({}, a, { b: "1" })
+        let expr = JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("Object".to_string())),
+                property: "assign".to_string(),
+            }),
+            args: vec![
+                JsExpr::Object(vec![]), // Empty target
+                JsExpr::Ident("a".to_string()), // Spread a
+                JsExpr::Object(vec![("b".to_string(), JsExpr::String("1".to_string()))]), // { b: "1" }
+            ],
+        };
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(out.contains("Object.assign"), "should contain Object.assign: {}", out);
+        // Verify ordering: {}, a, { b: "1" }
+        let empty_obj_pos = out.find("{}").expect("should have empty object");
+        let a_pos = out.find(", a,").expect("should have ', a,'");
+        let b_pos = out.find("b:").expect("should have 'b:'");
+
+        assert!(empty_obj_pos < a_pos, "empty object should come first");
+        assert!(a_pos < b_pos, "spread 'a' should come before static 'b'");
+    }
+
+    #[test]
+    fn jsx_object_assign_interleaved_generates_correct_js() {
+        // Test: Object.assign({}, { a: "1" }, b, { c: "2" })
+        // Simulates: <div a="1" {...b} c="2" />
+        let expr = JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("Object".to_string())),
+                property: "assign".to_string(),
+            }),
+            args: vec![
+                JsExpr::Object(vec![]), // Empty target
+                JsExpr::Object(vec![("a".to_string(), JsExpr::String("1".to_string()))]), // { a: "1" }
+                JsExpr::Ident("b".to_string()), // Spread b
+                JsExpr::Object(vec![("c".to_string(), JsExpr::String("2".to_string()))]), // { c: "2" }
+            ],
+        };
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(out.contains("Object.assign"), "should contain Object.assign: {}", out);
+
+        // Verify ordering: { a: "1" }, b, { c: "2" }
+        let a_pos = out.find("a:").expect("should have 'a:'");
+        let b_pos = out.find(", b,").expect("should have ', b,'");
+        let c_pos = out.find("c:").expect("should have 'c:'");
+
+        assert!(a_pos < b_pos, "static 'a' should come before spread 'b': {}", out);
+        assert!(b_pos < c_pos, "spread 'b' should come before static 'c': {}", out);
+    }
+
+    #[test]
+    fn jsx_simple_object_without_spread() {
+        // Test: { a: "1", b: "2" } - simple object without Object.assign
+        let expr = JsExpr::Object(vec![
+            ("a".to_string(), JsExpr::String("1".to_string())),
+            ("b".to_string(), JsExpr::String("2".to_string())),
+        ]);
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(!out.contains("Object.assign"), "should not use Object.assign: {}", out);
+        assert!(out.contains("a:"), "should have 'a:': {}", out);
+        assert!(out.contains("b:"), "should have 'b:': {}", out);
+    }
+
+    #[test]
+    fn jsx_call_structure() {
+        // Test: _jsx("div", { className: "test" })
+        let expr = JsExpr::Call {
+            callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+            args: vec![
+                JsExpr::String("div".to_string()),
+                JsExpr::Object(vec![("className".to_string(), JsExpr::String("test".to_string()))]),
+            ],
+        };
+
+        let mut out = String::new();
+        write_expr(&expr, &mut out);
+
+        assert!(out.contains("_jsx("), "should start with _jsx(: {}", out);
+        assert!(out.contains("\"div\""), "should have \"div\": {}", out);
+        assert!(out.contains("className:"), "should have className prop: {}", out);
     }
 }
