@@ -1493,11 +1493,12 @@ fn main() {
 
     // Insert a row
     let insert = db.prepare("INSERT INTO test (name) VALUES ('Alice')");
-    let result = insert.run();
+    // Note: run() takes optional bind parameters - using empty array literal
+    let result = insert.run([]);
 
     // Query the data
     let query = db.prepare("SELECT * FROM test");
-    let rows = query.all();
+    let rows = query.all([]);
 
     // Close the database
     db.close();
@@ -1544,22 +1545,39 @@ fn main() {
     let symbol_errors: Vec<_> = sem.symbols.errors.iter().collect();
     let type_errors: Vec<_> = sem.type_errors.iter().collect();
 
+    // Use codespan-reporting for nice error display
+    use codespan_reporting::diagnostic::{Diagnostic, Label};
+    use codespan_reporting::files::SimpleFiles;
+    use codespan_reporting::term;
+    use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
+
+    let mut files = SimpleFiles::new();
+    let file_id = files.add("generated.husk", husk_program.clone());
+    let writer = StandardStream::stderr(ColorChoice::Auto);
+    let config = term::Config::default();
+
     if !symbol_errors.is_empty() {
-        eprintln!("\n!!! SYMBOL ERRORS ({}) !!!", symbol_errors.len());
-        for (i, err) in symbol_errors.iter().take(20).enumerate() {
-            eprintln!("  {}: {:?}", i + 1, err);
+        eprintln!("\n=== SYMBOL ERRORS ({}) ===", symbol_errors.len());
+        for err in symbol_errors.iter().take(5) {
+            let diagnostic = Diagnostic::error()
+                .with_message(&err.message)
+                .with_labels(vec![Label::primary(file_id, err.span.range.clone())]);
+            let _ = term::emit(&mut writer.lock(), &config, &files, &diagnostic);
         }
-        if symbol_errors.len() > 20 {
-            eprintln!("  ... and {} more", symbol_errors.len() - 20);
+        if symbol_errors.len() > 5 {
+            eprintln!("  ... and {} more symbol errors", symbol_errors.len() - 5);
         }
     }
     if !type_errors.is_empty() {
-        eprintln!("\n!!! TYPE ERRORS ({}) !!!", type_errors.len());
-        for (i, err) in type_errors.iter().take(20).enumerate() {
-            eprintln!("  {}: {:?}", i + 1, err);
+        eprintln!("\n=== TYPE ERRORS ({}) ===", type_errors.len());
+        for err in type_errors.iter().take(5) {
+            let diagnostic = Diagnostic::error()
+                .with_message(&err.message)
+                .with_labels(vec![Label::primary(file_id, err.span.range.clone())]);
+            let _ = term::emit(&mut writer.lock(), &config, &files, &diagnostic);
         }
-        if type_errors.len() > 20 {
-            eprintln!("  ... and {} more", type_errors.len() - 20);
+        if type_errors.len() > 5 {
+            eprintln!("  ... and {} more type errors", type_errors.len() - 5);
         }
     }
 
