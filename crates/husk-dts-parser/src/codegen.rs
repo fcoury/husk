@@ -32,6 +32,10 @@ pub struct CodegenOptions {
     pub builder_min_optional: usize,
     /// Whether to expand utility types (Partial, Pick, Omit, etc.) inline.
     pub expand_utility_types: bool,
+    /// Whether to emit `extern "js" const` instead of zero-arg functions for TypeScript constants.
+    /// When true: `declare const VERSION: string;` → `extern "js" const VERSION: String;`
+    /// When false (default): `declare const VERSION: string;` → `extern "js" fn VERSION() -> String;`
+    pub use_extern_const: bool,
 }
 
 /// Strategy for handling TypeScript union types in generated code.
@@ -124,6 +128,7 @@ pub fn generate_from_module(
     // Second pass: generate code
     codegen.emit_header();
     codegen.emit_extern_block();
+    codegen.emit_untagged_enums();
     codegen.emit_impl_blocks();
     codegen.emit_builders();
     codegen.emit_warnings();
@@ -141,10 +146,15 @@ struct Codegen<'a> {
     warnings: Vec<Warning>,
     /// Metrics collected during code generation.
     metrics: CodegenMetrics,
-    /// Collected struct names (from interfaces and classes).
-    structs: HashSet<String>,
+    /// Collected struct names and their type parameters (from interfaces and classes).
+    /// Key: struct name, Value: list of type parameter names.
+    structs: HashMap<String, Vec<String>>,
     /// Collected functions (before overload merging).
     functions: Vec<GeneratedFn>,
+    /// Collected extern consts (from TypeScript `declare const`).
+    consts: Vec<GeneratedConst>,
+    /// Collected untagged enums (from TypeScript union types in type aliases).
+    enums: Vec<GeneratedEnum>,
     /// Collected impl blocks: type name -> methods (before overload merging).
     impls: HashMap<String, Vec<GeneratedMethod>>,
     /// Collected properties: type name -> properties with #[getter] syntax.
@@ -171,6 +181,8 @@ struct GeneratedFn {
     params: Vec<(String, String)>,
     return_type: Option<String>,
     comment: Option<String>,
+    /// If Some, the function has a `this` parameter binding that requires #[this] attribute
+    this_param: Option<String>,
 }
 
 struct GeneratedMethod {
@@ -180,6 +192,8 @@ struct GeneratedMethod {
     return_type: Option<String>,
     is_static: bool,
     comment: Option<String>,
+    /// If Some, the method has a `this` parameter binding that requires #[this] attribute
+    this_param: Option<String>,
 }
 
 /// A generated property with #[getter] attribute.
@@ -190,6 +204,21 @@ struct GeneratedProperty {
     is_static: bool,
 }
 
+/// A generated extern const declaration.
+struct GeneratedConst {
+    name: String,
+    ty: String,
+}
+
+/// A generated untagged enum for TypeScript union types.
+struct GeneratedEnum {
+    name: String,
+    /// Each variant is (variant_name, Option<inner_type>).
+    /// For example: `Str(String)` would be ("Str", Some("String"))
+    /// Unit variants have None for the inner type.
+    variants: Vec<(String, Option<String>)>,
+}
+
 impl<'a> Codegen<'a> {
     fn new(options: &'a CodegenOptions) -> Self {
         Self {
@@ -197,8 +226,10 @@ impl<'a> Codegen<'a> {
             output: String::new(),
             warnings: Vec::new(),
             metrics: CodegenMetrics::new(),
-            structs: HashSet::new(),
+            structs: HashMap::new(),
             functions: Vec::new(),
+            consts: Vec::new(),
+            enums: Vec::new(),
             impls: HashMap::new(),
             properties: HashMap::new(),
             type_aliases: HashMap::new(),
@@ -236,6 +267,7 @@ impl<'a> Codegen<'a> {
         // Second pass: generate code
         self.emit_header();
         self.emit_extern_block();
+        self.emit_untagged_enums();
         self.emit_impl_blocks();
         self.emit_builders();
         self.emit_warnings();
@@ -352,6 +384,7 @@ impl<'a> Codegen<'a> {
             params: merged_params,
             return_type: base.return_type,
             comment: Some(format!("merged from {} overloads", overloads.len() + 1)),
+            this_param: base.this_param,
         })
     }
 
@@ -413,6 +446,7 @@ impl<'a> Codegen<'a> {
             return_type: base.return_type,
             is_static: base.is_static,
             comment: Some(format!("merged from {} overloads", overloads.len() + 1)),
+            this_param: base.this_param,
         })
     }
 
@@ -420,10 +454,12 @@ impl<'a> Codegen<'a> {
     fn collect_struct_names(&mut self, item: &DtsItem) {
         match item {
             DtsItem::Interface(i) => {
-                self.structs.insert(i.name.clone());
+                let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
+                self.structs.insert(i.name.clone(), type_params);
             }
             DtsItem::Class(c) => {
-                self.structs.insert(c.name.clone());
+                let type_params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+                self.structs.insert(c.name.clone(), type_params);
             }
             DtsItem::Namespace(ns) => {
                 for item in &ns.items {
@@ -495,13 +531,15 @@ impl<'a> Codegen<'a> {
             params,
             return_type,
             comment,
+            this_param: None, // Top-level functions don't have this binding
         });
 
         self.known_generics.clear();
     }
 
     fn collect_interface(&mut self, i: &DtsInterface) {
-        self.structs.insert(i.name.clone());
+        let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
+        self.structs.insert(i.name.clone(), type_params);
         self.in_struct_context = true;
         self.current_type_name = Some(i.name.clone());
 
@@ -556,6 +594,9 @@ impl<'a> Codegen<'a> {
                         if mapped == "()" { None } else { Some(mapped) }
                     });
 
+                    // Map this_param type if present
+                    let this_param = m.this_param.as_ref().map(|tp| self.map_type(tp));
+
                     methods.push(GeneratedMethod {
                         name: escape_keyword(&m.name),
                         type_params: method_type_params,
@@ -563,6 +604,7 @@ impl<'a> Codegen<'a> {
                         return_type,
                         is_static: false,
                         comment: None,
+                        this_param,
                     });
 
                     self.known_generics = old_generics;
@@ -589,6 +631,7 @@ impl<'a> Codegen<'a> {
                             return_type: Some(return_type),
                             is_static: false,
                             comment: Some("function property".to_string()),
+                            this_param: None,
                         });
                     } else {
                         // Generate as #[getter] property for non-function properties
@@ -640,11 +683,11 @@ impl<'a> Codegen<'a> {
     }
 
     fn collect_class(&mut self, c: &DtsClass) {
-        self.structs.insert(c.name.clone());
+        let type_params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+        self.structs.insert(c.name.clone(), type_params.clone());
         self.in_struct_context = true;
         self.current_type_name = Some(c.name.clone());
 
-        let type_params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
         self.known_generics = type_params.iter().cloned().collect();
 
         let mut methods = Vec::new();
@@ -682,6 +725,9 @@ impl<'a> Codegen<'a> {
                         if mapped == "()" { None } else { Some(mapped) }
                     });
 
+                    // Map this_param type if present
+                    let this_param = m.this_param.as_ref().map(|tp| self.map_type(tp));
+
                     methods.push(GeneratedMethod {
                         name: escape_keyword(&m.name),
                         type_params: method_type_params,
@@ -689,6 +735,7 @@ impl<'a> Codegen<'a> {
                         return_type,
                         is_static: m.is_static,
                         comment: None,
+                        this_param,
                     });
 
                     self.known_generics = old_generics;
@@ -711,6 +758,7 @@ impl<'a> Codegen<'a> {
                         return_type: Some(c.name.clone()),
                         is_static: true,
                         comment: None,
+                        this_param: None, // Constructors don't have this binding
                     });
                 }
                 ClassMember::Property(p) => {
@@ -748,6 +796,7 @@ impl<'a> Codegen<'a> {
                         } else {
                             "property getter".to_string()
                         }),
+                        this_param: None, // Property getters don't have this binding
                     });
 
                     // Generate setter method for non-readonly properties
@@ -769,6 +818,7 @@ impl<'a> Codegen<'a> {
                             } else {
                                 "property setter".to_string()
                             }),
+                            this_param: None, // Property setters don't have this binding
                         });
                     }
                 }
@@ -797,19 +847,128 @@ impl<'a> Codegen<'a> {
         if self.options.expand_utility_types && t.type_params.is_empty() {
             self.type_registry.register(t.name.clone(), t.ty.clone());
         }
+
+        // Check if we should generate an untagged enum for this type alias
+        // We generate enums for union types that are suitable (non-generic, reasonable size)
+        if t.type_params.is_empty() {
+            if let Some(generated_enum) = self.try_generate_enum_from_type_alias(t) {
+                self.enums.push(generated_enum);
+            }
+        }
+    }
+
+    /// Try to generate an untagged enum from a type alias.
+    /// Returns Some(GeneratedEnum) if successful, None if the type is not suitable.
+    fn try_generate_enum_from_type_alias(&mut self, t: &DtsTypeAlias) -> Option<GeneratedEnum> {
+        // Only handle union types
+        let types = match &t.ty {
+            DtsType::Union(types) => types,
+            _ => return None,
+        };
+
+        // Filter out null and undefined - these become Option<...> wrappers instead
+        let non_null_types: Vec<&DtsType> = types
+            .iter()
+            .filter(|ty| {
+                !matches!(
+                    ty,
+                    DtsType::Primitive(Primitive::Null) | DtsType::Primitive(Primitive::Undefined)
+                )
+            })
+            .collect();
+
+        // Skip if this would be better as Option<T> (single non-null type)
+        if non_null_types.len() < 2 {
+            return None;
+        }
+
+        // Skip large unions - they're better as JsValue
+        if non_null_types.len() > 10 {
+            return None;
+        }
+
+        // Try to create variants from each type
+        let mut variants = Vec::new();
+        for ty in non_null_types {
+            match self.type_to_variant(ty) {
+                Some(variant) => variants.push(variant),
+                None => return None, // If any type can't be converted, fall back
+            }
+        }
+
+        Some(GeneratedEnum {
+            name: t.name.clone(),
+            variants,
+        })
+    }
+
+    /// Convert a DtsType to an enum variant (name, optional inner type).
+    fn type_to_variant(&mut self, ty: &DtsType) -> Option<(String, Option<String>)> {
+        match ty {
+            // String literal -> unit variant with PascalCase name
+            DtsType::StringLiteral(s) => {
+                let variant_name = string_to_variant_name(s);
+                Some((variant_name, None))
+            }
+            // Named type -> variant wrapping that type
+            DtsType::Named { name, type_args } => {
+                let variant_name = name.clone();
+                let inner_type = if type_args.is_empty() {
+                    name.clone()
+                } else {
+                    let args: Vec<String> = type_args.iter().map(|t| self.map_type(t)).collect();
+                    format!("{}<{}>", name, args.join(", "))
+                };
+                Some((variant_name, Some(inner_type)))
+            }
+            // Primitive types -> variant wrapping the mapped type
+            DtsType::Primitive(p) => {
+                let variant_name = primitive_to_variant_name(p);
+                let inner_type = self.map_type(ty);
+                Some((variant_name, Some(inner_type)))
+            }
+            // Array type -> "Array" variant
+            DtsType::Array(inner) => {
+                let inner_type = self.map_type(inner);
+                Some(("Array".to_string(), Some(format!("Vec<{}>", inner_type))))
+            }
+            // Number literal -> unit variant
+            DtsType::NumberLiteral(n) => {
+                let variant_name = format!("N{}", n.replace(['-', '.'], "_"));
+                Some((variant_name, None))
+            }
+            // Boolean literal -> unit variant
+            DtsType::BooleanLiteral(b) => {
+                let variant_name = if *b { "True" } else { "False" };
+                Some((variant_name.to_string(), None))
+            }
+            // Other types are too complex for enum generation
+            _ => None,
+        }
     }
 
     fn collect_variable(&mut self, v: &DtsVariable) {
-        // Generate as a function that returns the value
-        // This is a simplification - ideally we'd have extern consts
         let ty = self.map_type(&v.ty);
-        self.functions.push(GeneratedFn {
-            name: escape_keyword(&v.name),
-            type_params: Vec::new(),
-            params: Vec::new(),
-            return_type: Some(ty),
-            comment: Some("constant".to_string()),
-        });
+
+        if self.options.use_extern_const {
+            // New behavior: emit extern const
+            self.consts.push(GeneratedConst {
+                name: escape_keyword(&v.name),
+                ty,
+            });
+            self.metrics.extern_consts += 1;
+        } else {
+            // Legacy behavior: generate as a zero-arg function
+            self.functions.push(GeneratedFn {
+                name: escape_keyword(&v.name),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                return_type: Some(ty),
+                comment: Some("constant".to_string()),
+                this_param: None,
+            });
+            self.metrics.legacy_const_functions += 1;
+        }
     }
 
     fn map_type(&mut self, ty: &DtsType) -> String {
@@ -987,23 +1146,10 @@ impl<'a> Codegen<'a> {
             return "JsValue".to_string();
         }
 
-        // Check if it's a known generic type parameter
+        // Check if it's a known generic type parameter (struct-level or function-level)
         if self.known_generics.contains(simple_name) {
-            // If we're NOT in struct/interface context, this is a function-level generic
-            // and can be preserved in the generated code
-            if !self.in_struct_context {
-                return simple_name.to_string();
-            }
-            // Otherwise, it's a struct-level generic used in a method,
-            // and since Husk extern structs don't support generics, simplify to JsValue
-            self.warn(
-                WarningKind::Simplified,
-                format!(
-                    "Struct-level type parameter `{}` mapped to JsValue",
-                    simple_name
-                ),
-            );
-            return "JsValue".to_string();
+            // Preserve the type parameter - extern structs now support generics
+            return simple_name.to_string();
         }
 
         // Map well-known types using simple name
@@ -1064,7 +1210,7 @@ impl<'a> Codegen<'a> {
                 }
 
                 // Check if this type is defined in the current file
-                let is_known_struct = self.structs.contains(simple_name);
+                let is_known_struct = self.structs.contains_key(simple_name);
 
                 if type_args.is_empty() {
                     if is_known_struct {
@@ -1657,10 +1803,14 @@ impl<'a> Codegen<'a> {
     /// Emit the standard structs and functions (for non-callable modules).
     fn emit_standard_structs_and_functions(&mut self) {
         // Structs
-        let mut sorted_structs: Vec<&String> = self.structs.iter().collect();
-        sorted_structs.sort();
-        for name in sorted_structs {
-            writeln!(self.output, "    struct {};", name).unwrap();
+        let mut sorted_structs: Vec<(&String, &Vec<String>)> = self.structs.iter().collect();
+        sorted_structs.sort_by_key(|(name, _)| *name);
+        for (name, type_params) in sorted_structs {
+            if type_params.is_empty() {
+                writeln!(self.output, "    struct {};", name).unwrap();
+            } else {
+                writeln!(self.output, "    struct {}<{}>;", name, type_params.join(", ")).unwrap();
+            }
         }
 
         if !self.structs.is_empty() && !self.functions.is_empty() {
@@ -1680,11 +1830,22 @@ impl<'a> Codegen<'a> {
             }
 
             write!(self.output, "(").unwrap();
+
+            // Track if we need comma before regular params
+            let mut need_comma = false;
+
+            // Add #[this] parameter if this function has explicit this binding
+            if let Some(this_ty) = &f.this_param {
+                write!(self.output, "#[this] this_arg: {}", this_ty).unwrap();
+                need_comma = true;
+            }
+
             for (i, (name, ty)) in f.params.iter().enumerate() {
-                if i > 0 {
+                if i > 0 || need_comma {
                     write!(self.output, ", ").unwrap();
                 }
                 write!(self.output, "{}: {}", name, ty).unwrap();
+                need_comma = false; // Only relevant for first param
             }
             write!(self.output, ")").unwrap();
 
@@ -1693,6 +1854,44 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output, ";").unwrap();
+        }
+
+        // Consts
+        if !self.consts.is_empty() {
+            if !self.functions.is_empty() {
+                writeln!(self.output).unwrap();
+            }
+            for c in &self.consts {
+                writeln!(self.output, "    const {}: {};", c.name, c.ty).unwrap();
+            }
+        }
+    }
+
+    /// Emit untagged enums for TypeScript union types.
+    fn emit_untagged_enums(&mut self) {
+        if self.enums.is_empty() {
+            return;
+        }
+
+        writeln!(self.output).unwrap();
+
+        for e in &self.enums {
+            writeln!(self.output, "#[untagged]").unwrap();
+            writeln!(self.output, "enum {} {{", e.name).unwrap();
+
+            for (variant_name, inner_type) in &e.variants {
+                match inner_type {
+                    Some(ty) => {
+                        writeln!(self.output, "    {}({}),", variant_name, ty).unwrap();
+                    }
+                    None => {
+                        writeln!(self.output, "    {},", variant_name).unwrap();
+                    }
+                }
+            }
+
+            writeln!(self.output, "}}").unwrap();
+            writeln!(self.output).unwrap();
         }
     }
 
@@ -1722,7 +1921,16 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output).unwrap();
-            writeln!(self.output, "impl {} {{", type_name).unwrap();
+            // Include type parameters if the struct is generic
+            if let Some(type_params) = self.structs.get(type_name) {
+                if type_params.is_empty() {
+                    writeln!(self.output, "impl {} {{", type_name).unwrap();
+                } else {
+                    writeln!(self.output, "impl {}<{}> {{", type_name, type_params.join(", ")).unwrap();
+                }
+            } else {
+                writeln!(self.output, "impl {} {{", type_name).unwrap();
+            }
 
             // Emit properties with appropriate attributes
             for p in properties {
@@ -1766,19 +1974,30 @@ impl<'a> Codegen<'a> {
 
                 write!(self.output, "(").unwrap();
 
+                // Track if we need a comma before regular params
+                let mut need_comma = false;
+
                 // Add self for non-static methods
                 if !m.is_static {
                     write!(self.output, "self").unwrap();
-                    if !m.params.is_empty() {
+                    need_comma = true;
+                }
+
+                // Add #[this] parameter if this method has explicit this binding
+                if let Some(this_ty) = &m.this_param {
+                    if need_comma {
                         write!(self.output, ", ").unwrap();
                     }
+                    write!(self.output, "#[this] this_arg: {}", this_ty).unwrap();
+                    need_comma = true;
                 }
 
                 for (i, (name, ty)) in m.params.iter().enumerate() {
-                    if i > 0 {
+                    if i > 0 || need_comma {
                         write!(self.output, ", ").unwrap();
                     }
                     write!(self.output, "{}: {}", name, ty).unwrap();
+                    need_comma = false; // Only need to track for first param
                 }
                 write!(self.output, ")").unwrap();
 
@@ -1909,6 +2128,62 @@ pub fn escape_keyword(name: &str) -> String {
     }
 }
 
+/// Convert a string literal to a valid PascalCase variant name.
+fn string_to_variant_name(s: &str) -> String {
+    // Handle empty strings
+    if s.is_empty() {
+        return "Empty".to_string();
+    }
+
+    // Split by non-alphanumeric characters and convert to PascalCase
+    let mut result = String::new();
+    let mut capitalize_next = true;
+
+    for c in s.chars() {
+        if c.is_alphanumeric() {
+            if capitalize_next {
+                result.push(c.to_ascii_uppercase());
+                capitalize_next = false;
+            } else {
+                result.push(c);
+            }
+        } else {
+            // Non-alphanumeric character - skip it but capitalize next
+            capitalize_next = true;
+        }
+    }
+
+    // Ensure it doesn't start with a digit
+    if result.starts_with(|c: char| c.is_ascii_digit()) {
+        result.insert(0, 'N');
+    }
+
+    // Ensure we have a valid identifier
+    if result.is_empty() {
+        "Value".to_string()
+    } else {
+        result
+    }
+}
+
+/// Convert a primitive type to a PascalCase variant name.
+fn primitive_to_variant_name(p: &Primitive) -> String {
+    match p {
+        Primitive::String => "Str".to_string(),
+        Primitive::Number => "Num".to_string(),
+        Primitive::Boolean => "Bool".to_string(),
+        Primitive::Void => "Void".to_string(),
+        Primitive::Null => "Null".to_string(),
+        Primitive::Undefined => "Undefined".to_string(),
+        Primitive::Any => "Any".to_string(),
+        Primitive::Unknown => "Unknown".to_string(),
+        Primitive::Never => "Never".to_string(),
+        Primitive::Object => "Obj".to_string(),
+        Primitive::Symbol => "Symbol".to_string(),
+        Primitive::BigInt => "BigInt".to_string(),
+    }
+}
+
 /// Convert a DtsInterface to a DtsType::Object for type registry.
 ///
 /// This is used for utility type expansion - the interface is converted to an
@@ -1930,6 +2205,7 @@ fn interface_to_object_type(iface: &DtsInterface) -> DtsType {
                 params: m.params.clone(),
                 return_type: m.return_type.clone(),
                 optional: m.optional,
+                this_param: m.this_param.clone(),
             }),
             InterfaceMember::IndexSignature(sig) => {
                 Some(ObjectMember::IndexSignature(sig.clone()))
@@ -2295,5 +2571,166 @@ mod tests {
         // Should NOT have any module identity comments
         assert!(!result.code.contains("Module is callable"));
         assert!(!result.code.contains("Module exports"));
+    }
+
+    #[test]
+    fn test_generate_const_legacy_mode() {
+        // Default: use_extern_const = false, generates zero-arg functions
+        let src = "declare const VERSION: string;";
+        let file = parse(src).unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        // Should generate as a function (legacy behavior)
+        assert!(result.code.contains("fn VERSION() -> String;"));
+        assert!(!result.code.contains("const VERSION:"));
+        assert_eq!(result.metrics.legacy_const_functions, 1);
+        assert_eq!(result.metrics.extern_consts, 0);
+    }
+
+    #[test]
+    fn test_generate_const_new_mode() {
+        // With use_extern_const = true, generates extern const
+        let src = "declare const VERSION: string;";
+        let file = parse(src).unwrap();
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                use_extern_const: true,
+                ..Default::default()
+            },
+        );
+
+        // Should generate as extern const (new behavior)
+        assert!(result.code.contains("const VERSION: String;"));
+        assert!(!result.code.contains("fn VERSION()"));
+        assert_eq!(result.metrics.extern_consts, 1);
+        assert_eq!(result.metrics.legacy_const_functions, 0);
+    }
+
+    #[test]
+    fn test_generate_multiple_consts() {
+        let src = r#"
+            declare const API_URL: string;
+            declare const MAX_RETRIES: number;
+            declare function fetch(): void;
+        "#;
+        let file = parse(src).unwrap();
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                use_extern_const: true,
+                ..Default::default()
+            },
+        );
+
+        assert!(result.code.contains("const API_URL: String;"));
+        assert!(result.code.contains("const MAX_RETRIES: f64;"));
+        assert!(result.code.contains("fn fetch();"));
+        assert_eq!(result.metrics.extern_consts, 2);
+    }
+
+    #[test]
+    fn test_generate_method_with_this_param() {
+        use crate::oxc_parser::parse_with_oxc;
+
+        // TypeScript method signature with explicit this parameter
+        // Define Element so it's recognized as a struct, not a JsValue
+        let src = r#"
+            interface Element {}
+            interface EventTarget {
+                addEventListener(this: Element, type: string, callback: () => void): void;
+            }
+        "#;
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        // Should emit #[this] attribute on first parameter
+        assert!(
+            result.code.contains("#[this] this_arg: Element"),
+            "Expected #[this] this_arg: Element in output, got:\n{}",
+            result.code
+        );
+    }
+
+    #[test]
+    fn test_generate_function_type_with_this_param() {
+        use crate::oxc_parser::parse_with_oxc;
+
+        // Function type annotation with this parameter
+        let src = r#"
+            type Handler = (this: Window, event: Event) => void;
+        "#;
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        // Function types with this_param should include the this binding info
+        // (though this may generate as JsFn since function types are complex)
+        println!("Generated code:\n{}", result.code);
+        // This test is informational - we want to ensure it doesn't crash
+    }
+
+    #[test]
+    fn test_generate_untagged_enum_from_union_type() {
+        use crate::oxc_parser::parse_with_oxc;
+
+        // TypeScript union type alias that should become an untagged enum
+        let src = r#"
+            type StringOrNumber = string | number;
+        "#;
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        println!("Generated code:\n{}", result.code);
+
+        // Should generate an untagged enum
+        assert!(
+            result.code.contains("#[untagged]"),
+            "Expected #[untagged] attribute in output"
+        );
+        assert!(
+            result.code.contains("enum StringOrNumber"),
+            "Expected enum StringOrNumber in output"
+        );
+        assert!(
+            result.code.contains("Str(String)"),
+            "Expected Str(String) variant in output"
+        );
+        assert!(
+            result.code.contains("Num(f64)"),
+            "Expected Num(f64) variant in output"
+        );
+    }
+
+    #[test]
+    fn test_generate_untagged_enum_from_string_literals() {
+        use crate::oxc_parser::parse_with_oxc;
+
+        // TypeScript string literal union type
+        let src = r#"
+            type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+        "#;
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        println!("Generated code:\n{}", result.code);
+
+        // Should generate an untagged enum with unit variants
+        assert!(
+            result.code.contains("#[untagged]"),
+            "Expected #[untagged] attribute in output"
+        );
+        assert!(
+            result.code.contains("enum HttpMethod"),
+            "Expected enum HttpMethod in output"
+        );
+        // Variants should be PascalCase
+        assert!(
+            result.code.contains("GET,") || result.code.contains("Get,"),
+            "Expected GET or Get variant in output"
+        );
+        assert!(
+            result.code.contains("POST,") || result.code.contains("Post,"),
+            "Expected POST or Post variant in output"
+        );
     }
 }

@@ -585,6 +585,15 @@ impl<'a> Formatter<'a> {
                 self.write(";");
                 self.newline();
             }
+            ExternItemKind::Const { name, ty } => {
+                self.write_indent();
+                self.write("const ");
+                self.write(&name.name);
+                self.write(": ");
+                self.format_type(ty);
+                self.write(";");
+                self.newline();
+            }
         }
     }
 

@@ -60,6 +60,12 @@ struct PropertyAccessors {
     /// Only extern "js" methods get automatic snake_to_camel conversion;
     /// user-defined Husk methods keep their original names.
     extern_methods: std::collections::HashSet<(String, String)>,
+    /// Set of (type_name, method_name) pairs for methods with #[this] binding.
+    /// These methods require .call(thisArg, ...) invocation in JavaScript.
+    this_binding_methods: std::collections::HashSet<(String, String)>,
+    /// Set of enum names that are marked with #[untagged].
+    /// Untagged enums serialize without a tag field, matching TypeScript's untagged unions.
+    untagged_enums: std::collections::HashSet<String>,
 }
 
 /// Context for code generation, carrying compile-time state.
@@ -559,6 +565,14 @@ pub fn lower_file_to_js_with_source(
                             // Keyed by (type_name, method_name) to avoid renaming user methods
                             accessors.extern_methods.insert((type_name.clone(), method_name.clone()));
 
+                            // Check if the first parameter has #[this] attribute
+                            // This indicates the first argument should be passed as `this` context
+                            if let Some(first_param) = method.params.first() {
+                                if first_param.attributes.iter().any(|a| a.name.name == "this") {
+                                    accessors.this_binding_methods.insert((type_name.clone(), method_name.clone()));
+                                }
+                            }
+
                             // Methods that should NOT be treated as getters even if they have
                             // no params and a return type. These are actual method calls in JS.
                             const NON_GETTER_METHODS: &[&str] = &[
@@ -597,6 +611,13 @@ pub fn lower_file_to_js_with_source(
                         }
                     }
                 }
+            }
+        }
+
+        // Collect untagged enums for variant construction
+        if let ItemKind::Enum { name, .. } = &item.kind {
+            if item.is_untagged() {
+                accessors.untagged_enums.insert(name.name.clone());
             }
         }
     }
@@ -730,6 +751,10 @@ pub fn lower_file_to_js_with_source(
                             ExternItemKind::Static { .. } => {
                                 // Static declarations don't generate code -
                                 // they declare global JS variables
+                            }
+                            ExternItemKind::Const { .. } => {
+                                // Const declarations don't generate code -
+                                // they declare global JS constants accessible directly
                             }
                         }
                     }
@@ -1895,12 +1920,40 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     base_method_name.clone()
                 }
             });
-            JsExpr::Call {
-                callee: Box::new(JsExpr::Member {
-                    object: Box::new(lower_expr(receiver, ctx)),
-                    property: js_method_name,
-                }),
-                args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+
+            // Check if this method has #[this] binding - if so, use .call(thisArg, ...)
+            let is_this_binding = ctx.accessors.this_binding_methods
+                .iter()
+                .any(|(_, m)| m == &base_method_name);
+
+            if is_this_binding && !args.is_empty() {
+                // Generate: receiver.method.call(firstArg, ...restArgs)
+                // The first argument becomes the `this` context for the JS call
+                let lowered_args: Vec<_> = args.iter().map(|a| lower_expr(a, ctx)).collect();
+                let (this_arg, rest_args) = lowered_args.split_first().unwrap();
+
+                let mut call_args = vec![this_arg.clone()];
+                call_args.extend(rest_args.iter().cloned());
+
+                JsExpr::Call {
+                    callee: Box::new(JsExpr::Member {
+                        object: Box::new(JsExpr::Member {
+                            object: Box::new(lower_expr(receiver, ctx)),
+                            property: js_method_name,
+                        }),
+                        property: "call".to_string(),
+                    }),
+                    args: call_args,
+                }
+            } else {
+                // Normal method call: receiver.method(args)
+                JsExpr::Call {
+                    callee: Box::new(JsExpr::Member {
+                        object: Box::new(lower_expr(receiver, ctx)),
+                        property: js_method_name,
+                    }),
+                    args: args.iter().map(|a| lower_expr(a, ctx)).collect(),
+                }
             }
         }
         ExprKind::Call { callee, type_args: _, args } => {
@@ -1960,7 +2013,23 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Handle imported variant construction: Some(x) -> {tag: "Some", value: x}
             // Check if this call is an imported variant (e.g., from `use Option::*`)
-            if let Some((_enum_name, variant_name)) = ctx.variant_calls.get(&(expr.span.range.start, expr.span.range.end)) {
+            if let Some((enum_name, variant_name)) = ctx.variant_calls.get(&(expr.span.range.start, expr.span.range.end)) {
+                // Check if this is an untagged enum
+                let is_untagged = ctx.accessors.untagged_enums.contains(enum_name);
+
+                if is_untagged {
+                    // Untagged enum: just emit the value directly without a tag
+                    if args.len() == 1 {
+                        return lower_expr(&args[0], ctx);
+                    } else if args.is_empty() {
+                        // Unit variant in untagged enum - emit the variant name as string
+                        return JsExpr::String(variant_name.clone());
+                    } else {
+                        // Multiple args: emit as array (tuple-like)
+                        return JsExpr::Array(args.iter().map(|a| lower_expr(a, ctx)).collect());
+                    }
+                }
+
                 let mut fields = vec![("tag".to_string(), JsExpr::String(variant_name.clone()))];
 
                 // Add the value(s) based on argument count
@@ -1981,6 +2050,29 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     .last()
                     .map(|id| id.name.clone())
                     .unwrap_or_else(|| "Unknown".to_string());
+
+                // Get the enum name from the path (e.g., "Option" from "Option::Some")
+                let enum_name = if segments.len() >= 2 {
+                    segments[segments.len() - 2].name.clone()
+                } else {
+                    String::new()
+                };
+
+                // Check if this is an untagged enum
+                let is_untagged = ctx.accessors.untagged_enums.contains(&enum_name);
+
+                if is_untagged {
+                    // Untagged enum: just emit the value directly without a tag
+                    if args.len() == 1 {
+                        return lower_expr(&args[0], ctx);
+                    } else if args.is_empty() {
+                        // Unit variant in untagged enum - emit the variant name as string
+                        return JsExpr::String(variant);
+                    } else {
+                        // Multiple args: emit as array (tuple-like)
+                        return JsExpr::Array(args.iter().map(|a| lower_expr(a, ctx)).collect());
+                    }
+                }
 
                 let mut fields = vec![("tag".to_string(), JsExpr::String(variant))];
 
@@ -4109,10 +4201,12 @@ mod tests {
         let b_ident = ident("b", 130);
 
         let a_param = husk_ast::Param {
+            attributes: Vec::new(),
             name: a_ident.clone(),
             ty: i32_ty.clone(),
         };
         let b_param = husk_ast::Param {
+            attributes: Vec::new(),
             name: b_ident.clone(),
             ty: i32_ty.clone(),
         };
@@ -4198,6 +4292,7 @@ mod tests {
         };
 
         let param = husk_ast::Param {
+            attributes: Vec::new(),
             name: param_ident.clone(),
             ty: string_ty,
         };
@@ -5274,5 +5369,303 @@ mod tests {
         write_stmt(&stmt, 0, &mut out);
 
         assert_eq!(out, "let [a, _, c] = expr;");
+    }
+
+    #[test]
+    fn generates_call_for_this_binding_method() {
+        // Test that methods with #[this] attribute on first parameter
+        // generate .call(thisArg, ...) invocations
+        //
+        // impl EventTarget {
+        //     extern "js" fn add_event_listener(&self, #[this] target: Element, event: String);
+        // }
+        //
+        // Calling: event_target.add_event_listener(element, "click")
+        // Should generate: eventTarget.addEventListener.call(element, "click")
+
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Build the type expression
+        let event_target_ident = ident("EventTarget", 0);
+        let element_ident = ident("Element", 20);
+        let string_ident = ident("String", 30);
+
+        let event_target_ty = HuskTypeExpr {
+            kind: HuskTypeExprKind::Named(event_target_ident.clone()),
+            span: event_target_ident.span.clone(),
+        };
+        let element_ty = HuskTypeExpr {
+            kind: HuskTypeExprKind::Named(element_ident.clone()),
+            span: element_ident.span.clone(),
+        };
+        let string_ty = HuskTypeExpr {
+            kind: HuskTypeExprKind::Named(string_ident.clone()),
+            span: string_ident.span.clone(),
+        };
+
+        // Create the #[this] attribute
+        let this_attr = husk_ast::Attribute {
+            name: ident("this", 40),
+            value: None,
+            cfg_predicate: None,
+            span: span(40, 46),
+        };
+
+        // First param has #[this] attribute
+        let target_param = husk_ast::Param {
+            attributes: vec![this_attr],
+            name: ident("target", 50),
+            ty: element_ty,
+        };
+        // Second param is normal
+        let event_param = husk_ast::Param {
+            attributes: Vec::new(),
+            name: ident("event", 60),
+            ty: string_ty,
+        };
+
+        // Create the impl method
+        let method = husk_ast::ImplMethod {
+            attributes: Vec::new(),
+            name: ident("add_event_listener", 70),
+            receiver: Some(husk_ast::SelfReceiver::Ref),
+            params: vec![target_param, event_param],
+            ret_type: None,
+            body: Vec::new(),
+            is_extern: true,
+        };
+
+        // Create the impl block
+        let impl_block = husk_ast::ImplBlock {
+            type_params: Vec::new(),
+            trait_ref: None,
+            self_ty: event_target_ty,
+            items: vec![husk_ast::ImplItem {
+                kind: husk_ast::ImplItemKind::Method(method),
+                span: span(70, 150),
+            }],
+            span: span(0, 200),
+        };
+
+        // Create a function that calls the method
+        let fn_body = vec![husk_ast::Stmt {
+            kind: husk_ast::StmtKind::Semi(husk_ast::Expr {
+                kind: HuskExprKind::MethodCall {
+                    receiver: Box::new(husk_ast::Expr {
+                        kind: HuskExprKind::Ident(ident("event_target", 300)),
+                        span: span(300, 312),
+                    }),
+                    method: ident("add_event_listener", 313),
+                    type_args: Vec::new(),
+                    args: vec![
+                        husk_ast::Expr {
+                            kind: HuskExprKind::Ident(ident("element", 332)),
+                            span: span(332, 339),
+                        },
+                        husk_ast::Expr {
+                            kind: HuskExprKind::Literal(HuskLiteral {
+                                kind: HuskLiteralKind::String("click".to_string()),
+                                span: span(341, 348),
+                            }),
+                            span: span(341, 348),
+                        },
+                    ],
+                },
+                span: span(300, 350),
+            }),
+            span: span(300, 351),
+        }];
+
+        let test_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("test_fn", 400),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: fn_body,
+            },
+            span: span(400, 500),
+        };
+
+        let file = husk_ast::File {
+            items: vec![
+                husk_ast::Item {
+                    attributes: Vec::new(),
+                    visibility: husk_ast::Visibility::Private,
+                    kind: husk_ast::ItemKind::Impl(impl_block),
+                    span: span(0, 200),
+                },
+                test_fn,
+            ],
+        };
+
+        let empty_resolution = HashMap::new();
+        let empty_type_resolution = HashMap::new();
+        let empty_variant_calls = HashMap::new();
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
+        let src = module.to_source();
+
+        // Verify that the call uses .call() with element as the this argument
+        assert!(
+            src.contains("addEventListener.call(element,"),
+            "Expected addEventListener.call(element, ...) but got:\n{}",
+            src
+        );
+    }
+
+    #[test]
+    fn generates_untagged_enum_variant_without_tag() {
+        // Test that #[untagged] enums emit values directly without a tag field
+        // This is important for TypeScript interop with untagged unions
+
+        use husk_ast::{
+            Span as HuskSpan, Ident as HuskIdent, TypeExpr as HuskTypeExpr,
+            TypeExprKind as HuskTypeExprKind,
+        };
+
+        let span = |s: usize, e: usize| HuskSpan { range: s..e };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // Create an untagged enum with the #[untagged] attribute
+        let untagged_attr = husk_ast::Attribute {
+            name: ident("untagged", 0),
+            value: None,
+            cfg_predicate: None,
+            span: span(0, 10),
+        };
+
+        let string_ty_ident = ident("String", 34);
+        let i32_ty_ident = ident("i32", 49);
+
+        let untagged_enum = husk_ast::Item {
+            attributes: vec![untagged_attr],
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Enum {
+                name: ident("StringOrNumber", 15),
+                type_params: Vec::new(),
+                variants: vec![
+                    husk_ast::EnumVariant {
+                        name: ident("Str", 30),
+                        fields: husk_ast::EnumVariantFields::Tuple(vec![
+                            HuskTypeExpr {
+                                kind: HuskTypeExprKind::Named(string_ty_ident.clone()),
+                                span: span(34, 40),
+                            },
+                        ]),
+                    },
+                    husk_ast::EnumVariant {
+                        name: ident("Num", 45),
+                        fields: husk_ast::EnumVariantFields::Tuple(vec![
+                            HuskTypeExpr {
+                                kind: HuskTypeExprKind::Named(i32_ty_ident.clone()),
+                                span: span(49, 52),
+                            },
+                        ]),
+                    },
+                ],
+            },
+            span: span(0, 60),
+        };
+
+        // Create a function that constructs untagged enum variants
+        let fn_body = vec![
+            husk_ast::Stmt {
+                kind: husk_ast::StmtKind::Let {
+                    mutable: false,
+                    pattern: husk_ast::Pattern {
+                        kind: husk_ast::PatternKind::Binding(ident("x", 100)),
+                        span: span(100, 101),
+                    },
+                    ty: None,
+                    value: Some(husk_ast::Expr {
+                        kind: husk_ast::ExprKind::Call {
+                            callee: Box::new(husk_ast::Expr {
+                                kind: husk_ast::ExprKind::Path {
+                                    segments: vec![
+                                        ident("StringOrNumber", 105),
+                                        ident("Str", 120),
+                                    ],
+                                },
+                                span: span(105, 123),
+                            }),
+                            type_args: Vec::new(),
+                            args: vec![husk_ast::Expr {
+                                kind: husk_ast::ExprKind::Literal(husk_ast::Literal {
+                                    kind: husk_ast::LiteralKind::String("hello".to_string()),
+                                    span: span(124, 131),
+                                }),
+                                span: span(124, 131),
+                            }],
+                        },
+                        span: span(105, 132),
+                    }),
+                    else_block: None,
+                },
+                span: span(96, 133),
+            },
+        ];
+
+        let test_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("test_fn", 200),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: fn_body,
+            },
+            span: span(200, 300),
+        };
+
+        let file = husk_ast::File {
+            items: vec![untagged_enum, test_fn],
+        };
+
+        let empty_resolution = HashMap::new();
+        let empty_type_resolution = HashMap::new();
+        let empty_variant_calls = HashMap::new();
+        let empty_variant_patterns = HashMap::new();
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Cjs,
+            &empty_resolution,
+            &empty_type_resolution,
+            &empty_variant_calls,
+            &empty_variant_patterns,
+        );
+        let src = module.to_source();
+
+        // For untagged enums, the variant should emit just the value, not {tag: ..., value: ...}
+        // StringOrNumber::Str("hello") should emit just "hello", not {tag: "Str", value: "hello"}
+        assert!(
+            src.contains("let x = \"hello\";"),
+            "Expected untagged enum to emit raw value 'let x = \"hello\";' but got:\n{}",
+            src
+        );
+        assert!(
+            !src.contains("tag"),
+            "Expected no 'tag' field for untagged enum but found one in:\n{}",
+            src
+        );
     }
 }

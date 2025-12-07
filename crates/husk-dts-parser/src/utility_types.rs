@@ -253,6 +253,7 @@ fn expand_object_member_with_depth(
             params,
             return_type,
             optional,
+            this_param,
         } => {
             let expanded_params: Vec<_> = params
                 .iter()
@@ -269,6 +270,7 @@ fn expand_object_member_with_depth(
                 params: expanded_params,
                 return_type: return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
                 optional: *optional,
+                this_param: this_param.as_ref().map(|tp| Box::new(expand_type_with_depth(tp, registry, ctx, depth))),
             }
         }
         ObjectMember::IndexSignature(sig) => ObjectMember::IndexSignature(crate::ast::IndexSignature {
@@ -290,6 +292,7 @@ fn expand_object_member_with_depth(
                 })
                 .collect(),
             return_type: sig.return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
+            this_param: sig.this_param.as_ref().map(|tp| Box::new(expand_type_with_depth(tp, registry, ctx, depth))),
         }),
         ObjectMember::ConstructSignature(sig) => ObjectMember::ConstructSignature(crate::ast::ConstructSignature {
             type_params: sig.type_params.clone(),

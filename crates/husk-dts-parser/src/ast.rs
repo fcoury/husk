@@ -139,6 +139,8 @@ pub struct MethodMember {
     pub params: Vec<Param>,
     pub return_type: Option<DtsType>,
     pub optional: bool,
+    /// If this method has an explicit `this` parameter type
+    pub this_param: Option<Box<DtsType>>,
 }
 
 /// A call signature: `(params): ReturnType;`
@@ -147,6 +149,8 @@ pub struct CallSignature {
     pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: Option<DtsType>,
+    /// If this call signature has an explicit `this` parameter type
+    pub this_param: Option<Box<DtsType>>,
 }
 
 /// A construct signature: `new (params): ReturnType;`
@@ -195,6 +199,8 @@ pub struct ClassMethod {
     pub return_type: Option<DtsType>,
     pub is_static: bool,
     pub visibility: Visibility,
+    /// If this method has an explicit `this` parameter type
+    pub this_param: Option<Box<DtsType>>,
 }
 
 /// Visibility modifier for class members.
@@ -329,6 +335,8 @@ pub enum ObjectMember {
         params: Vec<Param>,
         return_type: Option<DtsType>,
         optional: bool,
+        /// If this method has an explicit `this` parameter type
+        this_param: Option<Box<DtsType>>,
     },
     CallSignature(CallSignature),
     ConstructSignature(ConstructSignature),

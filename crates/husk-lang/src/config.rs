@@ -84,6 +84,8 @@ pub struct DtsEntry {
     pub builder_min_optional: Option<usize>,
     /// Expand utility types (Partial, Pick, etc.) inline.
     pub expand_utility_types: Option<bool>,
+    /// Use `extern "js" const` for TypeScript constants instead of zero-arg functions.
+    pub use_extern_const: Option<bool>,
     /// Follow import graph and include dependencies.
     pub follow_imports: Option<bool>,
     /// Maximum depth for import resolution.
@@ -113,6 +115,8 @@ pub struct DtsOptions {
     pub default_generate_builders: Option<bool>,
     /// Default setting for utility type expansion.
     pub default_expand_utility_types: Option<bool>,
+    /// Default setting for using extern const.
+    pub default_use_extern_const: Option<bool>,
     /// Node modules search paths.
     pub node_modules_paths: Option<Vec<String>>,
     /// Use generation gap pattern (*.gen.hk + *.hk wrapper).

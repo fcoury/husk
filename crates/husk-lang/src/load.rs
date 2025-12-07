@@ -453,5 +453,6 @@ fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
         ExternItemKind::Fn { name: n, .. } => n.name == name,
         ExternItemKind::Mod { binding, .. } => binding.name == name,
         ExternItemKind::Static { name: n, .. } => n.name == name,
+        ExternItemKind::Const { name: n, .. } => n.name == name,
     }
 }
