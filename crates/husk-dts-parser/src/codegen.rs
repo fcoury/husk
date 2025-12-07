@@ -62,18 +62,47 @@ pub fn generate_simple(file: &DtsFile, options: &CodegenOptions) -> CodegenResul
     generate(file, options, None)
 }
 
+fn sanitize_key_for_ident(key: &str) -> String {
+    let mut ident = String::new();
+    for (i, ch) in key.chars().enumerate() {
+        if ch.is_ascii_alphanumeric() {
+            ident.push(ch);
+        } else {
+            ident.push('_');
+        }
+
+        if i == 0 && !ch.is_ascii_alphabetic() && ch != '_' {
+            ident.insert(0, '_');
+        }
+    }
+
+    if ident.is_empty() {
+        "_key".to_string()
+    } else {
+        ident
+    }
+}
+
+fn key_struct_name(key: &str) -> String {
+    format!("Key_{}", sanitize_key_for_ident(key))
+}
+
 struct Codegen<'a> {
     options: &'a CodegenOptions,
     output: String,
     warnings: Vec<Warning>,
     /// Collected struct names (from interfaces and classes).
     structs: HashSet<String>,
+    /// All keys seen in properties / string literal accesses.
+    keys: HashSet<String>,
     /// Collected functions (before overload merging).
     functions: Vec<GeneratedFn>,
     /// Collected impl blocks: type name -> methods (before overload merging).
     impls: HashMap<String, Vec<GeneratedMethod>>,
     /// Collected properties: type name -> properties with #[getter] syntax.
     properties: HashMap<String, Vec<GeneratedProperty>>,
+    /// Collected HasKey targets: type name -> (key, type) pairs.
+    haskey_fields: HashMap<String, Vec<(String, String)>>,
     /// Type aliases (for reference, not always generated).
     type_aliases: HashMap<String, DtsType>,
     /// Known generic types (struct-level type parameters).
@@ -120,9 +149,11 @@ impl<'a> Codegen<'a> {
             output: String::new(),
             warnings: Vec::new(),
             structs: HashSet::new(),
+            keys: HashSet::new(),
             functions: Vec::new(),
             impls: HashMap::new(),
             properties: HashMap::new(),
+            haskey_fields: HashMap::new(),
             type_aliases: HashMap::new(),
             known_generics: HashSet::new(),
             method_type_params: HashSet::new(),
@@ -163,8 +194,11 @@ impl<'a> Codegen<'a> {
 
         // Second pass: generate code
         self.emit_header();
+        self.emit_keys_module();
+        self.emit_has_key_trait();
         self.emit_extern_block();
         self.emit_impl_blocks();
+        self.emit_has_key_impls();
         self.emit_warnings();
     }
 
@@ -489,6 +523,9 @@ impl<'a> Codegen<'a> {
                     // Function-typed properties are treated as methods for better ergonomics
                     let is_function_property = matches!(p.ty, DtsType::Function(_));
 
+                    // Track key for HasKey support
+                    self.keys.insert(p.name.clone());
+
                     if is_function_property {
                         // Generate as method for function-typed properties
                         let mapped_type = self.map_type(&p.ty);
@@ -497,6 +534,11 @@ impl<'a> Codegen<'a> {
                         } else {
                             mapped_type
                         };
+
+                        self.haskey_fields
+                            .entry(i.name.clone())
+                            .or_default()
+                            .push((p.name.clone(), return_type.clone()));
 
                         methods.push(GeneratedMethod {
                             name: escape_keyword(&p.name),
@@ -518,11 +560,16 @@ impl<'a> Codegen<'a> {
                         self.properties.entry(i.name.clone()).or_default().push(
                             GeneratedProperty {
                                 name: escape_keyword(&p.name),
-                                ty: final_type,
+                                ty: final_type.clone(),
                                 is_readonly: p.readonly,
                                 is_static: false,
                             },
                         );
+
+                        self.haskey_fields
+                            .entry(i.name.clone())
+                            .or_default()
+                            .push((p.name.clone(), final_type));
                     }
                 }
                 InterfaceMember::CallSignature(_) => {
@@ -635,6 +682,9 @@ impl<'a> Codegen<'a> {
                         continue;
                     }
 
+                    // Track key for HasKey support
+                    self.keys.insert(p.name.clone());
+
                     // Generate getter method for property access
                     let mapped_type =
                         p.ty.as_ref()
@@ -651,7 +701,7 @@ impl<'a> Codegen<'a> {
                         name: escape_keyword(&p.name),
                         type_params: Vec::new(),
                         params: Vec::new(),
-                        return_type: Some(return_type),
+                        return_type: Some(return_type.clone()),
                         is_static: p.is_static,
                         comment: Some(if p.is_static {
                             if p.readonly {
@@ -687,6 +737,13 @@ impl<'a> Codegen<'a> {
                             }),
                         });
                     }
+
+                    // Record HasKey mapping for this property
+                    let haskey_ty = return_type.clone();
+                    self.haskey_fields
+                        .entry(c.name.clone())
+                        .or_default()
+                        .push((p.name.clone(), haskey_ty));
                 }
                 ClassMember::IndexSignature(_) => {
                     self.warn(
@@ -756,7 +813,8 @@ impl<'a> Codegen<'a> {
                 "JsValue".to_string()
             }
             DtsType::Function(f) => self.map_function_type(f),
-            DtsType::Object(_) => {
+            DtsType::Object(members) => {
+                self.collect_keys_from_object_members(members);
                 self.warn(
                     WarningKind::Simplified,
                     "Object literal type mapped to JsValue",
@@ -782,11 +840,17 @@ impl<'a> Codegen<'a> {
                 self.warn(WarningKind::Unsupported, "typeof type not supported");
                 "JsValue".to_string()
             }
-            DtsType::KeyOf(_) => {
+            DtsType::KeyOf(inner) => {
+                self.collect_keys_from_type(inner);
                 self.warn(WarningKind::Unsupported, "keyof type not supported");
                 "JsValue".to_string()
             }
-            DtsType::IndexAccess { .. } => {
+            DtsType::IndexAccess { object, index } => {
+                if let DtsType::StringLiteral(key) = &**index {
+                    self.keys.insert(key.clone());
+                }
+                self.collect_keys_from_type(object);
+                self.collect_keys_from_type(index);
                 self.warn(WarningKind::Unsupported, "Index access type not supported");
                 "JsValue".to_string()
             }
@@ -1063,6 +1127,120 @@ impl<'a> Codegen<'a> {
         "JsValue".to_string()
     }
 
+    fn collect_keys_from_object_members(&mut self, members: &[ObjectMember]) {
+        for member in members {
+            match member {
+                ObjectMember::Property { name, ty, .. } => {
+                    self.keys.insert(name.clone());
+                    self.collect_keys_from_type(ty);
+                }
+                ObjectMember::Method {
+                    params,
+                    return_type,
+                    ..
+                } => {
+                    for p in params {
+                        self.collect_keys_from_type(&p.ty);
+                    }
+                    if let Some(ret) = return_type {
+                        self.collect_keys_from_type(ret);
+                    }
+                }
+                ObjectMember::CallSignature(cs) => {
+                    for p in &cs.params {
+                        self.collect_keys_from_type(&p.ty);
+                    }
+                    if let Some(ret) = &cs.return_type {
+                        self.collect_keys_from_type(ret);
+                    }
+                }
+                ObjectMember::ConstructSignature(cs) => {
+                    for p in &cs.params {
+                        self.collect_keys_from_type(&p.ty);
+                    }
+                    if let Some(ret) = &cs.return_type {
+                        self.collect_keys_from_type(ret);
+                    }
+                }
+                ObjectMember::IndexSignature(idx) => {
+                    self.collect_keys_from_type(&idx.key_type);
+                    self.collect_keys_from_type(&idx.value_type);
+                }
+            }
+        }
+    }
+
+    fn collect_keys_from_type(&mut self, ty: &DtsType) {
+        match ty {
+            DtsType::Named { type_args, .. } => {
+                for arg in type_args {
+                    self.collect_keys_from_type(arg);
+                }
+            }
+            DtsType::Primitive(_) => {}
+            DtsType::StringLiteral(_) | DtsType::NumberLiteral(_) | DtsType::BooleanLiteral(_) => {}
+            DtsType::Union(types) | DtsType::Intersection(types) => {
+                for t in types {
+                    self.collect_keys_from_type(t);
+                }
+            }
+            DtsType::Function(f) => {
+                for p in &f.params {
+                    self.collect_keys_from_type(&p.ty);
+                }
+                self.collect_keys_from_type(&f.return_type);
+                if let Some(this_ty) = &f.this_param {
+                    self.collect_keys_from_type(this_ty);
+                }
+            }
+            DtsType::Object(members) => self.collect_keys_from_object_members(members),
+            DtsType::Array(inner) => self.collect_keys_from_type(inner),
+            DtsType::Tuple(elements) => {
+                for e in elements {
+                    self.collect_keys_from_type(&e.ty);
+                }
+            }
+            DtsType::TypeOf(_) => {}
+            DtsType::KeyOf(inner) => self.collect_keys_from_type(inner),
+            DtsType::IndexAccess { object, index } => {
+                if let DtsType::StringLiteral(key) = &**index {
+                    self.keys.insert(key.clone());
+                }
+                self.collect_keys_from_type(object);
+                self.collect_keys_from_type(index);
+            }
+            DtsType::Conditional {
+                check,
+                extends,
+                true_type,
+                false_type,
+            } => {
+                self.collect_keys_from_type(check);
+                self.collect_keys_from_type(extends);
+                self.collect_keys_from_type(true_type);
+                self.collect_keys_from_type(false_type);
+            }
+            DtsType::Mapped {
+                key_constraint,
+                value_type,
+                ..
+            } => {
+                self.collect_keys_from_type(key_constraint);
+                self.collect_keys_from_type(value_type);
+            }
+            DtsType::Infer(_) => {}
+            DtsType::TemplateLiteral(parts) => {
+                for part in parts {
+                    if let TemplateLiteralPart::Type(t) = part {
+                        self.collect_keys_from_type(t);
+                    }
+                }
+            }
+            DtsType::Parenthesized(inner) => self.collect_keys_from_type(inner),
+            DtsType::This => {}
+        }
+    }
+
     fn map_function_type(&mut self, f: &FunctionType) -> String {
         // Check if we can map to Husk function type
         let can_map = f.this_param.is_none() && f.type_params.is_empty();
@@ -1099,6 +1277,30 @@ impl<'a> Codegen<'a> {
         )
         .unwrap();
         writeln!(self.output).unwrap();
+    }
+
+    fn emit_keys_module(&mut self) {
+        if self.keys.is_empty() {
+            return;
+        }
+
+        writeln!(self.output, "mod husk_keys {{").unwrap();
+        let mut keys: Vec<&String> = self.keys.iter().collect();
+        keys.sort();
+        for key in keys {
+            writeln!(self.output, "    pub struct {};", key_struct_name(key)).unwrap();
+        }
+        writeln!(self.output, "}}\n").unwrap();
+    }
+
+    fn emit_has_key_trait(&mut self) {
+        if self.haskey_fields.is_empty() {
+            return;
+        }
+
+        writeln!(self.output, "pub trait HasKey<K> {{").unwrap();
+        writeln!(self.output, "    type Output;").unwrap();
+        writeln!(self.output, "}}\n").unwrap();
     }
 
     fn module_identity(&self) -> ModuleKind {
@@ -1290,6 +1492,34 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output, "}}").unwrap();
+        }
+    }
+
+    fn emit_has_key_impls(&mut self) {
+        if self.haskey_fields.is_empty() {
+            return;
+        }
+
+        let mut types: Vec<&String> = self.haskey_fields.keys().collect();
+        types.sort();
+
+        for ty in types {
+            if let Some(entries) = self.haskey_fields.get(ty) {
+                let mut sorted_entries = entries.clone();
+                sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+                for (key, value_ty) in sorted_entries {
+                    writeln!(
+                        self.output,
+                        "impl HasKey<husk_keys::{}> for {} {{",
+                        key_struct_name(&key),
+                        ty
+                    )
+                    .unwrap();
+                    writeln!(self.output, "    type Output = {};", value_ty).unwrap();
+                    writeln!(self.output, "}}\n").unwrap();
+                }
+            }
         }
     }
 
