@@ -23,6 +23,7 @@ serde_json = "1.0"
 
 [dev-dependencies]
 tempfile = "3"
+codespan-reporting = "0.11"
 husk-parser = { path = "../husk-parser" }
 husk-lexer = { path = "../husk-lexer" }
 husk-semantic = { path = "../husk-semantic" }

@@ -1087,9 +1087,34 @@ impl<'a> Codegen<'a> {
                     "JsValue".to_string()
                 }
             }
-            DtsType::Conditional { .. } => {
-                self.warn(WarningKind::Unsupported, "Conditional type not supported");
-                "JsValue".to_string()
+            DtsType::Conditional {
+                true_type,
+                false_type,
+                ..
+            } => {
+                // Try to find common ground between true and false branches
+                // If both branches have the same base type, use it
+                if let Some(common) = self.extract_common_type(true_type, false_type) {
+                    self.warn(
+                        WarningKind::Simplified,
+                        "Conditional type simplified to common base type",
+                    );
+                    common
+                } else {
+                    // Fall back to true_type as a reasonable default
+                    // (the true branch is often the more common/expected case)
+                    let mapped = self.map_type(true_type);
+                    if mapped != "JsValue" {
+                        self.warn(
+                            WarningKind::Simplified,
+                            "Conditional type simplified to true branch",
+                        );
+                        mapped
+                    } else {
+                        self.warn(WarningKind::Unsupported, "Conditional type not supported");
+                        "JsValue".to_string()
+                    }
+                }
             }
             DtsType::Mapped { .. } => {
                 self.warn(WarningKind::Unsupported, "Mapped type not supported");
@@ -1316,6 +1341,56 @@ impl<'a> Codegen<'a> {
             DtsType::KeyOf(inner) => self.type_uses_method_param(inner),
             DtsType::Parenthesized(inner) => self.type_uses_method_param(inner),
             _ => false,
+        }
+    }
+
+    /// Extract a common base type from two types (for conditional type simplification).
+    ///
+    /// Returns Some(type_string) if both types have the same base type name,
+    /// None if they are fundamentally different.
+    fn extract_common_type(&mut self, true_type: &DtsType, false_type: &DtsType) -> Option<String> {
+        match (true_type, false_type) {
+            // Both are references to the same type name
+            (
+                DtsType::Named {
+                    name: name1,
+                    type_args: args1,
+                },
+                DtsType::Named {
+                    name: name2,
+                    type_args: args2,
+                },
+            ) => {
+                let simple1 = name1.split('.').last().unwrap_or(name1);
+                let simple2 = name2.split('.').last().unwrap_or(name2);
+                if simple1 == simple2 {
+                    // Same base type - use it with merged type args if possible
+                    if args1.is_empty() && args2.is_empty() {
+                        Some(simple1.to_string())
+                    } else {
+                        // Use the type args from the true branch
+                        let args: Vec<String> = args1.iter().map(|a| self.map_type(a)).collect();
+                        if args.is_empty() {
+                            Some(simple1.to_string())
+                        } else {
+                            Some(format!("{}<{}>", simple1, args.join(", ")))
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            // Both are arrays
+            (DtsType::Array(inner1), DtsType::Array(inner2)) => {
+                self.extract_common_type(inner1, inner2)
+                    .map(|common| format!("JsArray<{}>", common))
+            }
+            // Both are the same primitive
+            (DtsType::Primitive(p1), DtsType::Primitive(p2)) if p1 == p2 => {
+                Some(self.map_type(true_type))
+            }
+            // Otherwise no common type
+            _ => None,
         }
     }
 
@@ -1966,16 +2041,10 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output).unwrap();
-            // Include type parameters if the struct is generic
-            if let Some(type_params) = self.structs.get(type_name) {
-                if type_params.is_empty() {
-                    writeln!(self.output, "impl {} {{", type_name).unwrap();
-                } else {
-                    writeln!(self.output, "impl {}<{}> {{", type_name, type_params.join(", ")).unwrap();
-                }
-            } else {
-                writeln!(self.output, "impl {} {{", type_name).unwrap();
-            }
+            // Emit impl block without type parameters
+            // The semantic analyzer matches impl blocks by base type name only,
+            // so `impl Statement` will apply to `Statement<JsValue, JsValue>`
+            writeln!(self.output, "impl {} {{", type_name).unwrap();
 
             // Emit properties with appropriate attributes
             for p in properties {
