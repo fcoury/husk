@@ -87,6 +87,35 @@ fn key_struct_name(key: &str) -> String {
     format!("Key_{}", sanitize_key_for_ident(key))
 }
 
+fn union_name(parts: &[String]) -> String {
+    let mut sorted = parts.to_vec();
+    sorted.sort();
+    let sanitized: Vec<String> = sorted.iter().map(|p| sanitize_key_for_ident(p)).collect();
+    format!("Union_{}", sanitized.join("_"))
+}
+
+fn literal_variant_name(lit: &str) -> String {
+    let mut s = String::new();
+    for ch in lit.chars() {
+        if ch.is_ascii_alphanumeric() {
+            s.push(ch);
+        } else {
+            s.push('_');
+        }
+    }
+    if s.is_empty() {
+        return "Lit".to_string();
+    }
+    if s.chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
+        s.insert(0, '_');
+    }
+    s
+}
+
 struct Codegen<'a> {
     options: &'a CodegenOptions,
     output: String,
@@ -95,6 +124,8 @@ struct Codegen<'a> {
     structs: HashSet<String>,
     /// All keys seen in properties / string literal accesses.
     keys: HashSet<String>,
+    /// Collected union shims to emit (primitive + string literal unions).
+    unions: Vec<GeneratedUnion>,
     /// Collected functions (before overload merging).
     functions: Vec<GeneratedFn>,
     /// Collected impl blocks: type name -> methods (before overload merging).
@@ -142,6 +173,20 @@ struct GeneratedProperty {
     is_static: bool,
 }
 
+#[derive(Debug, Clone)]
+struct GeneratedUnion {
+    name: String,
+    variants: Vec<UnionVariant>,
+}
+
+#[derive(Debug, Clone)]
+enum UnionVariant {
+    PrimitiveStr,
+    PrimitiveNum,
+    PrimitiveBool,
+    StrLiteral(String),
+}
+
 impl<'a> Codegen<'a> {
     fn new(options: &'a CodegenOptions) -> Self {
         Self {
@@ -150,6 +195,7 @@ impl<'a> Codegen<'a> {
             warnings: Vec::new(),
             structs: HashSet::new(),
             keys: HashSet::new(),
+            unions: Vec::new(),
             functions: Vec::new(),
             impls: HashMap::new(),
             properties: HashMap::new(),
@@ -196,6 +242,7 @@ impl<'a> Codegen<'a> {
         self.emit_header();
         self.emit_keys_module();
         self.emit_has_key_trait();
+        self.emit_unions();
         self.emit_extern_block();
         self.emit_impl_blocks();
         self.emit_has_key_impls();
@@ -1101,28 +1148,56 @@ impl<'a> Codegen<'a> {
             }
         }
 
-        // General union - if all are string literals, use String
+        // All string literals -> emit enum
         if types.iter().all(|t| matches!(t, DtsType::StringLiteral(_))) {
-            self.warn(
-                WarningKind::Simplified,
-                "String literal union mapped to String",
-            );
-            return "String".to_string();
+            let literals: Vec<String> = types
+                .iter()
+                .filter_map(|t| match t {
+                    DtsType::StringLiteral(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect();
+            let name = self.register_string_literal_union(&literals);
+            return name;
         }
 
-        // If all are number literals, use f64
-        if types.iter().all(|t| matches!(t, DtsType::NumberLiteral(_))) {
-            self.warn(
-                WarningKind::Simplified,
-                "Number literal union mapped to f64",
-            );
-            return "f64".to_string();
+        // Primitive unions of string/number/boolean
+        let mut has_str = false;
+        let mut has_num = false;
+        let mut has_bool = false;
+        let mut primitive_only = true;
+        for t in types {
+            match t {
+                DtsType::Primitive(Primitive::String) => has_str = true,
+                DtsType::Primitive(Primitive::Number) => has_num = true,
+                DtsType::Primitive(Primitive::Boolean) => has_bool = true,
+                _ => {
+                    primitive_only = false;
+                    break;
+                }
+            }
+        }
+
+        if primitive_only && (has_str || has_num || has_bool) {
+            let name = self.register_primitive_union(has_str, has_num, has_bool);
+            return name;
         }
 
         // Complex union - fallback to JsValue
+        let desc: Vec<String> = types
+            .iter()
+            .map(|t| match t {
+                DtsType::Primitive(p) => format!("{:?}", p),
+                DtsType::StringLiteral(s) => format!("\"{}\"", s),
+                DtsType::NumberLiteral(n) => format!("number({})", n),
+                DtsType::BooleanLiteral(b) => format!("{}", b),
+                _ => "…".to_string(),
+            })
+            .collect();
+
         self.warn(
             WarningKind::Simplified,
-            "Complex union type mapped to JsValue",
+            format!("Union {:?} mapped to JsValue (Phase 3 shim TODO)", desc),
         );
         "JsValue".to_string()
     }
@@ -1241,6 +1316,59 @@ impl<'a> Codegen<'a> {
         }
     }
 
+    fn register_primitive_union(&mut self, has_str: bool, has_num: bool, has_bool: bool) -> String {
+        let mut parts = Vec::new();
+        if has_str {
+            parts.push("str".to_string());
+        }
+        if has_num {
+            parts.push("num".to_string());
+        }
+        if has_bool {
+            parts.push("bool".to_string());
+        }
+        let name = union_name(&parts);
+
+        if !self.unions.iter().any(|u| u.name == name) {
+            let mut variants = Vec::new();
+            if has_str {
+                variants.push(UnionVariant::PrimitiveStr);
+            }
+            if has_num {
+                variants.push(UnionVariant::PrimitiveNum);
+            }
+            if has_bool {
+                variants.push(UnionVariant::PrimitiveBool);
+            }
+
+            self.unions.push(GeneratedUnion {
+                name: name.clone(),
+                variants,
+            });
+        }
+
+        name
+    }
+
+    fn register_string_literal_union(&mut self, literals: &[String]) -> String {
+        let name = union_name(literals);
+
+        if !self.unions.iter().any(|u| u.name == name) {
+            let variants = literals
+                .iter()
+                .cloned()
+                .map(UnionVariant::StrLiteral)
+                .collect();
+
+            self.unions.push(GeneratedUnion {
+                name: name.clone(),
+                variants,
+            });
+        }
+
+        name
+    }
+
     fn map_function_type(&mut self, f: &FunctionType) -> String {
         // Check if we can map to Husk function type
         let can_map = f.this_param.is_none() && f.type_params.is_empty();
@@ -1277,6 +1405,39 @@ impl<'a> Codegen<'a> {
         )
         .unwrap();
         writeln!(self.output).unwrap();
+    }
+
+    fn emit_unions(&mut self) {
+        if self.unions.is_empty() {
+            return;
+        }
+
+        let mut unions = self.unions.clone();
+        unions.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for u in unions {
+            writeln!(self.output, "#[derive(Debug, Clone)]").unwrap();
+            writeln!(self.output, "pub enum {} {{", u.name).unwrap();
+
+            for v in &u.variants {
+                match v {
+                    UnionVariant::PrimitiveStr => {
+                        writeln!(self.output, "    Str(String),").unwrap();
+                    }
+                    UnionVariant::PrimitiveNum => {
+                        writeln!(self.output, "    Num(f64),").unwrap();
+                    }
+                    UnionVariant::PrimitiveBool => {
+                        writeln!(self.output, "    Bool(bool),").unwrap();
+                    }
+                    UnionVariant::StrLiteral(lit) => {
+                        writeln!(self.output, "    {} ,", literal_variant_name(lit)).unwrap();
+                    }
+                }
+            }
+
+            writeln!(self.output, "}}\n").unwrap();
+        }
     }
 
     fn emit_keys_module(&mut self) {
