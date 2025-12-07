@@ -516,6 +516,7 @@ dependencies = [
  "oxc_parser",
  "oxc_span",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

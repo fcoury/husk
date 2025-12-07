@@ -22,3 +22,4 @@ heck = "0.5"
 serde_json = "1.0"
 
 [dev-dependencies]
+tempfile = "3"
