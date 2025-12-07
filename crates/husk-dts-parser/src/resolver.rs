@@ -211,6 +211,7 @@ impl ResolvedModule {
         let mut has_function = false;
         let mut has_class = false;
         let mut has_namespace = false;
+        let mut has_constructor_var = false;
 
         for item in &file.items {
             match item {
@@ -227,41 +228,58 @@ impl ResolvedModule {
                     // An interface by itself isn't callable, but might be merged with function/class
                     // We don't set any flag here, just note it exists
                 }
+                DtsItem::Variable(v) if v.name == symbol_name => {
+                    // Check if the variable type indicates a constructor
+                    // Common patterns: `const X: XConstructor` or `const X: typeof SomeClass`
+                    let type_name = format!("{:?}", v.ty);
+                    if type_name.contains("Constructor") || type_name.contains("typeof") {
+                        has_constructor_var = true;
+                    }
+                }
                 _ => {}
             }
         }
 
         // Determine the identity based on what we found
-        match (has_function, has_class, has_namespace) {
+        match (has_function, has_class, has_namespace, has_constructor_var) {
             // Function + namespace = Hybrid (like express)
-            (true, false, true) => ModuleIdentity::Hybrid {
+            (true, false, true, _) => ModuleIdentity::Hybrid {
                 name: symbol_name.to_string(),
                 is_function: true,
             },
             // Class + namespace = Hybrid (like request with Options)
-            (false, true, true) => ModuleIdentity::Hybrid {
+            (false, true, true, _) => ModuleIdentity::Hybrid {
                 name: symbol_name.to_string(),
                 is_function: false,
             },
+            // Constructor var + namespace = Class module (like better-sqlite3)
+            // The const is the constructor, namespace provides types
+            (false, false, true, true) => ModuleIdentity::Class {
+                name: symbol_name.to_string(),
+            },
             // Just function
-            (true, false, false) => ModuleIdentity::Function {
+            (true, false, false, _) => ModuleIdentity::Function {
                 name: symbol_name.to_string(),
             },
             // Just class
-            (false, true, false) => ModuleIdentity::Class {
+            (false, true, false, _) => ModuleIdentity::Class {
+                name: symbol_name.to_string(),
+            },
+            // Constructor var without namespace
+            (false, false, false, true) => ModuleIdentity::Class {
                 name: symbol_name.to_string(),
             },
             // Just namespace (or nothing found that's callable)
-            (false, false, true) => ModuleIdentity::Namespace {
+            (false, false, true, false) => ModuleIdentity::Namespace {
                 name: symbol_name.to_string(),
             },
             // Both function and class with same name (unusual, treat as function)
-            (true, true, _) => ModuleIdentity::Hybrid {
+            (true, true, _, _) => ModuleIdentity::Hybrid {
                 name: symbol_name.to_string(),
                 is_function: true,
             },
             // Nothing found - might be a variable or type alias
-            (false, false, false) => {
+            (false, false, false, false) => {
                 // Check for variable declarations that might be callable
                 for item in &file.items {
                     if let DtsItem::Variable(v) = item {

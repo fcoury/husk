@@ -9,14 +9,21 @@ output = "dist"
 target = "cjs"
 source_maps = true
 
+[dts_options]
+generation_gap = false
+
 [[dts]]
 package = "express"
 types = "@types/express"
 version = "^5.0.0"
-output = "extern/express.hk"
+output = "src/express.hk"
+follow_imports = true
+include = ["Express", "Request", "Response", "Application"]
 
 [[dts]]
 package = "better-sqlite3"
 types = "@types/better-sqlite3"
 version = "^7.6.0"
-output = "extern/sqlite.hk"
+output = "src/database.hk"
+follow_imports = true
+include = ["Database", "Statement", "RunResult", "Options", "ColumnDefinition"]
