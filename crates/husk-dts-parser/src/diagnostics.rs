@@ -761,6 +761,389 @@ fn has_keyof_pattern(ty: &DtsType) -> bool {
     }
 }
 
+// =============================================================================
+// CodegenMetrics - Actual results from code generation
+// =============================================================================
+
+/// Metrics collected during actual code generation.
+///
+/// Unlike `ConversionStats` which analyzes potential conversions,
+/// `CodegenMetrics` tracks what actually happened during codegen.
+#[derive(Debug, Clone, Default)]
+pub struct CodegenMetrics {
+    /// Total number of types processed.
+    pub types_total: usize,
+    /// Types successfully mapped to Husk types.
+    pub types_mapped: usize,
+    /// Types that degraded to JsValue/Any.
+    pub types_degraded: usize,
+
+    // Union strategy breakdown
+    /// Unions converted to Option<T>.
+    pub unions_as_option: usize,
+    /// Unions converted to String (string literal unions).
+    pub unions_as_string: usize,
+    /// Unions converted to f64 (number literal unions).
+    pub unions_as_number: usize,
+    /// Unions converted to bool.
+    pub unions_as_bool: usize,
+    /// Unions that fell back to JsValue.
+    pub unions_as_jsvalue: usize,
+
+    // Utility type handling
+    /// Utility types successfully expanded.
+    pub utility_types_expanded: usize,
+    /// Utility types that failed to expand.
+    pub utility_types_failed: usize,
+
+    // Builder generation
+    /// Builders generated for interfaces.
+    pub builders_generated: usize,
+    /// Interfaces that skipped builder generation.
+    pub builders_skipped: usize,
+
+    // Advanced type handling
+    /// keyof types resolved.
+    pub keyof_resolved: usize,
+    /// keyof types that fell back.
+    pub keyof_fallback: usize,
+    /// Index access types resolved.
+    pub index_access_resolved: usize,
+    /// Index access types that fell back.
+    pub index_access_fallback: usize,
+
+    /// Detailed warnings from codegen.
+    pub warnings: Vec<CodegenWarning>,
+}
+
+/// A warning from code generation with context.
+#[derive(Debug, Clone)]
+pub struct CodegenWarning {
+    /// The item name (function, interface, etc.).
+    pub item: String,
+    /// Warning message.
+    pub message: String,
+    /// Optional suggestion for fixing.
+    pub suggestion: Option<String>,
+}
+
+impl CodegenMetrics {
+    /// Create a new empty metrics collector.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a type being mapped.
+    pub fn record_type_mapped(&mut self) {
+        self.types_total += 1;
+        self.types_mapped += 1;
+    }
+
+    /// Record a type degrading to JsValue.
+    pub fn record_type_degraded(&mut self) {
+        self.types_total += 1;
+        self.types_degraded += 1;
+    }
+
+    /// Record a union converted to Option.
+    pub fn record_union_option(&mut self) {
+        self.unions_as_option += 1;
+    }
+
+    /// Record a union converted to String.
+    pub fn record_union_string(&mut self) {
+        self.unions_as_string += 1;
+    }
+
+    /// Record a union converted to f64.
+    pub fn record_union_number(&mut self) {
+        self.unions_as_number += 1;
+    }
+
+    /// Record a union converted to bool.
+    pub fn record_union_bool(&mut self) {
+        self.unions_as_bool += 1;
+    }
+
+    /// Record a union falling back to JsValue.
+    pub fn record_union_jsvalue(&mut self) {
+        self.unions_as_jsvalue += 1;
+    }
+
+    /// Record a utility type being expanded.
+    pub fn record_utility_expanded(&mut self) {
+        self.utility_types_expanded += 1;
+    }
+
+    /// Record a utility type expansion failure.
+    pub fn record_utility_failed(&mut self) {
+        self.utility_types_failed += 1;
+    }
+
+    /// Record a builder being generated.
+    pub fn record_builder_generated(&mut self) {
+        self.builders_generated += 1;
+    }
+
+    /// Record a builder being skipped.
+    pub fn record_builder_skipped(&mut self) {
+        self.builders_skipped += 1;
+    }
+
+    /// Record a keyof type being resolved.
+    pub fn record_keyof_resolved(&mut self) {
+        self.keyof_resolved += 1;
+    }
+
+    /// Record a keyof type falling back.
+    pub fn record_keyof_fallback(&mut self) {
+        self.keyof_fallback += 1;
+    }
+
+    /// Record an index access type being resolved.
+    pub fn record_index_access_resolved(&mut self) {
+        self.index_access_resolved += 1;
+    }
+
+    /// Record an index access type falling back.
+    pub fn record_index_access_fallback(&mut self) {
+        self.index_access_fallback += 1;
+    }
+
+    /// Add a warning.
+    pub fn add_warning(&mut self, item: &str, message: &str, suggestion: Option<&str>) {
+        self.warnings.push(CodegenWarning {
+            item: item.to_string(),
+            message: message.to_string(),
+            suggestion: suggestion.map(String::from),
+        });
+    }
+
+    /// Aggregate another metrics instance into this one.
+    pub fn aggregate(&mut self, other: &CodegenMetrics) {
+        self.types_total += other.types_total;
+        self.types_mapped += other.types_mapped;
+        self.types_degraded += other.types_degraded;
+
+        self.unions_as_option += other.unions_as_option;
+        self.unions_as_string += other.unions_as_string;
+        self.unions_as_number += other.unions_as_number;
+        self.unions_as_bool += other.unions_as_bool;
+        self.unions_as_jsvalue += other.unions_as_jsvalue;
+
+        self.utility_types_expanded += other.utility_types_expanded;
+        self.utility_types_failed += other.utility_types_failed;
+
+        self.builders_generated += other.builders_generated;
+        self.builders_skipped += other.builders_skipped;
+
+        self.keyof_resolved += other.keyof_resolved;
+        self.keyof_fallback += other.keyof_fallback;
+        self.index_access_resolved += other.index_access_resolved;
+        self.index_access_fallback += other.index_access_fallback;
+
+        // Note: warnings are not aggregated to avoid duplication
+    }
+
+    /// Calculate the percentage of types successfully mapped.
+    pub fn mapped_percentage(&self) -> f64 {
+        if self.types_total == 0 {
+            100.0
+        } else {
+            (self.types_mapped as f64 / self.types_total as f64) * 100.0
+        }
+    }
+
+    /// Calculate the percentage of types that degraded.
+    pub fn degraded_percentage(&self) -> f64 {
+        if self.types_total == 0 {
+            0.0
+        } else {
+            (self.types_degraded as f64 / self.types_total as f64) * 100.0
+        }
+    }
+
+    /// Total number of unions processed.
+    pub fn unions_total(&self) -> usize {
+        self.unions_as_option
+            + self.unions_as_string
+            + self.unions_as_number
+            + self.unions_as_bool
+            + self.unions_as_jsvalue
+    }
+
+    /// Generate a markdown report from actual codegen results.
+    pub fn to_markdown(&self, title: &str) -> String {
+        let mut report = String::new();
+
+        writeln!(report, "# {}", title).unwrap();
+        writeln!(report).unwrap();
+        writeln!(report, "Generated by husk-dts-parser (actual codegen results)").unwrap();
+        writeln!(report).unwrap();
+
+        // Summary
+        writeln!(report, "## Summary").unwrap();
+        writeln!(report).unwrap();
+        writeln!(
+            report,
+            "- **Types mapped**: {}/{} ({:.1}%)",
+            self.types_mapped,
+            self.types_total,
+            self.mapped_percentage()
+        )
+        .unwrap();
+        writeln!(
+            report,
+            "- **Types degraded**: {} ({:.1}%)",
+            self.types_degraded,
+            self.degraded_percentage()
+        )
+        .unwrap();
+        writeln!(report).unwrap();
+
+        // Union handling
+        if self.unions_total() > 0 {
+            writeln!(report, "## Union Type Handling").unwrap();
+            writeln!(report).unwrap();
+            writeln!(report, "| Strategy | Count |").unwrap();
+            writeln!(report, "|----------|-------|").unwrap();
+            writeln!(report, "| Option<T> | {} |", self.unions_as_option).unwrap();
+            writeln!(report, "| String (literals) | {} |", self.unions_as_string).unwrap();
+            writeln!(report, "| f64 (number literals) | {} |", self.unions_as_number).unwrap();
+            writeln!(report, "| bool | {} |", self.unions_as_bool).unwrap();
+            writeln!(report, "| JsValue (fallback) | {} |", self.unions_as_jsvalue).unwrap();
+            writeln!(report).unwrap();
+        }
+
+        // Utility types
+        if self.utility_types_expanded > 0 || self.utility_types_failed > 0 {
+            writeln!(report, "## Utility Types").unwrap();
+            writeln!(report).unwrap();
+            writeln!(report, "- Expanded: {}", self.utility_types_expanded).unwrap();
+            writeln!(report, "- Failed: {}", self.utility_types_failed).unwrap();
+            writeln!(report).unwrap();
+        }
+
+        // Builders
+        if self.builders_generated > 0 || self.builders_skipped > 0 {
+            writeln!(report, "## Builder Generation").unwrap();
+            writeln!(report).unwrap();
+            writeln!(report, "- Generated: {}", self.builders_generated).unwrap();
+            writeln!(report, "- Skipped: {}", self.builders_skipped).unwrap();
+            writeln!(report).unwrap();
+        }
+
+        // Advanced type handling
+        if self.keyof_resolved > 0
+            || self.keyof_fallback > 0
+            || self.index_access_resolved > 0
+            || self.index_access_fallback > 0
+        {
+            writeln!(report, "## Advanced Type Handling").unwrap();
+            writeln!(report).unwrap();
+            writeln!(report, "| Type | Resolved | Fallback |").unwrap();
+            writeln!(report, "|------|----------|----------|").unwrap();
+            writeln!(
+                report,
+                "| keyof | {} | {} |",
+                self.keyof_resolved, self.keyof_fallback
+            )
+            .unwrap();
+            writeln!(
+                report,
+                "| Index Access | {} | {} |",
+                self.index_access_resolved, self.index_access_fallback
+            )
+            .unwrap();
+            writeln!(report).unwrap();
+        }
+
+        // Warnings
+        if !self.warnings.is_empty() {
+            writeln!(report, "## Warnings").unwrap();
+            writeln!(report).unwrap();
+            for (i, warning) in self.warnings.iter().take(50).enumerate() {
+                writeln!(
+                    report,
+                    "{}. **{}**: {}",
+                    i + 1,
+                    warning.item,
+                    warning.message
+                )
+                .unwrap();
+                if let Some(ref suggestion) = warning.suggestion {
+                    writeln!(report, "   - *Suggestion*: {}", suggestion).unwrap();
+                }
+            }
+            if self.warnings.len() > 50 {
+                writeln!(report, "\n... and {} more warnings", self.warnings.len() - 50).unwrap();
+            }
+            writeln!(report).unwrap();
+        }
+
+        report
+    }
+
+    /// Generate a JSON report from actual codegen results.
+    pub fn to_json(&self) -> String {
+        // Manual JSON generation to avoid adding serde dependency
+        let mut json = String::new();
+        writeln!(json, "{{").unwrap();
+        writeln!(json, "  \"summary\": {{").unwrap();
+        writeln!(json, "    \"types_total\": {},", self.types_total).unwrap();
+        writeln!(json, "    \"types_mapped\": {},", self.types_mapped).unwrap();
+        writeln!(json, "    \"types_degraded\": {},", self.types_degraded).unwrap();
+        writeln!(
+            json,
+            "    \"mapped_percentage\": {:.1}",
+            self.mapped_percentage()
+        )
+        .unwrap();
+        writeln!(json, "  }},").unwrap();
+
+        writeln!(json, "  \"unions\": {{").unwrap();
+        writeln!(json, "    \"total\": {},", self.unions_total()).unwrap();
+        writeln!(json, "    \"as_option\": {},", self.unions_as_option).unwrap();
+        writeln!(json, "    \"as_string\": {},", self.unions_as_string).unwrap();
+        writeln!(json, "    \"as_number\": {},", self.unions_as_number).unwrap();
+        writeln!(json, "    \"as_bool\": {},", self.unions_as_bool).unwrap();
+        writeln!(json, "    \"as_jsvalue\": {}", self.unions_as_jsvalue).unwrap();
+        writeln!(json, "  }},").unwrap();
+
+        writeln!(json, "  \"utility_types\": {{").unwrap();
+        writeln!(json, "    \"expanded\": {},", self.utility_types_expanded).unwrap();
+        writeln!(json, "    \"failed\": {}", self.utility_types_failed).unwrap();
+        writeln!(json, "  }},").unwrap();
+
+        writeln!(json, "  \"builders\": {{").unwrap();
+        writeln!(json, "    \"generated\": {},", self.builders_generated).unwrap();
+        writeln!(json, "    \"skipped\": {}", self.builders_skipped).unwrap();
+        writeln!(json, "  }},").unwrap();
+
+        writeln!(json, "  \"advanced_types\": {{").unwrap();
+        writeln!(json, "    \"keyof_resolved\": {},", self.keyof_resolved).unwrap();
+        writeln!(json, "    \"keyof_fallback\": {},", self.keyof_fallback).unwrap();
+        writeln!(
+            json,
+            "    \"index_access_resolved\": {},",
+            self.index_access_resolved
+        )
+        .unwrap();
+        writeln!(
+            json,
+            "    \"index_access_fallback\": {}",
+            self.index_access_fallback
+        )
+        .unwrap();
+        writeln!(json, "  }},").unwrap();
+
+        writeln!(json, "  \"warnings_count\": {}", self.warnings.len()).unwrap();
+        writeln!(json, "}}").unwrap();
+
+        json
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -823,5 +1206,83 @@ mod tests {
         assert!(report.contains("TestType"));
         assert!(report.contains("WarnType"));
         assert!(report.contains("Fix this"));
+    }
+
+    #[test]
+    fn test_codegen_metrics_basic() {
+        let mut metrics = CodegenMetrics::new();
+
+        // Record some types
+        metrics.record_type_mapped();
+        metrics.record_type_mapped();
+        metrics.record_type_degraded();
+
+        assert_eq!(metrics.types_total, 3);
+        assert_eq!(metrics.types_mapped, 2);
+        assert_eq!(metrics.types_degraded, 1);
+        assert!((metrics.mapped_percentage() - 66.6).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_codegen_metrics_unions() {
+        let mut metrics = CodegenMetrics::new();
+
+        metrics.record_union_option();
+        metrics.record_union_option();
+        metrics.record_union_string();
+        metrics.record_union_jsvalue();
+
+        assert_eq!(metrics.unions_total(), 4);
+        assert_eq!(metrics.unions_as_option, 2);
+        assert_eq!(metrics.unions_as_string, 1);
+        assert_eq!(metrics.unions_as_jsvalue, 1);
+    }
+
+    #[test]
+    fn test_codegen_metrics_aggregate() {
+        let mut metrics1 = CodegenMetrics::new();
+        metrics1.record_type_mapped();
+        metrics1.record_union_option();
+
+        let mut metrics2 = CodegenMetrics::new();
+        metrics2.record_type_mapped();
+        metrics2.record_type_degraded();
+        metrics2.record_union_jsvalue();
+
+        metrics1.aggregate(&metrics2);
+
+        assert_eq!(metrics1.types_total, 3);
+        assert_eq!(metrics1.types_mapped, 2);
+        assert_eq!(metrics1.types_degraded, 1);
+        assert_eq!(metrics1.unions_as_option, 1);
+        assert_eq!(metrics1.unions_as_jsvalue, 1);
+    }
+
+    #[test]
+    fn test_codegen_metrics_to_markdown() {
+        let mut metrics = CodegenMetrics::new();
+        metrics.record_type_mapped();
+        metrics.record_union_option();
+        metrics.record_utility_expanded();
+
+        let report = metrics.to_markdown("Test Report");
+
+        assert!(report.contains("# Test Report"));
+        assert!(report.contains("Types mapped"));
+        assert!(report.contains("Option<T>"));
+        assert!(report.contains("Utility Types"));
+    }
+
+    #[test]
+    fn test_codegen_metrics_to_json() {
+        let mut metrics = CodegenMetrics::new();
+        metrics.record_type_mapped();
+        metrics.record_type_degraded();
+
+        let json = metrics.to_json();
+
+        assert!(json.contains("\"types_total\": 2"));
+        assert!(json.contains("\"types_mapped\": 1"));
+        assert!(json.contains("\"types_degraded\": 1"));
     }
 }
