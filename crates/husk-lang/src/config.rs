@@ -88,6 +88,10 @@ pub struct DtsEntry {
     pub follow_imports: Option<bool>,
     /// Maximum depth for import resolution.
     pub max_import_depth: Option<usize>,
+    /// Base directory for resolving this package (overrides project root).
+    pub base_dir: Option<String>,
+    /// Explicit path to .d.ts file (overrides automatic discovery).
+    pub types_path: Option<String>,
 }
 
 /// Global options for DTS management.

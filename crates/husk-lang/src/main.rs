@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,7 +6,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
-use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, DtsFile, parse as parse_dts, generate as generate_husk, UnionStrategy};
+use husk_dts_parser::{CodegenOptions as DtsCodegenOptions, DtsFile, parse as parse_dts, generate as generate_husk, generate_from_module as generate_husk_from_module, UnionStrategy};
 mod config;
 mod diagnostic;
 mod load;
@@ -1828,38 +1828,55 @@ fn run_dts_update(
     for entry in entries {
         println!("Updating {}", entry.package);
 
-        // Find the .d.ts file
-        let types_pkg = entry.types.as_deref().unwrap_or_else(|| {
-            // Default to @types/package
-            &entry.package
-        });
+        // Get base directory for this entry (per-entry or project root)
+        let entry_base_dir = entry
+            .base_dir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
 
-        let dts_paths = [
-            // @types package
-            format!("node_modules/{}/index.d.ts", types_pkg),
-            // Bundled types
-            format!("node_modules/{}/index.d.ts", entry.package),
-            format!("node_modules/{}/dist/index.d.ts", entry.package),
-        ];
-
-        let dts_path = dts_paths.iter().find(|p| Path::new(p).exists());
-
-        let dts_path = match dts_path {
-            Some(p) => p,
-            None => {
-                eprintln!("  Could not find .d.ts file for {}", entry.package);
-                eprintln!("  Tried: {:?}", dts_paths);
-                eprintln!("  Make sure the types package is installed: npm install {}", types_pkg);
+        // Find the .d.ts file - prefer explicit types_path if specified
+        let dts_path: String = if let Some(ref explicit_path) = entry.types_path {
+            // Use explicit path (relative to entry base_dir)
+            let full_path = entry_base_dir.join(explicit_path);
+            if !full_path.exists() {
+                eprintln!("  Explicit types_path not found: {}", full_path.display());
                 continue;
             }
+            full_path.to_string_lossy().into_owned()
+        } else {
+            // Automatic discovery
+            let types_pkg = entry.types.as_deref().unwrap_or_else(|| {
+                // Default to @types/package
+                &entry.package
+            });
+
+            let dts_paths = [
+                // @types package
+                entry_base_dir.join(format!("node_modules/{}/index.d.ts", types_pkg)),
+                // Bundled types
+                entry_base_dir.join(format!("node_modules/{}/index.d.ts", entry.package)),
+                entry_base_dir.join(format!("node_modules/{}/dist/index.d.ts", entry.package)),
+            ];
+
+            match dts_paths.iter().find(|p| p.exists()) {
+                Some(p) => p.to_string_lossy().into_owned(),
+                None => {
+                    eprintln!("  Could not find .d.ts file for {}", entry.package);
+                    eprintln!("  Tried: {:?}", dts_paths);
+                    eprintln!("  Make sure the types package is installed: npm install {}", types_pkg);
+                    continue;
+                }
+            }
         };
+        let dts_path = &dts_path;
 
         // Parse .d.ts using either legacy or Oxc parser
-        // Also collect all resolved files for diagnostics when follow_imports is enabled
+        // Also collect resolved module when follow_imports is enabled for multi-file codegen
         // We also track module identity for CommonJS modules with `export =`
-        let (dts_file, resolved_files, module_identity): (
+        let (dts_file, resolved_module, module_identity): (
             DtsFile,
-            Option<HashMap<PathBuf, DtsFile>>,
+            Option<resolver::ResolvedModule>,
             Option<resolver::ModuleIdentity>,
         ) = if use_oxc {
             // Use Oxc parser
@@ -1868,19 +1885,24 @@ fn run_dts_update(
 
             if should_follow_imports {
                 // Use resolver for multi-file resolution
-                // Get module paths from global config or use default
+                // Get module paths from global config or use default, resolved relative to entry base_dir
                 let module_paths = config
                     .dts_options
                     .as_ref()
                     .and_then(|opts| opts.node_modules_paths.as_ref())
-                    .map(|paths| paths.iter().map(PathBuf::from).collect())
-                    .unwrap_or_else(|| vec![PathBuf::from("node_modules")]);
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .map(|p| entry_base_dir.join(p))
+                            .collect()
+                    })
+                    .unwrap_or_else(|| vec![entry_base_dir.join("node_modules")]);
 
                 // Get max depth from per-entry config or use default
                 let max_depth = entry.max_import_depth.or(Some(10));
 
                 let options = resolver::ResolveOptions {
-                    base_dir: Some(PathBuf::from(".")),
+                    base_dir: Some(entry_base_dir.clone()),
                     module_paths,
                     follow_references: true,
                     max_depth,
@@ -1893,7 +1915,7 @@ fn run_dts_update(
                     eprintln!("  Resolution error: {}", err);
                 }
 
-                // Get the module identity before we move the files
+                // Get the module identity before we extract the entry file
                 let identity = resolved.get_module_identity(&resolved.entry_path);
                 let identity = if identity == resolver::ModuleIdentity::StandardModule {
                     None
@@ -1901,9 +1923,9 @@ fn run_dts_update(
                     Some(identity)
                 };
 
-                // Get the entry file
+                // Get the entry file (we still need it for diagnostics in single-file mode)
                 match resolved.files.get(&resolved.entry_path) {
-                    Some(f) => (f.clone(), Some(resolved.files), identity),
+                    Some(f) => (f.clone(), Some(resolved), identity),
                     None => {
                         eprintln!("  Failed to resolve {}", dts_path);
                         continue;
@@ -1948,9 +1970,9 @@ fn run_dts_update(
 
         // Collect diagnostics if generating report
         if let Some(ref mut collector) = diagnostics_collector {
-            // If we have resolved files (from follow_imports), process all of them
-            if let Some(ref files) = resolved_files {
-                for (path, file) in files {
+            // If we have resolved module (from follow_imports), process all files
+            if let Some(ref resolved) = resolved_module {
+                for (path, file) in &resolved.files {
                     collector.process_file(file, path.to_string_lossy().as_ref());
                 }
             } else {
@@ -1987,7 +2009,13 @@ fn run_dts_update(
                 .or(config.dts_options.as_ref().and_then(|o| o.default_expand_utility_types))
                 .unwrap_or(true),
         };
-        let mut result = generate_husk(&dts_file, &options);
+
+        // Generate code from resolved module (multi-file) or single file
+        let mut result = if let Some(ref resolved) = resolved_module {
+            generate_husk_from_module(resolved, &options)
+        } else {
+            generate_husk(&dts_file, &options)
+        };
 
         // Apply include/exclude filters to the generated code
         // Note: This is a simple post-processing filter. A more robust solution would

@@ -2,7 +2,7 @@
 
 use crate::ast::*;
 use crate::builder::{self, BuilderConfig};
-use crate::resolver::ModuleIdentity;
+use crate::resolver::{ModuleIdentity, ResolvedModule};
 use crate::utility_types::{expand_type, ExpansionContext, TypeRegistry};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -73,6 +73,56 @@ pub struct CodegenResult {
 pub fn generate(file: &DtsFile, options: &CodegenOptions) -> CodegenResult {
     let mut codegen = Codegen::new(options);
     codegen.generate_file(file);
+    CodegenResult {
+        code: codegen.output,
+        warnings: codegen.warnings,
+    }
+}
+
+/// Generate Husk code from a resolved module graph.
+///
+/// This processes all files in the resolved module in dependency order,
+/// generating code for types from imported files as well as the entry file.
+/// Types are deduplicated by name, and dependencies are processed before
+/// dependents to ensure proper type resolution.
+pub fn generate_from_module(
+    resolved: &ResolvedModule,
+    options: &CodegenOptions,
+) -> CodegenResult {
+    let mut codegen = Codegen::new(options);
+
+    // Get items in dependency order (leaf dependencies first)
+    let (items, cycle_errors) = resolved.all_items_with_cycle_errors();
+
+    // Report any circular import warnings
+    for err in cycle_errors {
+        codegen.warn(
+            WarningKind::Simplified,
+            format!("Circular import detected: {}", err),
+        );
+    }
+
+    // Pre-pass: collect all struct names from all files first
+    for item in &items {
+        codegen.collect_struct_names(item);
+    }
+
+    // First pass: collect all declarations from all files
+    for item in items {
+        codegen.collect_item(item);
+    }
+
+    // Merge overloaded functions and methods
+    codegen.merge_function_overloads();
+    codegen.merge_method_overloads();
+
+    // Second pass: generate code
+    codegen.emit_header();
+    codegen.emit_extern_block();
+    codegen.emit_impl_blocks();
+    codegen.emit_builders();
+    codegen.emit_warnings();
+
     CodegenResult {
         code: codegen.output,
         warnings: codegen.warnings,
