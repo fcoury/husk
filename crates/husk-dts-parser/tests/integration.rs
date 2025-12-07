@@ -156,6 +156,8 @@ fn test_callback_api() {
 /// Test parsing generic types.
 #[test]
 fn test_generic_types() {
+    // Note: Generic type parameters on extern functions are simplified to JsValue
+    // because the Husk parser doesn't support type params on extern block functions.
     let dts = r#"
         declare function identity<T>(x: T): T;
         declare function map<T, U>(arr: T[], fn: (item: T) => U): U[];
@@ -171,12 +173,12 @@ fn test_generic_types() {
     let file = parse(dts).expect("Failed to parse generic .d.ts");
     let result = generate(&file, &CodegenOptions::default());
 
-    // Check generic functions
-    assert!(result.code.contains("fn identity<T>(x: T) -> T;"));
-    assert!(result.code.contains("fn map<T, U>(arr: JsArray<T>, fn_: fn(T) -> U) -> JsArray<U>;"));
-    assert!(result.code.contains("fn filter<T>(arr: JsArray<T>, predicate: fn(T) -> bool) -> JsArray<T>;"));
+    // Generic function type params are simplified to JsValue (parser limitation)
+    assert!(result.code.contains("fn identity(x: JsValue) -> JsValue;"));
+    assert!(result.code.contains("fn map(arr: JsArray<JsValue>, fn_: fn(JsValue) -> JsValue) -> JsArray<JsValue>;"));
+    assert!(result.code.contains("fn filter(arr: JsArray<JsValue>, predicate: fn(JsValue) -> bool) -> JsArray<JsValue>;"));
 
-    // Check generic interface - type parameters are now preserved
+    // Check generic interface - type parameters are preserved on structs
     assert!(result.code.contains("struct Box<T>;"));
 }
 
@@ -1233,6 +1235,144 @@ fn test_real_express_types() {
     assert!(
         bindings_ast.items.len() > 100,
         "Expected many items from express types, got {}",
+        bindings_ast.items.len()
+    );
+
+    // Verify no parse errors
+    assert!(
+        parse_result.errors.is_empty(),
+        "Generated bindings should parse without errors"
+    );
+
+    println!("\n=== Test complete ===");
+    println!("Generated bindings: {} bytes", result.code.len());
+    println!("Resolved files: {}", resolved.files.len());
+    println!("Parsed items: {}", bindings_ast.items.len());
+}
+
+/// Test parsing and generating code from the real @types/better-sqlite3 package.
+/// This test requires `npm install` to have been run in the fixtures directory.
+#[test]
+fn test_real_better_sqlite3_types() {
+    use husk_dts_parser::resolver::{Resolver, ResolveOptions};
+    use husk_dts_parser::generate_from_module;
+    use std::path::Path;
+
+    let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures");
+
+    let sqlite_entry = fixtures_dir
+        .join("node_modules")
+        .join("@types")
+        .join("better-sqlite3")
+        .join("index.d.ts");
+
+    // Skip test if node_modules not installed
+    if !sqlite_entry.exists() {
+        eprintln!(
+            "Skipping test - better-sqlite3 types not installed. Run: cd {} && npm install",
+            fixtures_dir.display()
+        );
+        return;
+    }
+
+    // Resolve the full module graph
+    let mut resolver = Resolver::new(ResolveOptions {
+        base_dir: Some(fixtures_dir.clone()),
+        follow_references: true,
+        max_depth: Some(10),
+        ..Default::default()
+    });
+
+    let resolved = resolver.resolve(&sqlite_entry);
+
+    println!("Resolved {} files", resolved.files.len());
+
+    // Generate Husk code
+    let result = generate_from_module(&resolved, &CodegenOptions {
+        module_name: Some("better_sqlite3".to_string()),
+        verbose: false,
+        ..Default::default()
+    });
+
+    println!("Generated {} bytes of Husk code", result.code.len());
+    println!("Warnings: {}", result.warnings.len());
+
+    // Basic structure checks
+    assert!(
+        result.code.contains("extern \"js\""),
+        "Should have extern block"
+    );
+    assert!(
+        result.code.contains("mod better_sqlite3;") || result.code.contains("mod \"better-sqlite3\""),
+        "Should have better_sqlite3 module import"
+    );
+
+    // Key types from better-sqlite3 should be present
+    assert!(
+        result.code.contains("struct Database"),
+        "Should have Database struct. Got:\n{}",
+        &result.code[..result.code.len().min(2000)]
+    );
+    assert!(
+        result.code.contains("struct Statement"),
+        "Should have Statement struct"
+    );
+
+    // Print a sample of the generated code for debugging
+    println!("\n=== Sample of generated code ===\n");
+    for line in result.code.lines().take(100) {
+        println!("{}", line);
+    }
+
+    // Report any resolution errors
+    if !resolved.errors.is_empty() {
+        println!("\n=== Resolution errors ===");
+        for err in &resolved.errors {
+            println!("  - {}", err);
+        }
+    }
+
+    // ========================================
+    // Phase 2: Validate bindings compile
+    // ========================================
+
+    println!("\n=== Validating generated bindings compile ===\n");
+
+    // Save generated code for debugging
+    std::fs::write("/tmp/generated-sqlite.husk", &result.code).expect("save generated code");
+    println!("Saved generated code to /tmp/generated-sqlite.husk");
+
+    // Time lexing separately
+    let lex_start = std::time::Instant::now();
+    let tokens: Vec<husk_lexer::Token> = husk_lexer::Lexer::new(&result.code).collect();
+    let lex_time = lex_start.elapsed();
+    println!("Lexing: {:?} ({} tokens)", lex_time, tokens.len());
+
+    // Parse the generated Husk bindings
+    let parse_start = std::time::Instant::now();
+    let parse_result = husk_parser::parse_str(&result.code);
+    let parse_time = parse_start.elapsed();
+    println!("Parsing: {:?}", parse_time);
+
+    if !parse_result.errors.is_empty() {
+        println!("Parse errors in generated bindings:");
+        for err in &parse_result.errors {
+            println!("  - {} at {:?}", err.message, err.span);
+        }
+    }
+
+    let bindings_ast = parse_result.file.expect(
+        "Generated bindings should parse without fatal errors"
+    );
+
+    println!("Parsed {} items from generated bindings", bindings_ast.items.len());
+
+    // Verify we have a reasonable number of items
+    assert!(
+        bindings_ast.items.len() > 10,
+        "Expected many items from better-sqlite3 types, got {}",
         bindings_ast.items.len()
     );
 
