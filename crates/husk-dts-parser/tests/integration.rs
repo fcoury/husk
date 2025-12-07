@@ -1088,6 +1088,45 @@ fn test_template_literal_codegen_to_string() {
     );
 }
 
+/// Test parsing template literal types with UTF-8 characters.
+/// This ensures the parser correctly handles multi-byte characters.
+#[test]
+fn test_template_literal_type_with_utf8() {
+    // Template literal with various UTF-8 characters
+    let dts = r#"
+        type Greeting = `Héllo, ${string}! 你好 🎉`;
+    "#;
+    let result = parse(dts);
+    assert!(
+        result.is_ok(),
+        "Failed to parse template literal with UTF-8: {:?}",
+        result.err()
+    );
+
+    // Verify the parsed content preserves UTF-8 characters
+    let file = result.unwrap();
+    if let Some(husk_dts_parser::DtsItem::TypeAlias(alias)) = file.items.first() {
+        if let husk_dts_parser::DtsType::TemplateLiteral(parts) = &alias.ty {
+            // Check that the first part contains the UTF-8 prefix
+            if let Some(husk_dts_parser::TemplateLiteralPart::String(s)) = parts.first() {
+                assert!(
+                    s.contains("Héllo"),
+                    "Template literal should preserve UTF-8 characters. Got: {}",
+                    s
+                );
+            }
+            // Check that the last part contains the UTF-8 suffix
+            if let Some(husk_dts_parser::TemplateLiteralPart::String(s)) = parts.last() {
+                assert!(
+                    s.contains("你好") && s.contains("🎉"),
+                    "Template literal should preserve UTF-8 suffix. Got: {}",
+                    s
+                );
+            }
+        }
+    }
+}
+
 // ==========================================
 // Real-world Type Definition Tests
 // ==========================================
