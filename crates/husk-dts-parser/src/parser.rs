@@ -427,6 +427,7 @@ impl<'src> Parser<'src> {
             type_params,
             params,
             return_type,
+            this_param: None, // Legacy parser doesn't handle this parameter
         })
     }
 
@@ -1509,67 +1510,76 @@ impl<'src> Parser<'src> {
         let mut parts = Vec::new();
         let mut current_string = String::new();
 
-        // Read directly from source, character by character
-        let src_bytes = self.src.as_bytes();
-        let mut pos = start_pos;
+        // Use char_indices() for proper UTF-8 handling while tracking byte positions
+        let src_slice = &self.src[start_pos..];
+        let mut char_iter = src_slice.char_indices().peekable();
+        let mut final_pos = start_pos;
 
-        while pos < src_bytes.len() {
-            let ch = src_bytes[pos] as char;
+        while let Some((byte_offset, ch)) = char_iter.next() {
+            let abs_pos = start_pos + byte_offset;
 
             if ch == '`' {
                 // End of template literal
-                pos += 1;
+                final_pos = abs_pos + 1;
                 break;
-            } else if ch == '$' && pos + 1 < src_bytes.len() && src_bytes[pos + 1] == b'{' {
-                // Interpolation start: ${
-                if !current_string.is_empty() {
-                    parts.push(TemplateLiteralPart::String(current_string.clone()));
-                    current_string.clear();
-                }
-
-                pos += 2; // Skip ${
-
-                // Find matching }
-                // We need to handle nested braces
-                let mut brace_depth = 1;
-                let type_start = pos;
-                while pos < src_bytes.len() && brace_depth > 0 {
-                    match src_bytes[pos] as char {
-                        '{' => brace_depth += 1,
-                        '}' => brace_depth -= 1,
-                        _ => {}
+            } else if ch == '$' {
+                // Check for interpolation start: ${
+                if let Some(&(_, '{')) = char_iter.peek() {
+                    // Interpolation start
+                    if !current_string.is_empty() {
+                        parts.push(TemplateLiteralPart::String(current_string.clone()));
+                        current_string.clear();
                     }
-                    if brace_depth > 0 {
-                        pos += 1;
-                    }
-                }
-                let type_end = pos;
-                pos += 1; // Skip closing }
 
-                // Parse the type inside the interpolation
-                let type_src = &self.src[type_start..type_end];
-                let inner_type = if let Ok(file) = crate::parse(&format!("type T = {};", type_src)) {
-                    if let Some(DtsItem::TypeAlias(ta)) = file.items.into_iter().next() {
-                        ta.ty
-                    } else {
-                        // Fallback: just treat as unknown
-                        DtsType::Primitive(Primitive::Unknown)
+                    char_iter.next(); // Skip '{'
+
+                    // Find matching } - track byte position for slicing
+                    let mut brace_depth = 1;
+                    let type_start = abs_pos + 2; // After ${
+                    let mut type_end = type_start;
+
+                    while let Some((offset, c)) = char_iter.next() {
+                        match c {
+                            '{' => brace_depth += 1,
+                            '}' => {
+                                brace_depth -= 1;
+                                if brace_depth == 0 {
+                                    type_end = start_pos + offset;
+                                    final_pos = type_end + 1;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
                     }
+
+                    // Parse the type inside the interpolation
+                    let type_src = &self.src[type_start..type_end];
+                    let inner_type =
+                        if let Ok(file) = crate::parse(&format!("type T = {};", type_src)) {
+                            if let Some(DtsItem::TypeAlias(ta)) = file.items.into_iter().next() {
+                                ta.ty
+                            } else {
+                                // Fallback: just treat as unknown
+                                DtsType::Primitive(Primitive::Unknown)
+                            }
+                        } else {
+                            // If parsing fails, treat as unknown
+                            DtsType::Primitive(Primitive::Unknown)
+                        };
+
+                    parts.push(TemplateLiteralPart::Type(inner_type));
                 } else {
-                    // If parsing fails, treat as unknown
-                    DtsType::Primitive(Primitive::Unknown)
-                };
-
-                parts.push(TemplateLiteralPart::Type(inner_type));
-            } else if ch == '\\' && pos + 1 < src_bytes.len() {
-                // Escape sequence
-                pos += 1;
-                let escaped = src_bytes[pos] as char;
-                current_string.push(escaped);
-                pos += 1;
+                    // Just a $ not followed by {
+                    current_string.push(ch);
+                }
+            } else if ch == '\\' {
+                // Escape sequence - get the next character
+                if let Some((_, escaped)) = char_iter.next() {
+                    current_string.push(escaped);
+                }
             } else {
                 current_string.push(ch);
-                pos += 1;
             }
         }
 
@@ -1580,10 +1590,12 @@ impl<'src> Parser<'src> {
 
         // Advance the parser's token position to skip past the template literal
         // We need to find the position of the closing backtick in the token stream
-        while self.pos < self.tokens.len() && !matches!(self.peek(), TokenKind::Backtick | TokenKind::Eof) {
+        while self.pos < self.tokens.len()
+            && !matches!(self.peek(), TokenKind::Backtick | TokenKind::Eof)
+        {
             // Skip tokens that are part of the template literal content
             // (these were consumed by our character-by-character parsing)
-            if self.current().start >= pos {
+            if self.current().start >= final_pos {
                 break;
             }
             self.pos += 1;

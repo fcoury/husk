@@ -1090,6 +1090,7 @@ mod tests {
                     type_params: vec![],
                     params: vec![],
                     return_type: Some(DtsType::Primitive(Primitive::Void)),
+                    this_param: None,
                 }),
                 DtsItem::Export(DtsExport::Equals("e".to_string())),
             ],
@@ -1153,6 +1154,7 @@ mod tests {
                     type_params: vec![],
                     params: vec![],
                     return_type: Some(DtsType::Primitive(Primitive::Void)),
+                    this_param: None,
                 }),
                 DtsItem::Namespace(DtsNamespace {
                     name: "req".to_string(),
@@ -1217,6 +1219,7 @@ mod tests {
                     type_params: vec![],
                     params: vec![],
                     return_type: Some(DtsType::Primitive(Primitive::Void)),
+                    this_param: None,
                 }),
             ],
         };

@@ -1179,6 +1179,7 @@ mod tests {
                         },
                     ],
                     return_type: Some(DtsType::Primitive(Primitive::Number)),
+                    this_param: None,
                 }),
             ],
         };

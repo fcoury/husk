@@ -1870,15 +1870,16 @@ fn run_dts_update(
             full_path.to_string_lossy().into_owned()
         } else {
             // Automatic discovery
-            let types_pkg = entry.types.as_deref().unwrap_or_else(|| {
-                // Default to @types/package
-                &entry.package
-            });
+            // Build the @types package name: use explicit entry.types or synthesize @types/<package>
+            let types_pkg = entry
+                .types
+                .clone()
+                .unwrap_or_else(|| format!("@types/{}", entry.package));
 
             let dts_paths = [
-                // @types package
+                // @types package (e.g., @types/express)
                 entry_base_dir.join(format!("node_modules/{}/index.d.ts", types_pkg)),
-                // Bundled types
+                // Bundled types in main package
                 entry_base_dir.join(format!("node_modules/{}/index.d.ts", entry.package)),
                 entry_base_dir.join(format!("node_modules/{}/dist/index.d.ts", entry.package)),
             ];

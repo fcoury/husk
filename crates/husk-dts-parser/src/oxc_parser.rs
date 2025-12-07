@@ -650,11 +650,19 @@ impl<'a> DtsVisitor<'a> {
             .as_ref()
             .map(|rt| self.convert_type(&rt.type_annotation));
 
+        // Extract explicit this parameter if present
+        let this_param = decl.this_param.as_ref().and_then(|tp| {
+            tp.type_annotation
+                .as_ref()
+                .map(|ta| Box::new(self.convert_type(&ta.type_annotation)))
+        });
+
         Some(DtsFunction {
             name,
             type_params,
             params,
             return_type,
+            this_param,
         })
     }
 

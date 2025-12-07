@@ -253,20 +253,26 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                         // For extern blocks, avoid adding the same block multiple times
                         // (e.g., when importing multiple items from the same extern block)
                         if let ItemKind::ExternBlock { items: ext_items, .. } = &export.kind {
-                            // Check if all structs in this block have already been included
-                            let all_structs_included = ext_items.iter().all(|ext| {
-                                if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                                    included_extern_blocks.contains(&name.name)
-                                } else {
-                                    true
+                            // Check if all trackable items (structs and consts) have been included
+                            let all_items_included = ext_items.iter().all(|ext| {
+                                match &ext.kind {
+                                    ExternItemKind::Struct { name, .. }
+                                    | ExternItemKind::Const { name, .. } => {
+                                        included_extern_blocks.contains(&name.name)
+                                    }
+                                    _ => true,
                                 }
                             });
 
-                            if !all_structs_included {
-                                // Mark all structs as included
+                            if !all_items_included {
+                                // Mark all structs and consts as included
                                 for ext in ext_items {
-                                    if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                                        included_extern_blocks.insert(name.name.clone());
+                                    match &ext.kind {
+                                        ExternItemKind::Struct { name, .. }
+                                        | ExternItemKind::Const { name, .. } => {
+                                            included_extern_blocks.insert(name.name.clone());
+                                        }
+                                        _ => {}
                                     }
                                 }
                                 items.push(export.clone());

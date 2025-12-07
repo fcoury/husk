@@ -954,21 +954,21 @@ impl<'a> Codegen<'a> {
     fn collect_variable(&mut self, v: &DtsVariable) {
         let ty = self.map_type(&v.ty);
 
-        if self.options.use_extern_const {
-            // New behavior: emit extern const
+        if self.options.use_extern_const && v.is_const {
+            // New behavior: emit extern const only for actual const bindings
             self.consts.push(GeneratedConst {
                 name: escape_keyword(&v.name),
                 ty,
             });
             self.metrics.extern_consts += 1;
         } else {
-            // Legacy behavior: generate as a zero-arg function
+            // Legacy behavior or non-const: generate as a zero-arg function
             self.functions.push(GeneratedFn {
                 name: escape_keyword(&v.name),
                 type_params: Vec::new(),
                 params: Vec::new(),
                 return_type: Some(ty),
-                comment: Some("constant".to_string()),
+                comment: Some(if v.is_const { "constant" } else { "variable" }.to_string()),
                 this_param: None,
             });
             self.metrics.legacy_const_functions += 1;
@@ -1849,11 +1849,15 @@ impl<'a> Codegen<'a> {
 
     /// Emit a callable module function (for `export = func` patterns).
     ///
-    /// This looks for the exported function in our collected functions and emits
-    /// it as the module's callable entry point.
+    /// This looks for the exported function in our collected functions, emits
+    /// it as the module's callable entry point, and removes it from the list
+    /// to prevent duplicate emission in `emit_standard_structs_and_functions`.
     fn emit_callable_module_function(&mut self, mod_alias: &str, exported_name: &str) {
-        // Find the exported function in our collected functions
-        if let Some(f) = self.functions.iter().find(|f| f.name == exported_name) {
+        // Find and remove the exported function from our collected functions
+        let idx = self.functions.iter().position(|f| f.name == exported_name);
+        if let Some(idx) = idx {
+            let f = self.functions.remove(idx);
+
             writeln!(
                 self.output,
                 "    // {} is the callable entry point",

@@ -28,6 +28,8 @@ pub struct DtsFunction {
     pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: Option<DtsType>,
+    /// Explicit `this` parameter type annotation (e.g., `function foo(this: Window, ...): void`)
+    pub this_param: Option<Box<DtsType>>,
 }
 
 /// An interface declaration: `interface Name<T> extends Base { members }`
