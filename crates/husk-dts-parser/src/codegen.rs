@@ -36,6 +36,7 @@ pub enum WarningKind {
 pub struct CodegenResult {
     pub code: String,
     pub warnings: Vec<Warning>,
+    pub diag_messages: Vec<String>,
 }
 
 /// Convenience helper to build module metadata before codegen.
@@ -56,6 +57,7 @@ pub fn generate(
     CodegenResult {
         code: codegen.output,
         warnings: codegen.warnings,
+        diag_messages: codegen.diag_messages,
     }
 }
 
@@ -122,6 +124,7 @@ struct Codegen<'a> {
     options: &'a CodegenOptions,
     output: String,
     warnings: Vec<Warning>,
+    diag_messages: Vec<String>,
     /// Collected struct names (from interfaces and classes).
     structs: HashSet<String>,
     /// All keys seen in properties / string literal accesses.
@@ -205,6 +208,7 @@ impl<'a> Codegen<'a> {
             options,
             output: String::new(),
             warnings: Vec::new(),
+            diag_messages: Vec::new(),
             structs: HashSet::new(),
             keys: HashSet::new(),
             unions: Vec::new(),
@@ -223,10 +227,14 @@ impl<'a> Codegen<'a> {
     }
 
     fn warn(&mut self, kind: WarningKind, message: impl Into<String>) {
-        self.warnings.push(Warning {
-            message: message.into(),
-            kind,
-        });
+        let msg = message.into();
+        if msg.contains("JsValue") {
+            self.diag_messages.push(format!("JsValue fallback: {msg}"));
+        } else {
+            self.diag_messages.push(msg.clone());
+        }
+
+        self.warnings.push(Warning { message: msg, kind });
     }
 
     fn generate_file(&mut self, file: &DtsFile) {
@@ -1544,6 +1552,10 @@ impl<'a> Codegen<'a> {
             );
             return "JsValue".to_string();
         };
+
+        let mut key_list = key_list;
+        key_list.sort();
+        key_list.dedup();
 
         let name = format!("Record_{}", key_list.join("_"));
 

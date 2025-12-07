@@ -1981,7 +1981,7 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             .unwrap_or(false);
         if generate_report {
             let diag = DtsDiagnostics {
-                warnings: result.warnings.iter().map(|w| w.message.clone()).collect(),
+                warnings: result.diag_messages.clone(),
             };
             if let Err(e) = write_dts_report(&entry.output, &diag) {
                 eprintln!("  Failed to write diagnostics: {e}");
