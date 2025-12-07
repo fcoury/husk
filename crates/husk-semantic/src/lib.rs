@@ -805,6 +805,9 @@ impl TypeChecker {
                                     };
                                     let ret_type = if struct_names.contains(&capitalized) {
                                         Some(capitalized)
+                                    } else if struct_names.contains(&"Database".to_string()) {
+                                        // Common pattern for modules that export a Database constructor
+                                        Some("Database".to_string())
                                     } else {
                                         // Use the first struct in the block as a fallback
                                         struct_names.first().cloned()
