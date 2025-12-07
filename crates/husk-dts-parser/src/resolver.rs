@@ -5,19 +5,27 @@
 //! - Walking the import graph to collect all declarations
 //! - Handling `/// <reference path="..." />` directives
 //! - Node modules resolution for package imports
+//! - Detecting `export =` assignments for CommonJS module identity
 //!
-//! ## TODO: Export Assignment Linking
+//! ## Export Assignment Linking
 //!
-//! Currently the resolver collects files but does not link `export =` assignments
-//! to their corresponding imports. For example:
+//! For CommonJS modules that use `export =`, this module tracks the exported
+//! identifier and determines the module's identity (function, class, hybrid,
+//! or namespace). This allows the codegen to emit appropriate bindings:
 //!
 //! ```typescript
-//! // File A: export = MyNamespace
-//! // File B: import foo = require('A')
+//! // Function module (like express):
+//! declare function e(): void;
+//! export = e;  // -> ModuleIdentity::Function
+//!
+//! // Hybrid module (function + namespace):
+//! function req(url: string): void;
+//! namespace req { interface Options { x: number; } }
+//! export = req;  // -> ModuleIdentity::Hybrid
 //! ```
 //!
-//! File B expects `foo` to *be* `MyNamespace`, but we don't yet perform this
-//! identity linking. This needs to be implemented for full CommonJS/UMD support.
+//! Use `ResolvedModule::get_module_identity()` to determine how to generate
+//! bindings for a resolved module.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -27,8 +35,44 @@ use oxc_ast::ast::*;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
-use crate::ast::{DtsFile, DtsItem};
+use crate::ast::{DtsExport, DtsFile, DtsItem};
 use crate::oxc_parser::parse_with_oxc;
+
+/// The identity/type of a CommonJS module based on its `export =` statement.
+///
+/// TypeScript's `export =` can export different kinds of things:
+/// - A function (callable module like `express`)
+/// - A class (class module like `request`)
+/// - A namespace with merged function/class (hybrid like `request` with options)
+/// - Just a namespace (standard ES module style)
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModuleIdentity {
+    /// Standard ES module - just a container of named exports
+    StandardModule,
+    /// Module exports a function: `export = myFunc`
+    Function {
+        /// The name of the exported function in the file
+        name: String,
+    },
+    /// Module exports a class: `export = MyClass`
+    Class {
+        /// The name of the exported class in the file
+        name: String,
+    },
+    /// Module exports a function/class that also has a merged namespace
+    /// Example: `function req(...); namespace req { ... }; export = req;`
+    Hybrid {
+        /// The name of the callable (function or class)
+        name: String,
+        /// Whether the callable is a function (true) or class (false)
+        is_function: bool,
+    },
+    /// Module exports a namespace or other non-callable: `export = MyNamespace`
+    Namespace {
+        /// The name of the exported namespace
+        name: String,
+    },
+}
 
 /// Result of resolving and parsing a complete .d.ts module graph.
 #[derive(Debug, Clone)]
@@ -41,6 +85,9 @@ pub struct ResolvedModule {
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
     /// Errors encountered during resolution
     pub errors: Vec<ResolveError>,
+    /// Map of FilePath -> The identifier it exports via `export =`
+    /// Example: "node_modules/@types/express/index.d.ts" -> "e"
+    pub export_assignments: HashMap<PathBuf, String>,
 }
 
 impl ResolvedModule {
@@ -94,6 +141,104 @@ impl ResolvedModule {
         temp_visited.remove(path);
         visited.insert(path.to_path_buf());
         result.push(path.to_path_buf());
+    }
+
+    /// Get the module identity for a given file path.
+    ///
+    /// This determines what kind of module it is based on `export =`:
+    /// - Function (callable module like express)
+    /// - Class (class module)
+    /// - Hybrid (function/class with merged namespace)
+    /// - Namespace (just a namespace export)
+    /// - StandardModule (no export =, just named exports)
+    pub fn get_module_identity(&self, module_path: &Path) -> ModuleIdentity {
+        // Check if this file has an export assignment
+        let Some(exported_id) = self.export_assignments.get(module_path) else {
+            return ModuleIdentity::StandardModule;
+        };
+
+        // Look up what the exported identifier actually IS in that file
+        let Some(file) = self.files.get(module_path) else {
+            return ModuleIdentity::StandardModule;
+        };
+
+        self.lookup_symbol_identity(file, exported_id)
+    }
+
+    /// Look up a symbol in a file and determine its identity.
+    ///
+    /// This checks if the symbol is a function, class, namespace, or a hybrid
+    /// (function/class with merged namespace).
+    fn lookup_symbol_identity(&self, file: &DtsFile, symbol_name: &str) -> ModuleIdentity {
+        let mut has_function = false;
+        let mut has_class = false;
+        let mut has_namespace = false;
+
+        for item in &file.items {
+            match item {
+                DtsItem::Function(f) if f.name == symbol_name => {
+                    has_function = true;
+                }
+                DtsItem::Class(c) if c.name == symbol_name => {
+                    has_class = true;
+                }
+                DtsItem::Namespace(ns) if ns.name == symbol_name => {
+                    has_namespace = true;
+                }
+                DtsItem::Interface(iface) if iface.name == symbol_name => {
+                    // An interface by itself isn't callable, but might be merged with function/class
+                    // We don't set any flag here, just note it exists
+                }
+                _ => {}
+            }
+        }
+
+        // Determine the identity based on what we found
+        match (has_function, has_class, has_namespace) {
+            // Function + namespace = Hybrid (like express)
+            (true, false, true) => ModuleIdentity::Hybrid {
+                name: symbol_name.to_string(),
+                is_function: true,
+            },
+            // Class + namespace = Hybrid (like request with Options)
+            (false, true, true) => ModuleIdentity::Hybrid {
+                name: symbol_name.to_string(),
+                is_function: false,
+            },
+            // Just function
+            (true, false, false) => ModuleIdentity::Function {
+                name: symbol_name.to_string(),
+            },
+            // Just class
+            (false, true, false) => ModuleIdentity::Class {
+                name: symbol_name.to_string(),
+            },
+            // Just namespace (or nothing found that's callable)
+            (false, false, true) => ModuleIdentity::Namespace {
+                name: symbol_name.to_string(),
+            },
+            // Both function and class with same name (unusual, treat as function)
+            (true, true, _) => ModuleIdentity::Hybrid {
+                name: symbol_name.to_string(),
+                is_function: true,
+            },
+            // Nothing found - might be a variable or type alias
+            (false, false, false) => {
+                // Check for variable declarations that might be callable
+                for item in &file.items {
+                    if let DtsItem::Variable(v) = item {
+                        if v.name == symbol_name {
+                            // A variable could be a function or object, treat as namespace
+                            return ModuleIdentity::Namespace {
+                                name: symbol_name.to_string(),
+                            };
+                        }
+                    }
+                }
+                // Default to standard module if we can't find the symbol
+                ModuleIdentity::StandardModule
+            }
+        }
     }
 }
 
@@ -179,6 +324,7 @@ impl Resolver {
             files: HashMap::new(),
             import_graph: HashMap::new(),
             errors: Vec::new(),
+            export_assignments: HashMap::new(),
         };
 
         let mut queue: VecDeque<(PathBuf, Option<PathBuf>, usize)> = VecDeque::new();
@@ -233,6 +379,16 @@ impl Resolver {
                 }
                 Err(e) => {
                     module.errors.push(e);
+                }
+            }
+        }
+
+        // Populate export assignments by scanning all resolved files for `export =`
+        for (path, file) in &module.files {
+            for item in &file.items {
+                if let DtsItem::Export(DtsExport::Equals(name)) = item {
+                    module.export_assignments.insert(path.clone(), name.clone());
+                    break; // A file can only have one export assignment
                 }
             }
         }
@@ -918,5 +1074,162 @@ mod tests {
             Some("world".to_string())
         );
         assert_eq!(extract_quoted_string("no quotes"), None);
+    }
+
+    #[test]
+    fn test_module_identity_function() {
+        use crate::ast::{DtsFunction, DtsType, Primitive};
+
+        // Create a file with a function and export = e
+        let file = DtsFile {
+            items: vec![
+                DtsItem::Function(DtsFunction {
+                    name: "e".to_string(),
+                    type_params: vec![],
+                    params: vec![],
+                    return_type: Some(DtsType::Primitive(Primitive::Void)),
+                }),
+                DtsItem::Export(DtsExport::Equals("e".to_string())),
+            ],
+        };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/test.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+        module.files.insert(PathBuf::from("/test.d.ts"), file);
+        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "e".to_string());
+
+        let identity = module.get_module_identity(Path::new("/test.d.ts"));
+        assert_eq!(identity, ModuleIdentity::Function { name: "e".to_string() });
+    }
+
+    #[test]
+    fn test_module_identity_class() {
+        use crate::ast::DtsClass;
+
+        // Create a file with a class and export = MyClass
+        let file = DtsFile {
+            items: vec![
+                DtsItem::Class(DtsClass {
+                    name: "MyClass".to_string(),
+                    type_params: vec![],
+                    extends: None,
+                    implements: vec![],
+                    members: vec![],
+                }),
+                DtsItem::Export(DtsExport::Equals("MyClass".to_string())),
+            ],
+        };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/test.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+        module.files.insert(PathBuf::from("/test.d.ts"), file);
+        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "MyClass".to_string());
+
+        let identity = module.get_module_identity(Path::new("/test.d.ts"));
+        assert_eq!(identity, ModuleIdentity::Class { name: "MyClass".to_string() });
+    }
+
+    #[test]
+    fn test_module_identity_hybrid() {
+        use crate::ast::{DtsFunction, DtsNamespace, DtsType, Primitive};
+
+        // Create a file with a function + namespace with same name (hybrid like express)
+        let file = DtsFile {
+            items: vec![
+                DtsItem::Function(DtsFunction {
+                    name: "req".to_string(),
+                    type_params: vec![],
+                    params: vec![],
+                    return_type: Some(DtsType::Primitive(Primitive::Void)),
+                }),
+                DtsItem::Namespace(DtsNamespace {
+                    name: "req".to_string(),
+                    items: vec![],
+                }),
+                DtsItem::Export(DtsExport::Equals("req".to_string())),
+            ],
+        };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/test.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+        module.files.insert(PathBuf::from("/test.d.ts"), file);
+        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "req".to_string());
+
+        let identity = module.get_module_identity(Path::new("/test.d.ts"));
+        assert_eq!(identity, ModuleIdentity::Hybrid { name: "req".to_string(), is_function: true });
+    }
+
+    #[test]
+    fn test_module_identity_namespace() {
+        use crate::ast::DtsNamespace;
+
+        // Create a file with only a namespace and export = ns
+        let file = DtsFile {
+            items: vec![
+                DtsItem::Namespace(DtsNamespace {
+                    name: "ns".to_string(),
+                    items: vec![],
+                }),
+                DtsItem::Export(DtsExport::Equals("ns".to_string())),
+            ],
+        };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/test.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+        module.files.insert(PathBuf::from("/test.d.ts"), file);
+        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "ns".to_string());
+
+        let identity = module.get_module_identity(Path::new("/test.d.ts"));
+        assert_eq!(identity, ModuleIdentity::Namespace { name: "ns".to_string() });
+    }
+
+    #[test]
+    fn test_module_identity_standard_module() {
+        use crate::ast::{DtsFunction, DtsType, Primitive};
+
+        // Create a file WITHOUT export = (standard ES module)
+        let file = DtsFile {
+            items: vec![
+                DtsItem::Function(DtsFunction {
+                    name: "foo".to_string(),
+                    type_params: vec![],
+                    params: vec![],
+                    return_type: Some(DtsType::Primitive(Primitive::Void)),
+                }),
+            ],
+        };
+
+        let mut module = ResolvedModule {
+            entry_path: PathBuf::from("/test.d.ts"),
+            files: HashMap::new(),
+            import_graph: HashMap::new(),
+            errors: vec![],
+            export_assignments: HashMap::new(),
+        };
+        module.files.insert(PathBuf::from("/test.d.ts"), file);
+        // No export_assignment for this file
+
+        let identity = module.get_module_identity(Path::new("/test.d.ts"));
+        assert_eq!(identity, ModuleIdentity::StandardModule);
     }
 }

@@ -1,15 +1,18 @@
 //! Diagnostic report generator for DTS parsing.
 //!
 //! Generates a markdown report (`dts-report.md`) that documents:
-//! - Successfully converted types
-//! - Types that required special handling (unions, utility types)
+//! - Successfully converted types (summarized in metrics tables)
+//! - Types that required special handling (unions, utility types, generics)
 //! - Types that couldn't be converted (blocked features)
 //! - Warnings and suggestions
+//!
+//! The "Details by Category" section lists only special handling cases and issues,
+//! while successful conversions are summarized via the metrics tables to avoid noise.
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use crate::ast::{DtsFile, DtsItem, DtsType};
+use crate::ast::{ClassMember, DtsFile, DtsItem, DtsType};
 use crate::builder::DEFAULT_BUILDER_OPTIONAL_THRESHOLD;
 use crate::unions::{analyze_union, UnionStrategy};
 
@@ -255,6 +258,11 @@ impl DiagnosticCollector {
                     &format!("Function with {} parameters", func.params.len()),
                 );
 
+                // Check parameter types
+                for param in &func.params {
+                    self.analyze_type(&param.ty, &format!("{}::{}", func.name, param.name));
+                }
+
                 // Check return type
                 if let Some(ref ret_type) = func.return_type {
                     self.analyze_type(ret_type, &format!("{}::return", func.name));
@@ -268,6 +276,69 @@ impl DiagnosticCollector {
                     DiagnosticCategory::Success,
                     &format!("Class with {} members", class.members.len()),
                 );
+
+                // Check extends clause
+                if let Some(ref extends) = class.extends {
+                    self.analyze_type(extends, &format!("{}::extends", class.name));
+                }
+
+                // Check implements clauses
+                for (i, impl_ty) in class.implements.iter().enumerate() {
+                    self.analyze_type(impl_ty, &format!("{}::implements[{}]", class.name, i));
+                }
+
+                // Check member types
+                for member in &class.members {
+                    match member {
+                        ClassMember::Property(prop) => {
+                            if let Some(ref ty) = prop.ty {
+                                self.analyze_type(ty, &format!("{}::{}", class.name, prop.name));
+                            }
+                        }
+                        ClassMember::Method(method) => {
+                            // Check parameter types
+                            for param in &method.params {
+                                self.analyze_type(
+                                    &param.ty,
+                                    &format!("{}::{}::{}", class.name, method.name, param.name),
+                                );
+                            }
+                            // Check return type
+                            if let Some(ref ret_type) = method.return_type {
+                                self.analyze_type(
+                                    ret_type,
+                                    &format!("{}::{}::return", class.name, method.name),
+                                );
+                            }
+                        }
+                        ClassMember::Constructor(ctor) => {
+                            // Check constructor parameter types
+                            for param in &ctor.params {
+                                self.analyze_type(
+                                    &param.ty,
+                                    &format!("{}::constructor::{}", class.name, param.name),
+                                );
+                            }
+                            // Check return type (unusual for constructors but possible)
+                            if let Some(ref ret_type) = ctor.return_type {
+                                self.analyze_type(
+                                    ret_type,
+                                    &format!("{}::constructor::return", class.name),
+                                );
+                            }
+                        }
+                        ClassMember::IndexSignature(idx) => {
+                            self.analyze_type(
+                                &idx.key_type,
+                                &format!("{}::[index]::key", class.name),
+                            );
+                            self.analyze_type(
+                                &idx.value_type,
+                                &format!("{}::[index]::value", class.name),
+                            );
+                        }
+                    }
+                }
             }
 
             DtsItem::Variable(var) => {
@@ -399,7 +470,9 @@ impl DiagnosticCollector {
                     self.stats.utility_types_expanded += 1;
                 }
 
-                // Check for generic trait bounds usage
+                // Check for generic trait bounds usage (keyof pattern in type args)
+                // If detected, report it here and skip recursing into type_args to avoid
+                // duplicate diagnostics from the KeyOf branch
                 if !type_args.is_empty() && has_keyof_pattern(ty) {
                     self.stats.blocked_features += 1;
                     self.error(
@@ -408,11 +481,13 @@ impl DiagnosticCollector {
                         "keyof pattern requires generic trait bounds",
                         Some("Blocked on Husk language enhancement for generic trait bound resolution"),
                     );
-                }
-
-                // Recursively check type args
-                for arg in type_args {
-                    self.analyze_type(arg, context);
+                    // Short-circuit: don't recurse into type_args since we've already
+                    // reported the keyof issue at this level
+                } else {
+                    // Recursively check type args (no keyof pattern detected)
+                    for arg in type_args {
+                        self.analyze_type(arg, context);
+                    }
                 }
             }
 
@@ -620,6 +695,7 @@ impl DiagnosticCollector {
             DiagnosticCategory::BlockedFeature,
             DiagnosticCategory::BuilderGeneration,
             DiagnosticCategory::ImportResolution,
+            DiagnosticCategory::UnsupportedSyntax,
         ] {
             if let Some(diags) = by_category.get(&category) {
                 writeln!(report, "### {}", category.label()).unwrap();

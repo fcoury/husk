@@ -1,6 +1,7 @@
 //! Generate Husk `extern "js"` code from parsed .d.ts AST.
 
 use crate::ast::*;
+use crate::resolver::ModuleIdentity;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
@@ -11,6 +12,14 @@ pub struct CodegenOptions {
     pub module_name: Option<String>,
     /// Include verbose warnings as comments.
     pub verbose: bool,
+    /// Module identity from `export =` analysis.
+    /// This affects how the module is generated:
+    /// - StandardModule: Generate as normal extern module
+    /// - Function: Generate a top-level callable function
+    /// - Class: Generate a struct with constructor
+    /// - Hybrid: Generate both function and module contents
+    /// - Namespace: Generate as namespace export
+    pub module_identity: Option<ModuleIdentity>,
 }
 
 /// Warnings generated during code generation.
@@ -1076,7 +1085,83 @@ impl<'a> Codegen<'a> {
     fn emit_extern_block(&mut self) {
         writeln!(self.output, "extern \"js\" {{").unwrap();
 
-        // Module import
+        // Determine module alias for code generation
+        let mod_alias = self
+            .options
+            .module_name
+            .as_ref()
+            .map(|n| {
+                if is_valid_identifier(n) {
+                    n.clone()
+                } else {
+                    derive_binding_from_package(n)
+                }
+            })
+            .unwrap_or_else(|| "module".to_string());
+
+        // Handle module identity for CommonJS `export =` patterns
+        match &self.options.module_identity {
+            Some(ModuleIdentity::Function { name }) => {
+                // For callable modules (like express), emit a comment and
+                // use the module as a function entry point
+                writeln!(
+                    self.output,
+                    "    // Module is callable: `export = {}`",
+                    name
+                )
+                .unwrap();
+                self.emit_module_import();
+                self.emit_callable_module_function(&mod_alias, name);
+            }
+            Some(ModuleIdentity::Class { name }) => {
+                // For class modules, the struct IS the module export
+                writeln!(
+                    self.output,
+                    "    // Module exports class: `export = {}`",
+                    name
+                )
+                .unwrap();
+                self.emit_module_import();
+                self.emit_standard_structs_and_functions();
+            }
+            Some(ModuleIdentity::Hybrid { name, is_function }) => {
+                // For hybrid modules, emit BOTH the callable and the namespace items
+                writeln!(
+                    self.output,
+                    "    // Hybrid module: {} + namespace merged",
+                    if *is_function { "function" } else { "class" }
+                )
+                .unwrap();
+                self.emit_module_import();
+                // Emit the callable entry point
+                self.emit_callable_module_function(&mod_alias, name);
+                writeln!(self.output).unwrap();
+                // Emit the namespace contents (structs, other functions)
+                self.emit_standard_structs_and_functions();
+            }
+            Some(ModuleIdentity::Namespace { name }) => {
+                // Namespace export - treat as standard module but note the export
+                writeln!(
+                    self.output,
+                    "    // Module exports namespace: `export = {}`",
+                    name
+                )
+                .unwrap();
+                self.emit_module_import();
+                self.emit_standard_structs_and_functions();
+            }
+            Some(ModuleIdentity::StandardModule) | None => {
+                // Standard ES module - just named exports
+                self.emit_module_import();
+                self.emit_standard_structs_and_functions();
+            }
+        }
+
+        writeln!(self.output, "}}").unwrap();
+    }
+
+    /// Emit the module import statement.
+    fn emit_module_import(&mut self) {
         if let Some(mod_name) = &self.options.module_name {
             if is_valid_identifier(mod_name) {
                 writeln!(self.output, "    mod {};", mod_name).unwrap();
@@ -1086,7 +1171,53 @@ impl<'a> Codegen<'a> {
             }
             writeln!(self.output).unwrap();
         }
+    }
 
+    /// Emit a callable module function (for `export = func` patterns).
+    ///
+    /// This looks for the exported function in our collected functions and emits
+    /// it as the module's callable entry point.
+    fn emit_callable_module_function(&mut self, mod_alias: &str, exported_name: &str) {
+        // Find the exported function in our collected functions
+        if let Some(f) = self.functions.iter().find(|f| f.name == exported_name) {
+            writeln!(
+                self.output,
+                "    // {} is the callable entry point",
+                exported_name
+            )
+            .unwrap();
+
+            if let Some(comment) = &f.comment {
+                writeln!(self.output, "    // {}", comment).unwrap();
+            }
+
+            // Emit the function with the module alias as the binding name
+            // This makes `mod_alias(...)` the callable form
+            write!(self.output, "    fn \"{}\" as {}", exported_name, mod_alias).unwrap();
+
+            if !f.type_params.is_empty() {
+                write!(self.output, "<{}>", f.type_params.join(", ")).unwrap();
+            }
+
+            write!(self.output, "(").unwrap();
+            for (i, (name, ty)) in f.params.iter().enumerate() {
+                if i > 0 {
+                    write!(self.output, ", ").unwrap();
+                }
+                write!(self.output, "{}: {}", name, ty).unwrap();
+            }
+            write!(self.output, ")").unwrap();
+
+            if let Some(ret) = &f.return_type {
+                write!(self.output, " -> {}", ret).unwrap();
+            }
+
+            writeln!(self.output, ";").unwrap();
+        }
+    }
+
+    /// Emit the standard structs and functions (for non-callable modules).
+    fn emit_standard_structs_and_functions(&mut self) {
         // Structs
         let mut sorted_structs: Vec<&String> = self.structs.iter().collect();
         sorted_structs.sort();
@@ -1125,8 +1256,6 @@ impl<'a> Codegen<'a> {
 
             writeln!(self.output, ";").unwrap();
         }
-
-        writeln!(self.output, "}}").unwrap();
     }
 
     fn emit_impl_blocks(&mut self) {
@@ -1531,5 +1660,135 @@ mod tests {
         let result = generate(&file, &CodegenOptions::default());
 
         assert!(result.code.contains("fn type_(mod_: String);"));
+    }
+
+    #[test]
+    fn test_codegen_function_module_identity() {
+        // Test that Function module identity emits callable entry point
+        let src = "declare function e(): void;";
+        let file = parse(src).unwrap();
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                module_name: Some("express".to_string()),
+                module_identity: Some(ModuleIdentity::Function {
+                    name: "e".to_string(),
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(result.code.contains("// Module is callable: `export = e`"));
+        assert!(result.code.contains("mod express;"));
+        assert!(result.code.contains("// e is the callable entry point"));
+        assert!(result.code.contains("fn \"e\" as express();"));
+    }
+
+    #[test]
+    fn test_codegen_class_module_identity() {
+        // Test that Class module identity generates struct with constructor
+        // Note: The legacy parser treats "constructor" as a method named "constructor"
+        // rather than ClassMember::Constructor. The key thing is the module identity
+        // comment and the struct/impl being generated correctly.
+        let src = r#"
+            declare class MyClass {
+                doSomething(): void;
+            }
+        "#;
+        let file = parse(src).unwrap();
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                module_name: Some("my-class".to_string()),
+                module_identity: Some(ModuleIdentity::Class {
+                    name: "MyClass".to_string(),
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(result.code.contains("// Module exports class: `export = MyClass`"));
+        assert!(result.code.contains("mod \"my-class\" as my_class;"));
+        assert!(result.code.contains("struct MyClass;"));
+        assert!(result.code.contains("impl MyClass"));
+        assert!(result.code.contains("extern \"js\" fn doSomething(self);"));
+    }
+
+    #[test]
+    fn test_codegen_hybrid_module_identity() {
+        // Test that Hybrid module identity emits both callable and namespace items
+        let src = r#"
+            declare function req(url: string): void;
+            interface Options {
+                timeout: number;
+            }
+        "#;
+        let file = parse(src).unwrap();
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                module_name: Some("request".to_string()),
+                module_identity: Some(ModuleIdentity::Hybrid {
+                    name: "req".to_string(),
+                    is_function: true,
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(result.code.contains("// Hybrid module: function + namespace merged"));
+        assert!(result.code.contains("mod request;"));
+        // Should have the callable entry point
+        assert!(result.code.contains("fn \"req\" as request(url: String);"));
+        // Should also have the namespace items (the interface struct)
+        assert!(result.code.contains("struct Options;"));
+    }
+
+    #[test]
+    fn test_codegen_namespace_module_identity() {
+        // Test that Namespace module identity is noted in comments
+        let src = r#"
+            interface Foo { x: number; }
+            interface Bar { y: string; }
+        "#;
+        let file = parse(src).unwrap();
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                module_name: Some("mylib".to_string()),
+                module_identity: Some(ModuleIdentity::Namespace {
+                    name: "ns".to_string(),
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(result.code.contains("// Module exports namespace: `export = ns`"));
+        assert!(result.code.contains("mod mylib;"));
+        assert!(result.code.contains("struct Bar;"));
+        assert!(result.code.contains("struct Foo;"));
+    }
+
+    #[test]
+    fn test_codegen_standard_module_identity() {
+        // Test that StandardModule / None produces normal output
+        let src = "declare function hello(): void;";
+        let file = parse(src).unwrap();
+
+        // With explicit StandardModule
+        let result = generate(
+            &file,
+            &CodegenOptions {
+                module_name: Some("mymod".to_string()),
+                module_identity: Some(ModuleIdentity::StandardModule),
+                ..Default::default()
+            },
+        );
+
+        assert!(result.code.contains("mod mymod;"));
+        assert!(result.code.contains("fn hello();"));
+        // Should NOT have any module identity comments
+        assert!(!result.code.contains("Module is callable"));
+        assert!(!result.code.contains("Module exports"));
     }
 }

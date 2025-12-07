@@ -612,6 +612,7 @@ fn run_import_dts(path: &str, out: Option<&str>, module: Option<&str>) {
     let options = DtsCodegenOptions {
         module_name: module.map(String::from),
         verbose: env::var("HUSKC_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
+        ..Default::default()
     };
     let result = generate_husk(&file, &options);
 
@@ -1935,6 +1936,7 @@ fn run_dts_update(
         let options = DtsCodegenOptions {
             module_name: Some(entry.package.clone()),
             verbose: env::var("HUSKC_DEBUG").map(|v| v == "1").unwrap_or(false),
+            ..Default::default()
         };
         let mut result = generate_husk(&dts_file, &options);
 
