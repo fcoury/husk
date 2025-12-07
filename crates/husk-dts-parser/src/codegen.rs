@@ -180,6 +180,7 @@ struct FieldDef {
     name: String,
     ty: DtsType,
     optional: bool,
+    readonly: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -636,6 +637,7 @@ impl<'a> Codegen<'a> {
                                 name: p.name.clone(),
                                 ty: p.ty.clone(),
                                 optional: p.optional,
+                                readonly: p.readonly,
                             });
                     }
                 }
@@ -819,6 +821,7 @@ impl<'a> Codegen<'a> {
                             name: p.name.clone(),
                             ty: p.ty.clone().unwrap_or(DtsType::Primitive(Primitive::Any)),
                             optional: p.optional,
+                            readonly: p.readonly,
                         });
                 }
                 ClassMember::IndexSignature(_) => {
@@ -1021,6 +1024,15 @@ impl<'a> Codegen<'a> {
         }
         if simple_name == "Omit" && type_args.len() == 2 {
             return self.expand_omit(type_args[0].clone(), type_args[1].clone());
+        }
+        if simple_name == "Readonly" && type_args.len() == 1 {
+            return self.expand_readonly(type_args[0].clone());
+        }
+        if simple_name == "Required" && type_args.len() == 1 {
+            return self.expand_required(type_args[0].clone());
+        }
+        if simple_name == "Record" && type_args.len() == 2 {
+            return self.expand_record(type_args[0].clone(), type_args[1].clone());
         }
 
         // Map well-known types using simple name
@@ -1377,7 +1389,7 @@ impl<'a> Codegen<'a> {
         };
 
         let name = format!("Partial_{}", base);
-        self.build_struct_from_fields(&name, &fields, true);
+        self.build_struct_from_fields(&name, &fields, true, false);
         name
     }
 
@@ -1420,7 +1432,7 @@ impl<'a> Codegen<'a> {
         }
 
         let name = format!("Pick_{}_{}", base, key_list.join("_"));
-        self.build_struct_from_fields(&name, &filtered, false);
+        self.build_struct_from_fields(&name, &filtered, false, false);
         name
     }
 
@@ -1463,7 +1475,82 @@ impl<'a> Codegen<'a> {
         }
 
         let name = format!("Omit_{}_{}", base, key_list.join("_"));
-        self.build_struct_from_fields(&name, &filtered, false);
+        self.build_struct_from_fields(&name, &filtered, false, false);
+        name
+    }
+
+    fn expand_readonly(&mut self, target: DtsType) -> String {
+        let base = match target {
+            DtsType::Named { name, .. } => name.split('.').last().unwrap_or(&name).to_string(),
+            _ => {
+                self.warn(WarningKind::Unsupported, "Readonly<T>: unsupported target");
+                return "JsValue".to_string();
+            }
+        };
+
+        let Some(fields) = self.struct_fields.get(&base).cloned() else {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Readonly<{}> mapped to JsValue (unknown target)", base),
+            );
+            return "JsValue".to_string();
+        };
+
+        let name = format!("Readonly_{}", base);
+        self.build_struct_from_fields(&name, &fields, false, true);
+        name
+    }
+
+    fn expand_required(&mut self, target: DtsType) -> String {
+        let base = match target {
+            DtsType::Named { name, .. } => name.split('.').last().unwrap_or(&name).to_string(),
+            _ => {
+                self.warn(WarningKind::Unsupported, "Required<T>: unsupported target");
+                return "JsValue".to_string();
+            }
+        };
+
+        let Some(fields) = self.struct_fields.get(&base).cloned() else {
+            self.warn(
+                WarningKind::Simplified,
+                format!("Required<{}> mapped to JsValue (unknown target)", base),
+            );
+            return "JsValue".to_string();
+        };
+
+        // Force optional=false, preserve readonly
+        let mut normalized = fields;
+        for f in &mut normalized {
+            f.optional = false;
+        }
+
+        let name = format!("Required_{}", base);
+        self.build_struct_from_fields(&name, &normalized, false, false);
+        name
+    }
+
+    fn expand_record(&mut self, keys: DtsType, value: DtsType) -> String {
+        let Some(key_list) = self.extract_string_keys(keys) else {
+            self.warn(
+                WarningKind::Simplified,
+                "Record<K,V> mapped to JsValue (unsupported keys)",
+            );
+            return "JsValue".to_string();
+        };
+
+        let name = format!("Record_{}", key_list.join("_"));
+
+        let mut fields = Vec::new();
+        for k in &key_list {
+            fields.push(FieldDef {
+                name: k.clone(),
+                ty: value.clone(),
+                optional: false,
+                readonly: false,
+            });
+        }
+
+        self.build_struct_from_fields(&name, &fields, false, false);
         name
     }
 
@@ -1485,7 +1572,13 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn build_struct_from_fields(&mut self, name: &str, fields: &[FieldDef], force_optional: bool) {
+    fn build_struct_from_fields(
+        &mut self,
+        name: &str,
+        fields: &[FieldDef],
+        force_optional: bool,
+        force_readonly: bool,
+    ) {
         if self.structs.contains(name) {
             return;
         }
@@ -1505,7 +1598,7 @@ impl<'a> Codegen<'a> {
             props.push(GeneratedProperty {
                 name: escape_keyword(&f.name),
                 ty: final_type.clone(),
-                is_readonly: false,
+                is_readonly: force_readonly || f.readonly,
                 is_static: false,
             });
             haskey.push((f.name.clone(), final_type.clone()));
@@ -1513,6 +1606,7 @@ impl<'a> Codegen<'a> {
                 name: f.name.clone(),
                 ty: f.ty.clone(),
                 optional: force_optional || f.optional,
+                readonly: force_readonly || f.readonly,
             });
         }
 
