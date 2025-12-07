@@ -173,6 +173,8 @@ struct Codegen<'a> {
     interfaces: Vec<DtsInterface>,
     /// Type registry for utility type expansion (only populated when expand_utility_types is enabled).
     type_registry: TypeRegistry,
+    /// Tracks which type aliases are currently being expanded to detect cycles.
+    expanding_aliases: HashSet<String>,
 }
 
 struct GeneratedFn {
@@ -239,6 +241,7 @@ impl<'a> Codegen<'a> {
             current_type_name: None,
             interfaces: Vec::new(),
             type_registry: TypeRegistry::new(),
+            expanding_aliases: HashSet::new(),
         }
     }
 
@@ -1205,8 +1208,19 @@ impl<'a> Codegen<'a> {
                 // User-defined type - use simple name (last segment of qualified name)
                 // Check if this is a type alias we know about
                 if let Some(alias_ty) = self.type_aliases.get(simple_name).cloned() {
-                    // Resolve type alias to its underlying type
-                    return self.map_type(&alias_ty);
+                    // Detect cycles in type alias expansion
+                    if self.expanding_aliases.contains(simple_name) {
+                        self.warn(
+                            WarningKind::Simplified,
+                            format!("Cyclic type alias `{}` mapped to JsValue", simple_name),
+                        );
+                        return "JsValue".to_string();
+                    }
+                    // Mark this alias as being expanded
+                    self.expanding_aliases.insert(simple_name.to_string());
+                    let result = self.map_type(&alias_ty);
+                    self.expanding_aliases.remove(simple_name);
+                    return result;
                 }
 
                 // Check if this type is defined in the current file

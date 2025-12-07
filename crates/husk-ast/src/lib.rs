@@ -758,6 +758,16 @@ pub enum ExternItemKind {
         name: Ident,
         ty: TypeExpr,
     },
+    /// Impl block inside extern block: `impl Request { fn get(&self) -> String; }`
+    /// All methods inside are treated as extern "js" methods.
+    Impl {
+        /// Type parameters on the impl block
+        type_params: Vec<TypeParam>,
+        /// The type being implemented
+        self_ty: TypeExpr,
+        /// The methods in the impl block
+        items: Vec<ImplItem>,
+    },
 }
 
 /// Items that may appear inside a `mod` block within an extern block.
