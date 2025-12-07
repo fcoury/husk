@@ -4973,6 +4973,7 @@ mod tests {
         // }
         let express_ident = ident("express", 0);
         let extern_item = husk_ast::ExternItem {
+            attributes: Vec::new(),
             kind: husk_ast::ExternItemKind::Mod {
                 package: "express".to_string(),
                 binding: express_ident.clone(),

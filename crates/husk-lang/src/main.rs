@@ -205,9 +205,9 @@ enum DtsAction {
     Update {
         /// Specific package to update (updates all if omitted)
         package: Option<String>,
-        /// Use Oxc parser with multi-file resolution (experimental)
+        /// Use legacy parser instead of Oxc (not recommended)
         #[arg(long)]
-        oxc: bool,
+        legacy: bool,
         /// Follow import graph and include dependencies
         #[arg(long)]
         follow_imports: bool,
@@ -1722,8 +1722,8 @@ process.exit(failed > 0 ? 1 : 0);
 fn run_dts(action: DtsAction, config: &HuskConfig) {
     match action {
         DtsAction::Add { package, types, output } => run_dts_add(&package, types.as_deref(), output.as_deref(), config),
-        DtsAction::Update { package, oxc, follow_imports, report, report_format, report_path } => {
-            run_dts_update(package.as_deref(), oxc, follow_imports, report, report_format, report_path.as_deref(), config)
+        DtsAction::Update { package, legacy, follow_imports, report, report_format, report_path } => {
+            run_dts_update(package.as_deref(), !legacy, follow_imports, report, report_format, report_path.as_deref(), config)
         }
         DtsAction::List => run_dts_list(config),
         DtsAction::Remove { package } => run_dts_remove(&package),
@@ -1812,9 +1812,9 @@ fn run_dts_update(
             .and_then(|o| o.generate_report)
             .unwrap_or(false);
 
-    // Warn if follow_imports is set without oxc
+    // Warn if follow_imports is set with legacy parser
     if follow_imports && !use_oxc {
-        eprintln!("Warning: --follow-imports requires --oxc; ignoring --follow-imports");
+        eprintln!("Warning: --follow-imports is not supported with --legacy parser; ignoring --follow-imports");
     }
 
     if config.dts.is_empty() {
@@ -1907,15 +1907,17 @@ fn run_dts_update(
         // Parse .d.ts using either legacy or Oxc parser
         // Also collect resolved module when follow_imports is enabled for multi-file codegen
         // We also track module identity for CommonJS modules with `export =`
+        //
+        // Automatically use oxc parser if follow_imports is enabled for this entry
+        let should_use_oxc = use_oxc || entry.follow_imports.unwrap_or(false);
+        let should_follow_imports = follow_imports || entry.follow_imports.unwrap_or(false);
+
         let (dts_file, resolved_module, module_identity): (
             DtsFile,
             Option<resolver::ResolvedModule>,
             Option<resolver::ModuleIdentity>,
-        ) = if use_oxc {
+        ) = if should_use_oxc {
             // Use Oxc parser
-            // Check if follow_imports is enabled via CLI or per-entry config
-            let should_follow_imports = follow_imports || entry.follow_imports.unwrap_or(false);
-
             if should_follow_imports {
                 // Use resolver for multi-file resolution
                 // Get module paths from global config or use default, resolved relative to entry base_dir

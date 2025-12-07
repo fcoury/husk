@@ -461,6 +461,9 @@ impl<'src> Parser<'src> {
 
         let mut items = Vec::new();
         while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            // Parse any attributes before the item (e.g., #[js_name = "..."])
+            let item_attributes = self.parse_attributes();
+
             // Check for `mod` declaration:
             // - `mod identifier;` - identifier is both package and binding
             // - `mod "package-name";` - string literal, derive binding from package
@@ -572,6 +575,7 @@ impl<'src> Parser<'src> {
                     range: mod_start..self.previous().span.range.end,
                 };
                 items.push(husk_ast::ExternItem {
+                    attributes: item_attributes,
                     kind: husk_ast::ExternItemKind::Mod {
                         package,
                         binding,
@@ -623,6 +627,7 @@ impl<'src> Parser<'src> {
                     range: struct_start..self.previous().span.range.end,
                 };
                 items.push(husk_ast::ExternItem {
+                    attributes: item_attributes,
                     kind: husk_ast::ExternItemKind::Struct { name, type_params },
                     span,
                 });
@@ -664,6 +669,7 @@ impl<'src> Parser<'src> {
                     range: static_start..self.previous().span.range.end,
                 };
                 items.push(husk_ast::ExternItem {
+                    attributes: item_attributes,
                     kind: husk_ast::ExternItemKind::Static { name, ty },
                     span,
                 });
@@ -705,6 +711,7 @@ impl<'src> Parser<'src> {
                     range: const_start..self.previous().span.range.end,
                 };
                 items.push(husk_ast::ExternItem {
+                    attributes: item_attributes,
                     kind: husk_ast::ExternItemKind::Const { name, ty },
                     span,
                 });
@@ -752,6 +759,7 @@ impl<'src> Parser<'src> {
                     range: impl_start..self.previous().span.range.end,
                 };
                 items.push(husk_ast::ExternItem {
+                    attributes: item_attributes,
                     kind: husk_ast::ExternItemKind::Impl {
                         type_params,
                         self_ty,
@@ -800,6 +808,7 @@ impl<'src> Parser<'src> {
                 range: fn_start..self.previous().span.range.end,
             };
             items.push(husk_ast::ExternItem {
+                attributes: item_attributes,
                 kind: husk_ast::ExternItemKind::Fn {
                     name,
                     params,
@@ -5628,6 +5637,34 @@ fn test() {
             }
         } else {
             panic!("expected Impl");
+        }
+    }
+
+    #[test]
+    fn parses_extern_fn_with_js_name_attribute() {
+        let src = r#"extern "js" {
+            #[js_name = "e"]
+            fn express() -> Application;
+        }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
+            assert_eq!(items.len(), 1);
+            // Check the function name
+            if let husk_ast::ExternItemKind::Fn { name, .. } = &items[0].kind {
+                assert_eq!(name.name, "express");
+            } else {
+                panic!("expected Fn item");
+            }
+            // Check the #[js_name] attribute
+            assert_eq!(items[0].attributes.len(), 1);
+            assert_eq!(items[0].attributes[0].name.name, "js_name");
+            assert_eq!(items[0].attributes[0].value, Some("e".to_string()));
+            // Check js_name() helper method
+            assert_eq!(items[0].js_name(), Some("e"));
+        } else {
+            panic!("expected ExternBlock");
         }
     }
 }

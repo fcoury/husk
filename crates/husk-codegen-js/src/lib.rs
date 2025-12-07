@@ -738,7 +738,9 @@ pub fn lower_file_to_js_with_source(
                             } => {
                                 // Skip functions that are already in the preamble
                                 if !PREAMBLE_FUNCTIONS.contains(&name.name.as_str()) {
-                                    body.push(lower_extern_fn(name, params, ret_type.as_ref()));
+                                    // Use #[js_name] if specified, otherwise use the Husk function name
+                                    let js_name = ext.js_name().map(|s| s.to_string());
+                                    body.push(lower_extern_fn(name, params, ret_type.as_ref(), js_name.as_deref()));
                                 }
                             }
                             ExternItemKind::Mod { .. } => {
@@ -1041,9 +1043,12 @@ fn lower_extern_fn(
     name: &husk_ast::Ident,
     params: &[Param],
     ret_type: Option<&TypeExpr>,
+    js_name: Option<&str>,
 ) -> JsStmt {
     let js_params: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
-    let body = lower_extern_body(&name.name, &js_params, ret_type);
+    // Use js_name for the JS call, but name.name for the Husk function name
+    let call_name = js_name.unwrap_or(&name.name);
+    let body = lower_extern_body(call_name, &js_params, ret_type);
     JsStmt::Function {
         name: name.name.clone(),
         params: js_params,
@@ -4302,6 +4307,7 @@ mod tests {
         };
 
         let ext_item = husk_ast::ExternItem {
+            attributes: Vec::new(),
             kind: husk_ast::ExternItemKind::Fn {
                 name: name.clone(),
                 params: vec![param],
@@ -4352,6 +4358,7 @@ mod tests {
         };
 
         let express_mod = husk_ast::ExternItem {
+            attributes: Vec::new(),
             kind: husk_ast::ExternItemKind::Mod {
                 package: "express".to_string(),
                 binding: ident("express", 0),
@@ -4362,6 +4369,7 @@ mod tests {
         };
 
         let fs_mod = husk_ast::ExternItem {
+            attributes: Vec::new(),
             kind: husk_ast::ExternItemKind::Mod {
                 package: "fs".to_string(),
                 binding: ident("fs", 20),
@@ -4461,6 +4469,7 @@ mod tests {
         };
 
         let express_mod = husk_ast::ExternItem {
+            attributes: Vec::new(),
             kind: husk_ast::ExternItemKind::Mod {
                 package: "express".to_string(),
                 binding: ident("express", 0),

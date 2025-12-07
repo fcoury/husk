@@ -125,6 +125,9 @@ pub fn generate_from_module(
     codegen.merge_function_overloads();
     codegen.merge_method_overloads();
 
+    // Resolve interface inheritance (copy parent methods to children)
+    codegen.resolve_interface_inheritance();
+
     // Second pass: generate code
     codegen.emit_header();
     codegen.emit_extern_block();
@@ -175,6 +178,9 @@ struct Codegen<'a> {
     type_registry: TypeRegistry,
     /// Tracks which type aliases are currently being expanded to detect cycles.
     expanding_aliases: HashSet<String>,
+    /// Tracks interface inheritance: child interface name -> list of parent interface names.
+    /// Used to copy methods from parent interfaces to child impl blocks.
+    interface_extends: HashMap<String, Vec<String>>,
 }
 
 struct GeneratedFn {
@@ -242,6 +248,7 @@ impl<'a> Codegen<'a> {
             interfaces: Vec::new(),
             type_registry: TypeRegistry::new(),
             expanding_aliases: HashSet::new(),
+            interface_extends: HashMap::new(),
         }
     }
 
@@ -266,6 +273,9 @@ impl<'a> Codegen<'a> {
         // Merge overloaded functions and methods
         self.merge_function_overloads();
         self.merge_method_overloads();
+
+        // Resolve interface inheritance (copy parent methods to children)
+        self.resolve_interface_inheritance();
 
         // Second pass: generate code
         self.emit_header();
@@ -327,6 +337,108 @@ impl<'a> Codegen<'a> {
             }
 
             self.impls.insert(type_name, final_methods);
+        }
+    }
+
+    /// Resolve interface inheritance by copying parent methods/properties to child impl blocks.
+    ///
+    /// This is called after all interfaces are collected and methods are merged,
+    /// but before emitting the code. It handles the `extends` clause by copying
+    /// methods and properties from parent interfaces to child interfaces.
+    fn resolve_interface_inheritance(&mut self) {
+        // Build a list of (child, parents) pairs to process
+        // We need to clone to avoid borrow issues
+        let inheritance: Vec<(String, Vec<String>)> = self
+            .interface_extends
+            .iter()
+            .map(|(child, parents)| (child.clone(), parents.clone()))
+            .collect();
+
+        // Process each child interface
+        for (child_name, parent_names) in inheritance {
+            // Collect methods from all parents (including transitive)
+            let mut inherited_methods = Vec::new();
+            let mut inherited_properties = Vec::new();
+            let mut visited = HashSet::new();
+
+            self.collect_inherited_members(
+                &parent_names,
+                &mut inherited_methods,
+                &mut inherited_properties,
+                &mut visited,
+            );
+
+            // Add inherited methods to child's impl block
+            if !inherited_methods.is_empty() {
+                let child_methods = self.impls.entry(child_name.clone()).or_default();
+                // Add inherited methods that aren't already defined on the child
+                for method in inherited_methods {
+                    if !child_methods.iter().any(|m| m.name == method.name) {
+                        child_methods.push(method);
+                    }
+                }
+            }
+
+            // Add inherited properties to child
+            if !inherited_properties.is_empty() {
+                let child_props = self.properties.entry(child_name.clone()).or_default();
+                // Add inherited properties that aren't already defined on the child
+                for prop in inherited_properties {
+                    if !child_props.iter().any(|p| p.name == prop.name) {
+                        child_props.push(prop);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Recursively collect methods and properties from parent interfaces.
+    fn collect_inherited_members(
+        &self,
+        parent_names: &[String],
+        methods: &mut Vec<GeneratedMethod>,
+        properties: &mut Vec<GeneratedProperty>,
+        visited: &mut HashSet<String>,
+    ) {
+        for parent_name in parent_names {
+            // Avoid infinite loops in case of circular inheritance
+            if visited.contains(parent_name) {
+                continue;
+            }
+            visited.insert(parent_name.clone());
+
+            // Get parent's methods
+            if let Some(parent_methods) = self.impls.get(parent_name) {
+                for method in parent_methods {
+                    // Clone the method for the child
+                    methods.push(GeneratedMethod {
+                        name: method.name.clone(),
+                        type_params: method.type_params.clone(),
+                        params: method.params.clone(),
+                        return_type: method.return_type.clone(),
+                        is_static: method.is_static,
+                        comment: Some(format!("inherited from {}", parent_name)),
+                        this_param: method.this_param.clone(),
+                    });
+                }
+            }
+
+            // Get parent's properties
+            if let Some(parent_props) = self.properties.get(parent_name) {
+                for prop in parent_props {
+                    properties.push(GeneratedProperty {
+                        name: prop.name.clone(),
+                        ty: prop.ty.clone(),
+                        is_readonly: prop.is_readonly,
+                        is_static: prop.is_static,
+                    });
+                }
+            }
+
+            // Recursively get grandparent's members
+            if let Some(grandparents) = self.interface_extends.get(parent_name) {
+                self.collect_inherited_members(grandparents, methods, properties, visited);
+            }
         }
     }
 
@@ -544,6 +656,29 @@ impl<'a> Codegen<'a> {
         self.in_struct_context = true;
         self.current_type_name = Some(i.name.clone());
 
+        // Record interface inheritance for later resolution
+        if !i.extends.is_empty() {
+            let parent_names: Vec<String> = i
+                .extends
+                .iter()
+                .filter_map(|ty| {
+                    // Extract the base name from the extends type
+                    // e.g., `core.Express` -> `Express`, `Parent<T>` -> `Parent`
+                    match ty {
+                        DtsType::Named { name, .. } => {
+                            // Handle qualified names like `core.Express` -> just `Express`
+                            Some(name.split('.').last().unwrap_or(name).to_string())
+                        }
+                        _ => None,
+                    }
+                })
+                .collect();
+            if !parent_names.is_empty() {
+                self.interface_extends
+                    .insert(i.name.clone(), parent_names);
+            }
+        }
+
         // Store interface for builder generation if enabled
         if self.options.generate_builders {
             self.interfaces.push(i.clone());
@@ -659,11 +794,42 @@ impl<'a> Codegen<'a> {
                         format!("Call signature on {} skipped", i.name),
                     );
                 }
-                InterfaceMember::ConstructSignature(_) => {
-                    self.warn(
-                        WarningKind::Skipped,
-                        format!("Construct signature on {} skipped", i.name),
-                    );
+                InterfaceMember::ConstructSignature(ctor) => {
+                    // Constructor interfaces (like DatabaseConstructor) should generate
+                    // a static new_ method that returns the constructed type
+                    let params: Vec<(String, String)> = ctor
+                        .params
+                        .iter()
+                        .map(|p| {
+                            let ty = self.map_param_type(&p.ty, p.optional);
+                            (escape_keyword(&p.name), ty)
+                        })
+                        .collect();
+
+                    // Use the return type from the construct signature, or fall back to
+                    // the interface name without "Constructor" suffix
+                    let return_type = if let Some(ref ret_ty) = ctor.return_type {
+                        Some(self.map_type(ret_ty))
+                    } else {
+                        // Try to infer return type from interface name
+                        // e.g., DatabaseConstructor -> Database
+                        let name = &i.name;
+                        if name.ends_with("Constructor") {
+                            Some(name.trim_end_matches("Constructor").to_string())
+                        } else {
+                            Some(name.clone())
+                        }
+                    };
+
+                    methods.push(GeneratedMethod {
+                        name: "new_".to_string(),
+                        type_params: type_params.clone(),
+                        params,
+                        return_type,
+                        is_static: true,
+                        comment: Some("constructor".to_string()),
+                        this_param: None,
+                    });
                 }
                 InterfaceMember::IndexSignature(_) => {
                     self.warn(
@@ -1789,6 +1955,7 @@ impl<'a> Codegen<'a> {
             }
             Some(ModuleIdentity::Class { name }) => {
                 // For class modules, the struct IS the module export
+                // We generate a module-level callable that constructs the class
                 writeln!(
                     self.output,
                     "    // Module exports class: `export = {}`",
@@ -1796,6 +1963,7 @@ impl<'a> Codegen<'a> {
                 )
                 .unwrap();
                 self.emit_module_import();
+                self.emit_class_module_callable(&mod_alias, name);
                 self.emit_standard_structs_and_functions();
             }
             Some(ModuleIdentity::Hybrid { name, is_function }) => {
@@ -1870,8 +2038,9 @@ impl<'a> Codegen<'a> {
             }
 
             // Emit the function with the module alias as the binding name
-            // This makes `mod_alias(...)` the callable form
-            write!(self.output, "    fn \"{}\" as {}", exported_name, mod_alias).unwrap();
+            // Use #[js_name] attribute to map to the original JS function name
+            writeln!(self.output, "    #[js_name = \"{}\"]", exported_name).unwrap();
+            write!(self.output, "    fn {}", mod_alias).unwrap();
 
             if !f.type_params.is_empty() {
                 write!(self.output, "<{}>", f.type_params.join(", ")).unwrap();
@@ -1891,6 +2060,62 @@ impl<'a> Codegen<'a> {
             }
 
             writeln!(self.output, ";").unwrap();
+        }
+    }
+
+    /// Emit a callable for a class module (for `export = ClassName` patterns).
+    ///
+    /// This looks for the constructor (named `new_`) in the class's impl block and
+    /// generates a module-level callable that constructs the class.
+    ///
+    /// Also checks for `{ClassName}Constructor` pattern which is common in TypeScript
+    /// definitions where the constructor interface is separate from the class.
+    fn emit_class_module_callable(&mut self, mod_alias: &str, class_name: &str) {
+        // Look for the constructor in the class's impl methods
+        // Also check {ClassName}Constructor pattern (common in .d.ts files)
+        // We need to check BOTH because Database may exist without new_ while
+        // DatabaseConstructor has the new_ static method
+        let constructor_name = format!("{}Constructor", class_name);
+
+        // Find the constructor method - check both class and constructor interface
+        let ctor = self
+            .impls
+            .get(class_name)
+            .and_then(|methods| methods.iter().find(|m| m.name == "new_" && m.is_static))
+            .or_else(|| {
+                self.impls
+                    .get(&constructor_name)
+                    .and_then(|methods| methods.iter().find(|m| m.name == "new_" && m.is_static))
+            });
+
+        if let Some(ctor) = ctor {
+            writeln!(
+                self.output,
+                "    // {} constructor as module callable",
+                class_name
+            )
+            .unwrap();
+
+            // Emit the callable with the module alias
+            // Use #[js_name] attribute to map to the class constructor
+            writeln!(self.output, "    #[js_name = \"{}\"]", class_name).unwrap();
+            write!(self.output, "    fn {}", mod_alias).unwrap();
+
+            write!(self.output, "(").unwrap();
+            for (i, (name, ty)) in ctor.params.iter().enumerate() {
+                if i > 0 {
+                    write!(self.output, ", ").unwrap();
+                }
+                write!(self.output, "{}: {}", name, ty).unwrap();
+            }
+            write!(self.output, ")").unwrap();
+
+            if let Some(ret) = &ctor.return_type {
+                write!(self.output, " -> {}", ret).unwrap();
+            }
+
+            writeln!(self.output, ";").unwrap();
+            writeln!(self.output).unwrap();
         }
     }
 
@@ -2700,7 +2925,8 @@ mod tests {
         assert!(result.code.contains("// Module is callable: `export = e`"));
         assert!(result.code.contains("mod express;"));
         assert!(result.code.contains("// e is the callable entry point"));
-        assert!(result.code.contains("fn \"e\" as express();"));
+        assert!(result.code.contains("#[js_name = \"e\"]"));
+        assert!(result.code.contains("fn express()"));
     }
 
     #[test]
@@ -2757,8 +2983,9 @@ mod tests {
 
         assert!(result.code.contains("// Hybrid module: function + namespace merged"));
         assert!(result.code.contains("mod request;"));
-        // Should have the callable entry point
-        assert!(result.code.contains("fn \"req\" as request(url: String);"));
+        // Should have the callable entry point with js_name attribute
+        assert!(result.code.contains("#[js_name = \"req\"]"));
+        assert!(result.code.contains("fn request(url: String)"));
         // Should also have the namespace items (the interface struct)
         assert!(result.code.contains("struct Options;"));
     }
@@ -2969,6 +3196,143 @@ mod tests {
         assert!(
             result.code.contains("POST,") || result.code.contains("Post,"),
             "Expected POST or Post variant in output"
+        );
+    }
+
+    #[test]
+    fn test_interface_inheritance_should_include_parent_methods() {
+        // Issue: When interface A extends B, A's impl block should include B's methods
+        // Currently the codegen doesn't follow the extends clause
+        use crate::oxc_parser::parse_with_oxc;
+
+        let src = r#"
+            interface Parent {
+                parentMethod(): void;
+                parentProp: string;
+            }
+            interface Child extends Parent {
+                childMethod(): void;
+            }
+        "#;
+
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        println!("Generated code:\n{}", result.code);
+
+        // Child should have its own method
+        assert!(
+            result.code.contains("impl Child {"),
+            "Expected impl Child block"
+        );
+        assert!(
+            result.code.contains("fn childMethod(self)"),
+            "Expected childMethod on Child"
+        );
+
+        // FIXME: Child should ALSO have parent's methods
+        // This currently fails because we don't follow extends
+        // Extract just the Child impl block (up to the closing brace)
+        let child_impl = result
+            .code
+            .split("impl Child {")
+            .nth(1)
+            .and_then(|s| s.split("\n}\n").next())
+            .unwrap_or("");
+
+        println!("Child impl block contents:\n{}", child_impl);
+
+        assert!(
+            child_impl.contains("parentMethod"),
+            "Expected parentMethod to be included in Child's impl block (inherited from Parent). \
+             Child impl only contains: {}",
+            child_impl
+        );
+    }
+
+    #[test]
+    fn test_module_callable_uses_module_alias() {
+        // Issue: When `export = e`, the callable should use #[js_name = "e"] fn express()
+        // not just `fn e()`
+        use crate::resolver::ModuleIdentity;
+
+        let src = r#"
+            declare function e(): Express;
+            interface Express {}
+        "#;
+        let file = parse(src).unwrap();
+
+        let options = CodegenOptions {
+            module_name: Some("express".to_string()),
+            module_identity: Some(ModuleIdentity::Function {
+                name: "e".to_string(),
+            }),
+            ..Default::default()
+        };
+
+        let result = generate(&file, &options);
+
+        println!("Generated code:\n{}", result.code);
+
+        // Should use js_name attribute to map to the original function name
+        assert!(
+            result.code.contains("#[js_name = \"e\"]"),
+            "Expected #[js_name = \"e\"] attribute"
+        );
+        assert!(
+            result.code.contains("fn express()"),
+            "Expected fn express() as the callable"
+        );
+        // Should NOT have a separate fn e() declaration
+        assert!(
+            !result.code.contains("fn e()"),
+            "Should not have duplicate fn e() declaration"
+        );
+    }
+
+    #[test]
+    fn test_class_module_generates_constructor_callable() {
+        // Issue: For modules like better-sqlite3 that export a class,
+        // we should generate a callable that constructs the class
+        use crate::oxc_parser::parse_with_oxc;
+        use crate::resolver::ModuleIdentity;
+
+        let src = r#"
+            declare class Database {
+                constructor(filename: string, options?: Options);
+                prepare(sql: string): Statement;
+                close(): void;
+            }
+            interface Options {
+                readonly?: boolean;
+            }
+            interface Statement {
+                run(): void;
+            }
+        "#;
+        // Use Oxc parser which properly handles class constructors
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+
+        let options = CodegenOptions {
+            module_name: Some("better_sqlite3".to_string()),
+            module_identity: Some(ModuleIdentity::Class {
+                name: "Database".to_string(),
+            }),
+            ..Default::default()
+        };
+
+        let result = generate(&file, &options);
+
+        println!("Generated code:\n{}", result.code);
+
+        // Should have a callable constructor using the module name with js_name attribute
+        assert!(
+            result.code.contains("#[js_name = \"Database\"]"),
+            "Expected #[js_name = \"Database\"] attribute"
+        );
+        assert!(
+            result.code.contains("fn better_sqlite3("),
+            "Expected fn better_sqlite3() callable"
         );
     }
 }

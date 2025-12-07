@@ -788,8 +788,23 @@ pub enum ModItemKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExternItem {
+    /// Attributes on this extern item (e.g., #[js_name = "..."])
+    pub attributes: Vec<Attribute>,
     pub kind: ExternItemKind,
     pub span: Span,
+}
+
+impl ExternItem {
+    /// Returns the JS name if specified via #[js_name = "..."], otherwise None.
+    pub fn js_name(&self) -> Option<&str> {
+        self.attributes.iter().find_map(|attr| {
+            if attr.name.name == "js_name" {
+                attr.value.as_deref()
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// A source file (compilation unit).
