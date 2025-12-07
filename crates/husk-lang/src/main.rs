@@ -211,9 +211,15 @@ enum DtsAction {
         /// Follow import graph and include dependencies
         #[arg(long)]
         follow_imports: bool,
-        /// Generate diagnostic report (dts-report.md)
+        /// Generate diagnostic report
         #[arg(long)]
         report: bool,
+        /// Report format: markdown or json
+        #[arg(long, value_enum, default_value = "markdown")]
+        report_format: ReportFormat,
+        /// Report output path (default: dts-report.md or dts-report.json)
+        #[arg(long)]
+        report_path: Option<String>,
     },
     /// List configured dts entries
     List,
@@ -228,6 +234,15 @@ enum DtsAction {
 enum Target {
     Esm,
     Cjs,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
+enum ReportFormat {
+    /// Markdown format (default)
+    #[default]
+    Markdown,
+    /// JSON format
+    Json,
 }
 
 fn main() {
@@ -1148,7 +1163,7 @@ fn run_build(
     if let Some(ref dts_options) = config.dts_options {
         if dts_options.auto_update.unwrap_or(false) && !config.dts.is_empty() {
             debug_log("[huskc] auto-updating dts files before build");
-            run_dts_update(None, false, false, false, config);
+            run_dts_update(None, false, false, false, ReportFormat::Markdown, None, config);
         }
     }
 
@@ -1707,8 +1722,8 @@ process.exit(failed > 0 ? 1 : 0);
 fn run_dts(action: DtsAction, config: &HuskConfig) {
     match action {
         DtsAction::Add { package, types, output } => run_dts_add(&package, types.as_deref(), output.as_deref(), config),
-        DtsAction::Update { package, oxc, follow_imports, report } => {
-            run_dts_update(package.as_deref(), oxc, follow_imports, report, config)
+        DtsAction::Update { package, oxc, follow_imports, report, report_format, report_path } => {
+            run_dts_update(package.as_deref(), oxc, follow_imports, report, report_format, report_path.as_deref(), config)
         }
         DtsAction::List => run_dts_list(config),
         DtsAction::Remove { package } => run_dts_remove(&package),
@@ -1783,6 +1798,8 @@ fn run_dts_update(
     use_oxc: bool,
     follow_imports: bool,
     generate_report: bool,
+    report_format: ReportFormat,
+    report_path: Option<&str>,
     config: &HuskConfig,
 ) {
     use husk_dts_parser::{oxc_parser, resolver, diagnostics, generation_gap};
@@ -1821,6 +1838,13 @@ fn run_dts_update(
     // Diagnostic collector for report generation
     let mut diagnostics_collector = if generate_report {
         Some(diagnostics::DiagnosticCollector::new())
+    } else {
+        None
+    };
+
+    // Aggregate codegen metrics for report
+    let mut aggregate_metrics = if generate_report {
+        Some(diagnostics::CodegenMetrics::new())
     } else {
         None
     };
@@ -2017,6 +2041,11 @@ fn run_dts_update(
             generate_husk(&dts_file, &options)
         };
 
+        // Aggregate codegen metrics for report
+        if let Some(ref mut metrics) = aggregate_metrics {
+            metrics.aggregate(&result.metrics);
+        }
+
         // Apply include/exclude filters to the generated code
         // Note: This is a simple post-processing filter. A more robust solution would
         // filter during AST generation, but this works for now.
@@ -2101,10 +2130,35 @@ fn run_dts_update(
 
     // Generate diagnostic report if requested
     if let Some(collector) = diagnostics_collector {
-        let report = collector.generate_report("DTS Conversion Report");
-        let report_path = "dts-report.md";
-        match fs::write(report_path, &report) {
-            Ok(()) => println!("\nGenerated {}", report_path),
+        let (report_content, default_path) = match report_format {
+            ReportFormat::Markdown => {
+                // Pre-codegen analysis report
+                let mut report = collector.generate_report("DTS Conversion Report");
+
+                // Append actual codegen metrics if available
+                if let Some(metrics) = aggregate_metrics {
+                    report.push_str("\n\n---\n\n");
+                    report.push_str(&metrics.to_markdown("Actual Codegen Results"));
+                }
+
+                (report, "dts-report.md")
+            }
+            ReportFormat::Json => {
+                // JSON report format - use only actual codegen metrics
+                let report = if let Some(metrics) = aggregate_metrics {
+                    metrics.to_json()
+                } else {
+                    // Empty metrics if no codegen happened
+                    diagnostics::CodegenMetrics::new().to_json()
+                };
+
+                (report, "dts-report.json")
+            }
+        };
+
+        let output_path = report_path.unwrap_or(default_path);
+        match fs::write(output_path, &report_content) {
+            Ok(()) => println!("\nGenerated {}", output_path),
             Err(e) => eprintln!("\nFailed to write report: {e}"),
         }
     }

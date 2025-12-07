@@ -2,6 +2,7 @@
 
 use crate::ast::*;
 use crate::builder::{self, BuilderConfig};
+use crate::diagnostics::CodegenMetrics;
 use crate::resolver::{ModuleIdentity, ResolvedModule};
 use crate::unions::{self, analyze_union};
 use crate::utility_types::{expand_type, ExpansionContext, TypeRegistry};
@@ -68,6 +69,8 @@ pub enum WarningKind {
 pub struct CodegenResult {
     pub code: String,
     pub warnings: Vec<Warning>,
+    /// Metrics collected during code generation.
+    pub metrics: CodegenMetrics,
 }
 
 /// Generate Husk code from a parsed .d.ts file.
@@ -77,6 +80,7 @@ pub fn generate(file: &DtsFile, options: &CodegenOptions) -> CodegenResult {
     CodegenResult {
         code: codegen.output,
         warnings: codegen.warnings,
+        metrics: codegen.metrics,
     }
 }
 
@@ -127,6 +131,7 @@ pub fn generate_from_module(
     CodegenResult {
         code: codegen.output,
         warnings: codegen.warnings,
+        metrics: codegen.metrics,
     }
 }
 
@@ -134,6 +139,8 @@ struct Codegen<'a> {
     options: &'a CodegenOptions,
     output: String,
     warnings: Vec<Warning>,
+    /// Metrics collected during code generation.
+    metrics: CodegenMetrics,
     /// Collected struct names (from interfaces and classes).
     structs: HashSet<String>,
     /// Collected functions (before overload merging).
@@ -189,6 +196,7 @@ impl<'a> Codegen<'a> {
             options,
             output: String::new(),
             warnings: Vec::new(),
+            metrics: CodegenMetrics::new(),
             structs: HashSet::new(),
             functions: Vec::new(),
             impls: HashMap::new(),
@@ -866,6 +874,7 @@ impl<'a> Codegen<'a> {
             DtsType::KeyOf(target) => {
                 // Try to extract known keys from the target type
                 if let Some(keys) = self.extract_known_keys(target) {
+                    self.metrics.record_keyof_resolved();
                     if keys.is_empty() {
                         // No keys found - fall back to String
                         self.warn(
@@ -892,6 +901,7 @@ impl<'a> Codegen<'a> {
                     }
                 } else {
                     // Cannot resolve keys - fall back to String (better than JsValue)
+                    self.metrics.record_keyof_fallback();
                     self.warn(
                         WarningKind::Simplified,
                         "keyof type of unknown target mapped to String",
@@ -902,9 +912,11 @@ impl<'a> Codegen<'a> {
             DtsType::IndexAccess { object, index } => {
                 // Try to resolve the index access type
                 if let Some(resolved_type) = self.resolve_index_access(object, index) {
+                    self.metrics.record_index_access_resolved();
                     self.map_type(&resolved_type)
                 } else {
                     // Cannot resolve - fall back to JsValue
+                    self.metrics.record_index_access_fallback();
                     self.warn(
                         WarningKind::Simplified,
                         "Index access type could not be resolved, mapped to JsValue",
@@ -1030,11 +1042,13 @@ impl<'a> Codegen<'a> {
 
                     // If expansion produced a different type (not the same Named type), map it
                     if expanded != named_type {
+                        self.metrics.record_utility_expanded();
                         return self.map_type(&expanded);
                     }
                 }
 
                 // Fall back to JsValue if expansion disabled or didn't help
+                self.metrics.record_utility_failed();
                 self.warn(
                     WarningKind::Unsupported,
                     format!("Utility type {} not supported", simple_name),
@@ -1269,12 +1283,14 @@ impl<'a> Codegen<'a> {
         match analysis {
             unions::UnionStrategy::Nullable { inner } => {
                 // T | null | undefined → Option<T>
+                self.metrics.record_union_option();
                 let mapped = self.map_type(&inner);
                 format!("Option<{}>", mapped)
             }
 
             unions::UnionStrategy::Boolean => {
                 // true | false → bool
+                self.metrics.record_union_bool();
                 "bool".to_string()
             }
 
@@ -1282,6 +1298,7 @@ impl<'a> Codegen<'a> {
                 // String literal union - depends on config strategy
                 match self.options.union_strategy {
                     UnionStrategy::JsValue => {
+                        self.metrics.record_union_jsvalue();
                         self.warn(
                             WarningKind::Simplified,
                             format!(
@@ -1294,6 +1311,7 @@ impl<'a> Codegen<'a> {
                     UnionStrategy::Enum | UnionStrategy::Auto => {
                         // Map to String for now - Husk doesn't have inline enum types
                         // A more advanced implementation could generate named enums
+                        self.metrics.record_union_string();
                         self.warn(
                             WarningKind::Simplified,
                             format!(
@@ -1311,6 +1329,7 @@ impl<'a> Codegen<'a> {
                 // Number literal union
                 match self.options.union_strategy {
                     UnionStrategy::JsValue => {
+                        self.metrics.record_union_jsvalue();
                         self.warn(
                             WarningKind::Simplified,
                             format!(
@@ -1322,6 +1341,7 @@ impl<'a> Codegen<'a> {
                     }
                     UnionStrategy::Enum | UnionStrategy::Auto => {
                         // Map to f64 for now
+                        self.metrics.record_union_number();
                         self.warn(
                             WarningKind::Simplified,
                             format!(
@@ -1336,6 +1356,7 @@ impl<'a> Codegen<'a> {
 
             unions::UnionStrategy::Discriminated { discriminant, variants } => {
                 // Discriminated/tagged union
+                self.metrics.record_union_jsvalue();
                 match self.options.union_strategy {
                     UnionStrategy::JsValue => {
                         self.warn(
@@ -1367,6 +1388,7 @@ impl<'a> Codegen<'a> {
 
             unions::UnionStrategy::TypeEnum { variants } => {
                 // Union of named types like Foo | Bar
+                self.metrics.record_union_jsvalue();
                 match self.options.union_strategy {
                     UnionStrategy::JsValue => {
                         self.warn(
@@ -1416,6 +1438,7 @@ impl<'a> Codegen<'a> {
 
             unions::UnionStrategy::Overloaded { .. } => {
                 // Function overloads - handled at function level, not type level
+                self.metrics.record_union_jsvalue();
                 self.warn(
                     WarningKind::Simplified,
                     "Function union/overload mapped to JsValue",
@@ -1425,6 +1448,7 @@ impl<'a> Codegen<'a> {
 
             unions::UnionStrategy::JsValue => {
                 // Analysis determined JsValue is best
+                self.metrics.record_union_jsvalue();
                 self.warn(
                     WarningKind::Simplified,
                     "Mixed type union mapped to JsValue",
@@ -1434,6 +1458,7 @@ impl<'a> Codegen<'a> {
 
             unions::UnionStrategy::Passthrough(ref remaining) => {
                 // Could not categorize - fall back based on config
+                self.metrics.record_union_jsvalue();
                 match self.options.union_strategy {
                     UnionStrategy::Enum => {
                         self.warn(
@@ -1783,6 +1808,7 @@ impl<'a> Codegen<'a> {
 
         for iface in &self.interfaces {
             if builder::should_generate_builder(iface, &config) {
+                self.metrics.record_builder_generated();
                 let generated = builder::generate_builder(iface, &config);
 
                 if !builders_generated {
@@ -1793,6 +1819,8 @@ impl<'a> Codegen<'a> {
 
                 writeln!(self.output).unwrap();
                 write!(self.output, "{}", generated.code).unwrap();
+            } else {
+                self.metrics.record_builder_skipped();
             }
         }
     }
