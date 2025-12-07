@@ -647,6 +647,10 @@ fn expand_non_nullable(
                 DtsType::Union(filtered)
             }
         }
+        // NonNullable<null> or NonNullable<undefined> should return never
+        DtsType::Primitive(Primitive::Null) | DtsType::Primitive(Primitive::Undefined) => {
+            DtsType::Primitive(Primitive::Never)
+        }
         _ => expanded,
     }
 }
