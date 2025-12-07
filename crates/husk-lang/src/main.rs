@@ -1930,24 +1930,32 @@ fn run_dts_update(package: Option<&str>, config: &HuskConfig) {
             }
         };
 
-        let parsed = oxc_parser.parse(&dts_content);
-        if !parsed.errors.is_empty() {
-            for err in parsed.errors {
-                eprintln!("  Parse error in {}: {:?}", dts_path, err);
-            }
-            continue;
-        }
-        let dts_file = match convert_oxc_program(&parsed.program) {
-            Ok(f) => f,
-            Err(errs) => {
-                for e in errs {
-                    eprintln!("  Failed to convert {}: {e}", dts_path);
+        let dts_file = {
+            let parsed = oxc_parser.parse(&dts_content);
+            if !parsed.errors.is_empty() {
+                for err in parsed.errors {
+                    eprintln!("  Parse error in {}: {:?}", dts_path, err);
                 }
-                continue;
+                None
+            } else {
+                match convert_oxc_program(&parsed.program) {
+                    Ok(f) => Some(f),
+                    Err(errs) => {
+                        for e in errs {
+                            eprintln!("  Failed to convert {}: {e}", dts_path);
+                        }
+                        None
+                    }
+                }
             }
         };
-        drop(parsed);
+
+        // Free the Oxc arena before processing the next entry.
         oxc_parser.reset();
+
+        let Some(dts_file) = dts_file else {
+            continue;
+        };
 
         // Generate Husk code
         let options = DtsCodegenOptions {

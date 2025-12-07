@@ -9,18 +9,17 @@ use husk_lang::load::{assemble_root, load_graph};
 use husk_semantic::{analyze_file, filter_items_by_cfg};
 
 fn workspace_root() -> PathBuf {
-    // Walk up from the current directory, returning the outermost Cargo.toml (workspace root).
+    // Walk up from the current directory, returning the nearest Cargo.toml that also contains examples.
     let mut dir = std::env::current_dir().expect("failed to read current dir");
-    let mut found: Option<PathBuf> = None;
     loop {
-        if dir.join("Cargo.toml").exists() {
-            found = Some(dir.clone());
+        if dir.join("Cargo.toml").exists() && dir.join("examples").exists() {
+            return dir;
         }
         if !dir.pop() {
             break;
         }
     }
-    found.expect("failed to resolve workspace root from current dir")
+    panic!("failed to resolve workspace root from current dir")
 }
 
 fn husk_example_files() -> Vec<PathBuf> {

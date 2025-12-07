@@ -710,29 +710,7 @@ fn convert_type(ty: &oxc::TSType<'_>) -> DtsType {
             tuple
                 .element_types
                 .iter()
-                .map(|el| match el {
-                    oxc::TSTupleElement::TSRestType(rest) => TupleElement {
-                        ty: convert_type(&rest.type_annotation),
-                        name: None,
-                        optional: false,
-                        rest: true,
-                    },
-                    oxc::TSTupleElement::TSOptionalType(opt) => TupleElement {
-                        ty: convert_type(&opt.type_annotation),
-                        name: None,
-                        optional: true,
-                        rest: false,
-                    },
-                    other => TupleElement {
-                        ty: other
-                            .as_ts_type()
-                            .map(convert_type)
-                            .unwrap_or(DtsType::Primitive(Primitive::Any)),
-                        name: None,
-                        optional: false,
-                        rest: false,
-                    },
-                })
+                .map(convert_tuple_element)
                 .collect(),
         ),
 
@@ -820,6 +798,38 @@ fn convert_type(ty: &oxc::TSType<'_>) -> DtsType {
 
         // Fallbacks
         _ => DtsType::Primitive(Primitive::Any),
+    }
+}
+
+fn convert_tuple_element(el: &oxc::TSTupleElement<'_>) -> TupleElement {
+    match el {
+        oxc::TSTupleElement::TSRestType(rest) => TupleElement {
+            ty: convert_type(&rest.type_annotation),
+            name: None,
+            optional: false,
+            rest: true,
+        },
+        oxc::TSTupleElement::TSOptionalType(opt) => TupleElement {
+            ty: convert_type(&opt.type_annotation),
+            name: None,
+            optional: true,
+            rest: false,
+        },
+        oxc::TSTupleElement::TSNamedTupleMember(named) => {
+            let mut inner = convert_tuple_element(&named.element_type);
+            inner.name = Some(named.label.name.to_string());
+            inner.optional = inner.optional || named.optional;
+            inner
+        }
+        other => TupleElement {
+            ty: other
+                .as_ts_type()
+                .map(convert_type)
+                .unwrap_or(DtsType::Primitive(Primitive::Any)),
+            name: None,
+            optional: false,
+            rest: false,
+        },
     }
 }
 

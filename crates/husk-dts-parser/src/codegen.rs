@@ -1115,10 +1115,10 @@ impl<'a> Codegen<'a> {
         // Module import
         if let Some(mod_name) = &self.options.module_name {
             match self.module_identity() {
-                ModuleKind::Callable { .. } => {
+                ModuleKind::Callable => {
                     // callable modules handled via functions; skip mod import
                 }
-                ModuleKind::Constructable { .. } => {
+                ModuleKind::Constructable => {
                     // also handled via function signature below
                 }
                 ModuleKind::Standard => {

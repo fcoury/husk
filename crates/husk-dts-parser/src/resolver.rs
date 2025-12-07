@@ -14,7 +14,7 @@ use crate::ast::*;
 pub struct ResolvedModule {
     /// Export assignment target, if present: `export = name;`
     pub export_equals: Option<String>,
-    /// Quick lookup of top-level declarations by name.
+    /// Quick lookup of declarations by name (including namespaces/modules).
     pub symbols: HashMap<String, DeclKind>,
 }
 
@@ -23,6 +23,7 @@ pub enum DeclKind {
     Function,
     Class,
     Namespace,
+    Module,
     Other,
 }
 
@@ -71,6 +72,15 @@ pub fn resolve_module(file: &DtsFile, path: &PathBuf) -> ResolvedModule {
                 resolved
                     .symbols
                     .insert(ns.name.clone(), DeclKind::Namespace);
+                for item in &ns.items {
+                    add_symbols(item, &mut resolved.symbols, Some(ns.name.clone()));
+                }
+            }
+            DtsItem::Module(m) => {
+                resolved.symbols.insert(m.name.clone(), DeclKind::Module);
+                for item in &m.items {
+                    add_symbols(item, &mut resolved.symbols, Some(m.name.clone()));
+                }
             }
             DtsItem::Export(DtsExport::Equals(name)) => {
                 resolved.export_equals = Some(name.clone());
@@ -82,4 +92,31 @@ pub fn resolve_module(file: &DtsFile, path: &PathBuf) -> ResolvedModule {
     // Keep path in case we want to extend graph logic later
     let _ = path;
     resolved
+}
+
+fn add_symbols(item: &DtsItem, symbols: &mut HashMap<String, DeclKind>, _scope: Option<String>) {
+    match item {
+        DtsItem::Function(f) => {
+            symbols.insert(f.name.clone(), DeclKind::Function);
+        }
+        DtsItem::Class(c) => {
+            symbols.insert(c.name.clone(), DeclKind::Class);
+        }
+        DtsItem::Interface(i) => {
+            symbols.entry(i.name.clone()).or_insert(DeclKind::Namespace);
+        }
+        DtsItem::Namespace(ns) => {
+            symbols.insert(ns.name.clone(), DeclKind::Namespace);
+            for item in &ns.items {
+                add_symbols(item, symbols, Some(ns.name.clone()));
+            }
+        }
+        DtsItem::Module(m) => {
+            symbols.insert(m.name.clone(), DeclKind::Module);
+            for item in &m.items {
+                add_symbols(item, symbols, Some(m.name.clone()));
+            }
+        }
+        _ => {}
+    }
 }

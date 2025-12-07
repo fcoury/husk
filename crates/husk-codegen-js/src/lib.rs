@@ -5100,7 +5100,7 @@ mod tests {
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
 
-        // Should generate: if (x.tag == "Some") { let v = x.value; break; } else if (x.tag == "None") { }
+        // Should generate: if (x.tag === "Some") { let v = x.value; break; } else if (x.tag == "None") { }
         if let JsStmt::If {
             cond,
             then_block,
@@ -5109,7 +5109,7 @@ mod tests {
         {
             // Check the condition is x.tag == "Some"
             if let JsExpr::Binary { op, left, right } = cond {
-                assert!(matches!(op, JsBinaryOp::EqEq));
+                assert!(matches!(op, JsBinaryOp::StrictEq));
                 if let JsExpr::Member { property, .. } = *left {
                     assert_eq!(property, "tag");
                 } else {

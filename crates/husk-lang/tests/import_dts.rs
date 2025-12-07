@@ -7,16 +7,15 @@ use tempfile::tempdir;
 
 fn workspace_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("failed to read current dir");
-    let mut found: Option<PathBuf> = None;
     loop {
-        if dir.join("Cargo.toml").exists() {
-            found = Some(dir.clone());
+        if dir.join("Cargo.toml").exists() && dir.join("examples").exists() {
+            return dir;
         }
         if !dir.pop() {
             break;
         }
     }
-    found.expect("failed to resolve workspace root from current dir")
+    panic!("failed to resolve workspace root from current dir")
 }
 
 fn huskc_command() -> Command {
