@@ -181,6 +181,8 @@ struct Codegen<'a> {
     /// Tracks interface inheritance: child interface name -> list of parent interface names.
     /// Used to copy methods from parent interfaces to child impl blocks.
     interface_extends: HashMap<String, Vec<String>>,
+    /// Collected variables for typeof resolution: variable name -> DtsType.
+    variables: HashMap<String, DtsType>,
 }
 
 struct GeneratedFn {
@@ -249,6 +251,7 @@ impl<'a> Codegen<'a> {
             type_registry: TypeRegistry::new(),
             expanding_aliases: HashSet::new(),
             interface_extends: HashMap::new(),
+            variables: HashMap::new(),
         }
     }
 
@@ -1118,6 +1121,9 @@ impl<'a> Codegen<'a> {
     }
 
     fn collect_variable(&mut self, v: &DtsVariable) {
+        // Store the original type for typeof resolution
+        self.variables.insert(v.name.clone(), v.ty.clone());
+
         let ty = self.map_type(&v.ty);
 
         if self.options.use_extern_const && v.is_const {
@@ -1196,9 +1202,17 @@ impl<'a> Codegen<'a> {
                     "JsValue".to_string()
                 }
             }
-            DtsType::TypeOf(_) => {
-                self.warn(WarningKind::Unsupported, "typeof type not supported");
-                "JsValue".to_string()
+            DtsType::TypeOf(name) => {
+                // Try to resolve the typeof reference
+                if let Some(resolved) = self.resolve_typeof(name) {
+                    resolved
+                } else {
+                    self.warn(
+                        WarningKind::Unsupported,
+                        format!("typeof {} could not be resolved", name),
+                    );
+                    "JsValue".to_string()
+                }
             }
             DtsType::KeyOf(target) => {
                 // Try to extract known keys from the target type
@@ -1637,6 +1651,163 @@ impl<'a> Codegen<'a> {
                 }
             }
             DtsType::Parenthesized(inner) => self.get_property_type_from_object(inner, property_name),
+            _ => None,
+        }
+    }
+
+    /// Resolve a `typeof` type reference to its actual type.
+    ///
+    /// Handles patterns like:
+    /// - `typeof myVar` - look up variable's type
+    /// - `typeof X.Y` - look up qualified member access
+    fn resolve_typeof(&mut self, name: &str) -> Option<String> {
+        // Split qualified names like "bodyParser.json"
+        let parts: Vec<&str> = name.split('.').collect();
+
+        if parts.len() == 1 {
+            // Simple name: typeof myVar
+            // Look up in our variables first
+            if let Some(ty) = self.variables.get(name).cloned() {
+                return Some(self.map_type(&ty));
+            }
+            // Check if it's a known function - return function type
+            if self.functions.iter().any(|f| f.name == name) {
+                // It's a function reference - return fn type (simplified)
+                return Some("JsValue".to_string());
+            }
+            None
+        } else {
+            // Qualified name: typeof X.Y or typeof X.Y.Z
+            // First, try to resolve the base (e.g., "bodyParser")
+            let base = parts[0];
+            let rest = &parts[1..];
+
+            // Look up the base variable's type
+            if let Some(base_ty) = self.variables.get(base).cloned() {
+                // Get the type name from the base variable
+                let type_name = match &base_ty {
+                    DtsType::Named { name, .. } => Some(name.clone()),
+                    _ => None,
+                };
+
+                if let Some(type_name) = type_name {
+                    // Try to find the member in the type registry
+                    return self.resolve_member_chain(&type_name, rest);
+                }
+            }
+
+            // Try direct lookup in type registry with the qualified name
+            // This handles cases where "X.Y" is registered as a type
+            if let Some(ty) = self.type_registry.get(name).cloned() {
+                return Some(self.map_type(&ty));
+            }
+
+            None
+        }
+    }
+
+    /// Resolve a chain of member accesses on a type.
+    ///
+    /// Given a type name and a list of member names, traverse the type
+    /// to find the final member's type.
+    fn resolve_member_chain(&mut self, type_name: &str, members: &[&str]) -> Option<String> {
+        if members.is_empty() {
+            return None;
+        }
+
+        // Get the type from the registry
+        let ty = self.type_registry.get(type_name)?.clone();
+
+        // For the first member, find it in the type
+        let member_name = members[0];
+        let member_type = self.get_member_type_from_object(&ty, member_name)?;
+
+        if members.len() == 1 {
+            // This is the final member - return its type
+            // If it's a function, map it properly
+            match &member_type {
+                DtsType::Function(func) => {
+                    // Generate function type signature
+                    let params: Vec<String> = func
+                        .params
+                        .iter()
+                        .map(|p| {
+                            let ty = self.map_type(&p.ty);
+                            if p.optional {
+                                format!("Option<{}>", ty)
+                            } else {
+                                ty
+                            }
+                        })
+                        .collect();
+                    let ret = self.map_type(&func.return_type);
+                    if params.is_empty() {
+                        Some(format!("fn() -> {}", ret))
+                    } else {
+                        Some(format!("fn({}) -> {}", params.join(", "), ret))
+                    }
+                }
+                _ => Some(self.map_type(&member_type)),
+            }
+        } else {
+            // Need to continue traversing
+            match &member_type {
+                DtsType::Named { name, .. } => {
+                    self.resolve_member_chain(name, &members[1..])
+                }
+                _ => None,
+            }
+        }
+    }
+
+    /// Get the type of a member (property or method) from an object type.
+    ///
+    /// Unlike get_property_type_from_object which returns the value type,
+    /// this returns the full member type including function signatures.
+    fn get_member_type_from_object(&self, ty: &DtsType, member_name: &str) -> Option<DtsType> {
+        match ty {
+            DtsType::Object(members) => {
+                for member in members {
+                    match member {
+                        ObjectMember::Property { name, ty, .. } if name == member_name => {
+                            return Some(ty.clone());
+                        }
+                        ObjectMember::Method {
+                            name,
+                            params,
+                            return_type,
+                            type_params,
+                            this_param,
+                            ..
+                        } if name == member_name => {
+                            // Return as a function type
+                            // If no return type specified, default to void
+                            let ret_type = return_type
+                                .clone()
+                                .unwrap_or(DtsType::Primitive(Primitive::Void));
+                            return Some(DtsType::Function(Box::new(
+                                crate::ast::FunctionType {
+                                    type_params: type_params.clone(),
+                                    params: params.clone(),
+                                    return_type: Box::new(ret_type),
+                                    this_param: this_param.clone(),
+                                },
+                            )));
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            }
+            DtsType::Named { name, .. } => {
+                // Try to resolve the named type
+                if let Some(resolved) = self.type_registry.get(name) {
+                    self.get_member_type_from_object(resolved, member_name)
+                } else {
+                    None
+                }
+            }
+            DtsType::Parenthesized(inner) => self.get_member_type_from_object(inner, member_name),
             _ => None,
         }
     }
