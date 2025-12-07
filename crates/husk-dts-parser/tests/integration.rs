@@ -1193,4 +1193,57 @@ fn test_real_express_types() {
             println!("  - {}", err);
         }
     }
+
+    // ========================================
+    // Phase 2: Validate bindings compile
+    // ========================================
+
+    println!("\n=== Validating generated bindings compile ===\n");
+
+    // Save generated code for debugging
+    std::fs::write("/tmp/generated.husk", &result.code).expect("save generated code");
+    println!("Saved generated code to /tmp/generated.husk");
+
+    // Time lexing separately
+    let lex_start = std::time::Instant::now();
+    let tokens: Vec<husk_lexer::Token> = husk_lexer::Lexer::new(&result.code).collect();
+    let lex_time = lex_start.elapsed();
+    println!("Lexing: {:?} ({} tokens)", lex_time, tokens.len());
+
+    // Parse the generated Husk bindings
+    let parse_start = std::time::Instant::now();
+    let parse_result = husk_parser::parse_str(&result.code);
+    let parse_time = parse_start.elapsed();
+    println!("Parsing: {:?}", parse_time);
+
+    if !parse_result.errors.is_empty() {
+        println!("Parse errors in generated bindings:");
+        for err in &parse_result.errors {
+            println!("  - {} at {:?}", err.message, err.span);
+        }
+    }
+
+    let bindings_ast = parse_result.file.expect(
+        "Generated bindings should parse without fatal errors"
+    );
+
+    println!("Parsed {} items from generated bindings", bindings_ast.items.len());
+
+    // Verify we have a reasonable number of items
+    assert!(
+        bindings_ast.items.len() > 100,
+        "Expected many items from express types, got {}",
+        bindings_ast.items.len()
+    );
+
+    // Verify no parse errors
+    assert!(
+        parse_result.errors.is_empty(),
+        "Generated bindings should parse without errors"
+    );
+
+    println!("\n=== Test complete ===");
+    println!("Generated bindings: {} bytes", result.code.len());
+    println!("Resolved files: {}", resolved.files.len());
+    println!("Parsed items: {}", bindings_ast.items.len());
 }

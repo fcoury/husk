@@ -51,7 +51,8 @@ pub fn parse_str(source: &str) -> ParseResult {
     debug_log("[huskc-parser] lexing");
     let tokens: Vec<Token> = Lexer::new(source).collect();
     debug_log(&format!("[huskc-parser] lexed {} tokens", tokens.len()));
-    let mut parser = Parser::new(tokens.clone(), source);
+    // Parser borrows tokens - no cloning needed
+    let mut parser = Parser::new(&tokens, source);
     let file = parser.parse_file();
     ParseResult {
         file: Some(file),
@@ -61,7 +62,7 @@ pub fn parse_str(source: &str) -> ParseResult {
 }
 
 struct Parser<'src> {
-    tokens: Vec<Token>,
+    tokens: &'src [Token],
     pos: usize,
     pub errors: Vec<ParseError>,
     /// When false, struct literal expressions like `Name { ... }` are not allowed.
@@ -73,7 +74,7 @@ struct Parser<'src> {
 }
 
 impl<'src> Parser<'src> {
-    fn new(tokens: Vec<Token>, source: &'src str) -> Self {
+    fn new(tokens: &'src [Token], source: &'src str) -> Self {
         Self {
             tokens,
             pos: 0,
@@ -141,6 +142,22 @@ impl<'src> Parser<'src> {
         Span {
             range: span.range.clone(),
         }
+    }
+
+    /// Find the first token index whose span starts at or after `byte_pos`.
+    /// Uses binary search since token spans are monotonically increasing.
+    fn find_token_at_or_after(&self, byte_pos: usize) -> usize {
+        let mut lo = self.pos;
+        let mut hi = self.tokens.len();
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if self.tokens[mid].span.range.start < byte_pos {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 
     fn error_at_token(&mut self, token: &Token, message: impl Into<String>) {
@@ -694,10 +711,61 @@ impl<'src> Parser<'src> {
                 continue;
             }
 
+            // Check for `impl` block
+            if self.matches_keyword(Keyword::Impl) {
+                let impl_start = self.previous().span.range.start;
+
+                // Parse optional type parameters with bounds
+                let type_params = self.parse_type_params_with_bounds();
+
+                // Parse the type being implemented
+                let self_ty = match self.parse_type_expr() {
+                    Some(ty) => ty,
+                    None => {
+                        self.synchronize_item();
+                        continue;
+                    }
+                };
+
+                if !self.matches_token(&TokenKind::LBrace) {
+                    self.error_here("expected `{` after impl type");
+                    self.synchronize_item();
+                    continue;
+                }
+
+                // Parse impl methods - treat them all as extern
+                let mut impl_items = Vec::new();
+                while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+                    let pos_before = self.pos;
+                    if let Some(item) = self.parse_extern_impl_method() {
+                        impl_items.push(item);
+                    } else {
+                        self.synchronize_item();
+                        // Ensure progress to avoid infinite loop
+                        if self.pos == pos_before && !self.is_at_end() {
+                            self.advance();
+                        }
+                    }
+                }
+
+                let span = Span {
+                    range: impl_start..self.previous().span.range.end,
+                };
+                items.push(husk_ast::ExternItem {
+                    kind: husk_ast::ExternItemKind::Impl {
+                        type_params,
+                        self_ty,
+                        items: impl_items,
+                    },
+                    span,
+                });
+                continue;
+            }
+
             // Check for `fn` declaration
             let fn_start = self.current().span.range.start;
             if !self.matches_keyword(Keyword::Fn) {
-                self.error_here("expected `fn`, `mod`, `struct`, `static`, or `const` inside extern block");
+                self.error_here("expected `fn`, `mod`, `struct`, `static`, `const`, or `impl` inside extern block");
                 self.synchronize_item();
                 continue;
             }
@@ -878,10 +946,17 @@ impl<'src> Parser<'src> {
 
         let mut items = Vec::new();
         while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            let pos_before = self.pos;
             if let Some(item) = self.parse_impl_method() {
                 items.push(item);
             } else {
                 self.synchronize_item();
+                // Ensure progress is made to avoid infinite loop
+                // (can happen when synchronize_item stops at a keyword like `type`
+                // that parse_impl_method doesn't handle)
+                if self.pos == pos_before && !self.is_at_end() {
+                    self.advance();
+                }
             }
         }
 
@@ -1225,6 +1300,60 @@ impl<'src> Parser<'src> {
                 span: Span { range: start..end },
             }),
             span: Span { range: start..end },
+        })
+    }
+
+    /// Parse a method inside an extern impl block.
+    /// All methods are implicitly extern and must end with `;` (no body).
+    /// Format: `fn method(&self, param: Type) -> RetType;`
+    fn parse_extern_impl_method(&mut self) -> Option<ImplItem> {
+        // Parse any attributes
+        let attributes = self.parse_attributes();
+
+        let item_start = self.current().span.range.start;
+
+        if !self.matches_keyword(Keyword::Fn) {
+            self.error_here("expected `fn` inside extern impl block");
+            return None;
+        }
+
+        let name = self.parse_ident("expected method name after `fn`")?;
+
+        if !self.matches_token(&TokenKind::LParen) {
+            self.error_here("expected `(` after method name");
+            return None;
+        }
+
+        // Parse self receiver and regular parameters
+        let (receiver, params) = self.parse_method_param_list();
+
+        // Optional return type
+        let ret_type = if self.matches_token(&TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        // All methods in extern impl blocks must end with semicolon
+        if !self.matches_token(&TokenKind::Semicolon) {
+            self.error_here("expected `;` after method declaration in extern impl block");
+            return None;
+        }
+
+        let end = self.previous().span.range.end;
+        Some(ImplItem {
+            kind: ImplItemKind::Method(ImplMethod {
+                attributes,
+                name,
+                receiver,
+                params,
+                ret_type,
+                body: Vec::new(), // Extern methods have no body
+                is_extern: true,
+            }),
+            span: Span {
+                range: item_start..end,
+            },
         })
     }
 
@@ -3708,14 +3837,8 @@ impl<'src> Parser<'src> {
         let trimmed = content.trim().to_string();
 
         // Advance the token position past the closing brace
-        // Find the token that contains or follows pos
-        while self.pos < self.tokens.len() {
-            let tok = &self.tokens[self.pos];
-            if tok.span.range.start >= pos {
-                break;
-            }
-            self.pos += 1;
-        }
+        // Use binary search to find the token at or after pos (O(log n) instead of O(n))
+        self.pos = self.find_token_at_or_after(pos);
 
         // Consume the closing brace token
         if self.current().kind == TokenKind::RBrace {
