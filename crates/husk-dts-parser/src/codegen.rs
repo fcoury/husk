@@ -1,7 +1,9 @@
 //! Generate Husk `extern "js"` code from parsed .d.ts AST.
 
 use crate::ast::*;
+use crate::builder::{self, BuilderConfig};
 use crate::resolver::ModuleIdentity;
+use crate::utility_types::{expand_type, ExpansionContext, TypeRegistry};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
@@ -20,6 +22,30 @@ pub struct CodegenOptions {
     /// - Hybrid: Generate both function and module contents
     /// - Namespace: Generate as namespace export
     pub module_identity: Option<ModuleIdentity>,
+    /// Strategy for handling union types.
+    pub union_strategy: UnionStrategy,
+    /// Whether to generate builder patterns for interfaces with many optional properties.
+    pub generate_builders: bool,
+    /// Minimum number of optional properties to trigger builder generation.
+    pub builder_min_optional: usize,
+    /// Whether to expand utility types (Partial, Pick, Omit, etc.) inline.
+    pub expand_utility_types: bool,
+}
+
+/// Strategy for handling TypeScript union types in generated code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnionStrategy {
+    /// Automatically choose based on union structure (default).
+    /// - String literals → enum
+    /// - Nullable → Option<T>
+    /// - Small unions → enum (if < 5 variants)
+    /// - Large/complex unions → JsValue
+    #[default]
+    Auto,
+    /// Always generate enums for unions (may fail for complex types).
+    Enum,
+    /// Always fall back to JsValue for unions.
+    JsValue,
 }
 
 /// Warnings generated during code generation.
@@ -75,6 +101,10 @@ struct Codegen<'a> {
     in_struct_context: bool,
     /// The name of the current struct/interface being processed (for `this` type).
     current_type_name: Option<String>,
+    /// Collected interfaces for builder generation (only stored when generate_builders is enabled).
+    interfaces: Vec<DtsInterface>,
+    /// Type registry for utility type expansion (only populated when expand_utility_types is enabled).
+    type_registry: TypeRegistry,
 }
 
 struct GeneratedFn {
@@ -117,6 +147,8 @@ impl<'a> Codegen<'a> {
             method_type_params: HashSet::new(),
             in_struct_context: false,
             current_type_name: None,
+            interfaces: Vec::new(),
+            type_registry: TypeRegistry::new(),
         }
     }
 
@@ -146,6 +178,7 @@ impl<'a> Codegen<'a> {
         self.emit_header();
         self.emit_extern_block();
         self.emit_impl_blocks();
+        self.emit_builders();
         self.emit_warnings();
     }
 
@@ -412,6 +445,17 @@ impl<'a> Codegen<'a> {
         self.structs.insert(i.name.clone());
         self.in_struct_context = true;
         self.current_type_name = Some(i.name.clone());
+
+        // Store interface for builder generation if enabled
+        if self.options.generate_builders {
+            self.interfaces.push(i.clone());
+        }
+
+        // Register in type registry for utility type expansion (only for non-generic interfaces)
+        if self.options.expand_utility_types && i.type_params.is_empty() {
+            let object_type = interface_to_object_type(i);
+            self.type_registry.register(i.name.clone(), object_type);
+        }
 
         let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
         self.known_generics = type_params.iter().cloned().collect();
@@ -689,6 +733,11 @@ impl<'a> Codegen<'a> {
 
     fn collect_type_alias(&mut self, t: &DtsTypeAlias) {
         self.type_aliases.insert(t.name.clone(), t.ty.clone());
+
+        // Register in type registry for utility type expansion (only for non-generic type aliases)
+        if self.options.expand_utility_types && t.type_params.is_empty() {
+            self.type_registry.register(t.name.clone(), t.ty.clone());
+        }
     }
 
     fn collect_variable(&mut self, v: &DtsVariable) {
@@ -877,7 +926,23 @@ impl<'a> Codegen<'a> {
             "Function" => "JsFn".to_string(),
             "Partial" | "Required" | "Readonly" | "Pick" | "Omit" | "Record" | "Exclude"
             | "Extract" | "NonNullable" | "ReturnType" | "Parameters" | "InstanceType" => {
-                // TypeScript utility types - map to JsValue
+                // TypeScript utility types - try expansion if enabled
+                if self.options.expand_utility_types {
+                    // Build the DtsType::Named to pass to expand_type
+                    let named_type = DtsType::Named {
+                        name: simple_name.to_string(),
+                        type_args: type_args.to_vec(),
+                    };
+                    let ctx = ExpansionContext::new();
+                    let expanded = expand_type(&named_type, &self.type_registry, &ctx);
+
+                    // If expansion produced a different type (not the same Named type), map it
+                    if expanded != named_type {
+                        return self.map_type(&expanded);
+                    }
+                }
+
+                // Fall back to JsValue if expansion disabled or didn't help
                 self.warn(
                     WarningKind::Unsupported,
                     format!("Utility type {} not supported", simple_name),
@@ -1355,6 +1420,35 @@ impl<'a> Codegen<'a> {
         }
     }
 
+    /// Emit builder patterns for interfaces with many optional properties.
+    fn emit_builders(&mut self) {
+        if !self.options.generate_builders || self.interfaces.is_empty() {
+            return;
+        }
+
+        let config = BuilderConfig {
+            min_optional_props: self.options.builder_min_optional,
+            ..Default::default()
+        };
+
+        let mut builders_generated = false;
+
+        for iface in &self.interfaces {
+            if builder::should_generate_builder(iface, &config) {
+                let generated = builder::generate_builder(iface, &config);
+
+                if !builders_generated {
+                    writeln!(self.output).unwrap();
+                    writeln!(self.output, "// Builder patterns for interfaces with optional properties").unwrap();
+                    builders_generated = true;
+                }
+
+                writeln!(self.output).unwrap();
+                write!(self.output, "{}", generated.code).unwrap();
+            }
+        }
+    }
+
     fn emit_warnings(&mut self) {
         if self.warnings.is_empty() || !self.options.verbose {
             return;
@@ -1437,6 +1531,41 @@ pub fn escape_keyword(name: &str) -> String {
     } else {
         name.to_string()
     }
+}
+
+/// Convert a DtsInterface to a DtsType::Object for type registry.
+///
+/// This is used for utility type expansion - the interface is converted to an
+/// object literal type so utility types like Partial<MyInterface> can be expanded.
+fn interface_to_object_type(iface: &DtsInterface) -> DtsType {
+    let members: Vec<ObjectMember> = iface
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            InterfaceMember::Property(p) => Some(ObjectMember::Property {
+                name: p.name.clone(),
+                ty: p.ty.clone(),
+                optional: p.optional,
+                readonly: p.readonly,
+            }),
+            InterfaceMember::Method(m) => Some(ObjectMember::Method {
+                name: m.name.clone(),
+                type_params: m.type_params.clone(),
+                params: m.params.clone(),
+                return_type: m.return_type.clone(),
+                optional: m.optional,
+            }),
+            InterfaceMember::IndexSignature(sig) => {
+                Some(ObjectMember::IndexSignature(sig.clone()))
+            }
+            InterfaceMember::CallSignature(sig) => Some(ObjectMember::CallSignature(sig.clone())),
+            InterfaceMember::ConstructSignature(sig) => {
+                Some(ObjectMember::ConstructSignature(sig.clone()))
+            }
+        })
+        .collect();
+
+    DtsType::Object(members)
 }
 
 /// Convert a DtsType to a Husk type string.
