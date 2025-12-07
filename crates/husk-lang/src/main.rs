@@ -1858,13 +1858,27 @@ fn run_dts_update(
         // Also collect all resolved files for diagnostics when follow_imports is enabled
         let (dts_file, resolved_files): (DtsFile, Option<HashMap<PathBuf, DtsFile>>) = if use_oxc {
             // Use Oxc parser
-            if follow_imports {
+            // Check if follow_imports is enabled via CLI or per-entry config
+            let should_follow_imports = follow_imports || entry.follow_imports.unwrap_or(false);
+
+            if should_follow_imports {
                 // Use resolver for multi-file resolution
+                // Get module paths from global config or use default
+                let module_paths = config
+                    .dts_options
+                    .as_ref()
+                    .and_then(|opts| opts.node_modules_paths.as_ref())
+                    .map(|paths| paths.iter().map(PathBuf::from).collect())
+                    .unwrap_or_else(|| vec![PathBuf::from("node_modules")]);
+
+                // Get max depth from per-entry config or use default
+                let max_depth = entry.max_import_depth.or(Some(10));
+
                 let options = resolver::ResolveOptions {
                     base_dir: Some(PathBuf::from(".")),
-                    module_paths: vec![PathBuf::from("node_modules")],
+                    module_paths,
                     follow_references: true,
-                    max_depth: Some(10),
+                    max_depth,
                 };
                 let mut resolver = resolver::Resolver::new(options);
                 let resolved = resolver.resolve(Path::new(dts_path));
