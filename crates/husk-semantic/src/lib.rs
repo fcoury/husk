@@ -2283,6 +2283,12 @@ impl<'a> FnContext<'a> {
             } => {
                 let iter_ty = self.check_expr(iterable);
 
+                // Record iterable type for codegen (needed for Range iteration)
+                self.tcx.type_resolution.insert(
+                    (iterable.span.range.start, iterable.span.range.end),
+                    self.format_type(&iter_ty),
+                );
+
                 // Extract element type from iterable ([T], Vec<T>, Range<T>, String)
                 let elem_ty = match &iter_ty {
                     Type::Array(elem) => (**elem).clone(),
