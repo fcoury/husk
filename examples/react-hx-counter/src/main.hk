@@ -59,19 +59,19 @@ fn Counter() -> JsValue {
 
     // Extract count (index 0) and setter (index 1) from the state array
     let count = jsvalue_get(state, "0");
-    let setCount = jsvalue_get(state, "1");
+    let set_count = jsvalue_get(state, "1");
 
-    // Create increment handler - call setCount with count + 1
-    let on_click = js {
-        function() {
-            setCount(count + 1);
-        }
+    // For the click handler, we need to create a function that captures the state
+    // We use jsvalue_call1 to call the setter with the new value
+    let increment = js {
+        () => set_count(count + 1)
     };
 
     hx {
         <div class="counter">
-            <p>Count: {count}</p>
-            <button onClick={on_click}>Increment</button>
+            <h2>Counter Demo</h2>
+            <p class="count">Count: {count}</p>
+            <button onClick={increment}>Increment</button>
         </div>
     }
 }

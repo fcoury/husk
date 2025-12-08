@@ -4463,11 +4463,14 @@ impl<'src> Parser<'src> {
 
     /// Parse an expression from a string slice at a given offset.
     /// This is used for parsing expressions inside hx blocks.
-    fn parse_expression_from_string(&mut self, source: &str, _offset: usize) -> Option<Expr> {
+    fn parse_expression_from_string(&mut self, source: &str, offset: usize) -> Option<Expr> {
         // Re-lex and parse the expression
         let tokens: Vec<Token> = husk_lexer::Lexer::new(source).collect();
         let mut sub_parser = Parser::new(&tokens, source);
-        let expr = sub_parser.parse_expr()?;
+        let mut expr = sub_parser.parse_expr()?;
+
+        // Adjust spans by the offset so they refer to positions in the original source
+        Self::offset_expr_spans(&mut expr, offset);
 
         // Merge any errors from sub-parser
         for err in sub_parser.errors {
@@ -4475,6 +4478,285 @@ impl<'src> Parser<'src> {
         }
 
         Some(expr)
+    }
+
+    /// Recursively offset all spans in an expression by the given amount.
+    fn offset_expr_spans(expr: &mut Expr, offset: usize) {
+        expr.span.range = (expr.span.range.start + offset)..(expr.span.range.end + offset);
+        match &mut expr.kind {
+            ExprKind::Ident(id) => {
+                id.span.range = (id.span.range.start + offset)..(id.span.range.end + offset);
+            }
+            ExprKind::Literal(lit) => {
+                lit.span.range = (lit.span.range.start + offset)..(lit.span.range.end + offset);
+            }
+            ExprKind::Binary { left, right, .. } => {
+                Self::offset_expr_spans(left, offset);
+                Self::offset_expr_spans(right, offset);
+            }
+            ExprKind::Unary { expr: inner, .. } => {
+                Self::offset_expr_spans(inner, offset);
+            }
+            ExprKind::Call { callee, args, .. } => {
+                Self::offset_expr_spans(callee, offset);
+                for arg in args {
+                    Self::offset_expr_spans(arg, offset);
+                }
+            }
+            ExprKind::Field { base, member } => {
+                Self::offset_expr_spans(base, offset);
+                member.span.range =
+                    (member.span.range.start + offset)..(member.span.range.end + offset);
+            }
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                Self::offset_expr_spans(receiver, offset);
+                method.span.range =
+                    (method.span.range.start + offset)..(method.span.range.end + offset);
+                for arg in args {
+                    Self::offset_expr_spans(arg, offset);
+                }
+            }
+            ExprKind::Path { segments } => {
+                for seg in segments {
+                    seg.span.range = (seg.span.range.start + offset)..(seg.span.range.end + offset);
+                }
+            }
+            ExprKind::Block(block) => {
+                Self::offset_block_spans(block, offset);
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                Self::offset_expr_spans(scrutinee, offset);
+                for arm in arms {
+                    Self::offset_pattern_spans(&mut arm.pattern, offset);
+                    Self::offset_expr_spans(&mut arm.expr, offset);
+                }
+            }
+            ExprKind::Struct { name, fields } => {
+                for n in name {
+                    n.span.range = (n.span.range.start + offset)..(n.span.range.end + offset);
+                }
+                for field in fields {
+                    field.name.span.range =
+                        (field.name.span.range.start + offset)..(field.name.span.range.end + offset);
+                    Self::offset_expr_spans(&mut field.value, offset);
+                }
+            }
+            ExprKind::Index { base, index } => {
+                Self::offset_expr_spans(base, offset);
+                Self::offset_expr_spans(index, offset);
+            }
+            ExprKind::Tuple { elements } | ExprKind::Array { elements } => {
+                for e in elements {
+                    Self::offset_expr_spans(e, offset);
+                }
+            }
+            ExprKind::Closure {
+                params, body, ret_type, ..
+            } => {
+                for param in params {
+                    param.name.span.range =
+                        (param.name.span.range.start + offset)..(param.name.span.range.end + offset);
+                    if let Some(ty) = &mut param.ty {
+                        Self::offset_type_expr_spans(ty, offset);
+                    }
+                }
+                Self::offset_expr_spans(body, offset);
+                if let Some(ret) = ret_type {
+                    Self::offset_type_expr_spans(ret, offset);
+                }
+            }
+            ExprKind::Range { start, end, inclusive: _ } => {
+                if let Some(s) = start {
+                    Self::offset_expr_spans(s, offset);
+                }
+                if let Some(e) = end {
+                    Self::offset_expr_spans(e, offset);
+                }
+            }
+            ExprKind::Assign { target, value, .. } => {
+                Self::offset_expr_spans(target, offset);
+                Self::offset_expr_spans(value, offset);
+            }
+            ExprKind::Cast { expr: inner, target_ty } => {
+                Self::offset_expr_spans(inner, offset);
+                Self::offset_type_expr_spans(target_ty, offset);
+            }
+            ExprKind::TupleField { base, .. } => {
+                Self::offset_expr_spans(base, offset);
+            }
+            ExprKind::JsLiteral { .. } => {
+                // JS literal spans don't need adjustment for name resolution
+            }
+            ExprKind::HxBlock { .. } => {
+                // Nested HX blocks would need recursive handling, but for now skip
+            }
+            ExprKind::FormatPrint { args, .. } | ExprKind::Format { args, .. } => {
+                for arg in args {
+                    Self::offset_expr_spans(arg, offset);
+                }
+            }
+        }
+    }
+
+    fn offset_block_spans(block: &mut Block, offset: usize) {
+        block.span.range = (block.span.range.start + offset)..(block.span.range.end + offset);
+        for stmt in &mut block.stmts {
+            Self::offset_stmt_spans(stmt, offset);
+        }
+    }
+
+    fn offset_stmt_spans(stmt: &mut Stmt, offset: usize) {
+        stmt.span.range = (stmt.span.range.start + offset)..(stmt.span.range.end + offset);
+        match &mut stmt.kind {
+            StmtKind::Let {
+                pattern,
+                ty,
+                value,
+                else_block,
+                ..
+            } => {
+                Self::offset_pattern_spans(pattern, offset);
+                if let Some(t) = ty {
+                    Self::offset_type_expr_spans(t, offset);
+                }
+                if let Some(e) = value {
+                    Self::offset_expr_spans(e, offset);
+                }
+                if let Some(b) = else_block {
+                    Self::offset_block_spans(b, offset);
+                }
+            }
+            StmtKind::Expr(e) | StmtKind::Semi(e) => {
+                Self::offset_expr_spans(e, offset);
+            }
+            StmtKind::Return { value } => {
+                if let Some(e) = value {
+                    Self::offset_expr_spans(e, offset);
+                }
+            }
+            StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Assign { target, value, .. } => {
+                Self::offset_expr_spans(target, offset);
+                Self::offset_expr_spans(value, offset);
+            }
+            StmtKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                Self::offset_expr_spans(cond, offset);
+                Self::offset_block_spans(then_branch, offset);
+                if let Some(else_stmt) = else_branch {
+                    Self::offset_stmt_spans(else_stmt, offset);
+                }
+            }
+            StmtKind::While { cond, body } => {
+                Self::offset_expr_spans(cond, offset);
+                Self::offset_block_spans(body, offset);
+            }
+            StmtKind::Loop { body } => {
+                Self::offset_block_spans(body, offset);
+            }
+            StmtKind::ForIn {
+                binding,
+                iterable,
+                body,
+            } => {
+                binding.span.range =
+                    (binding.span.range.start + offset)..(binding.span.range.end + offset);
+                Self::offset_expr_spans(iterable, offset);
+                Self::offset_block_spans(body, offset);
+            }
+            StmtKind::Block(block) => {
+                Self::offset_block_spans(block, offset);
+            }
+            StmtKind::IfLet {
+                pattern,
+                then_branch,
+                else_branch,
+                scrutinee,
+            } => {
+                Self::offset_pattern_spans(pattern, offset);
+                Self::offset_expr_spans(scrutinee, offset);
+                Self::offset_block_spans(then_branch, offset);
+                if let Some(else_stmt) = else_branch {
+                    Self::offset_stmt_spans(else_stmt, offset);
+                }
+            }
+        }
+    }
+
+    fn offset_pattern_spans(pattern: &mut Pattern, offset: usize) {
+        pattern.span.range =
+            (pattern.span.range.start + offset)..(pattern.span.range.end + offset);
+        match &mut pattern.kind {
+            PatternKind::Wildcard => {}
+            PatternKind::Binding(id) => {
+                id.span.range = (id.span.range.start + offset)..(id.span.range.end + offset);
+            }
+            PatternKind::Tuple { fields } => {
+                for p in fields {
+                    Self::offset_pattern_spans(p, offset);
+                }
+            }
+            PatternKind::EnumUnit { path } => {
+                for p in path {
+                    p.span.range = (p.span.range.start + offset)..(p.span.range.end + offset);
+                }
+            }
+            PatternKind::EnumTuple { path, fields } => {
+                for p in path {
+                    p.span.range = (p.span.range.start + offset)..(p.span.range.end + offset);
+                }
+                for f in fields {
+                    Self::offset_pattern_spans(f, offset);
+                }
+            }
+            PatternKind::EnumStruct { path, fields } => {
+                for p in path {
+                    p.span.range = (p.span.range.start + offset)..(p.span.range.end + offset);
+                }
+                for (name, pat) in fields {
+                    name.span.range =
+                        (name.span.range.start + offset)..(name.span.range.end + offset);
+                    Self::offset_pattern_spans(pat, offset);
+                }
+            }
+        }
+    }
+
+    fn offset_type_expr_spans(ty: &mut TypeExpr, offset: usize) {
+        ty.span.range = (ty.span.range.start + offset)..(ty.span.range.end + offset);
+        match &mut ty.kind {
+            TypeExprKind::Named(id) => {
+                id.span.range = (id.span.range.start + offset)..(id.span.range.end + offset);
+            }
+            TypeExprKind::Generic { name, args } => {
+                name.span.range = (name.span.range.start + offset)..(name.span.range.end + offset);
+                for arg in args {
+                    Self::offset_type_expr_spans(arg, offset);
+                }
+            }
+            TypeExprKind::Array(inner) => {
+                Self::offset_type_expr_spans(inner, offset);
+            }
+            TypeExprKind::Tuple(tys) => {
+                for t in tys {
+                    Self::offset_type_expr_spans(t, offset);
+                }
+            }
+            TypeExprKind::Function { params, ret } => {
+                for p in params {
+                    Self::offset_type_expr_spans(p, offset);
+                }
+                Self::offset_type_expr_spans(ret, offset);
+            }
+        }
     }
 
     fn parse_array_expr(&mut self) -> Option<Expr> {
