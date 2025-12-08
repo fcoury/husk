@@ -47,7 +47,10 @@
       {
         "language": "husk",
         "scopeName": "source.husk",
-        "path": "./syntaxes/husk.tmLanguage.json"
+        "path": "./syntaxes/husk.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.javascript": "javascript"
+        }
       }
     ],
     "configuration": {
