@@ -2599,13 +2599,35 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
             }
         }
-        ExprKind::Range { .. } => {
-            // Range expressions are handled specially in ForIn lowering.
-            // If we encounter a standalone range, just return a placeholder.
-            // In practice, ranges should only appear in for-in loops.
+        ExprKind::Range {
+            start,
+            end,
+            inclusive,
+        } => {
+            // Range expressions can be used standalone (e.g., stored in arrays).
+            // Generate an object with start and end properties.
+            let start_js = match start {
+                Some(s) => lower_expr(s, ctx),
+                None => JsExpr::Number(0),
+            };
+            let end_js = match end {
+                Some(e) => {
+                    if *inclusive {
+                        // For inclusive ranges (..=), add 1 to end
+                        JsExpr::Binary {
+                            left: Box::new(lower_expr(e, ctx)),
+                            op: JsBinaryOp::Add,
+                            right: Box::new(JsExpr::Number(1)),
+                        }
+                    } else {
+                        lower_expr(e, ctx)
+                    }
+                }
+                None => JsExpr::Ident("Infinity".to_string()),
+            };
             JsExpr::Object(vec![
-                ("start".to_string(), JsExpr::Number(0)),
-                ("end".to_string(), JsExpr::Number(0)),
+                ("start".to_string(), start_js),
+                ("end".to_string(), end_js),
             ])
         }
         ExprKind::Assign { target, op, value } => {
