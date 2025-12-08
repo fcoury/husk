@@ -1544,6 +1544,9 @@ impl<'a> FnContext<'a> {
             .name_resolution
             .insert((span.range.start, span.range.end), resolved.clone());
 
+        // Track variable binding for rename support
+        self.tcx.add_reference(name, ReferenceKind::Variable, span.clone());
+
         // Register hover info for the variable binding
         let type_str = self.format_type(&ty);
         self.tcx.hover_info.insert(
@@ -1566,6 +1569,13 @@ impl<'a> FnContext<'a> {
             {
                 // This is an imported variant - resolve as if it were Enum::Variant
                 let enum_def = self.tcx.env.enums.get(&enum_name).cloned();
+
+                // Track variant reference for rename support
+                self.tcx.add_reference(
+                    &format!("{}::{}", enum_name, variant_def.name),
+                    ReferenceKind::Variant,
+                    segments[0].span.clone(),
+                );
                 let enum_ty = Type::Named {
                     name: enum_name.clone(),
                     args: Vec::new(),
@@ -1620,6 +1630,15 @@ impl<'a> FnContext<'a> {
                         span: expr.span.clone(),
                     });
                 }
+
+                // Track enum and variant references for rename support
+                self.tcx
+                    .add_reference(enum_name, ReferenceKind::Enum, segments[0].span.clone());
+                self.tcx.add_reference(
+                    &format!("{}::{}", enum_name, variant_name),
+                    ReferenceKind::Variant,
+                    segments[segments.len() - 1].span.clone(),
+                );
 
                 let enum_ty = Type::Named {
                     name: enum_name.clone(),
@@ -1782,7 +1801,18 @@ impl<'a> FnContext<'a> {
                                     span: arm.pattern.span.clone(),
                                 });
                             } else {
-                                seen_variants.insert(variant);
+                                seen_variants.insert(variant.clone());
+                                // Track enum and variant references for rename support
+                                self.tcx.add_reference(
+                                    enum_name,
+                                    ReferenceKind::Enum,
+                                    path[0].span.clone(),
+                                );
+                                self.tcx.add_reference(
+                                    &format!("{}::{}", enum_name, variant),
+                                    ReferenceKind::Variant,
+                                    path[1].span.clone(),
+                                );
                             }
                         } else {
                             self.tcx.errors.push(SemanticError {
@@ -4365,6 +4395,12 @@ impl<'a> FnContext<'a> {
                             (pattern.span.range.start, pattern.span.range.end),
                             (imported_enum.clone(), ident.name.clone()),
                         );
+                        // Track variant reference for rename support
+                        self.tcx.add_reference(
+                            &format!("{}::{}", imported_enum, ident.name),
+                            ReferenceKind::Variant,
+                            ident.span.clone(),
+                        );
                     }
                 }
             }
@@ -4388,8 +4424,26 @@ impl<'a> FnContext<'a> {
                                 (pattern.span.range.start, pattern.span.range.end),
                                 (imported_enum.clone(), variant_name.clone()),
                             );
+                            // Track variant reference for rename support
+                            self.tcx.add_reference(
+                                &format!("{}::{}", imported_enum, variant_name),
+                                ReferenceKind::Variant,
+                                path[0].span.clone(),
+                            );
                         }
                     }
+                } else if path.len() >= 2 {
+                    // Qualified variant (e.g., `MyEnum::Variant`)
+                    let enum_name = &path[0].name;
+                    let variant_name = &path[path.len() - 1].name;
+                    // Track both enum and variant references
+                    self.tcx
+                        .add_reference(enum_name, ReferenceKind::Enum, path[0].span.clone());
+                    self.tcx.add_reference(
+                        &format!("{}::{}", enum_name, variant_name),
+                        ReferenceKind::Variant,
+                        path[path.len() - 1].span.clone(),
+                    );
                 }
             }
             PatternKind::Tuple { fields } => {
@@ -7242,5 +7296,270 @@ fn test() -> i32 {
             !result.type_errors.is_empty() || !result.symbols.errors.is_empty(),
             "expected error for enum pattern on struct type"
         );
+    }
+
+    // ==========================================================================
+    // ReferenceMap tests for LSP rename support
+    // ==========================================================================
+
+    #[test]
+    fn reference_map_tracks_function_definition_and_calls() {
+        let src = r#"
+fn greet(name: String) -> String {
+    name
+}
+
+fn main() {
+    let x = greet("world");
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check that function definition and call are tracked
+        let key = ("greet".to_string(), ReferenceKind::Function);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for function 'greet'");
+        let refs = refs.unwrap();
+        // Should have at least 2 references: definition + call
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 references for 'greet', got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_struct_definition_and_usage() {
+        let src = r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn create_point() -> Point {
+    Point { x: 10, y: 20 }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check struct definition and type usage
+        let key = ("Point".to_string(), ReferenceKind::Struct);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for struct 'Point'");
+        let refs = refs.unwrap();
+        // Should have at least 2: definition + return type annotation
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 references for 'Point', got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_struct_field_definition_and_access() {
+        let src = r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn get_x(p: Point) -> i32 {
+    p.x
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check field definition and access
+        let key = ("Point.x".to_string(), ReferenceKind::Field);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for field 'Point.x'");
+        let refs = refs.unwrap();
+        // Should have 2: definition + access
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 references for 'Point.x', got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_enum_and_variant_definitions() {
+        let src = r#"
+enum Status {
+    Active,
+    Inactive,
+}
+
+fn check(s: Status) -> bool {
+    match s {
+        Status::Active => true,
+        Status::Inactive => false,
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check enum definition and usage
+        let enum_key = ("Status".to_string(), ReferenceKind::Enum);
+        let enum_refs = result.references.get(&enum_key);
+        assert!(enum_refs.is_some(), "expected references for enum 'Status'");
+        let enum_refs = enum_refs.unwrap();
+        // Should have at least 2: definition + param type (match patterns track variant, not enum)
+        assert!(
+            enum_refs.len() >= 2,
+            "expected at least 2 references for 'Status', got {}",
+            enum_refs.len()
+        );
+
+        // Check variant definitions and usages
+        let active_key = ("Status::Active".to_string(), ReferenceKind::Variant);
+        let active_refs = result.references.get(&active_key);
+        assert!(active_refs.is_some(), "expected references for variant 'Status::Active'");
+        let active_refs = active_refs.unwrap();
+        // Should have at least 2: definition + pattern match
+        assert!(
+            active_refs.len() >= 2,
+            "expected at least 2 references for 'Status::Active', got {}",
+            active_refs.len()
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_variable_binding_and_usage() {
+        let src = r#"
+fn test() -> i32 {
+    let count = 5;
+    let result = count + 10;
+    result
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check variable binding and usage for 'count'
+        let key = ("count".to_string(), ReferenceKind::Variable);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for variable 'count'");
+        let refs = refs.unwrap();
+        // Should have 2: binding + usage
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 references for 'count', got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_type_alias() {
+        let src = r#"
+type UserId = i32;
+
+fn get_user(id: UserId) -> UserId {
+    id
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check type alias definition and usages
+        let key = ("UserId".to_string(), ReferenceKind::TypeAlias);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for type alias 'UserId'");
+        let refs = refs.unwrap();
+        // Should have at least 3: definition + param type + return type
+        assert!(
+            refs.len() >= 3,
+            "expected at least 3 references for 'UserId', got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_trait_definition() {
+        let src = r#"
+trait Printable {
+    fn print(self) -> String;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check trait definition is tracked
+        let key = ("Printable".to_string(), ReferenceKind::Trait);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for trait 'Printable'");
+        let refs = refs.unwrap();
+        // Should have at least 1: definition
+        assert!(
+            !refs.is_empty(),
+            "expected at least 1 reference for 'Printable'"
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_imported_variant_in_expression() {
+        // This test uses the prelude's Option type with imported Some/None
+        let src = r#"
+fn wrap(x: i32) -> Option<i32> {
+    Some(x)
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check that Some variant usage is tracked
+        let key = ("Option::Some".to_string(), ReferenceKind::Variant);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for variant 'Option::Some'");
+        let refs = refs.unwrap();
+        assert!(
+            !refs.is_empty(),
+            "expected at least 1 reference for 'Option::Some'"
+        );
+    }
+
+    #[test]
+    fn reference_map_tracks_variant_in_pattern_match() {
+        let src = r#"
+fn unwrap_or(opt: Option<i32>, default: i32) -> i32 {
+    match opt {
+        Some(v) => v,
+        None => default,
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check that Some and None variant usages in patterns are tracked
+        let some_key = ("Option::Some".to_string(), ReferenceKind::Variant);
+        let some_refs = result.references.get(&some_key);
+        assert!(some_refs.is_some(), "expected references for variant 'Option::Some' in pattern");
+
+        let none_key = ("Option::None".to_string(), ReferenceKind::Variant);
+        let none_refs = result.references.get(&none_key);
+        assert!(none_refs.is_some(), "expected references for variant 'Option::None' in pattern");
     }
 }
