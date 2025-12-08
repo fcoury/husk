@@ -778,16 +778,22 @@ impl LanguageServer for HuskBackend {
 
         // Check if this word corresponds to a known symbol
         let semantic_result = self.semantic_result.read().await;
-        if let Some(semantic) = semantic_result.as_ref() {
-            // Check if there are any references for this symbol
-            let has_references = semantic.references.iter().any(|((name, _), refs)| {
-                name == &word && !refs.is_empty()
-            });
-
-            if !has_references {
-                // Not a known symbol definition or reference
+        let semantic = match semantic_result.as_ref() {
+            Some(s) => s,
+            None => {
+                // No semantic analysis available - cannot rename
                 return Ok(None);
             }
+        };
+
+        // Check if there are any references for this symbol
+        let has_references = semantic.references.iter().any(|((name, _), refs)| {
+            name == &word && !refs.is_empty()
+        });
+
+        if !has_references {
+            // Not a known symbol definition or reference
+            return Ok(None);
         }
         drop(semantic_result);
 
@@ -813,7 +819,12 @@ impl LanguageServer for HuskBackend {
         let position = params.text_document_position.position;
         let new_name = &params.new_name;
 
-        // Validate new name
+        // Validate new name - check keyword first for specific error message
+        if is_keyword(new_name) {
+            return Err(tower_lsp::jsonrpc::Error::invalid_params(
+                "Invalid identifier: reserved keyword not allowed",
+            ));
+        }
         if !is_valid_identifier(new_name) {
             return Err(tower_lsp::jsonrpc::Error::invalid_params(
                 "Invalid identifier: must be alphanumeric with underscores, cannot start with digit",
@@ -878,10 +889,10 @@ impl LanguageServer for HuskBackend {
                 if let Some(ref root) = project_root {
                     match self.module_path_to_uri(module_path, root) {
                         Some(u) => u,
-                        None => uri.clone(), // Fall back to current file
+                        None => continue, // Skip unresolved cross-file references
                     }
                 } else {
-                    uri.clone()
+                    continue // Skip cross-file refs when no project root
                 }
             } else {
                 // Same file reference

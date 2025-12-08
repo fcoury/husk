@@ -1723,6 +1723,12 @@ impl<'a> FnContext<'a> {
                                         (arm.pattern.span.range.start, arm.pattern.span.range.end),
                                         (enum_name.clone(), ident.name.clone()),
                                     );
+                                    // Track imported variant reference for rename support
+                                    self.tcx.add_reference(
+                                        &format!("{}::{}", enum_name, ident.name),
+                                        ReferenceKind::Variant,
+                                        ident.span.clone(),
+                                    );
                                 } else {
                                     self.tcx.errors.push(SemanticError {
                                         message: format!(
@@ -1769,7 +1775,13 @@ impl<'a> FnContext<'a> {
                                             span: arm.pattern.span.clone(),
                                         });
                                     } else {
-                                        seen_variants.insert(variant);
+                                        seen_variants.insert(variant.clone());
+                                        // Track imported variant reference for rename support
+                                        self.tcx.add_reference(
+                                            &format!("{}::{}", enum_name, variant),
+                                            ReferenceKind::Variant,
+                                            path[0].span.clone(),
+                                        );
                                     }
                                 } else {
                                     self.tcx.errors.push(SemanticError {
@@ -2392,6 +2404,13 @@ impl<'a> FnContext<'a> {
                         args: Vec::new(),
                     };
 
+                    // Track imported variant reference for rename support
+                    self.tcx.add_reference(
+                        &format!("{}::{}", enum_name, id.name),
+                        ReferenceKind::Variant,
+                        id.span.clone(),
+                    );
+
                     // Return appropriate type based on variant fields
                     match &variant_def.fields {
                         EnumVariantFields::Unit => {
@@ -2967,6 +2986,20 @@ impl<'a> FnContext<'a> {
                 }
                 // Use the last segment of the path as the type name.
                 let type_name = name.last().map(|id| id.name.clone()).unwrap_or_default();
+
+                // Track struct literal reference for rename support
+                if let Some(name_ident) = name.last() {
+                    self.tcx
+                        .add_reference(&type_name, ReferenceKind::Struct, name_ident.span.clone());
+                }
+
+                // Track field references in struct literal for rename support
+                for field in fields {
+                    let field_key = format!("{}.{}", type_name, field.name.name);
+                    self.tcx
+                        .add_reference(&field_key, ReferenceKind::Field, field.name.span.clone());
+                }
+
                 Type::Named {
                     name: type_name,
                     args: Vec::new(),
@@ -7528,13 +7561,15 @@ fn wrap(x: i32) -> Option<i32> {
         let result = analyze_file(&file);
 
         // Check that Some variant usage is tracked
+        // 1 from prelude definition + at least 1 from this file's usage
         let key = ("Option::Some".to_string(), ReferenceKind::Variant);
         let refs = result.references.get(&key);
         assert!(refs.is_some(), "expected references for variant 'Option::Some'");
         let refs = refs.unwrap();
         assert!(
-            !refs.is_empty(),
-            "expected at least 1 reference for 'Option::Some'"
+            refs.len() >= 2,
+            "expected at least 2 references for 'Option::Some' (def + usage), got {}",
+            refs.len()
         );
     }
 
@@ -7554,13 +7589,26 @@ fn unwrap_or(opt: Option<i32>, default: i32) -> i32 {
         let result = analyze_file(&file);
 
         // Check that Some and None variant usages in patterns are tracked
+        // Each should have at least 2: 1 from prelude definition + 1 from pattern usage
         let some_key = ("Option::Some".to_string(), ReferenceKind::Variant);
         let some_refs = result.references.get(&some_key);
         assert!(some_refs.is_some(), "expected references for variant 'Option::Some' in pattern");
+        let some_refs = some_refs.unwrap();
+        assert!(
+            some_refs.len() >= 2,
+            "expected at least 2 references for 'Option::Some' (def + pattern), got {}",
+            some_refs.len()
+        );
 
         let none_key = ("Option::None".to_string(), ReferenceKind::Variant);
         let none_refs = result.references.get(&none_key);
         assert!(none_refs.is_some(), "expected references for variant 'Option::None' in pattern");
+        let none_refs = none_refs.unwrap();
+        assert!(
+            none_refs.len() >= 2,
+            "expected at least 2 references for 'Option::None' (def + pattern), got {}",
+            none_refs.len()
+        );
     }
 
     #[test]
@@ -7580,9 +7628,16 @@ fn check_some(opt: Option<i32>) -> i32 {
         let result = analyze_file(&file);
 
         // Check that Some variant usage in if-let pattern is tracked
+        // 1 from prelude definition + at least 1 from this file's usage
         let key = ("Option::Some".to_string(), ReferenceKind::Variant);
         let refs = result.references.get(&key);
         assert!(refs.is_some(), "expected references for variant 'Option::Some' in if-let");
+        let refs = refs.unwrap();
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 references for 'Option::Some' (def + if-let), got {}",
+            refs.len()
+        );
     }
 
     #[test]
