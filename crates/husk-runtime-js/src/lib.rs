@@ -30,6 +30,35 @@ function panic(message) {
     throw new Error("[Husk panic] " + String(message));
 }
 
+// Try operator (?) helper - unwraps Result/Option, throws on Err/None
+function __husk_try(value) {
+    if (value === null || value === undefined) {
+        throw { __husk_early_return: { tag: "None" } };
+    }
+    if (value.tag === "Err") {
+        throw { __husk_early_return: value };
+    }
+    if (value.tag === "None") {
+        throw { __husk_early_return: value };
+    }
+    // Ok or Some - unwrap and return the inner value
+    return value.value;
+}
+
+// Wrap a function to catch ? operator early returns
+function __husk_try_wrap(fn) {
+    return function() {
+        try {
+            return fn.apply(this, arguments);
+        } catch (e) {
+            if (e && e.__husk_early_return !== undefined) {
+                return e.__husk_early_return;
+            }
+            throw e;
+        }
+    };
+}
+
 function matchEnum(value, handlers) {
     var tag = value && value.tag;
     var handler = handlers[tag];
@@ -480,6 +509,17 @@ function __husk_try_into_i32(value) {
     }
     return { tag: "Ok", value: n | 0 };
 }
+
+// Split string at first occurrence of delimiter, returns Option<(String, String)>
+// Returns {tag: "None"} if delimiter not found, or {tag: "Some", value: [before, after]} if found
+// Added to String.prototype so it can be called as str.split_once(delimiter)
+String.prototype.__husk_split_once = function(delimiter) {
+    var index = this.indexOf(delimiter);
+    if (index === -1) {
+        return {tag: "None"};
+    }
+    return {tag: "Some", value: [this.slice(0, index), this.slice(index + delimiter.length)]};
+};
 "#
 }
 
@@ -513,5 +553,11 @@ mod tests {
         assert!(src.contains("function assert("));
         assert!(src.contains("function assert_eq("));
         assert!(src.contains("function assert_ne("));
+    }
+
+    #[test]
+    fn preamble_contains_split_once() {
+        let src = std_preamble_js();
+        assert!(src.contains("String.prototype.__husk_split_once"));
     }
 }

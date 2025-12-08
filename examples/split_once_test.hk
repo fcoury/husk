@@ -1,0 +1,33 @@
+// Test split_once functionality
+
+fn main() {
+    // Test: delimiter not found
+    let result1 = "cfg".split_once("=");
+    assert_eq(result1, None);
+
+    // Test: empty after delimiter
+    let result2 = "cfg=".split_once("=");
+    assert_eq(result2, Some(("cfg", "")));
+
+    // Test: simple case
+    let result3 = "cfg=foo".split_once("=");
+    assert_eq(result3, Some(("cfg", "foo")));
+
+    // Test: multiple delimiters (only split at first)
+    let result4 = "cfg=foo=bar".split_once("=");
+    assert_eq(result4, Some(("cfg", "foo=bar")));
+
+    // Test: multi-character delimiter
+    let result5 = "hello\n\nworld".split_once("\n\n");
+    assert_eq(result5, Some(("hello", "world")));
+
+    // Test: tuple destructuring with unwrap
+    let (key, value) = "name=John".split_once("=").unwrap();
+    assert_eq(key, "name");
+    assert_eq(value, "John");
+
+    // Note: if let Some((before, after)) pattern has a known codegen issue
+    // with nested tuple bindings in if-let patterns - tracked separately
+
+    println("All split_once tests passed!");
+}

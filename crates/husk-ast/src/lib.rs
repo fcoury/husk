@@ -250,6 +250,12 @@ pub enum ExprKind {
         base: Box<Expr>,
         index: usize,
     },
+    /// Try expression: `expr?`
+    /// For Result<T, E>: returns early with Err(e) if Err, otherwise unwraps Ok(t) to t.
+    /// For Option<T>: returns early with None if None, otherwise unwraps Some(t) to t.
+    Try {
+        expr: Box<Expr>,
+    },
 }
 
 // ============================================================================
@@ -1027,6 +1033,9 @@ impl SetFilePath for Expr {
             }
             ExprKind::TupleField { base, .. } => {
                 base.set_file_path(file);
+            }
+            ExprKind::Try { expr } => {
+                expr.set_file_path(file);
             }
         }
     }

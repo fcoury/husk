@@ -1580,6 +1580,10 @@ impl<'a> Formatter<'a> {
                 self.write(".");
                 self.write(&index.to_string());
             }
+            ExprKind::Try { expr } => {
+                self.format_expr(expr);
+                self.write("?");
+            }
         }
     }
 

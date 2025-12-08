@@ -294,6 +294,12 @@ fn prelude_file() -> &'static File {
     })
 }
 
+/// Returns the stdlib prelude file for use by codegen to collect method
+/// name mappings (e.g., #[js_name] attributes).
+pub fn get_prelude_file() -> &'static File {
+    prelude_file()
+}
+
 static JS_GLOBALS_SRC: &str = include_str!("std/js/globals.hk");
 static JS_GLOBALS_AST: OnceLock<File> = OnceLock::new();
 
@@ -2779,6 +2785,14 @@ impl<'a> FnContext<'a> {
                     let _ = self.check_expr(arg);
                 }
 
+                // Record receiver type for codegen (used for js_name resolution)
+                // This allows codegen to know when a method is called on a known stdlib type
+                let receiver_type_name = self.format_type(&receiver_ty);
+                self.tcx.type_resolution.insert(
+                    (receiver.span.range.start, receiver.span.range.end),
+                    receiver_type_name,
+                );
+
                 // Handle closure-taking array methods that require special type inference.
                 // NOTE: Most array methods are now defined in stdlib/core.hk and resolved
                 // through the `impl<T> [T] { ... }` block below. These closure methods remain
@@ -3485,6 +3499,31 @@ impl<'a> FnContext<'a> {
                                 self.format_type(&base_ty)
                             ),
                             span: base.span.clone(),
+                        });
+                        Type::unit()
+                    }
+                }
+            }
+            ExprKind::Try { expr: inner } => {
+                // ? operator: for Result<T, E> returns T (early return on Err)
+                //             for Option<T> returns T (early return on None)
+                let inner_ty = self.check_expr(inner);
+                match &inner_ty {
+                    Type::Named { name, args } if name == "Result" && args.len() == 2 => {
+                        // Result<T, E> -> T
+                        args[0].clone()
+                    }
+                    Type::Named { name, args } if name == "Option" && args.len() == 1 => {
+                        // Option<T> -> T
+                        args[0].clone()
+                    }
+                    _ => {
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "the `?` operator can only be applied to values of type `Result` or `Option`, found `{}`",
+                                self.format_type(&inner_ty)
+                            ),
+                            span: expr.span.clone(),
                         });
                         Type::unit()
                     }

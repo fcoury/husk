@@ -12,7 +12,7 @@ use husk_ast::{
     StructField, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
-use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
+use husk_semantic::{get_prelude_file, NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
@@ -66,6 +66,133 @@ struct PropertyAccessors {
     /// Set of enum names that are marked with #[untagged].
     /// Untagged enums serialize without a tag field, matching TypeScript's untagged unions.
     untagged_enums: std::collections::HashSet<String>,
+}
+
+/// Collect only #[js_name] method name mappings from a file.
+///
+/// This function only extracts #[js_name] overrides which are type-keyed and safe
+/// to use from the stdlib prelude without affecting user-defined types.
+/// Note: we don't add these to extern_methods because the extern_methods check is
+/// type-agnostic and would incorrectly rename user methods with the same name.
+fn collect_js_name_mappings(file: &File, accessors: &mut PropertyAccessors) {
+    for item in &file.items {
+        if let ItemKind::Impl(impl_block) = &item.kind {
+            let type_name = type_expr_to_js_name(&impl_block.self_ty);
+            for impl_item in &impl_block.items {
+                if let ImplItemKind::Method(method) = &impl_item.kind {
+                    // Collect #[js_name] overrides for method name mapping
+                    if let Some(js_name) = method.js_name() {
+                        accessors.method_js_names.insert(
+                            (type_name.clone(), method.name.name.clone()),
+                            js_name.to_string(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Collect property accessors and method info from a file's impl blocks.
+///
+/// This function extracts #[js_name] overrides, extern method info, and getter/setter
+/// patterns from impl blocks and adds them to the provided accessors map.
+/// This should only be called for user files, not the stdlib prelude.
+fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
+    for item in &file.items {
+        if let ItemKind::Impl(impl_block) = &item.kind {
+            let type_name = type_expr_to_js_name(&impl_block.self_ty);
+            for impl_item in &impl_block.items {
+                match &impl_item.kind {
+                    // Handle explicit extern properties with #[getter]/#[setter]
+                    ImplItemKind::Property(prop) => {
+                        let prop_name = &prop.name.name;
+                        // Get the JS name: use #[js_name] if present, otherwise snake_to_camel
+                        let js_name = prop
+                            .js_name()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| snake_to_camel(prop_name));
+
+                        if prop.has_getter() {
+                            accessors
+                                .getters
+                                .insert((type_name.clone(), prop_name.clone()), js_name.clone());
+                        }
+                        if prop.has_setter() {
+                            accessors
+                                .setters
+                                .insert((type_name.clone(), prop_name.clone()), js_name);
+                        }
+                    }
+                    // Handle extern methods for #[js_name] and getter/setter heuristics
+                    ImplItemKind::Method(method) => {
+                        let method_name = &method.name.name;
+
+                        // Collect #[js_name] overrides for method name mapping
+                        if let Some(js_name) = method.js_name() {
+                            accessors.method_js_names.insert(
+                                (type_name.clone(), method_name.clone()),
+                                js_name.to_string(),
+                            );
+                        }
+
+                        if method.is_extern && method.receiver.is_some() {
+                            // Track this as an extern method for snake_to_camel conversion
+                            let base_name = strip_variadic_suffix(method_name);
+                            accessors
+                                .extern_methods
+                                .insert((type_name.clone(), base_name.clone()));
+
+                            // Check if the first parameter has #[this] attribute
+                            if let Some(first_param) = method.params.first() {
+                                if first_param.attributes.iter().any(|a| a.name.name == "this") {
+                                    accessors
+                                        .this_binding_methods
+                                        .insert((type_name.clone(), base_name.clone()));
+                                }
+                            }
+
+                            // Methods that should NOT be treated as getters
+                            const NON_GETTER_METHODS: &[&str] = &[
+                                "all", "toJsValue", "open", "run", "iterate", "bind", "pluck",
+                                "raw", "columns",
+                            ];
+                            let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
+
+                            // Check if it's a getter: no params, has return type, not excluded
+                            if method.params.is_empty()
+                                && method.ret_type.is_some()
+                                && !is_non_getter
+                            {
+                                accessors.getters.insert(
+                                    (type_name.clone(), method_name.clone()),
+                                    method_name.clone(),
+                                );
+                            }
+                            // Check if it's a setter: starts with "set_", one param, no return
+                            else if method_name.starts_with("set_")
+                                && method.params.len() == 1
+                                && method.ret_type.is_none()
+                            {
+                                let prop_name =
+                                    method_name.strip_prefix("set_").unwrap().to_string();
+                                accessors
+                                    .setters
+                                    .insert((type_name.clone(), method_name.clone()), prop_name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collect untagged enums for variant construction
+        if let ItemKind::Enum { name, .. } = &item.kind {
+            if item.is_untagged() {
+                accessors.untagged_enums.insert(name.name.clone());
+            }
+        }
+    }
 }
 
 /// Context for code generation, carrying compile-time state.
@@ -313,6 +440,8 @@ pub enum JsStmt {
     /// Multiple statements emitted at the same level (no block wrapper).
     /// Used for let-else to emit the check and bindings without creating a scope.
     Sequence(Vec<JsStmt>),
+    /// `throw expr;`
+    Throw(JsExpr),
 }
 
 /// Assignment operators in JS.
@@ -518,118 +647,13 @@ pub fn lower_file_to_js_with_source(
     }
 
     // Collect property accessors from extern impl blocks
-    // Priority 1: Explicit #[getter]/#[setter] extern properties
-    // Priority 2: Heuristic-based detection (deprecated, to be removed)
+    // First collect js_name mappings from stdlib prelude (for #[js_name] like split_once -> __husk_split_once)
+    // Only collect js_name mappings from prelude - not getters/setters/extern_methods which would
+    // incorrectly affect user-defined types with the same method names.
+    // Then collect full accessors from user file.
     let mut accessors = PropertyAccessors::default();
-    for item in &file.items {
-        if let ItemKind::Impl(impl_block) = &item.kind {
-            let type_name = type_expr_to_js_name(&impl_block.self_ty);
-            for impl_item in &impl_block.items {
-                match &impl_item.kind {
-                    // NEW: Handle explicit extern properties with #[getter]/#[setter]
-                    ImplItemKind::Property(prop) => {
-                        let prop_name = &prop.name.name;
-                        // Get the JS name: use #[js_name] if present, otherwise snake_to_camel
-                        let js_name = prop
-                            .js_name()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| snake_to_camel(prop_name));
-
-                        if prop.has_getter() {
-                            // For property access: obj.prop_name -> obj.jsName
-                            accessors
-                                .getters
-                                .insert((type_name.clone(), prop_name.clone()), js_name.clone());
-                        }
-                        if prop.has_setter() {
-                            // For property assignment: obj.prop_name = val -> obj.jsName = val
-                            accessors
-                                .setters
-                                .insert((type_name.clone(), prop_name.clone()), js_name);
-                        }
-                    }
-                    // DEPRECATED: Heuristic-based detection for extern methods
-                    // TODO: Remove this once all code migrates to explicit properties
-                    ImplItemKind::Method(method) => {
-                        let method_name = &method.name.name;
-
-                        // Collect #[js_name] overrides for method name mapping
-                        // Keyed by (type_name, method_name) to avoid collisions
-                        if let Some(js_name) = method.js_name() {
-                            accessors.method_js_names.insert(
-                                (type_name.clone(), method_name.clone()),
-                                js_name.to_string(),
-                            );
-                        }
-
-                        if method.is_extern && method.receiver.is_some() {
-                            // Track this as an extern method for snake_to_camel conversion
-                            // Keyed by (type_name, method_name) to avoid renaming user methods
-                            // Strip variadic suffix (run1 -> run) so lookup matches call-site stripping
-                            let base_name = strip_variadic_suffix(method_name);
-                            accessors
-                                .extern_methods
-                                .insert((type_name.clone(), base_name.clone()));
-
-                            // Check if the first parameter has #[this] attribute
-                            // This indicates the first argument should be passed as `this` context
-                            if let Some(first_param) = method.params.first() {
-                                if first_param.attributes.iter().any(|a| a.name.name == "this") {
-                                    accessors
-                                        .this_binding_methods
-                                        .insert((type_name.clone(), base_name.clone()));
-                                }
-                            }
-
-                            // Methods that should NOT be treated as getters even if they have
-                            // no params and a return type. These are actual method calls in JS.
-                            const NON_GETTER_METHODS: &[&str] = &[
-                                "all",       // stmt.all() in better-sqlite3
-                                "toJsValue", // JsObject.toJsValue() builder method
-                                "open",      // db.open() check if database is open
-                                "run",       // stmt.run() execute statement
-                                "iterate",   // stmt.iterate() in better-sqlite3
-                                "bind",      // stmt.bind() in better-sqlite3
-                                "pluck",     // stmt.pluck() in better-sqlite3
-                                "raw",       // stmt.raw() in better-sqlite3
-                                "columns",   // stmt.columns() in better-sqlite3
-                            ];
-                            let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
-
-                            // Check if it's a getter: no params, has return type, and not in exclusion list
-                            if method.params.is_empty()
-                                && method.ret_type.is_some()
-                                && !is_non_getter
-                            {
-                                accessors.getters.insert(
-                                    (type_name.clone(), method_name.clone()),
-                                    method_name.clone(),
-                                );
-                            }
-                            // Check if it's a setter: starts with "set_", one param, no return
-                            else if method_name.starts_with("set_")
-                                && method.params.len() == 1
-                                && method.ret_type.is_none()
-                            {
-                                let prop_name =
-                                    method_name.strip_prefix("set_").unwrap().to_string();
-                                accessors
-                                    .setters
-                                    .insert((type_name.clone(), method_name.clone()), prop_name);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Collect untagged enums for variant construction
-        if let ItemKind::Enum { name, .. } = &item.kind {
-            if item.is_untagged() {
-                accessors.untagged_enums.insert(name.name.clone());
-            }
-        }
-    }
+    collect_js_name_mappings(get_prelude_file(), &mut accessors);
+    collect_accessors_from_file(file, &mut accessors);
 
     // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
     let ctx = match source_path {
@@ -864,6 +888,69 @@ pub fn lower_file_to_js_with_source(
     JsModule { body: full_body }
 }
 
+/// Check if a slice of statements contains any Try expressions (? operator).
+fn contains_try_expr(stmts: &[Stmt]) -> bool {
+    fn check_expr(expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Try { .. } => true,
+            ExprKind::Binary { left, right, .. } => check_expr(left) || check_expr(right),
+            ExprKind::Unary { expr, .. } => check_expr(expr),
+            ExprKind::Call { callee, args, .. } => {
+                check_expr(callee) || args.iter().any(check_expr)
+            }
+            ExprKind::MethodCall { receiver, args, .. } => {
+                check_expr(receiver) || args.iter().any(check_expr)
+            }
+            ExprKind::Field { base, .. } => check_expr(base),
+            ExprKind::Index { base, index } => check_expr(base) || check_expr(index),
+            ExprKind::Block(block) => contains_try_expr(&block.stmts),
+            ExprKind::Match { scrutinee, arms } => {
+                check_expr(scrutinee) || arms.iter().any(|arm| check_expr(&arm.expr))
+            }
+            ExprKind::Closure { body, .. } => check_expr(body),
+            ExprKind::Array { elements } | ExprKind::Tuple { elements } => {
+                elements.iter().any(check_expr)
+            }
+            ExprKind::Struct { fields, .. } => fields.iter().any(|f| check_expr(&f.value)),
+            ExprKind::Range { start, end, .. } => {
+                start.as_ref().map_or(false, |e| check_expr(e))
+                    || end.as_ref().map_or(false, |e| check_expr(e))
+            }
+            ExprKind::Assign { target, value, .. } => check_expr(target) || check_expr(value),
+            ExprKind::TupleField { base, .. } => check_expr(base),
+            ExprKind::Cast { expr, .. } => check_expr(expr),
+            ExprKind::FormatPrint { args, .. } | ExprKind::Format { args, .. } => {
+                args.iter().any(check_expr)
+            }
+            _ => false,
+        }
+    }
+
+    fn check_stmt(stmt: &Stmt) -> bool {
+        match &stmt.kind {
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) => check_expr(expr),
+            StmtKind::Let { value, .. } => value.as_ref().map_or(false, check_expr),
+            StmtKind::ForIn { iterable, body, .. } => {
+                check_expr(iterable) || contains_try_expr(&body.stmts)
+            }
+            StmtKind::While { cond, body } => {
+                check_expr(cond) || contains_try_expr(&body.stmts)
+            }
+            StmtKind::If { cond, then_branch, else_branch } => {
+                check_expr(cond)
+                    || contains_try_expr(&then_branch.stmts)
+                    || else_branch.as_ref().map_or(false, |b| check_stmt(b))
+            }
+            StmtKind::Return { value } => value.as_ref().map_or(false, check_expr),
+            StmtKind::Block(block) => contains_try_expr(&block.stmts),
+            StmtKind::Loop { body } => contains_try_expr(&body.stmts),
+            _ => false,
+        }
+    }
+
+    stmts.iter().any(check_stmt)
+}
+
 fn lower_fn_with_span(
     name: &str,
     params: &[Param],
@@ -883,6 +970,40 @@ fn lower_fn_with_span(
         }
     }
 
+    // If the function uses ? operator, wrap body in try-catch to handle early returns
+    let final_body = if contains_try_expr(body) {
+        // Catch block: if (e && e.__husk_early_return !== undefined) return e.__husk_early_return; throw e;
+        let catch_block = vec![
+            JsStmt::If {
+                cond: JsExpr::Binary {
+                    op: JsBinaryOp::And,
+                    left: Box::new(JsExpr::Ident("__e".to_string())),
+                    right: Box::new(JsExpr::Binary {
+                        op: JsBinaryOp::StrictNe,
+                        left: Box::new(JsExpr::Member {
+                            object: Box::new(JsExpr::Ident("__e".to_string())),
+                            property: "__husk_early_return".to_string(),
+                        }),
+                        right: Box::new(JsExpr::Ident("undefined".to_string())),
+                    }),
+                },
+                then_block: vec![JsStmt::Return(JsExpr::Member {
+                    object: Box::new(JsExpr::Ident("__e".to_string())),
+                    property: "__husk_early_return".to_string(),
+                })],
+                else_block: None,
+            },
+            JsStmt::Throw(JsExpr::Ident("__e".to_string())),
+        ];
+        vec![JsStmt::TryCatch {
+            try_block: js_body,
+            catch_ident: "__e".to_string(),
+            catch_block,
+        }]
+    } else {
+        js_body
+    };
+
     // Convert byte offset to line/column if source is provided
     let source_span = source.map(|src| {
         let (line, column) = offset_to_line_col(src, span.range.start);
@@ -892,7 +1013,7 @@ fn lower_fn_with_span(
     JsStmt::Function {
         name: name.to_string(),
         params: js_params,
-        body: js_body,
+        body: final_body,
         source_span,
     }
 }
@@ -2028,21 +2149,63 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // (but only for extern "js" methods; user-defined Husk methods keep their names)
             let base_method_name = strip_variadic_suffix(&method.name);
 
-            // Look up #[js_name] override by searching across all types.
-            // This is a heuristic since we don't have type info at codegen time.
-            let js_name_override = ctx
-                .accessors
-                .method_js_names
-                .iter()
-                .find(|((_, m), _)| m == &base_method_name)
-                .map(|(_, js_name)| js_name.clone());
+            // Try to determine receiver type for smarter method name resolution.
+            // First check type_resolution from semantic analysis for the receiver's type.
+            // This allows us to handle String variables (not just literals) correctly.
+            let receiver_type_from_semantic = ctx
+                .type_resolution
+                .get(&(receiver.span.range.start, receiver.span.range.end))
+                .cloned();
 
-            // Check if this method is an extern "js" method for any type.
-            let is_extern_method = ctx
-                .accessors
-                .extern_methods
-                .iter()
-                .any(|(_, m)| m == &base_method_name);
+            // Fall back to literal detection for string literals
+            let receiver_is_string_literal = matches!(
+                &receiver.kind,
+                ExprKind::Literal(lit) if matches!(lit.kind, LiteralKind::String(_))
+            );
+
+            // Determine if receiver is a String (either from semantic analysis or literal detection)
+            let receiver_is_string = receiver_type_from_semantic
+                .as_ref()
+                .is_some_and(|t| t == "String")
+                || receiver_is_string_literal;
+
+            // Check if this method is an extern "js" method for any type in user code,
+            // OR if the receiver is a known stdlib type (like String).
+            let is_extern_method = receiver_is_string
+                || ctx
+                    .accessors
+                    .extern_methods
+                    .iter()
+                    .any(|(_, m)| m == &base_method_name);
+
+            // Look up #[js_name] override, but only for extern methods or known stdlib types.
+            // User-defined methods should keep their original names even if they
+            // match stdlib method names (e.g., user's MyList.len() stays as .len()).
+            let js_name_override = if is_extern_method {
+                // For String receivers, look up String-specific mapping first
+                if receiver_is_string {
+                    ctx.accessors
+                        .method_js_names
+                        .get(&("String".to_string(), base_method_name.clone()))
+                        .cloned()
+                        .or_else(|| {
+                            // Fall back to any-type lookup
+                            ctx.accessors
+                                .method_js_names
+                                .iter()
+                                .find(|((_, m), _)| m == &base_method_name)
+                                .map(|(_, js_name)| js_name.clone())
+                        })
+                } else {
+                    ctx.accessors
+                        .method_js_names
+                        .iter()
+                        .find(|((_, m), _)| m == &base_method_name)
+                        .map(|(_, js_name)| js_name.clone())
+                }
+            } else {
+                None
+            };
 
             let js_method_name = js_name_override.unwrap_or_else(|| {
                 // Only apply snake_to_camel for extern "js" methods
@@ -2519,6 +2682,15 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             JsExpr::Index {
                 object: Box::new(js_base),
                 index: Box::new(JsExpr::Number(*index as i64)),
+            }
+        }
+        ExprKind::Try { expr: inner } => {
+            // ? operator: unwrap Result/Option, throw on Err/None for early return
+            // expr? becomes __husk_try(expr)
+            let inner_js = lower_expr(inner, ctx);
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("__husk_try".to_string())),
+                args: vec![inner_js],
             }
         }
     }
@@ -3573,6 +3745,12 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
                 }
                 write_stmt(s, indent_level, out);
             }
+        }
+        JsStmt::Throw(expr) => {
+            indent(indent_level, out);
+            out.push_str("throw ");
+            write_expr(expr, out);
+            out.push(';');
         }
     }
 }
