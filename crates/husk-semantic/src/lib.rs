@@ -2779,11 +2779,8 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
-                // Type-check receiver and arguments
+                // Type-check receiver
                 let receiver_ty = self.check_expr(receiver);
-                for arg in args {
-                    let _ = self.check_expr(arg);
-                }
 
                 // Record receiver type for codegen (used for js_name resolution)
                 // This allows codegen to know when a method is called on a known stdlib type
@@ -2794,26 +2791,121 @@ impl<'a> FnContext<'a> {
                 );
 
                 // Handle closure-taking array methods that require special type inference.
-                // NOTE: Most array methods are now defined in stdlib/core.hk and resolved
-                // through the `impl<T> [T] { ... }` block below. These closure methods remain
-                // hardcoded because they need return type inference from closure signatures.
+                // These methods need the element type to construct expected closure types,
+                // enabling parameter inference for closures like `|x| x * 2`.
                 if let Type::Array(elem_ty) = &receiver_ty {
                     match method_name.as_str() {
-                        "some" | "every" => return Type::Primitive(PrimitiveType::Bool),
-                        "filter" => return receiver_ty.clone(),
-                        "map" => {
-                            // Infer return type from closure's return type
+                        "some" | "every" => {
+                            // Closure type: Fn(T) -> bool
                             if let Some(closure_arg) = args.first() {
-                                let closure_ty = self.check_expr(closure_arg);
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Primitive(PrimitiveType::Bool);
+                        }
+                        "filter" => {
+                            // Closure type: Fn(T) -> bool
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return receiver_ty.clone();
+                        }
+                        "map" => {
+                            // Closure type: Fn(T) -> U, infer return type from closure
+                            if let Some(closure_arg) = args.first() {
+                                // Create expected type with known param, unknown return
+                                // We pass a function type so params can be inferred
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Unit)), // placeholder
+                                };
+                                let closure_ty =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
                                 if let Type::Function { ret, .. } = closure_ty {
                                     return Type::Array(ret);
                                 }
                             }
                             return receiver_ty.clone(); // fallback
                         }
-                        "reduce" => return (**elem_ty).clone(),
+                        "reduce" => {
+                            // Closure type: Fn(T, T) -> T for simple reduce
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone(), (**elem_ty).clone()],
+                                    ret: Box::new((**elem_ty).clone()),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return (**elem_ty).clone();
+                        }
+                        "forEach" => {
+                            // Closure type: Fn(T) -> ()
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Unit)),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Primitive(PrimitiveType::Unit);
+                        }
+                        "find" => {
+                            // Closure type: Fn(T) -> bool, returns Option<T>
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Named {
+                                name: "Option".to_string(),
+                                args: vec![(**elem_ty).clone()],
+                            };
+                        }
+                        "findIndex" | "findLastIndex" => {
+                            // Closure type: Fn(T) -> bool, returns i32
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Primitive(PrimitiveType::I32);
+                        }
+                        "sort" | "sortBy" => {
+                            // sort takes Fn(T, T) -> i32
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![(**elem_ty).clone(), (**elem_ty).clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::I32)),
+                                };
+                                let _ =
+                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return receiver_ty.clone();
+                        }
                         _ => {}
                     }
+                }
+
+                // Type-check remaining arguments without expected types
+                for arg in args {
+                    let _ = self.check_expr(arg);
                 }
 
                 // Handle Result/Option unwrap methods specially to extract inner type
