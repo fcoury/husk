@@ -571,9 +571,11 @@ pub fn lower_file_to_js_with_source(
                         if method.is_extern && method.receiver.is_some() {
                             // Track this as an extern method for snake_to_camel conversion
                             // Keyed by (type_name, method_name) to avoid renaming user methods
+                            // Strip variadic suffix (run1 -> run) so lookup matches call-site stripping
+                            let base_name = strip_variadic_suffix(method_name);
                             accessors
                                 .extern_methods
-                                .insert((type_name.clone(), method_name.clone()));
+                                .insert((type_name.clone(), base_name.clone()));
 
                             // Check if the first parameter has #[this] attribute
                             // This indicates the first argument should be passed as `this` context
@@ -581,7 +583,7 @@ pub fn lower_file_to_js_with_source(
                                 if first_param.attributes.iter().any(|a| a.name.name == "this") {
                                     accessors
                                         .this_binding_methods
-                                        .insert((type_name.clone(), method_name.clone()));
+                                        .insert((type_name.clone(), base_name.clone()));
                                 }
                             }
 
