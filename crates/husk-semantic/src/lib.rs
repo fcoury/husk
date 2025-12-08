@@ -2520,7 +2520,7 @@ impl<'a> FnContext<'a> {
                     Type::Function { params, ret } => (params, *ret),
                     other => {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("cannot call non-function type `{:?}`", other),
+                            message: format!("cannot call non-function type `{}`", self.format_type(&other)),
                             span: expr.span.clone(),
                         });
                         return Type::Primitive(PrimitiveType::Unit);
@@ -2908,6 +2908,50 @@ impl<'a> FnContext<'a> {
                     let _ = self.check_expr(arg);
                 }
 
+                // Handle tuple.to_array() specially
+                if let Type::Tuple(elements) = &receiver_ty {
+                    if method_name == "to_array" {
+                        // Check that all elements have the same type
+                        if elements.is_empty() {
+                            // Empty tuple -> Result<[()], String>
+                            return Type::Named {
+                                name: "Result".to_string(),
+                                args: vec![
+                                    Type::Array(Box::new(Type::Primitive(PrimitiveType::Unit))),
+                                    Type::Primitive(PrimitiveType::String),
+                                ],
+                            };
+                        }
+
+                        let first_type = &elements[0];
+                        let all_same = elements
+                            .iter()
+                            .skip(1)
+                            .all(|t| self.types_compatible(first_type, t));
+
+                        if all_same {
+                            // Homogeneous tuple -> Result<[T], String>
+                            return Type::Named {
+                                name: "Result".to_string(),
+                                args: vec![
+                                    Type::Array(Box::new(first_type.clone())),
+                                    Type::Primitive(PrimitiveType::String),
+                                ],
+                            };
+                        } else {
+                            // Heterogeneous tuple -> compile error
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "cannot call `to_array()` on tuple with mixed types `{}`",
+                                    self.format_type(&receiver_ty)
+                                ),
+                                span: expr.span.clone(),
+                            });
+                            return Type::Primitive(PrimitiveType::Unit);
+                        }
+                    }
+                }
+
                 // Handle Result/Option unwrap methods specially to extract inner type
                 if let Type::Named { name, args } = &receiver_ty {
                     match (name.as_str(), method_name.as_str()) {
@@ -2977,7 +3021,19 @@ impl<'a> FnContext<'a> {
                         Type::Primitive(PrimitiveType::Unit)
                     }
                     None => {
-                        // Method not found - return Unit as fallback
+                        // Method not found - report error unless it's a special pseudo-method
+                        // that's handled in check_expr_with_expected (into, parse, try_into)
+                        let pseudo_methods = ["into", "parse", "try_into"];
+                        if !pseudo_methods.contains(&method_name.as_str()) {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "no method named `{}` found for type `{}`",
+                                    method_name,
+                                    self.format_type(&receiver_ty)
+                                ),
+                                span: method.span.clone(),
+                            });
+                        }
                         Type::Primitive(PrimitiveType::Unit)
                     }
                 }
@@ -3347,7 +3403,7 @@ impl<'a> FnContext<'a> {
                         },
                         _ => {
                             self.tcx.errors.push(SemanticError {
-                                message: format!("cannot slice type {:?}", base_ty),
+                                message: format!("cannot slice type `{}`", self.format_type(&base_ty)),
                                 span: base.span.clone(),
                             });
                             Type::unit()
@@ -3362,7 +3418,7 @@ impl<'a> FnContext<'a> {
                         || matches!(&index_ty, Type::Named { name, .. } if name == "number");
                     if !is_valid_index {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("array index must be integer, found {:?}", index_ty),
+                            message: format!("array index must be integer, found `{}`", self.format_type(&index_ty)),
                             span: index.span.clone(),
                         });
                     }
@@ -3381,7 +3437,7 @@ impl<'a> FnContext<'a> {
                         },
                         _ => {
                             self.tcx.errors.push(SemanticError {
-                                message: format!("cannot index into type {:?}", base_ty),
+                                message: format!("cannot index into type `{}`", self.format_type(&base_ty)),
                                 span: base.span.clone(),
                             });
                             Type::unit()
@@ -5612,7 +5668,7 @@ fn main() {
         let src = r#"
 fn main() {
     let x: Result<i32, String> = Ok(42);
-    let y: Result<i32, String> = Err("error".to_string());
+    let y: Result<i32, String> = Err("error");
 }
 "#;
         let parsed = parse_str(src);
@@ -6341,7 +6397,7 @@ fn main() {
     fn string_indexof_returns_i32() {
         let src = r#"
 fn test(s: String) -> i32 {
-    s.indexOf("x")
+    s.index_of("x")
 }
 "#;
         let parsed = parse_str(src);
@@ -6354,7 +6410,7 @@ fn test(s: String) -> i32 {
         let result = analyze_file(&file);
         assert!(
             result.type_errors.is_empty(),
-            "expected no type errors for String.indexOf(), got: {:?}",
+            "expected no type errors for String.index_of(), got: {:?}",
             result.type_errors
         );
     }
@@ -6363,7 +6419,7 @@ fn test(s: String) -> i32 {
     fn string_lastindexof_returns_i32() {
         let src = r#"
 fn test(s: String) -> i32 {
-    s.lastIndexOf("x")
+    s.last_index_of("x")
 }
 "#;
         let parsed = parse_str(src);
@@ -6376,7 +6432,7 @@ fn test(s: String) -> i32 {
         let result = analyze_file(&file);
         assert!(
             result.type_errors.is_empty(),
-            "expected no type errors for String.lastIndexOf(), got: {:?}",
+            "expected no type errors for String.last_index_of(), got: {:?}",
             result.type_errors
         );
     }
@@ -6385,7 +6441,7 @@ fn test(s: String) -> i32 {
     fn string_startswith_returns_bool() {
         let src = r#"
 fn test(s: String) -> bool {
-    s.startsWith("hello")
+    s.starts_with("hello")
 }
 "#;
         let parsed = parse_str(src);
@@ -6398,7 +6454,7 @@ fn test(s: String) -> bool {
         let result = analyze_file(&file);
         assert!(
             result.type_errors.is_empty(),
-            "expected no type errors for String.startsWith(), got: {:?}",
+            "expected no type errors for String.starts_with(), got: {:?}",
             result.type_errors
         );
     }
@@ -6407,7 +6463,7 @@ fn test(s: String) -> bool {
     fn string_endswith_returns_bool() {
         let src = r#"
 fn test(s: String) -> bool {
-    s.endsWith("world")
+    s.ends_with("world")
 }
 "#;
         let parsed = parse_str(src);
@@ -6420,7 +6476,7 @@ fn test(s: String) -> bool {
         let result = analyze_file(&file);
         assert!(
             result.type_errors.is_empty(),
-            "expected no type errors for String.endsWith(), got: {:?}",
+            "expected no type errors for String.ends_with(), got: {:?}",
             result.type_errors
         );
     }

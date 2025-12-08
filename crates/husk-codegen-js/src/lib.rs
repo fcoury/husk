@@ -851,9 +851,11 @@ pub fn lower_file_to_js_with_source(
         }
     }
     if has_main_entry && call_main {
+        // Wrap main() call to check for ? operator early returns (Err/None)
+        // This ensures errors are reported rather than silently swallowed
         body.push(JsStmt::Expr(JsExpr::Call {
-            callee: Box::new(JsExpr::Ident("main".to_string())),
-            args: Vec::new(),
+            callee: Box::new(JsExpr::Ident("__husk_run_main".to_string())),
+            args: vec![JsExpr::Ident("main".to_string())],
         }));
     }
 
@@ -2127,6 +2129,14 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 return JsExpr::Call {
                     callee: Box::new(JsExpr::Ident("__husk_expect".to_string())),
                     args: vec![lower_expr(receiver, ctx), lower_expr(&args[0], ctx)],
+                };
+            }
+
+            // Handle tuple.to_array()
+            if method_name == "to_array" && args.is_empty() {
+                return JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident("__husk_tuple_to_array".to_string())),
+                    args: vec![lower_expr(receiver, ctx)],
                 };
             }
 
@@ -4453,7 +4463,7 @@ mod tests {
         let src = module.to_source();
 
         assert!(src.contains("function main()"));
-        assert!(src.contains("main();"));
+        assert!(src.contains("__husk_run_main(main);"));
     }
 
     #[test]

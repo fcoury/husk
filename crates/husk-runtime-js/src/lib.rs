@@ -520,6 +520,35 @@ String.prototype.__husk_split_once = function(delimiter) {
     }
     return {tag: "Some", value: [this.slice(0, index), this.slice(index + delimiter.length)]};
 };
+
+// Convert tuple (represented as array in JS) to array wrapped in Result
+// Since we verify homogeneity at compile time, this always succeeds
+function __husk_tuple_to_array(tuple) {
+    if (!Array.isArray(tuple)) {
+        return { tag: "Err", value: "not a tuple" };
+    }
+    // Return a copy to ensure immutability
+    return { tag: "Ok", value: tuple.slice() };
+}
+
+// Run main() and handle ? operator early returns
+// If main returns Err or None, report the error and exit with code 1
+function __husk_run_main(main) {
+    var result = main();
+    if (result && typeof result === "object") {
+        if (result.tag === "Err") {
+            console.error("Error: " + __husk_fmt_debug(result.value));
+            if (typeof process !== "undefined" && process.exit) {
+                process.exit(1);
+            }
+        } else if (result.tag === "None") {
+            console.error("Error: unexpected None");
+            if (typeof process !== "undefined" && process.exit) {
+                process.exit(1);
+            }
+        }
+    }
+}
 "#
 }
 
