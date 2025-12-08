@@ -1,0 +1,46 @@
+// Test Range.contains() and Range.is_empty() methods
+
+fn main() {
+    // Test basic contains - exclusive range
+    let r = 1..5;
+    assert_msg(r.contains(1), "1..5 should contain 1");
+    assert_msg(r.contains(3), "1..5 should contain 3");
+    assert_msg(r.contains(4), "1..5 should contain 4");
+    assert_msg(!r.contains(0), "1..5 should not contain 0");
+    assert_msg(!r.contains(5), "1..5 should not contain 5 (exclusive)");
+    assert_msg(!r.contains(10), "1..5 should not contain 10");
+
+    // Test contains - inclusive range
+    let ri = 1..=5;
+    assert_msg(ri.contains(1), "1..=5 should contain 1");
+    assert_msg(ri.contains(5), "1..=5 should contain 5 (inclusive)");
+    assert_msg(!ri.contains(0), "1..=5 should not contain 0");
+    assert_msg(!ri.contains(6), "1..=5 should not contain 6");
+
+    // Test is_empty - exclusive range
+    assert_msg(!(1..5).is_empty(), "1..5 should not be empty");
+    assert_msg((5..1).is_empty(), "5..1 should be empty");
+    assert_msg((3..3).is_empty(), "3..3 should be empty (exclusive)");
+
+    // Test is_empty - inclusive range
+    assert_msg(!(1..=5).is_empty(), "1..=5 should not be empty");
+    assert_msg((5..=1).is_empty(), "5..=1 should be empty");
+    assert_msg(!(3..=3).is_empty(), "3..=3 should NOT be empty (inclusive, contains 3)");
+
+    // Test negative ranges
+    assert_msg((-5..-1).contains(-3), "-5..-1 should contain -3");
+    assert_msg(!(-5..-1).contains(-1), "-5..-1 should not contain -1 (exclusive)");
+    assert_msg((-5..=-1).contains(-1), "-5..=-1 should contain -1 (inclusive)");
+
+    // Test ranges stored in variables
+    let ranges = [1..5, 10..20, 100..200];
+    assert_msg(ranges[0].contains(3), "first range should contain 3");
+    assert_msg(ranges[1].contains(15), "second range should contain 15");
+    assert_msg(!ranges[2].is_empty(), "third range should not be empty");
+
+    // Test range created inline
+    assert_msg((0..10).contains(5), "0..10 should contain 5");
+    assert_msg(!(0..0).contains(0), "0..0 should not contain anything");
+
+    println("All Range method tests passed!");
+}

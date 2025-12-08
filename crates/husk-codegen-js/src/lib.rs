@@ -2140,6 +2140,36 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 };
             }
 
+            // Handle Range.contains(item) and Range.is_empty()
+            // Ranges are plain JS objects { start, end }, so we use free functions
+            // Check if receiver type is Range (from semantic analysis)
+            let receiver_type_from_semantic_range = ctx
+                .type_resolution
+                .get(&(receiver.span.range.start, receiver.span.range.end));
+            if let Some(recv_type) = receiver_type_from_semantic_range {
+                if recv_type.starts_with("Range") {
+                    match method_name.as_str() {
+                        "contains" if args.len() == 1 => {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(
+                                    "__husk_range_contains".to_string(),
+                                )),
+                                args: vec![lower_expr(receiver, ctx), lower_expr(&args[0], ctx)],
+                            };
+                        }
+                        "is_empty" if args.is_empty() => {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(
+                                    "__husk_range_is_empty".to_string(),
+                                )),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
             // Handle type conversion methods (.into(), .parse(), .try_into())
             // The semantic phase records the resolved target type in type_resolution
             if (method_name == "into" || method_name == "parse" || method_name == "try_into")
