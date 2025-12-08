@@ -5,6 +5,20 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+/// Platform target for configuration.
+/// Used in husk.toml to specify the target platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfigPlatform {
+    /// Server-side execution (Node.js)
+    Node,
+    /// Client-side execution (Browser)
+    Browser,
+    /// Auto-detect from package.json
+    #[default]
+    Auto,
+}
+
 /// Root configuration structure for husk.toml.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct HuskConfig {
@@ -51,6 +65,8 @@ pub struct BuildConfig {
     pub output: Option<String>,
     /// JavaScript target: "esm", "cjs", or "auto".
     pub target: Option<String>,
+    /// Platform target: "node", "browser", or "auto".
+    pub platform: Option<ConfigPlatform>,
     /// Library mode (don't call main()).
     pub lib: Option<bool>,
     /// Emit TypeScript declaration file.
@@ -198,6 +214,11 @@ impl BuildConfig {
     pub fn emit_dts(&self) -> bool {
         self.emit_dts.unwrap_or(false)
     }
+
+    /// Get the platform target (default: Auto).
+    pub fn platform(&self) -> ConfigPlatform {
+        self.platform.unwrap_or(ConfigPlatform::Auto)
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +340,42 @@ ignore = ["dist/**", "node_modules/**"]
         assert!(config.prelude());
         assert!(!config.lib());
         assert!(!config.emit_dts());
+        assert_eq!(config.platform(), ConfigPlatform::Auto);
+    }
+
+    #[test]
+    fn test_platform_config() {
+        // Test browser platform
+        let toml = r#"
+[build]
+platform = "browser"
+"#;
+        let config = HuskConfig::parse(toml).unwrap();
+        assert_eq!(config.build.platform(), ConfigPlatform::Browser);
+
+        // Test node platform
+        let toml = r#"
+[build]
+platform = "node"
+"#;
+        let config = HuskConfig::parse(toml).unwrap();
+        assert_eq!(config.build.platform(), ConfigPlatform::Node);
+
+        // Test auto platform
+        let toml = r#"
+[build]
+platform = "auto"
+"#;
+        let config = HuskConfig::parse(toml).unwrap();
+        assert_eq!(config.build.platform(), ConfigPlatform::Auto);
+
+        // Test unset platform defaults to auto
+        let toml = r#"
+[build]
+entry = "src/main.hk"
+"#;
+        let config = HuskConfig::parse(toml).unwrap();
+        assert_eq!(config.build.platform(), ConfigPlatform::Auto);
     }
 
     #[test]

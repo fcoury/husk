@@ -1,0 +1,11 @@
+[package]
+name = "react-hx-counter"
+version = "1.0.0"
+description = "React counter app using Husk HX templating"
+
+[build]
+entry = "src/main.hk"
+output = "dist"
+target = "esm"
+platform = "browser"
+source_maps = true

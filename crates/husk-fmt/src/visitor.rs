@@ -1580,6 +1580,89 @@ impl<'a> Formatter<'a> {
                 self.write(".");
                 self.write(&index.to_string());
             }
+            ExprKind::HxBlock { children } => {
+                self.write("hx {");
+                if !children.is_empty() {
+                    self.newline();
+                    self.indent += 1;
+                    for child in children {
+                        self.format_hx_child(child);
+                    }
+                    self.indent -= 1;
+                    self.write_indent();
+                }
+                self.write("}");
+            }
+        }
+    }
+
+    fn format_hx_child(&mut self, child: &husk_ast::HxChild) {
+        use husk_ast::HxChild;
+        match child {
+            HxChild::Element(elem) => self.format_hx_element(elem),
+            HxChild::Text(text) => {
+                self.write_indent();
+                self.write(&text.value);
+                self.newline();
+            }
+            HxChild::Expr(expr) => {
+                self.write_indent();
+                self.write("{");
+                self.format_expr(&expr.expr);
+                self.write("}");
+                self.newline();
+            }
+        }
+    }
+
+    fn format_hx_element(&mut self, elem: &husk_ast::HxElement) {
+        use husk_ast::{HxAttrValue, HxAttribute};
+        self.write_indent();
+        self.write("<");
+        self.write(&elem.tag.name);
+
+        // Format attributes
+        for attr in &elem.attributes {
+            self.write(" ");
+            match attr {
+                HxAttribute::KeyValue { name, value, .. } => {
+                    self.write(&name.name);
+                    self.write("=");
+                    match value {
+                        HxAttrValue::String(s, _) => {
+                            self.write("\"");
+                            self.write(s);
+                            self.write("\"");
+                        }
+                        HxAttrValue::Expr(expr) => {
+                            self.write("{");
+                            self.format_expr(expr);
+                            self.write("}");
+                        }
+                    }
+                }
+                HxAttribute::Boolean { name, .. } => {
+                    self.write(&name.name);
+                }
+            }
+        }
+
+        if elem.children.is_empty() {
+            self.write(" />");
+            self.newline();
+        } else {
+            self.write(">");
+            self.newline();
+            self.indent += 1;
+            for child in &elem.children {
+                self.format_hx_child(child);
+            }
+            self.indent -= 1;
+            self.write_indent();
+            self.write("</");
+            self.write(&elem.tag.name);
+            self.write(">");
+            self.newline();
         }
     }
 

@@ -8,13 +8,14 @@
 
 use husk_ast::{
     Block, EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec,
-    Ident, ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
-    StructField, TypeExpr, TypeExprKind, TypeParam,
+    HxAttrValue, HxAttribute, HxChild, HxElement, Ident, ImplItemKind, ItemKind, LiteralKind,
+    Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
+    TypeParam,
 };
-use husk_runtime_js::std_preamble_js;
+use husk_runtime_js::std_preamble_js_for_platform;
 use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
 use sourcemap::SourceMapBuilder;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Convert snake_case to camelCase.
@@ -93,6 +94,9 @@ struct CodegenContext<'a> {
     variant_calls: &'a VariantCallMap,
     /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns in match.
     variant_patterns: &'a VariantPatternMap,
+    /// Set of function names marked with #[react_component] attribute.
+    /// In HX, these components should use the $component wrapper.
+    react_components: &'a HashSet<String>,
 }
 
 impl<'a> CodegenContext<'a> {
@@ -102,6 +106,7 @@ impl<'a> CodegenContext<'a> {
         type_resolution: &'a TypeResolution,
         variant_calls: &'a VariantCallMap,
         variant_patterns: &'a VariantPatternMap,
+        react_components: &'a HashSet<String>,
     ) -> Self {
         Self {
             accessors,
@@ -110,6 +115,7 @@ impl<'a> CodegenContext<'a> {
             type_resolution,
             variant_calls,
             variant_patterns,
+            react_components,
         }
     }
 
@@ -120,6 +126,7 @@ impl<'a> CodegenContext<'a> {
         type_resolution: &'a TypeResolution,
         variant_calls: &'a VariantCallMap,
         variant_patterns: &'a VariantPatternMap,
+        react_components: &'a HashSet<String>,
     ) -> Self {
         Self {
             accessors,
@@ -128,6 +135,7 @@ impl<'a> CodegenContext<'a> {
             type_resolution,
             variant_calls,
             variant_patterns,
+            react_components,
         }
     }
 
@@ -333,6 +341,8 @@ pub enum JsExpr {
     Float(f64),
     Bool(bool),
     String(String),
+    /// Null literal: `null`.
+    Null,
     /// Object literal: `{ key: value, ... }`.
     Object(Vec<(String, JsExpr)>),
     /// Property access: `object.property`.
@@ -423,11 +433,53 @@ pub enum JsBinaryOp {
     StrictNe, // !==
 }
 
-/// Output target style.
+// Re-export Platform from the runtime crate to ensure consistency.
+pub use husk_runtime_js::Platform;
+
+/// Output module format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModuleFormat {
+    /// ES modules (import/export)
+    #[default]
+    Esm,
+    /// CommonJS (require/module.exports)
+    Cjs,
+}
+
+/// Output target style (legacy enum for backwards compatibility).
+/// Use `JsTargetConfig` for new code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsTarget {
     Esm,
     Cjs,
+}
+
+/// Full codegen target configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JsTargetConfig {
+    pub platform: Platform,
+    pub format: ModuleFormat,
+}
+
+impl Default for JsTargetConfig {
+    fn default() -> Self {
+        Self {
+            platform: Platform::Node,
+            format: ModuleFormat::Esm,
+        }
+    }
+}
+
+impl From<JsTarget> for JsTargetConfig {
+    fn from(target: JsTarget) -> Self {
+        JsTargetConfig {
+            platform: Platform::Node,
+            format: match target {
+                JsTarget::Esm => ModuleFormat::Esm,
+                JsTarget::Cjs => ModuleFormat::Cjs,
+            },
+        }
+    }
 }
 
 /// Lower a Husk AST file into a JS module.
@@ -512,6 +564,28 @@ pub fn lower_file_to_js_with_source(
                     if let ExternItemKind::Struct { name, .. } = &ext.kind {
                         extern_structs.insert(name.name.clone());
                     }
+                }
+            }
+        }
+    }
+
+    // Collect functions marked with #[react_component] attribute
+    // These functions will have a $component wrapper generated for HX usage
+    let mut react_components: HashSet<String> = HashSet::new();
+    for item in &file.items {
+        if let ItemKind::Fn { name, params, .. } = &item.kind {
+            if item.is_react_component() {
+                if params.is_empty() {
+                    // Warn about unnecessary #[react_component] on parameterless functions
+                    eprintln!(
+                        "warning: #[react_component] on `{}` has no effect (function has no parameters)",
+                        name.name
+                    );
+                    eprintln!(
+                        "  help: remove the #[react_component] attribute, or add parameters to accept props"
+                    );
+                } else {
+                    react_components.insert(name.name.clone());
                 }
             }
         }
@@ -631,7 +705,7 @@ pub fn lower_file_to_js_with_source(
         }
     }
 
-    // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
+    // Create codegen context with accessors, optional source path, name resolution, type resolution, variant maps, and react components
     let ctx = match source_path {
         Some(path) => CodegenContext::with_source_path(
             &accessors,
@@ -640,6 +714,7 @@ pub fn lower_file_to_js_with_source(
             type_resolution,
             variant_calls,
             variant_patterns,
+            &react_components,
         ),
         None => CodegenContext::new(
             &accessors,
@@ -647,6 +722,7 @@ pub fn lower_file_to_js_with_source(
             type_resolution,
             variant_calls,
             variant_patterns,
+            &react_components,
         ),
     };
 
@@ -729,6 +805,33 @@ pub fn lower_file_to_js_with_source(
                     &name.name, params, fn_body, &item.span, source, &ctx,
                 ));
                 fn_names.push(name.name.clone());
+
+                // Generate a $component wrapper for #[react_component] functions
+                // This wrapper takes a single props object and extracts each parameter
+                if item.is_react_component() && !params.is_empty() {
+                    let wrapper_name = format!("{}$component", name.name);
+                    // Build the call expression using proper AST nodes:
+                    // OriginalFn(props.param1, props.param2, ...)
+                    let call_args: Vec<JsExpr> = params
+                        .iter()
+                        .map(|p| JsExpr::Member {
+                            object: Box::new(JsExpr::Ident("props".to_string())),
+                            property: p.name.name.clone(),
+                        })
+                        .collect();
+
+                    body.push(JsStmt::Function {
+                        name: wrapper_name.clone(),
+                        params: vec!["props".to_string()],
+                        body: vec![JsStmt::Return(JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident(name.name.clone())),
+                            args: call_args,
+                        })],
+                        source_span: None,
+                    });
+                    fn_names.push(wrapper_name);
+                }
+
                 if name.name == "main" && params.is_empty() {
                     has_main_entry = true;
                 }
@@ -738,16 +841,48 @@ pub fn lower_file_to_js_with_source(
                     // Functions that are already defined in the runtime preamble
                     // and should not have wrappers generated
                     const PREAMBLE_FUNCTIONS: &[&str] = &[
+                        // Object creation
                         "JsObject_new",
+                        // Property access
                         "jsvalue_get",
                         "jsvalue_getString",
                         "jsvalue_getNumber",
                         "jsvalue_getBool",
                         "jsvalue_getArray",
+                        // Type checking
                         "jsvalue_isNull",
+                        "jsvalue_isUndefined",
+                        "jsvalue_isObject",
+                        "jsvalue_isArray",
+                        // Type conversion
                         "jsvalue_toString",
                         "jsvalue_toBool",
                         "jsvalue_toNumber",
+                        // Function calls
+                        "jsvalue_call0",
+                        "jsvalue_call1",
+                        "jsvalue_call2",
+                        "jsvalue_call3",
+                        // Arithmetic helpers
+                        "jsvalue_add_num",
+                        "jsvalue_sub_num",
+                        "jsvalue_mul_num",
+                        "jsvalue_div_num",
+                        // Primitive conversion
+                        "jsvalue_from_int",
+                        "jsvalue_from_float",
+                        "jsvalue_from_bool",
+                        "jsvalue_null",
+                        "jsvalue_undefined",
+                        // Browser globals
+                        "get_document",
+                        "get_window",
+                        // Method calls
+                        "jsvalue_method0",
+                        "jsvalue_method1",
+                        "jsvalue_method2",
+                        "jsvalue_method1_str",
+                        // Express helpers
                         "express_json",
                     ];
 
@@ -2521,6 +2656,184 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 index: Box::new(JsExpr::Number(*index as i64)),
             }
         }
+        ExprKind::HxBlock { children } => {
+            // Lower hx block to JSX-style _jsx() calls
+            lower_hx_children(children, ctx)
+        }
+    }
+}
+
+// =============================================================================
+// HX Block / JSX Lowering
+// =============================================================================
+
+/// Attribute mapping from HTML to React/JSX.
+/// These are the common HTML attributes that need to be renamed in JSX.
+fn map_hx_attribute_name(name: &str) -> &str {
+    match name {
+        "class" => "className",
+        "for" => "htmlFor",
+        "tabindex" => "tabIndex",
+        "readonly" => "readOnly",
+        "maxlength" => "maxLength",
+        "minlength" => "minLength",
+        "colspan" => "colSpan",
+        "rowspan" => "rowSpan",
+        "cellpadding" => "cellPadding",
+        "cellspacing" => "cellSpacing",
+        "usemap" => "useMap",
+        "frameborder" => "frameBorder",
+        "contenteditable" => "contentEditable",
+        "crossorigin" => "crossOrigin",
+        "autocomplete" => "autoComplete",
+        "autocapitalize" => "autoCapitalize",
+        "autocorrect" => "autoCorrect",
+        "autofocus" => "autoFocus",
+        "autoplay" => "autoPlay",
+        "enctype" => "encType",
+        "formaction" => "formAction",
+        "formenctype" => "formEncType",
+        "formmethod" => "formMethod",
+        "formnovalidate" => "formNoValidate",
+        "formtarget" => "formTarget",
+        "novalidate" => "noValidate",
+        "accesskey" => "accessKey",
+        "datetime" => "dateTime",
+        "hreflang" => "hrefLang",
+        "inputmode" => "inputMode",
+        "referrerpolicy" => "referrerPolicy",
+        "srcset" => "srcSet",
+        "srcdoc" => "srcDoc",
+        "srclang" => "srcLang",
+        _ => name,
+    }
+}
+
+/// Check if a tag name represents a component (starts with uppercase).
+fn is_component_tag(name: &str) -> bool {
+    name.chars()
+        .next()
+        .map(|c| c.is_uppercase())
+        .unwrap_or(false)
+}
+
+/// Lower a list of HX children to a JS expression.
+/// Returns a fragment array if multiple children, or the single child otherwise.
+fn lower_hx_children(children: &[HxChild], ctx: &CodegenContext) -> JsExpr {
+    let lowered: Vec<JsExpr> = children
+        .iter()
+        .filter_map(|child| lower_hx_child(child, ctx))
+        .collect();
+
+    match lowered.len() {
+        0 => JsExpr::Null,
+        1 => lowered.into_iter().next().unwrap(),
+        _ => {
+            // Multiple children: wrap in _jsx(Fragment, { children: [...] })
+            // or just return an array if the runtime supports it
+            JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+                args: vec![
+                    JsExpr::Ident("Fragment".to_string()),
+                    JsExpr::Object(vec![("children".to_string(), JsExpr::Array(lowered))]),
+                ],
+            }
+        }
+    }
+}
+
+/// Lower a single HX child to a JS expression.
+fn lower_hx_child(child: &HxChild, ctx: &CodegenContext) -> Option<JsExpr> {
+    match child {
+        HxChild::Element(elem) => Some(lower_hx_element(elem, ctx)),
+        HxChild::Text(text) => {
+            // Skip whitespace-only text nodes
+            if text.value.trim().is_empty() {
+                None
+            } else {
+                Some(JsExpr::String(text.value.clone()))
+            }
+        }
+        HxChild::Expr(expr) => Some(lower_expr(&expr.expr, ctx)),
+    }
+}
+
+/// Lower an HX element to a _jsx() call.
+///
+/// Example:
+/// `<div class="container">Hello</div>`
+/// becomes:
+/// `_jsx("div", { className: "container", children: "Hello" })`
+fn lower_hx_element(elem: &HxElement, ctx: &CodegenContext) -> JsExpr {
+    let tag_name = &elem.tag.name;
+
+    // Determine if this is a component (uppercase) or DOM element (lowercase)
+    let tag_expr = if is_component_tag(tag_name) {
+        // Component: pass as identifier
+        // If this component is marked with #[react_component], use the $component wrapper
+        let component_name = if ctx.react_components.contains(tag_name) {
+            format!("{}$component", tag_name)
+        } else {
+            tag_name.clone()
+        };
+        JsExpr::Ident(component_name)
+    } else {
+        // DOM element: pass as string
+        JsExpr::String(tag_name.clone())
+    };
+
+    // Build props object
+    let mut props: Vec<(String, JsExpr)> = Vec::new();
+
+    for attr in &elem.attributes {
+        match attr {
+            HxAttribute::KeyValue { name, value, .. } => {
+                let js_name = map_hx_attribute_name(&name.name).to_string();
+                let js_value = match value {
+                    HxAttrValue::String(s, _) => JsExpr::String(s.clone()),
+                    HxAttrValue::Expr(expr) => lower_expr(expr, ctx),
+                };
+                props.push((js_name, js_value));
+            }
+            HxAttribute::Boolean { name, .. } => {
+                let js_name = map_hx_attribute_name(&name.name).to_string();
+                props.push((js_name, JsExpr::Bool(true)));
+            }
+        }
+    }
+
+    // Add children if any
+    if !elem.children.is_empty() {
+        let children: Vec<JsExpr> = elem
+            .children
+            .iter()
+            .filter_map(|child| lower_hx_child(child, ctx))
+            .collect();
+
+        match children.len() {
+            0 => {} // No children after filtering
+            1 => {
+                props.push(("children".to_string(), children.into_iter().next().unwrap()));
+            }
+            _ => {
+                props.push(("children".to_string(), JsExpr::Array(children)));
+            }
+        }
+    }
+
+    // Generate the _jsx() call
+    if props.is_empty() {
+        // No props: _jsx("div", {}) - React expects an object, not null
+        JsExpr::Call {
+            callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+            args: vec![tag_expr, JsExpr::Object(vec![])],
+        }
+    } else {
+        // With props: _jsx("div", { ... })
+        JsExpr::Call {
+            callee: Box::new(JsExpr::Ident("_jsx".to_string())),
+            args: vec![tag_expr, JsExpr::Object(props)],
+        }
     }
 }
 
@@ -2686,15 +2999,11 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                     spec.width
                         .map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
                     spec.precision
-                        .map_or(JsExpr::Ident("null".to_string()), |p| {
-                            JsExpr::Number(p as i64)
-                        }),
-                    spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
-                        JsExpr::String(c.to_string())
-                    }),
-                    spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
-                        JsExpr::String(c.to_string())
-                    }),
+                        .map_or(JsExpr::Null, |p| JsExpr::Number(p as i64)),
+                    spec.fill
+                        .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
+                    spec.align
+                        .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
                     JsExpr::Bool(spec.sign),
                     JsExpr::Bool(spec.alternate),
                     JsExpr::Bool(spec.zero_pad),
@@ -2715,15 +3024,11 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                         spec.width
                             .map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
                         spec.precision
-                            .map_or(JsExpr::Ident("null".to_string()), |p| {
-                                JsExpr::Number(p as i64)
-                            }),
-                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
-                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
+                            .map_or(JsExpr::Null, |p| JsExpr::Number(p as i64)),
+                        spec.fill
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
+                        spec.align
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
                         JsExpr::Bool(spec.sign),
                         JsExpr::Bool(spec.alternate),
                         JsExpr::Bool(spec.zero_pad),
@@ -2741,12 +3046,10 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                     args: vec![
                         str_arg,
                         JsExpr::Number(spec.width.unwrap_or(0) as i64),
-                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
-                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
+                        spec.fill
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
+                        spec.align
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
                     ],
                 }
             } else {
@@ -3090,7 +3393,15 @@ impl JsModule {
     /// Render the module to a JavaScript source string with the Husk preamble.
     /// Import/require statements are placed at the very top, followed by the preamble,
     /// then the rest of the code.
+    /// Uses Node preamble by default for backwards compatibility.
     pub fn to_source_with_preamble(&self) -> String {
+        self.to_source_with_preamble_for_platform(Platform::Node)
+    }
+
+    /// Render the module to a JavaScript source string with the platform-specific preamble.
+    /// Import/require statements are placed at the very top, followed by the preamble,
+    /// then the rest of the code.
+    pub fn to_source_with_preamble_for_platform(&self, platform: Platform) -> String {
         let mut out = String::new();
 
         // First, output all import/require statements at the top
@@ -3106,8 +3417,8 @@ impl JsModule {
             out.push('\n');
         }
 
-        // Then output the preamble
-        out.push_str(std_preamble_js());
+        // Then output the platform-specific preamble
+        out.push_str(std_preamble_js_for_platform(platform));
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -3126,10 +3437,22 @@ impl JsModule {
 
     /// Render the module to JavaScript source with a source map.
     /// Returns (js_source, source_map_json).
+    /// Uses Node preamble by default for backwards compatibility.
     pub fn to_source_with_sourcemap(
         &self,
         source_file: &str,
         source_content: &str,
+    ) -> (String, String) {
+        self.to_source_with_sourcemap_for_platform(source_file, source_content, Platform::Node)
+    }
+
+    /// Render the module to JavaScript source with a source map for a specific platform.
+    /// Returns (js_source, source_map_json).
+    pub fn to_source_with_sourcemap_for_platform(
+        &self,
+        source_file: &str,
+        source_content: &str,
+        platform: Platform,
     ) -> (String, String) {
         let mut out = String::new();
         let mut builder = SourceMapBuilder::new(Some(source_file));
@@ -3139,7 +3462,7 @@ impl JsModule {
         builder.set_source_contents(source_id, Some(source_content));
 
         // Count preamble lines
-        let preamble = std_preamble_js();
+        let preamble = std_preamble_js_for_platform(platform);
         let preamble_lines = preamble.lines().count() as u32;
 
         // First, output all import/require statements at the top
@@ -3610,6 +3933,7 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
         }
         JsExpr::Float(f) => out.push_str(&f.to_string()),
         JsExpr::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        JsExpr::Null => out.push_str("null"),
         JsExpr::Object(props) => {
             out.push('{');
             for (i, (key, value)) in props.iter().enumerate() {
@@ -4210,6 +4534,7 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let js = lower_expr(
             &match_expr,
             &CodegenContext::new(
@@ -4218,6 +4543,7 @@ mod tests {
                 &empty_type_resolution,
                 &empty_variant_calls,
                 &empty_variant_patterns,
+                &empty_react_components,
             ),
         );
         let mut out = String::new();
@@ -4733,12 +5059,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
@@ -4806,12 +5134,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
@@ -4851,12 +5181,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
@@ -5020,12 +5352,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_break = lower_stmt(&break_stmt, &ctx);
@@ -5077,12 +5411,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_expr = lower_expr(&call_expr, &ctx);
@@ -5146,12 +5482,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_expr = lower_expr(&call_expr, &ctx);
@@ -5192,12 +5530,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_expr = lower_expr(&path_expr, &ctx);
@@ -5271,12 +5611,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
@@ -5350,12 +5692,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
@@ -5420,12 +5764,14 @@ mod tests {
         let empty_type_resolution = HashMap::new();
         let empty_variant_calls = HashMap::new();
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
         let ctx = CodegenContext::new(
             &accessors,
             &empty_resolution,
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
@@ -5486,6 +5832,7 @@ mod tests {
         let mut variant_calls = HashMap::new();
         variant_calls.insert((0, 4), ("Option".to_string(), "None".to_string()));
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
 
         let ctx = CodegenContext::new(
             &accessors,
@@ -5493,6 +5840,7 @@ mod tests {
             &empty_type_resolution,
             &variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_expr = lower_expr(&none_expr, &ctx);
@@ -5547,6 +5895,7 @@ mod tests {
         // Register the call span as an imported variant
         variant_calls.insert((0, 8), ("Option".to_string(), "Some".to_string()));
         let empty_variant_patterns = HashMap::new();
+        let empty_react_components = HashSet::new();
 
         let ctx = CodegenContext::new(
             &accessors,
@@ -5554,6 +5903,7 @@ mod tests {
             &empty_type_resolution,
             &variant_calls,
             &empty_variant_patterns,
+            &empty_react_components,
         );
 
         let js_expr = lower_expr(&call_expr, &ctx);

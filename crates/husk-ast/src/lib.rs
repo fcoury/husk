@@ -250,6 +250,89 @@ pub enum ExprKind {
         base: Box<Expr>,
         index: usize,
     },
+    /// Hx template block expression: `hx { <div class="foo">Hello</div> }`
+    /// Lowers to JSX-style _jsx() calls in code generation.
+    HxBlock {
+        /// The root element(s) of this hx block
+        children: Vec<HxChild>,
+    },
+}
+
+// =============================================================================
+// Hx Template Types (JSX-like HTML templating)
+// =============================================================================
+
+/// A child node inside an hx block.
+/// Can be an element, text, or an expression interpolation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HxChild {
+    /// An HTML/JSX-like element: `<div class="foo">...</div>`
+    Element(HxElement),
+    /// Plain text content between elements
+    Text(HxText),
+    /// An expression interpolation: `{expr}` or `{value}`
+    Expr(HxExpr),
+}
+
+/// An HTML/JSX-like element node.
+/// Examples: `<div>`, `<button onClick={handler}>`, `<Component prop={value} />`
+#[derive(Debug, Clone, PartialEq)]
+pub struct HxElement {
+    /// The tag name (e.g., "div", "button", "MyComponent")
+    pub tag: Ident,
+    /// Attributes on this element
+    pub attributes: Vec<HxAttribute>,
+    /// Child nodes (empty for self-closing tags)
+    pub children: Vec<HxChild>,
+    /// Whether this is a self-closing tag: `<br />`
+    pub self_closing: bool,
+    pub span: Span,
+}
+
+/// Plain text content in an hx block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HxText {
+    /// The text content (whitespace-normalized)
+    pub value: String,
+    pub span: Span,
+}
+
+/// An expression interpolation in an hx block: `{expr}`
+#[derive(Debug, Clone, PartialEq)]
+pub struct HxExpr {
+    /// The expression to evaluate and render
+    pub expr: Box<Expr>,
+    pub span: Span,
+}
+
+/// An attribute on an hx element.
+/// Supports various forms:
+/// - `name="value"` - string literal
+/// - `name={expr}` - expression value
+/// - `name` - boolean shorthand (true)
+/// - `{...spread}` - spread attributes (future)
+#[derive(Debug, Clone, PartialEq)]
+pub enum HxAttribute {
+    /// A regular key-value attribute
+    KeyValue {
+        name: Ident,
+        value: HxAttrValue,
+        span: Span,
+    },
+    /// Boolean attribute (presence means true): `<input disabled />`
+    Boolean {
+        name: Ident,
+        span: Span,
+    },
+}
+
+/// The value of an hx attribute.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HxAttrValue {
+    /// A string literal: `class="container"`
+    String(String, Span),
+    /// An expression: `onClick={handler}` or `value={count + 1}`
+    Expr(Box<Expr>),
 }
 
 // ============================================================================
@@ -742,6 +825,14 @@ impl Item {
     pub fn is_untagged(&self) -> bool {
         self.attributes.iter().any(|a| a.name.name == "untagged")
     }
+
+    /// Returns true if this item (usually a function) has a #[react_component] attribute.
+    /// React component functions receive a props object instead of individual parameters.
+    pub fn is_react_component(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|a| a.name.name == "react_component")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1028,6 +1119,62 @@ impl SetFilePath for Expr {
             ExprKind::TupleField { base, .. } => {
                 base.set_file_path(file);
             }
+            ExprKind::HxBlock { children } => {
+                for child in children {
+                    child.set_file_path(file.clone());
+                }
+            }
+        }
+    }
+}
+
+impl SetFilePath for HxChild {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        match self {
+            HxChild::Element(elem) => elem.set_file_path(file),
+            HxChild::Text(text) => text.span.set_file_path(file),
+            HxChild::Expr(expr) => {
+                expr.span.set_file_path(file.clone());
+                expr.expr.set_file_path(file);
+            }
+        }
+    }
+}
+
+impl SetFilePath for HxElement {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        self.tag.set_file_path(file.clone());
+        for attr in &mut self.attributes {
+            attr.set_file_path(file.clone());
+        }
+        for child in &mut self.children {
+            child.set_file_path(file.clone());
+        }
+    }
+}
+
+impl SetFilePath for HxAttribute {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        match self {
+            HxAttribute::KeyValue { name, value, span } => {
+                span.set_file_path(file.clone());
+                name.set_file_path(file.clone());
+                value.set_file_path(file);
+            }
+            HxAttribute::Boolean { name, span } => {
+                span.set_file_path(file.clone());
+                name.set_file_path(file);
+            }
+        }
+    }
+}
+
+impl SetFilePath for HxAttrValue {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        match self {
+            HxAttrValue::String(_, span) => span.set_file_path(file),
+            HxAttrValue::Expr(expr) => expr.set_file_path(file),
         }
     }
 }

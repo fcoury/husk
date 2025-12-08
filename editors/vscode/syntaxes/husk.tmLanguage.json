@@ -4,6 +4,8 @@
   "scopeName": "source.husk",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#js-block" },
+    { "include": "#hx-block" },
     { "include": "#keywords" },
     { "include": "#strings" },
     { "include": "#numbers" },
@@ -18,8 +20,143 @@
         {
           "name": "comment.line.double-slash.husk",
           "match": "//.*$"
+        },
+        {
+          "name": "comment.block.husk",
+          "begin": "/\\*",
+          "end": "\\*/"
         }
       ]
+    },
+    "js-block": {
+      "name": "meta.embedded.block.js.husk",
+      "begin": "\\b(js)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.js.husk" },
+        "2": { "name": "punctuation.section.block.begin.husk" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.husk" }
+      },
+      "contentName": "meta.embedded.block.javascript",
+      "patterns": [
+        { "include": "source.js" }
+      ]
+    },
+    "hx-block": {
+      "name": "meta.embedded.block.hx.husk",
+      "begin": "\\b(hx)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.hx.husk" },
+        "2": { "name": "punctuation.section.block.begin.husk" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.block.end.husk" }
+      },
+      "patterns": [
+        { "include": "#hx-content" }
+      ]
+    },
+    "hx-content": {
+      "patterns": [
+        { "include": "#hx-expression" },
+        { "include": "#hx-element-self-closing" },
+        { "include": "#hx-element-open" },
+        { "include": "#hx-element-close" },
+        { "include": "#hx-text" }
+      ]
+    },
+    "hx-element-self-closing": {
+      "name": "meta.tag.self-closing.hx.husk",
+      "begin": "(<)\\s*([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)(?=[^>]*/>)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.hx" },
+        "2": { "name": "entity.name.tag.hx" }
+      },
+      "end": "/>",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.tag.end.hx" }
+      },
+      "patterns": [
+        { "include": "#hx-attribute" }
+      ]
+    },
+    "hx-element-open": {
+      "name": "meta.tag.open.hx.husk",
+      "begin": "(<)\\s*([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.hx" },
+        "2": { "name": "entity.name.tag.hx" }
+      },
+      "end": ">",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.tag.end.hx" }
+      },
+      "patterns": [
+        { "include": "#hx-attribute" }
+      ]
+    },
+    "hx-element-close": {
+      "name": "meta.tag.close.hx.husk",
+      "match": "(</)\\s*([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)\\s*(>)",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.begin.hx" },
+        "2": { "name": "entity.name.tag.hx" },
+        "3": { "name": "punctuation.definition.tag.end.hx" }
+      }
+    },
+    "hx-attribute": {
+      "patterns": [
+        {
+          "name": "meta.attribute.expression.hx",
+          "begin": "([a-zA-Z_][a-zA-Z0-9_-]*)\\s*(=)\\s*(\\{)",
+          "beginCaptures": {
+            "1": { "name": "entity.other.attribute-name.hx" },
+            "2": { "name": "punctuation.separator.key-value.hx" },
+            "3": { "name": "punctuation.section.embedded.begin.hx" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.embedded.end.hx" }
+          },
+          "patterns": [
+            { "include": "$self" }
+          ]
+        },
+        {
+          "name": "meta.attribute.string.hx",
+          "match": "([a-zA-Z_][a-zA-Z0-9_-]*)\\s*(=)\\s*(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.hx" },
+            "2": { "name": "punctuation.separator.key-value.hx" },
+            "3": { "name": "string.quoted.double.hx" }
+          }
+        },
+        {
+          "name": "entity.other.attribute-name.hx",
+          "match": "[a-zA-Z_][a-zA-Z0-9_-]*"
+        }
+      ]
+    },
+    "hx-expression": {
+      "name": "meta.embedded.expression.hx",
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.embedded.begin.hx" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.embedded.end.hx" }
+      },
+      "patterns": [
+        { "include": "$self" }
+      ]
+    },
+    "hx-text": {
+      "name": "string.unquoted.hx",
+      "match": "[^<>{}]+"
     },
     "keywords": {
       "patterns": [
@@ -67,6 +204,10 @@
     "numbers": {
       "patterns": [
         {
+          "name": "constant.numeric.float.husk",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
           "name": "constant.numeric.integer.husk",
           "match": "\\b[0-9]+\\b"
         }
@@ -104,7 +245,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.husk",
-          "match": "\\b(i32|i64|u32|u64|bool|String|str)\\b"
+          "match": "\\b(i32|i64|u32|u64|f32|f64|bool|String|str|JsValue)\\b"
         },
         {
           "name": "entity.name.type.husk",
