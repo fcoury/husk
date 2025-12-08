@@ -7562,4 +7562,60 @@ fn unwrap_or(opt: Option<i32>, default: i32) -> i32 {
         let none_refs = result.references.get(&none_key);
         assert!(none_refs.is_some(), "expected references for variant 'Option::None' in pattern");
     }
+
+    #[test]
+    fn reference_map_tracks_variant_in_if_let() {
+        let src = r#"
+fn check_some(opt: Option<i32>) -> i32 {
+    if let Some(x) = opt {
+        x
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check that Some variant usage in if-let pattern is tracked
+        let key = ("Option::Some".to_string(), ReferenceKind::Variant);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for variant 'Option::Some' in if-let");
+    }
+
+    #[test]
+    fn reference_map_tracks_qualified_variant_in_if_let() {
+        let src = r#"
+enum MyEnum {
+    Foo(i32),
+    Bar,
+}
+
+fn check(e: MyEnum) -> i32 {
+    if let MyEnum::Foo(x) = e {
+        x
+    } else {
+        0
+    }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check that qualified variant in if-let is tracked
+        let key = ("MyEnum::Foo".to_string(), ReferenceKind::Variant);
+        let refs = result.references.get(&key);
+        assert!(refs.is_some(), "expected references for variant 'MyEnum::Foo' in if-let");
+        let refs = refs.unwrap();
+        // Should have at least 2: definition + if-let pattern
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 references for 'MyEnum::Foo', got {}",
+            refs.len()
+        );
+    }
 }
