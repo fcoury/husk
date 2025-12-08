@@ -231,6 +231,35 @@ pub fn filter_items_by_cfg(file: &File, flags: &HashSet<String>) -> File {
     }
 }
 
+/// Format a Type for display in error messages.
+fn format_type(ty: &Type) -> String {
+    match ty {
+        Type::Primitive(p) => match p {
+            PrimitiveType::I32 => "i32".to_string(),
+            PrimitiveType::I64 => "i64".to_string(),
+            PrimitiveType::F64 => "f64".to_string(),
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::String => "String".to_string(),
+            PrimitiveType::Unit => "()".to_string(),
+        },
+        Type::Array(inner) => format!("[{}]", format_type(inner)),
+        Type::Named { name, args } if args.is_empty() => name.clone(),
+        Type::Named { name, args } => {
+            let args_str = args.iter().map(|a| format_type(a)).collect::<Vec<_>>().join(", ");
+            format!("{}<{}>", name, args_str)
+        }
+        Type::Function { params, ret } => {
+            let params_str = params.iter().map(|p| format_type(p)).collect::<Vec<_>>().join(", ");
+            format!("fn({}) -> {}", params_str, format_type(ret))
+        }
+        Type::Var(id) => format!("?{}", id.0),
+        Type::Tuple(elements) => {
+            let elements_str = elements.iter().map(|e| format_type(e)).collect::<Vec<_>>().join(", ");
+            format!("({})", elements_str)
+        }
+    }
+}
+
 /// Run semantic analysis (name resolution + type checking) over the given file with options.
 pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> SemanticResult {
     // Filter items based on cfg predicates
@@ -1268,6 +1297,49 @@ impl TypeChecker {
                 );
             }
         }
+
+        // Validate main() return type - must implement Termination trait
+        // Currently only () and Result<T, E> are allowed
+        for item in &file.items {
+            if let ItemKind::Fn {
+                name,
+                ret_type,
+                ..
+            } = &item.kind
+            {
+                if name.name == "main" {
+                    let return_type = ret_type
+                        .as_ref()
+                        .map(|ty| self.resolve_type_expr(ty, &[]))
+                        .unwrap_or(Type::Primitive(PrimitiveType::Unit));
+
+                    let is_valid_termination = match &return_type {
+                        // () implements Termination
+                        Type::Primitive(PrimitiveType::Unit) => true,
+                        // Result<T, E> implements Termination (where T: Termination, E: Debug)
+                        // For now, we accept any Result type
+                        Type::Named { name, args } if name == "Result" && args.len() == 2 => true,
+                        _ => false,
+                    };
+
+                    if !is_valid_termination {
+                        let span = ret_type
+                            .as_ref()
+                            .map(|ty| ty.span.clone())
+                            .unwrap_or(name.span.clone());
+                        self.errors.push(SemanticError {
+                            message: format!(
+                                "`main` has invalid return type `{}`\n\
+                                 `main` can only return types that implement `Termination`\n\
+                                 help: consider using `()`, or a `Result`",
+                                format_type(&return_type)
+                            ),
+                            span,
+                        });
+                    }
+                }
+            }
+        }
         (
             self.errors.clone(),
             std::mem::take(&mut self.name_resolution),
@@ -1333,6 +1405,7 @@ impl TypeChecker {
             resolved_names,
             ret_ty,
             in_loop: false,
+            enclosing_fn_name: Some(name.name.clone()),
         };
 
         for stmt in body {
@@ -1521,6 +1594,8 @@ struct FnContext<'a> {
     resolved_names: HashMap<String, String>,
     ret_ty: Type,
     in_loop: bool,
+    /// Name of the enclosing function for error messages (None for closures).
+    enclosing_fn_name: Option<String>,
 }
 
 impl<'a> FnContext<'a> {
@@ -3655,6 +3730,31 @@ impl<'a> FnContext<'a> {
             ExprKind::Try { expr: inner } => {
                 // ? operator: for Result<T, E> returns T (early return on Err)
                 //             for Option<T> returns T (early return on None)
+
+                // First, validate that the enclosing function returns Result or Option
+                let is_valid_return = match &self.ret_ty {
+                    Type::Named { name, args } if name == "Result" && args.len() == 2 => true,
+                    Type::Named { name, args } if name == "Option" && args.len() == 1 => true,
+                    _ => false,
+                };
+
+                if !is_valid_return {
+                    let fn_context = match &self.enclosing_fn_name {
+                        Some(name) => format!("function `{}`", name),
+                        None => "closure".to_string(),
+                    };
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "the `?` operator can only be used in a function that returns `Result` or `Option`\n\
+                             {} returns `{}`",
+                            fn_context,
+                            self.format_type(&self.ret_ty)
+                        ),
+                        span: expr.span.clone(),
+                    });
+                }
+
+                // Then, validate the expression type
                 let inner_ty = self.check_expr(inner);
                 match &inner_ty {
                     Type::Named { name, args } if name == "Result" && args.len() == 2 => {
@@ -4084,6 +4184,8 @@ impl<'a> FnContext<'a> {
         let old_resolved_names =
             std::mem::replace(&mut self.resolved_names, closure_resolved_names);
         let old_ret_ty = std::mem::replace(&mut self.ret_ty, expected_ret_ty.clone());
+        // Closures have their own return type context - set fn name to None for error messages
+        let old_fn_name = std::mem::replace(&mut self.enclosing_fn_name, None);
 
         // Check the body and infer return type
         let body_ty = self.check_expr(body);
@@ -4093,6 +4195,7 @@ impl<'a> FnContext<'a> {
         self.shadow_counts = old_shadow_counts;
         self.resolved_names = old_resolved_names;
         self.ret_ty = old_ret_ty;
+        self.enclosing_fn_name = old_fn_name;
 
         // Use explicit return type if specified, otherwise infer from body
         let actual_ret_ty = if ret_type.is_some() {
@@ -5079,7 +5182,7 @@ mod tests {
 
     #[test]
     fn analyze_well_typed_function_with_primitives() {
-        // fn main() -> i32 {
+        // fn test_fn() -> i32 {
         //     let x: i32 = 1;
         //     x
         // }
@@ -5120,7 +5223,7 @@ mod tests {
                 attributes: Vec::new(),
                 visibility: husk_ast::Visibility::Private,
                 kind: ItemKind::Fn {
-                    name: ident("main", 0),
+                    name: ident("test_fn", 0),
                     type_params: Vec::new(),
                     params: Vec::new(),
                     ret_type: Some(type_ident("i32", 10)),
@@ -7913,6 +8016,231 @@ fn make_point() -> Point {
             y_refs.len() >= 2,
             "expected at least 2 references for 'Point.y' (def + literal), got {}",
             y_refs.len()
+        );
+    }
+
+    // ==================== Try Operator Validation Tests ====================
+
+    #[test]
+    fn try_operator_in_unit_function_errors() {
+        let src = r#"
+fn main() {
+    let x: Result<i32, String> = Ok(42);
+    let y = x?;
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected error for ? in function returning ()"
+        );
+        assert!(
+            result.type_errors[0]
+                .message
+                .contains("can only be used in a function that returns"),
+            "error message should mention return type requirement, got: {}",
+            result.type_errors[0].message
+        );
+    }
+
+    #[test]
+    fn try_operator_in_result_function_succeeds() {
+        let src = r#"
+fn main() -> Result<(), String> {
+    let x: Result<i32, String> = Ok(42);
+    let _y = x?;
+    Ok(())
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no errors for ? in Result function, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_operator_in_option_function_succeeds() {
+        let src = r#"
+fn get_value() -> Option<i32> {
+    let x: Option<i32> = Some(42);
+    let y = x?;
+    Some(y)
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "expected no errors for ? in Option function, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_operator_multiple_in_same_function_all_validated() {
+        let src = r#"
+fn main() {
+    let x: Result<i32, String> = Ok(1);
+    let y: Result<i32, String> = Ok(2);
+    let a = x?;
+    let b = y?;
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        // Should have errors for both ? operators
+        assert!(
+            result.type_errors.len() >= 2,
+            "expected at least 2 errors for multiple ? operators in () function, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_operator_error_message_includes_function_name() {
+        let src = r#"
+fn my_function() {
+    let x: Result<i32, String> = Ok(42);
+    let y = x?;
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(!result.type_errors.is_empty());
+        assert!(
+            result.type_errors[0].message.contains("my_function"),
+            "error should mention function name, got: {}",
+            result.type_errors[0].message
+        );
+    }
+
+    // ==================== Termination Trait Tests ====================
+
+    #[test]
+    fn main_returning_unit_is_valid() {
+        let src = r#"
+fn main() {
+    let x = 42;
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty() && result.symbols.errors.is_empty(),
+            "main() returning () should be valid, got: {:?} {:?}",
+            result.type_errors,
+            result.symbols.errors
+        );
+    }
+
+    #[test]
+    fn main_returning_result_is_valid() {
+        let src = r#"
+fn main() -> Result<(), String> {
+    Ok(())
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "main() returning Result should be valid, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn main_returning_i32_is_invalid() {
+        let src = r#"
+fn main() -> i32 {
+    42
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "main() returning i32 should be invalid"
+        );
+        assert!(
+            result.type_errors[0].message.contains("Termination"),
+            "error should mention Termination trait, got: {}",
+            result.type_errors[0].message
+        );
+    }
+
+    #[test]
+    fn main_returning_string_is_invalid() {
+        let src = r#"
+fn main() -> String {
+    "hello"
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "main() returning String should be invalid"
+        );
+    }
+
+    #[test]
+    fn non_main_function_can_return_any_type() {
+        let src = r#"
+fn helper() -> i32 {
+    42
+}
+
+fn main() {
+    let x = helper();
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty() && result.symbols.errors.is_empty(),
+            "non-main functions can return any type, got: {:?} {:?}",
+            result.type_errors,
+            result.symbols.errors
+        );
+    }
+
+    #[test]
+    fn main_with_try_operator_and_result_return_type() {
+        let src = r#"
+fn risky() -> Result<i32, String> {
+    Ok(42)
+}
+
+fn main() -> Result<(), String> {
+    let x = risky()?;
+    Ok(())
+}
+"#;
+        let parsed = parse_str(src);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            result.type_errors.is_empty(),
+            "main with ? and Result return should work, got: {:?}",
+            result.type_errors
         );
     }
 }
