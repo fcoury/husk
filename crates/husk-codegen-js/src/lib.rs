@@ -841,16 +841,48 @@ pub fn lower_file_to_js_with_source(
                     // Functions that are already defined in the runtime preamble
                     // and should not have wrappers generated
                     const PREAMBLE_FUNCTIONS: &[&str] = &[
+                        // Object creation
                         "JsObject_new",
+                        // Property access
                         "jsvalue_get",
                         "jsvalue_getString",
                         "jsvalue_getNumber",
                         "jsvalue_getBool",
                         "jsvalue_getArray",
+                        // Type checking
                         "jsvalue_isNull",
+                        "jsvalue_isUndefined",
+                        "jsvalue_isObject",
+                        "jsvalue_isArray",
+                        // Type conversion
                         "jsvalue_toString",
                         "jsvalue_toBool",
                         "jsvalue_toNumber",
+                        // Function calls
+                        "jsvalue_call0",
+                        "jsvalue_call1",
+                        "jsvalue_call2",
+                        "jsvalue_call3",
+                        // Arithmetic helpers
+                        "jsvalue_add_num",
+                        "jsvalue_sub_num",
+                        "jsvalue_mul_num",
+                        "jsvalue_div_num",
+                        // Primitive conversion
+                        "jsvalue_from_int",
+                        "jsvalue_from_float",
+                        "jsvalue_from_bool",
+                        "jsvalue_null",
+                        "jsvalue_undefined",
+                        // Browser globals
+                        "get_document",
+                        "get_window",
+                        // Method calls
+                        "jsvalue_method0",
+                        "jsvalue_method1",
+                        "jsvalue_method2",
+                        "jsvalue_method1_str",
+                        // Express helpers
                         "express_json",
                     ];
 
