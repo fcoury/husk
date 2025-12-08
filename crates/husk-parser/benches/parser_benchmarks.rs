@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use husk_parser::parse_str;
 
 const SMALL_SOURCE: &str = include_str!("../tests/fixtures/small.husk");
@@ -36,7 +36,11 @@ fn bench_scaling(c: &mut Criterion) {
     let sizes = [500, 1000, 2000, 4000, 8000];
 
     for &lines in &sizes {
-        let source: String = MEDIUM_SOURCE.lines().take(lines).collect::<Vec<_>>().join("\n");
+        let source: String = MEDIUM_SOURCE
+            .lines()
+            .take(lines)
+            .collect::<Vec<_>>()
+            .join("\n");
         let bytes = source.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));

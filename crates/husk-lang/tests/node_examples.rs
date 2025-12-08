@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use glob::glob;
-use husk_lang::load::{assemble_root, load_graph};
 use husk_codegen_js::{JsTarget, lower_file_to_js};
+use husk_lang::load::{assemble_root, load_graph};
 use husk_semantic::{analyze_file, filter_items_by_cfg};
 
 fn workspace_root() -> PathBuf {
@@ -86,7 +86,15 @@ fn examples_execute_with_node_when_available() {
         let filtered_file = filter_items_by_cfg(&file, &HashSet::new());
 
         // Lower to JS with preamble (bin mode: auto-call main when present).
-        let module = lower_file_to_js(&filtered_file, true, JsTarget::Cjs, &sem.name_resolution, &sem.type_resolution, &sem.variant_calls, &sem.variant_patterns);
+        let module = lower_file_to_js(
+            &filtered_file,
+            true,
+            JsTarget::Cjs,
+            &sem.name_resolution,
+            &sem.type_resolution,
+            &sem.variant_calls,
+            &sem.variant_patterns,
+        );
         let mut js = module.to_source_with_preamble();
 
         // For the minimal Express interop example, prepend a tiny stub `express`

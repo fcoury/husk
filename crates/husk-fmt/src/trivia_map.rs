@@ -50,7 +50,10 @@ impl TriviaMap {
 
     /// Get leading trivia for a position (comments/blank lines before this node).
     pub fn leading_at(&self, start: usize) -> &[Trivia] {
-        self.leading.get(&start).map(|v| v.as_slice()).unwrap_or(&[])
+        self.leading
+            .get(&start)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get trailing trivia for a position (end-of-line comments after this node).
@@ -70,7 +73,11 @@ impl TriviaMap {
 
     /// Count blank lines before a position.
     pub fn leading_blank_lines_at(&self, start: usize) -> usize {
-        let newline_count = self.leading_at(start).iter().filter(|t| t.is_newline()).count();
+        let newline_count = self
+            .leading_at(start)
+            .iter()
+            .filter(|t| t.is_newline())
+            .count();
         // 2 newlines = 1 blank line, 3 = 2, etc.
         newline_count.saturating_sub(1)
     }

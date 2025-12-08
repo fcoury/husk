@@ -52,7 +52,11 @@ fn import_dts_basic_function() {
 fn import_dts_with_output_file() {
     let dir = tempdir().unwrap();
     let dts_path = dir.path().join("api.d.ts");
-    fs::write(&dts_path, "declare function fetch(url: string): Promise<any>;").unwrap();
+    fs::write(
+        &dts_path,
+        "declare function fetch(url: string): Promise<any>;",
+    )
+    .unwrap();
 
     let out_path = dir.path().join("api.hk");
     let status = huskc_command()
@@ -100,11 +104,7 @@ interface Express {
     assert!(status.success(), "command failed");
 
     let content = fs::read_to_string(&out_path).unwrap();
-    assert!(
-        content.contains("mod express;"),
-        "expected 'mod express;' in output file, got:\n{}",
-        content
-    );
+    assert!(content.contains("mod \"express\" as express_js;") || content.contains("mod express;"));
 }
 
 #[test]

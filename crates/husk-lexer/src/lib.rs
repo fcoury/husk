@@ -161,17 +161,17 @@ pub enum TokenKind {
     OrOr,     // ||
     Pipe,     // | (single pipe for closures)
     Plus,
-    PlusEq,   // +=
+    PlusEq, // +=
     Minus,
-    MinusEq,  // -=
+    MinusEq, // -=
     Star,
     Slash,
     Percent,   // %
     PercentEq, // %=
     // Attribute-related tokens
-    Hash,      // #
-    LBracket,  // [
-    RBracket,  // ]
+    Hash,     // #
+    LBracket, // [
+    RBracket, // ]
     // End of input
     Eof,
 }
@@ -225,7 +225,11 @@ impl Token {
 
     /// Count consecutive newlines in leading trivia (for blank line detection)
     pub fn leading_blank_lines(&self) -> usize {
-        let newline_count = self.leading_trivia.iter().filter(|t| t.is_newline()).count();
+        let newline_count = self
+            .leading_trivia
+            .iter()
+            .filter(|t| t.is_newline())
+            .count();
         // 2 newlines = 1 blank line, 3 newlines = 2 blank lines, etc.
         newline_count.saturating_sub(1)
     }
@@ -471,7 +475,8 @@ impl<'src> Lexer<'src> {
                         // Consume the dot
                         self.bump();
                         // Consume the fractional digits
-                        let (frac_span, _) = self.consume_while(dot_idx + 1, |c| c.is_ascii_digit());
+                        let (frac_span, _) =
+                            self.consume_while(dot_idx + 1, |c| c.is_ascii_digit());
                         end = frac_span.range.end;
                         is_float = true;
                     }
@@ -689,7 +694,12 @@ impl<'src> Iterator for Lexer<'src> {
         // Collect trailing trivia (whitespace and comments on the same line after the token)
         let trailing_trivia = self.collect_trailing_trivia();
 
-        Some(Token::with_trivia(kind, span, leading_trivia, trailing_trivia))
+        Some(Token::with_trivia(
+            kind,
+            span,
+            leading_trivia,
+            trailing_trivia,
+        ))
     }
 }
 
@@ -743,9 +753,7 @@ mod tests {
         assert!(matches!(foo.kind, TokenKind::Ident(ref s) if s == "foo"));
         assert_eq!(foo.trailing_trivia.len(), 2);
         assert!(matches!(&foo.trailing_trivia[0], Trivia::Whitespace(ws) if ws == " "));
-        assert!(
-            matches!(&foo.trailing_trivia[1], Trivia::LineComment(c) if c == "// trailing")
-        );
+        assert!(matches!(&foo.trailing_trivia[1], Trivia::LineComment(c) if c == "// trailing"));
 
         let bar = lexer.next().unwrap();
         assert!(matches!(bar.kind, TokenKind::Ident(ref s) if s == "bar"));
@@ -793,7 +801,10 @@ mod tests {
         // Leading: whitespace, comment, newline, newline, whitespace
         assert_eq!(fn_token.leading_trivia.len(), 5);
         assert!(matches!(&fn_token.leading_trivia[0], Trivia::Whitespace(_)));
-        assert!(matches!(&fn_token.leading_trivia[1], Trivia::LineComment(_)));
+        assert!(matches!(
+            &fn_token.leading_trivia[1],
+            Trivia::LineComment(_)
+        ));
         assert!(matches!(&fn_token.leading_trivia[2], Trivia::Newline(_)));
         assert!(matches!(&fn_token.leading_trivia[3], Trivia::Newline(_)));
         assert!(matches!(&fn_token.leading_trivia[4], Trivia::Whitespace(_)));

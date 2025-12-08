@@ -5,8 +5,8 @@ use crate::builder::{self, BuilderConfig};
 use crate::diagnostics::CodegenMetrics;
 use crate::resolver::{ModuleIdentity, ResolvedModule};
 use crate::unions::{self, analyze_union};
-use crate::utility_types::{expand_type, ExpansionContext, TypeRegistry};
-use std::collections::{HashMap, HashSet};
+use crate::utility_types::{ExpansionContext, TypeRegistry, expand_type};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::fmt::Write;
 
 /// Options for code generation.
@@ -14,6 +14,9 @@ use std::fmt::Write;
 pub struct CodegenOptions {
     /// Module name for `mod` declaration in extern block.
     pub module_name: Option<String>,
+    /// Name of the Husk module (usually the output file stem). Used to avoid
+    /// collisions when the JS module alias matches the enclosing Husk module.
+    pub file_module_name: Option<String>,
     /// Include verbose warnings as comments.
     pub verbose: bool,
     /// Module identity from `export =` analysis.
@@ -36,6 +39,16 @@ pub struct CodegenOptions {
     /// When true: `declare const VERSION: string;` → `extern "js" const VERSION: String;`
     /// When false (default): `declare const VERSION: string;` → `extern "js" fn VERSION() -> String;`
     pub use_extern_const: bool,
+    /// Only generate code for items defined in the entry file.
+    /// Dependencies are still parsed for type resolution (inheritance, typeof, etc.)
+    /// but their items are not emitted. Types from dependencies that appear in
+    /// signatures are mapped to JsValue (the "cutoff" policy).
+    pub entry_file_only: bool,
+    /// Types to include in the output (only generate structs/interfaces matching these names).
+    /// If empty, all types are included.
+    pub include: Vec<String>,
+    /// Types to exclude from the output (skip structs/interfaces matching these names).
+    pub exclude: Vec<String>,
 }
 
 /// Strategy for handling TypeScript union types in generated code.
@@ -94,14 +107,15 @@ pub fn generate(file: &DtsFile, options: &CodegenOptions) -> CodegenResult {
 /// generating code for types from imported files as well as the entry file.
 /// Types are deduplicated by name, and dependencies are processed before
 /// dependents to ensure proper type resolution.
-pub fn generate_from_module(
-    resolved: &ResolvedModule,
-    options: &CodegenOptions,
-) -> CodegenResult {
+///
+/// When `options.entry_file_only` is true, only items from the entry file
+/// are emitted. Dependency files are still parsed for type resolution
+/// (inheritance, typeof, etc.) but their items are not included in output.
+pub fn generate_from_module(resolved: &ResolvedModule, options: &CodegenOptions) -> CodegenResult {
     let mut codegen = Codegen::new(options);
 
-    // Get items in dependency order (leaf dependencies first)
-    let (items, cycle_errors) = resolved.all_items_with_cycle_errors();
+    // Get all items for type resolution (regardless of entry_file_only)
+    let (all_items, cycle_errors) = resolved.all_items_with_cycle_errors();
 
     // Report any circular import warnings
     for err in cycle_errors {
@@ -111,14 +125,33 @@ pub fn generate_from_module(
         );
     }
 
-    // Pre-pass: collect all struct names from all files first
-    for item in &items {
+    // Pre-pass: collect all struct names from ALL files for type resolution
+    // This ensures we can resolve types from dependencies even if we don't emit them
+    for item in &all_items {
         codegen.collect_struct_names(item);
     }
 
-    // First pass: collect all declarations from all files
-    for item in items {
+    // Determine which items to actually process for code generation
+    let items_to_emit: Vec<&DtsItem> = if options.entry_file_only {
+        // Only emit items from the entry file
+        resolved.entry_file_items()
+    } else {
+        // Emit all items (original behavior)
+        all_items.iter().copied().collect()
+    };
+
+    // First pass: collect declarations from selected items only
+    for item in &items_to_emit {
         codegen.collect_item(item);
+    }
+
+    // If entry_file_only, we need to collect type info from dependencies
+    // for inheritance resolution (but not emit their structs/methods)
+    if options.entry_file_only {
+        // Collect dependency type information for inheritance flattening
+        for item in resolved.dependency_items() {
+            codegen.collect_dependency_type_info(item);
+        }
     }
 
     // Merge overloaded functions and methods
@@ -151,7 +184,13 @@ struct Codegen<'a> {
     metrics: CodegenMetrics,
     /// Collected struct names and their type parameters (from interfaces and classes).
     /// Key: struct name, Value: list of type parameter names.
+    /// This includes ALL known types (from entry file and dependencies).
     structs: HashMap<String, Vec<String>>,
+    /// Struct names that will be emitted in the output.
+    /// In entry_file_only mode, this is a subset of `structs`.
+    /// Types not in this set but in `structs` are from dependencies
+    /// and will be mapped to JsValue in type positions.
+    emitted_structs: HashSet<String>,
     /// Collected functions (before overload merging).
     functions: Vec<GeneratedFn>,
     /// Collected extern consts (from TypeScript `declare const`).
@@ -183,6 +222,9 @@ struct Codegen<'a> {
     interface_extends: HashMap<String, Vec<String>>,
     /// Collected variables for typeof resolution: variable name -> DtsType.
     variables: HashMap<String, DtsType>,
+    /// Current namespace path being processed (e.g., "express" or "stream.Consumers").
+    /// Used to tag functions/variables with their source namespace.
+    current_namespace: Option<String>,
 }
 
 struct GeneratedFn {
@@ -193,6 +235,9 @@ struct GeneratedFn {
     comment: Option<String>,
     /// If Some, the function has a `this` parameter binding that requires #[this] attribute
     this_param: Option<String>,
+    /// Source namespace/module path (e.g., "express" or "stream.Consumers").
+    /// Functions are only merged if they have the same source.
+    source: Option<String>,
 }
 
 struct GeneratedMethod {
@@ -218,6 +263,7 @@ struct GeneratedProperty {
 struct GeneratedConst {
     name: String,
     ty: String,
+    source: Option<String>,
 }
 
 /// A generated untagged enum for TypeScript union types.
@@ -237,6 +283,7 @@ impl<'a> Codegen<'a> {
             warnings: Vec::new(),
             metrics: CodegenMetrics::new(),
             structs: HashMap::new(),
+            emitted_structs: HashSet::new(),
             functions: Vec::new(),
             consts: Vec::new(),
             enums: Vec::new(),
@@ -252,6 +299,7 @@ impl<'a> Codegen<'a> {
             expanding_aliases: HashSet::new(),
             interface_extends: HashMap::new(),
             variables: HashMap::new(),
+            current_namespace: None,
         }
     }
 
@@ -260,6 +308,28 @@ impl<'a> Codegen<'a> {
             message: message.into(),
             kind,
         });
+    }
+
+    /// Check if a type should be emitted based on include/exclude filters.
+    /// Returns true if the type should be emitted.
+    fn should_emit_type(&self, name: &str) -> bool {
+        // If include is specified, only emit types that match
+        if !self.options.include.is_empty() {
+            let matches = self.options.include.iter().any(|pat| name == pat);
+            if !matches {
+                return false;
+            }
+        }
+
+        // If exclude is specified, don't emit types that match
+        if !self.options.exclude.is_empty() {
+            let matches = self.options.exclude.iter().any(|pat| name == pat);
+            if matches {
+                return false;
+            }
+        }
+
+        true
     }
 
     fn generate_file(&mut self, file: &DtsFile) {
@@ -291,15 +361,16 @@ impl<'a> Codegen<'a> {
 
     /// Merge overloaded top-level functions into single signatures.
     fn merge_function_overloads(&mut self) {
-        let mut merged: HashMap<String, Vec<GeneratedFn>> = HashMap::new();
+        // Group functions by (name, source) to avoid merging functions from different namespaces
+        let mut merged: HashMap<(String, Option<String>), Vec<GeneratedFn>> = HashMap::new();
 
-        // Group functions by name
         for f in std::mem::take(&mut self.functions) {
-            merged.entry(f.name.clone()).or_default().push(f);
+            let key = (f.name.clone(), f.source.clone());
+            merged.entry(key).or_default().push(f);
         }
 
         // Merge each group
-        for (name, overloads) in merged {
+        for ((name, _source), overloads) in merged {
             if overloads.len() == 1 {
                 self.functions.push(overloads.into_iter().next().unwrap());
             } else {
@@ -503,6 +574,7 @@ impl<'a> Codegen<'a> {
             return_type: base.return_type,
             comment: Some(format!("merged from {} overloads", overloads.len() + 1)),
             this_param: base.this_param,
+            source: base.source,
         })
     }
 
@@ -572,11 +644,13 @@ impl<'a> Codegen<'a> {
     fn collect_struct_names(&mut self, item: &DtsItem) {
         match item {
             DtsItem::Interface(i) => {
-                let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
+                let type_params: Vec<String> =
+                    i.type_params.iter().map(|p| p.name.clone()).collect();
                 self.structs.insert(i.name.clone(), type_params);
             }
             DtsItem::Class(c) => {
-                let type_params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+                let type_params: Vec<String> =
+                    c.type_params.iter().map(|p| p.name.clone()).collect();
                 self.structs.insert(c.name.clone(), type_params);
             }
             DtsItem::Namespace(ns) => {
@@ -601,16 +675,169 @@ impl<'a> Codegen<'a> {
             DtsItem::TypeAlias(t) => self.collect_type_alias(t),
             DtsItem::Variable(v) => self.collect_variable(v),
             DtsItem::Namespace(ns) => {
+                // Track the namespace path to correctly tag functions
+                let prev_namespace = self.current_namespace.clone();
+                self.current_namespace = Some(match &prev_namespace {
+                    Some(parent) => format!("{}.{}", parent, ns.name),
+                    None => ns.name.clone(),
+                });
                 for item in &ns.items {
                     self.collect_item(item);
+                }
+                self.current_namespace = prev_namespace;
+            }
+            DtsItem::Module(m) => {
+                // Track the module path to correctly tag functions
+                let prev_namespace = self.current_namespace.clone();
+                self.current_namespace = Some(match &prev_namespace {
+                    Some(parent) => format!("{}.{}", parent, m.name),
+                    None => m.name.clone(),
+                });
+                for item in &m.items {
+                    self.collect_item(item);
+                }
+                self.current_namespace = prev_namespace;
+            }
+            DtsItem::Export(_) => {} // Skip exports
+        }
+    }
+
+    /// Collect type information from dependency items for inheritance resolution.
+    ///
+    /// This is used in `entry_file_only` mode to gather type information from
+    /// dependencies without emitting their code. We need this to:
+    /// 1. Know about parent interfaces for inheritance flattening
+    /// 2. Have type registry entries for utility type expansion
+    /// 3. Know about variables for typeof resolution
+    ///
+    /// Unlike `collect_item`, this does NOT:
+    /// - Add to emitted_structs
+    /// - Add to functions/methods/properties
+    /// - Add to impls
+    fn collect_dependency_type_info(&mut self, item: &DtsItem) {
+        match item {
+            DtsItem::Interface(i) => {
+                // Register struct name and type params (already done in collect_struct_names)
+                // But we need to record inheritance info
+                if !i.extends.is_empty() {
+                    let parent_names: Vec<String> = i
+                        .extends
+                        .iter()
+                        .filter_map(|ty| {
+                            match ty {
+                                DtsType::Named { name, .. } => {
+                                    Some(name.split('.').last().unwrap_or(name).to_string())
+                                }
+                                _ => None,
+                            }
+                        })
+                        .collect();
+                    if !parent_names.is_empty() {
+                        self.interface_extends.insert(i.name.clone(), parent_names);
+                    }
+                }
+
+                // Register in type registry for utility type expansion
+                if self.options.expand_utility_types && i.type_params.is_empty() {
+                    let object_type = interface_to_object_type(i);
+                    self.type_registry.register(i.name.clone(), object_type);
+                }
+
+                // Collect methods for inheritance flattening (but don't add to impls)
+                // We need to process them to have correct method signatures
+                let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
+                self.known_generics = type_params.iter().cloned().collect();
+                self.in_struct_context = true;
+                self.current_type_name = Some(i.name.clone());
+
+                let mut methods = Vec::new();
+                for member in &i.members {
+                    if let InterfaceMember::Method(m) = member {
+                        let method_only_params: HashSet<String> =
+                            m.type_params.iter().map(|p| p.name.clone()).collect();
+                        let method_type_params: Vec<String> = type_params.clone();
+
+                        let old_generics = self.known_generics.clone();
+                        let old_method_params =
+                            std::mem::replace(&mut self.method_type_params, method_only_params.clone());
+
+                        for tp in &m.type_params {
+                            self.known_generics.insert(tp.name.clone());
+                        }
+
+                        let params: Vec<(String, String)> = m
+                            .params
+                            .iter()
+                            .map(|p| {
+                                let ty = self.map_param_type(&p.ty, p.optional);
+                                (escape_keyword(&p.name), ty)
+                            })
+                            .collect();
+
+                        let return_type = m.return_type.as_ref().and_then(|ty| {
+                            let mapped = self.map_type(ty);
+                            if mapped == "()" { None } else { Some(mapped) }
+                        });
+
+                        let this_param = m
+                            .this_param
+                            .as_ref()
+                            .map(|tp| self.map_type(tp));
+
+                        methods.push(GeneratedMethod {
+                            name: escape_keyword(&m.name),
+                            type_params: method_type_params,
+                            params,
+                            return_type,
+                            is_static: false,
+                            comment: None,
+                            this_param,
+                        });
+
+                        self.known_generics = old_generics;
+                        self.method_type_params = old_method_params;
+                    }
+                }
+
+                // Store methods for this dependency interface (for inheritance)
+                if !methods.is_empty() {
+                    self.impls.insert(i.name.clone(), methods);
+                }
+
+                self.in_struct_context = false;
+                self.current_type_name = None;
+                self.known_generics.clear();
+            }
+            DtsItem::TypeAlias(t) => {
+                // Register for utility type expansion
+                if self.options.expand_utility_types {
+                    self.type_aliases.insert(t.name.clone(), t.ty.clone());
+                }
+            }
+            DtsItem::Variable(v) => {
+                // Register for typeof resolution
+                self.variables.insert(v.name.clone(), v.ty.clone());
+            }
+            DtsItem::Class(c) => {
+                // Similar to interface, record inheritance
+                if let Some(ref extends) = c.extends {
+                    if let DtsType::Named { name, .. } = extends {
+                        let parent = name.split('.').last().unwrap_or(name).to_string();
+                        self.interface_extends.insert(c.name.clone(), vec![parent]);
+                    }
+                }
+            }
+            DtsItem::Namespace(ns) => {
+                for item in &ns.items {
+                    self.collect_dependency_type_info(item);
                 }
             }
             DtsItem::Module(m) => {
                 for item in &m.items {
-                    self.collect_item(item);
+                    self.collect_dependency_type_info(item);
                 }
             }
-            DtsItem::Export(_) => {} // Skip exports
+            _ => {}
         }
     }
 
@@ -624,7 +851,10 @@ impl<'a> Codegen<'a> {
         // Check for constrained type params - add a note if any exist
         if !f.type_params.is_empty() {
             let param_names: Vec<&str> = f.type_params.iter().map(|p| p.name.as_str()).collect();
-            comment = Some(format!("type params simplified: {}", param_names.join(", ")));
+            comment = Some(format!(
+                "type params simplified: {}",
+                param_names.join(", ")
+            ));
         }
 
         let params: Vec<(String, String)> = f
@@ -648,6 +878,7 @@ impl<'a> Codegen<'a> {
             return_type,
             comment,
             this_param: None, // Top-level functions don't have this binding
+            source: self.current_namespace.clone(),
         });
 
         self.known_generics.clear();
@@ -655,7 +886,12 @@ impl<'a> Codegen<'a> {
 
     fn collect_interface(&mut self, i: &DtsInterface) {
         let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
-        self.structs.insert(i.name.clone(), type_params);
+        self.structs.insert(i.name.clone(), type_params.clone());
+        // Mark this struct as one we'll emit (vs dependency-only types)
+        // Apply include/exclude filter if specified
+        if self.should_emit_type(&i.name) {
+            self.emitted_structs.insert(i.name.clone());
+        }
         self.in_struct_context = true;
         self.current_type_name = Some(i.name.clone());
 
@@ -677,8 +913,7 @@ impl<'a> Codegen<'a> {
                 })
                 .collect();
             if !parent_names.is_empty() {
-                self.interface_extends
-                    .insert(i.name.clone(), parent_names);
+                self.interface_extends.insert(i.name.clone(), parent_names);
             }
         }
 
@@ -855,6 +1090,11 @@ impl<'a> Codegen<'a> {
     fn collect_class(&mut self, c: &DtsClass) {
         let type_params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
         self.structs.insert(c.name.clone(), type_params.clone());
+        // Mark this struct as one we'll emit (vs dependency-only types)
+        // Apply include/exclude filter if specified
+        if self.should_emit_type(&c.name) {
+            self.emitted_structs.insert(c.name.clone());
+        }
         self.in_struct_context = true;
         self.current_type_name = Some(c.name.clone());
 
@@ -1131,6 +1371,7 @@ impl<'a> Codegen<'a> {
             self.consts.push(GeneratedConst {
                 name: escape_keyword(&v.name),
                 ty,
+                source: self.current_namespace.clone(),
             });
             self.metrics.extern_consts += 1;
         } else {
@@ -1142,6 +1383,7 @@ impl<'a> Codegen<'a> {
                 return_type: Some(ty),
                 comment: Some(if v.is_const { "constant" } else { "variable" }.to_string()),
                 this_param: None,
+                source: self.current_namespace.clone(),
             });
             self.metrics.legacy_const_functions += 1;
         }
@@ -1429,12 +1671,41 @@ impl<'a> Codegen<'a> {
                     return result;
                 }
 
-                // Check if this type is defined in the current file
+                // Check if this type is defined in the module
                 let is_known_struct = self.structs.contains_key(simple_name);
 
+                // In entry_file_only mode, check if the type will be emitted
+                // Types from dependencies (known but not emitted) get cut off to JsValue
+                let is_emitted = if self.options.entry_file_only {
+                    self.emitted_structs.contains(simple_name)
+                } else {
+                    is_known_struct // In normal mode, all known structs are emitted
+                };
+
                 if type_args.is_empty() {
-                    if is_known_struct {
-                        simple_name.to_string()
+                    if is_emitted {
+                        // Check if the struct has type parameters - if so, fill with JsValue
+                        if let Some(struct_params) = self.structs.get(simple_name) {
+                            if struct_params.is_empty() {
+                                simple_name.to_string()
+                            } else {
+                                // Fill in JsValue for each type parameter
+                                let defaults = vec!["JsValue"; struct_params.len()];
+                                format!("{}<{}>", simple_name, defaults.join(", "))
+                            }
+                        } else {
+                            simple_name.to_string()
+                        }
+                    } else if is_known_struct {
+                        // Known but not emitted (dependency type) - cutoff to JsValue
+                        // Only warn if verbose, since this is expected behavior
+                        if self.options.verbose {
+                            self.warn(
+                                WarningKind::Simplified,
+                                format!("Dependency type `{}` cut off to JsValue", simple_name),
+                            );
+                        }
+                        "JsValue".to_string()
                     } else {
                         // Unknown type - simplify to JsValue
                         self.warn(
@@ -1466,15 +1737,28 @@ impl<'a> Codegen<'a> {
                         return "JsValue".to_string();
                     }
 
-                    // If the base type is unknown, simplify to JsValue
-                    if !is_known_struct {
-                        self.warn(
-                            WarningKind::Simplified,
-                            format!(
-                                "Unknown generic type `{}<...>` mapped to JsValue",
-                                simple_name
-                            ),
-                        );
+                    // If the base type is not emitted (unknown or dependency), simplify to JsValue
+                    if !is_emitted {
+                        if is_known_struct {
+                            // Dependency type with generics - cutoff
+                            if self.options.verbose {
+                                self.warn(
+                                    WarningKind::Simplified,
+                                    format!(
+                                        "Dependency generic type `{}<...>` cut off to JsValue",
+                                        simple_name
+                                    ),
+                                );
+                            }
+                        } else {
+                            self.warn(
+                                WarningKind::Simplified,
+                                format!(
+                                    "Unknown generic type `{}<...>` mapped to JsValue",
+                                    simple_name
+                                ),
+                            );
+                        }
                         return "JsValue".to_string();
                     }
 
@@ -1561,10 +1845,9 @@ impl<'a> Codegen<'a> {
                 }
             }
             // Both are arrays
-            (DtsType::Array(inner1), DtsType::Array(inner2)) => {
-                self.extract_common_type(inner1, inner2)
-                    .map(|common| format!("JsArray<{}>", common))
-            }
+            (DtsType::Array(inner1), DtsType::Array(inner2)) => self
+                .extract_common_type(inner1, inner2)
+                .map(|common| format!("JsArray<{}>", common)),
             // Both are the same primitive
             (DtsType::Primitive(p1), DtsType::Primitive(p2)) if p1 == p2 => {
                 Some(self.map_type(true_type))
@@ -1629,7 +1912,9 @@ impl<'a> Codegen<'a> {
                         ObjectMember::Property { name, ty, .. } if name == property_name => {
                             return Some(ty.clone());
                         }
-                        ObjectMember::Method { name, return_type, .. } if name == property_name => {
+                        ObjectMember::Method {
+                            name, return_type, ..
+                        } if name == property_name => {
                             // For methods, return the return type (or void)
                             return Some(
                                 return_type
@@ -1650,7 +1935,9 @@ impl<'a> Codegen<'a> {
                     None
                 }
             }
-            DtsType::Parenthesized(inner) => self.get_property_type_from_object(inner, property_name),
+            DtsType::Parenthesized(inner) => {
+                self.get_property_type_from_object(inner, property_name)
+            }
             _ => None,
         }
     }
@@ -1752,9 +2039,7 @@ impl<'a> Codegen<'a> {
         } else {
             // Need to continue traversing
             match &member_type {
-                DtsType::Named { name, .. } => {
-                    self.resolve_member_chain(name, &members[1..])
-                }
+                DtsType::Named { name, .. } => self.resolve_member_chain(name, &members[1..]),
                 _ => None,
             }
         }
@@ -1785,14 +2070,12 @@ impl<'a> Codegen<'a> {
                             let ret_type = return_type
                                 .clone()
                                 .unwrap_or(DtsType::Primitive(Primitive::Void));
-                            return Some(DtsType::Function(Box::new(
-                                crate::ast::FunctionType {
-                                    type_params: type_params.clone(),
-                                    params: params.clone(),
-                                    return_type: Box::new(ret_type),
-                                    this_param: this_param.clone(),
-                                },
-                            )));
+                            return Some(DtsType::Function(Box::new(crate::ast::FunctionType {
+                                type_params: type_params.clone(),
+                                params: params.clone(),
+                                return_type: Box::new(ret_type),
+                                this_param: this_param.clone(),
+                            })));
                         }
                         _ => {}
                     }
@@ -1829,14 +2112,11 @@ impl<'a> Codegen<'a> {
                 self.get_property_type_from_object(object, key)
             }
             // T[number] - array element type
-            (DtsType::Array(elem), DtsType::Primitive(Primitive::Number)) => {
-                Some((**elem).clone())
-            }
+            (DtsType::Array(elem), DtsType::Primitive(Primitive::Number)) => Some((**elem).clone()),
             // ReadonlyArray<T>[number]
-            (
-                DtsType::Named { name, type_args },
-                DtsType::Primitive(Primitive::Number),
-            ) if name == "Array" || name == "ReadonlyArray" => {
+            (DtsType::Named { name, type_args }, DtsType::Primitive(Primitive::Number))
+                if name == "Array" || name == "ReadonlyArray" =>
+            {
                 type_args.first().cloned()
             }
             // Tuple[N] - tuple element access with number literal
@@ -1890,7 +2170,12 @@ impl<'a> Codegen<'a> {
                             format!(
                                 "String literal union ({} variants: {}...) mapped to String",
                                 variants.len(),
-                                variants.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                                variants
+                                    .iter()
+                                    .take(3)
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
                             ),
                         );
                         "String".to_string()
@@ -1927,7 +2212,10 @@ impl<'a> Codegen<'a> {
                 }
             }
 
-            unions::UnionStrategy::Discriminated { discriminant, variants } => {
+            unions::UnionStrategy::Discriminated {
+                discriminant,
+                variants,
+            } => {
                 // Discriminated/tagged union
                 self.metrics.record_union_jsvalue();
                 match self.options.union_strategy {
@@ -2046,7 +2334,10 @@ impl<'a> Codegen<'a> {
                     UnionStrategy::Auto | UnionStrategy::JsValue => {
                         self.warn(
                             WarningKind::Simplified,
-                            format!("Complex union ({} variants) mapped to JsValue", remaining.len()),
+                            format!(
+                                "Complex union ({} variants) mapped to JsValue",
+                                remaining.len()
+                            ),
                         );
                         "JsValue".to_string()
                     }
@@ -2110,6 +2401,9 @@ impl<'a> Codegen<'a> {
             })
             .unwrap_or_else(|| "module".to_string());
 
+        // Compute the actual module binding (may have _js suffix if it collides with file name)
+        let module_binding = self.compute_module_binding(&mod_alias, "");
+
         // Handle module identity for CommonJS `export =` patterns
         match &self.options.module_identity {
             Some(ModuleIdentity::Function { name }) => {
@@ -2122,7 +2416,7 @@ impl<'a> Codegen<'a> {
                 )
                 .unwrap();
                 self.emit_module_import();
-                self.emit_callable_module_function(&mod_alias, name);
+                self.emit_callable_module_function(&mod_alias, &module_binding, name);
             }
             Some(ModuleIdentity::Class { name }) => {
                 // For class modules, the struct IS the module export
@@ -2133,9 +2427,14 @@ impl<'a> Codegen<'a> {
                     name
                 )
                 .unwrap();
-                self.emit_module_import();
-                self.emit_class_module_callable(&mod_alias, name);
-                self.emit_standard_structs_and_functions();
+                // For class exports, the function name will be the module alias, so we need
+                // to use a different alias for the module import to avoid name collision.
+                self.emit_module_import_with_suffix("_mod");
+                // Compute the actual module binding with _mod suffix (and potential _js prefix)
+                let class_module_binding = self.compute_module_binding(&mod_alias, "_mod");
+                self.emit_class_module_callable(&mod_alias, name, &class_module_binding);
+                // For class exports, namespace members are accessed through the class module binding
+                self.emit_standard_structs_and_functions(Some(&class_module_binding));
             }
             Some(ModuleIdentity::Hybrid { name, is_function }) => {
                 // For hybrid modules, emit BOTH the callable and the namespace items
@@ -2147,10 +2446,11 @@ impl<'a> Codegen<'a> {
                 .unwrap();
                 self.emit_module_import();
                 // Emit the callable entry point
-                self.emit_callable_module_function(&mod_alias, name);
+                self.emit_callable_module_function(&mod_alias, &module_binding, name);
                 writeln!(self.output).unwrap();
                 // Emit the namespace contents (structs, other functions)
-                self.emit_standard_structs_and_functions();
+                // Functions in hybrid modules are accessed through the module namespace
+                self.emit_standard_structs_and_functions(Some(&module_binding));
             }
             Some(ModuleIdentity::Namespace { name }) => {
                 // Namespace export - treat as standard module but note the export
@@ -2161,12 +2461,13 @@ impl<'a> Codegen<'a> {
                 )
                 .unwrap();
                 self.emit_module_import();
-                self.emit_standard_structs_and_functions();
+                // Functions in namespace modules are accessed through the module namespace
+                self.emit_standard_structs_and_functions(Some(&module_binding));
             }
             Some(ModuleIdentity::StandardModule) | None => {
                 // Standard ES module - just named exports
                 self.emit_module_import();
-                self.emit_standard_structs_and_functions();
+                self.emit_standard_structs_and_functions(None);
             }
         }
 
@@ -2175,11 +2476,56 @@ impl<'a> Codegen<'a> {
 
     /// Emit the module import statement.
     fn emit_module_import(&mut self) {
+        self.emit_module_import_with_suffix("");
+    }
+
+    /// Compute the module binding name that will be used for imports.
+    /// This replicates the logic from `emit_module_import_with_suffix` to determine
+    /// the actual binding name (handling _js suffix when alias collides with file module).
+    fn compute_module_binding(&self, base_alias: &str, suffix: &str) -> String {
+        let mut alias = base_alias.to_string();
+
+        // Handle collision with file module name
+        if let Some(file_mod) = &self.options.file_module_name {
+            if alias == *file_mod {
+                alias = format!("{}_js", alias);
+            }
+        }
+
+        // Apply suffix if provided
+        if !suffix.is_empty() {
+            alias = format!("{}{}", alias, suffix);
+        }
+
+        alias
+    }
+
+    /// Emit the module import statement with an optional suffix to avoid name collision.
+    fn emit_module_import_with_suffix(&mut self, suffix: &str) {
         if let Some(mod_name) = &self.options.module_name {
-            if is_valid_identifier(mod_name) {
+            // Choose an import alias, renaming if it would collide with the
+            // enclosing Husk module name (file stem).
+            let mut alias = if is_valid_identifier(mod_name) {
+                mod_name.clone()
+            } else {
+                derive_binding_from_package(mod_name)
+            };
+
+            if let Some(file_mod) = &self.options.file_module_name {
+                if alias == *file_mod {
+                    alias = format!("{}_js", alias);
+                }
+            }
+
+            // Apply suffix if provided (e.g., "_mod" for class exports to avoid
+            // collision with the callable function that uses the base alias)
+            if !suffix.is_empty() {
+                alias = format!("{}{}", alias, suffix);
+            }
+
+            if is_valid_identifier(mod_name) && alias == *mod_name && suffix.is_empty() {
                 writeln!(self.output, "    mod {};", mod_name).unwrap();
             } else {
-                let alias = derive_binding_from_package(mod_name);
                 writeln!(self.output, "    mod \"{}\" as {};", mod_name, alias).unwrap();
             }
             writeln!(self.output).unwrap();
@@ -2191,7 +2537,12 @@ impl<'a> Codegen<'a> {
     /// This looks for the exported function in our collected functions, emits
     /// it as the module's callable entry point, and removes it from the list
     /// to prevent duplicate emission in `emit_standard_structs_and_functions`.
-    fn emit_callable_module_function(&mut self, mod_alias: &str, exported_name: &str) {
+    fn emit_callable_module_function(
+        &mut self,
+        func_name: &str,
+        module_binding: &str,
+        exported_name: &str,
+    ) {
         // Find and remove the exported function from our collected functions
         let idx = self.functions.iter().position(|f| f.name == exported_name);
         if let Some(idx) = idx {
@@ -2208,10 +2559,11 @@ impl<'a> Codegen<'a> {
                 writeln!(self.output, "    // {}", comment).unwrap();
             }
 
-            // Emit the function with the module alias as the binding name
-            // Use #[js_name] attribute to map to the original JS function name
-            writeln!(self.output, "    #[js_name = \"{}\"]", exported_name).unwrap();
-            write!(self.output, "    fn {}", mod_alias).unwrap();
+            // Emit the function with the func_name as the binding name.
+            // Use #[module_call] to tell codegen to call the module directly
+            // (the module IS the callable function).
+            writeln!(self.output, "    #[module_call = \"{}\"]", module_binding).unwrap();
+            write!(self.output, "    fn {}", func_name).unwrap();
 
             if !f.type_params.is_empty() {
                 write!(self.output, "<{}>", f.type_params.join(", ")).unwrap();
@@ -2241,7 +2593,12 @@ impl<'a> Codegen<'a> {
     ///
     /// Also checks for `{ClassName}Constructor` pattern which is common in TypeScript
     /// definitions where the constructor interface is separate from the class.
-    fn emit_class_module_callable(&mut self, mod_alias: &str, class_name: &str) {
+    fn emit_class_module_callable(
+        &mut self,
+        mod_alias: &str,
+        class_name: &str,
+        module_binding: &str,
+    ) {
         // Look for the constructor in the class's impl methods
         // Also check {ClassName}Constructor pattern (common in .d.ts files)
         // We need to check BOTH because Database may exist without new_ while
@@ -2267,9 +2624,10 @@ impl<'a> Codegen<'a> {
             )
             .unwrap();
 
-            // Emit the callable with the module alias
-            // Use #[js_name] attribute to map to the class constructor
-            writeln!(self.output, "    #[js_name = \"{}\"]", class_name).unwrap();
+            // For class module exports (export = ClassName), use the module alias as the function
+            // name. The module binding has _mod suffix to avoid collision with the function.
+            // Use #[module_call] to tell codegen to call the module directly (it IS the constructor).
+            writeln!(self.output, "    #[module_call = \"{}\"]", module_binding).unwrap();
             write!(self.output, "    fn {}", mod_alias).unwrap();
 
             write!(self.output, "(").unwrap();
@@ -2277,7 +2635,10 @@ impl<'a> Codegen<'a> {
                 if i > 0 {
                     write!(self.output, ", ").unwrap();
                 }
-                write!(self.output, "{}: {}", name, ty).unwrap();
+                // For module callables, strip Option<...> wrappers since JS handles
+                // undefined/null naturally. This allows callers to pass values directly.
+                let unwrapped_ty = unwrap_option_type(ty);
+                write!(self.output, "{}: {}", name, unwrapped_ty).unwrap();
             }
             write!(self.output, ")").unwrap();
 
@@ -2291,7 +2652,45 @@ impl<'a> Codegen<'a> {
     }
 
     /// Emit the standard structs and functions (for non-callable modules).
-    fn emit_standard_structs_and_functions(&mut self) {
+    fn emit_standard_structs_and_functions(&mut self, namespace: Option<&str>) {
+        // If we know the entry module, pick the best function/const per name using namespace priority
+        if let Some(mod_name) = &self.options.module_name {
+            let mod_name = mod_name.to_string();
+            let mut best_fn: HashMap<String, GeneratedFn> = HashMap::new();
+            for f in std::mem::take(&mut self.functions) {
+                let p = namespace_priority(f.source.as_deref(), &mod_name);
+                match best_fn.entry(f.name.clone()) {
+                    Entry::Vacant(v) => {
+                        v.insert(f);
+                    }
+                    Entry::Occupied(mut o) => {
+                        let existing_p = namespace_priority(o.get().source.as_deref(), &mod_name);
+                        if p < existing_p {
+                            o.insert(f);
+                        }
+                    }
+                }
+            }
+            self.functions = best_fn.into_values().collect();
+
+            let mut best_const: HashMap<String, GeneratedConst> = HashMap::new();
+            for c in std::mem::take(&mut self.consts) {
+                let p = namespace_priority(c.source.as_deref(), &mod_name);
+                match best_const.entry(c.name.clone()) {
+                    Entry::Vacant(v) => {
+                        v.insert(c);
+                    }
+                    Entry::Occupied(mut o) => {
+                        let existing_p = namespace_priority(o.get().source.as_deref(), &mod_name);
+                        if p < existing_p {
+                            o.insert(c);
+                        }
+                    }
+                }
+            }
+            self.consts = best_const.into_values().collect();
+        }
+
         // Structs
         let mut sorted_structs: Vec<(&String, &Vec<String>)> = self.structs.iter().collect();
         sorted_structs.sort_by_key(|(name, _)| *name);
@@ -2301,10 +2700,21 @@ impl<'a> Codegen<'a> {
                 continue;
             }
 
+            // In entry_file_only mode, only emit structs that are in the entry file
+            if self.options.entry_file_only && !self.emitted_structs.contains(name.as_str()) {
+                continue;
+            }
+
             if type_params.is_empty() {
                 writeln!(self.output, "    struct {};", name).unwrap();
             } else {
-                writeln!(self.output, "    struct {}<{}>;", name, type_params.join(", ")).unwrap();
+                writeln!(
+                    self.output,
+                    "    struct {}<{}>;",
+                    name,
+                    type_params.join(", ")
+                )
+                .unwrap();
             }
         }
 
@@ -2312,7 +2722,18 @@ impl<'a> Codegen<'a> {
             writeln!(self.output).unwrap();
         }
 
-        // Functions
+        // Functions - track emitted names to skip duplicates from different namespaces
+        // Prefer functions whose namespace/source matches the entry module name (if provided)
+        if let Some(mod_name) = &self.options.module_name {
+            let mod_name = mod_name.to_string();
+            self.functions.sort_by(|a, b| {
+                let pa = namespace_priority(a.source.as_deref(), &mod_name);
+                let pb = namespace_priority(b.source.as_deref(), &mod_name);
+                pa.cmp(&pb).then_with(|| a.name.cmp(&b.name))
+            });
+        }
+
+        let mut emitted_fn_keys: HashSet<(String, Option<String>)> = HashSet::new();
         for f in &self.functions {
             // Skip JS built-in functions that would shadow globals
             if is_js_builtin(&f.name) {
@@ -2326,8 +2747,23 @@ impl<'a> Codegen<'a> {
                 continue;
             }
 
+            // Skip duplicate function names from different namespaces/modules
+            // When follow_imports=true, multiple modules may define functions with the same name
+            // (e.g., fs.__promisify__, crypto.__promisify__, dns.__promisify__)
+            // We keep only the first occurrence to avoid duplicate definition errors.
+            let key = (f.name.clone(), f.source.clone());
+            if emitted_fn_keys.contains(&key) {
+                continue;
+            }
+            emitted_fn_keys.insert(key);
+
             if let Some(comment) = &f.comment {
                 writeln!(self.output, "    // {}", comment).unwrap();
+            }
+
+            // Emit namespace attribute for functions accessed through module namespace
+            if let Some(ns) = namespace {
+                writeln!(self.output, "    #[ns = \"{}\"]", ns).unwrap();
             }
 
             write!(self.output, "    fn {}", f.name).unwrap();
@@ -2367,7 +2803,12 @@ impl<'a> Codegen<'a> {
             if !self.functions.is_empty() {
                 writeln!(self.output).unwrap();
             }
+            let mut emitted_const_names: HashSet<String> = HashSet::new();
             for c in &self.consts {
+                if emitted_const_names.contains(&c.name) {
+                    continue;
+                }
+                emitted_const_names.insert(c.name.clone());
                 writeln!(self.output, "    const {}: {};", c.name, c.ty).unwrap();
             }
         }
@@ -2419,13 +2860,15 @@ impl<'a> Codegen<'a> {
         sorted_types.sort();
 
         for type_name in sorted_types {
+            // In entry_file_only mode, skip impl blocks for types not in emitted_structs
+            // (these are dependency types collected only for inheritance resolution)
+            if self.options.entry_file_only && !self.emitted_structs.contains(type_name.as_str()) {
+                continue;
+            }
             // Substitute struct-level generic parameters with JsValue because extern impl parsing
             // does not support generics and leaving the raw parameter names creates unbound types.
-            let generic_params: Vec<String> = self
-                .structs
-                .get(type_name)
-                .cloned()
-                .unwrap_or_default();
+            let generic_params: Vec<String> =
+                self.structs.get(type_name).cloned().unwrap_or_default();
             let substitute_generics = |ty: &str| -> String {
                 if generic_params.is_empty() {
                     return ty.to_string();
@@ -2591,7 +3034,11 @@ impl<'a> Codegen<'a> {
 
                 if !builders_generated {
                     writeln!(self.output).unwrap();
-                    writeln!(self.output, "// Builder patterns for interfaces with optional properties").unwrap();
+                    writeln!(
+                        self.output,
+                        "// Builder patterns for interfaces with optional properties"
+                    )
+                    .unwrap();
                     builders_generated = true;
                 }
 
@@ -2641,6 +3088,18 @@ pub fn is_js_builtin(name: &str) -> bool {
             // Singleton globals that would break if shadowed
             | "console"
     )
+}
+
+/// Priority helper for selecting items belonging to the entry module.
+/// Lower number = higher priority.
+/// 0: exact namespace match; 1: namespace has entry as prefix; 2: no namespace; 3: unrelated.
+fn namespace_priority(ns: Option<&str>, entry: &str) -> i32 {
+    match ns {
+        Some(name) if name == entry => 0,
+        Some(name) if name.starts_with(entry) => 1,
+        None => 2,
+        _ => 3,
+    }
 }
 
 /// Check if a string is a Husk reserved keyword or a TypeScript keyword
@@ -2709,9 +3168,8 @@ pub fn is_keyword(name: &str) -> bool {
 /// if the original name differs from the sanitized version.
 fn sanitize_identifier(name: &str) -> (String, bool) {
     // Check if sanitization is needed
-    let needs_sanitization = name.contains(|c: char| {
-        matches!(c, '.' | ':' | '-' | '/')
-    }) || name.starts_with(':');
+    let needs_sanitization =
+        name.contains(|c: char| matches!(c, '.' | ':' | '-' | '/')) || name.starts_with(':');
 
     if !needs_sanitization {
         return (name.to_string(), false);
@@ -2839,9 +3297,7 @@ fn interface_to_object_type(iface: &DtsInterface) -> DtsType {
                 optional: m.optional,
                 this_param: m.this_param.clone(),
             }),
-            InterfaceMember::IndexSignature(sig) => {
-                Some(ObjectMember::IndexSignature(sig.clone()))
-            }
+            InterfaceMember::IndexSignature(sig) => Some(ObjectMember::IndexSignature(sig.clone())),
             InterfaceMember::CallSignature(sig) => Some(ObjectMember::CallSignature(sig.clone())),
             InterfaceMember::ConstructSignature(sig) => {
                 Some(ObjectMember::ConstructSignature(sig.clone()))
@@ -2894,7 +3350,10 @@ pub fn type_to_husk_string(ty: &DtsType) -> String {
         DtsType::Function(_) => "JsFn".to_string(),
         DtsType::Object(_) => "JsObject".to_string(),
         DtsType::Tuple(elements) => {
-            let types: Vec<_> = elements.iter().map(|e| type_to_husk_string(&e.ty)).collect();
+            let types: Vec<_> = elements
+                .iter()
+                .map(|e| type_to_husk_string(&e.ty))
+                .collect();
             format!("({})", types.join(", "))
         }
         _ => "JsValue".to_string(),
@@ -2946,6 +3405,16 @@ fn derive_binding_from_package(package: &str) -> String {
 
     // Replace hyphens with underscores
     name.replace('-', "_")
+}
+
+/// Strip Option<T> wrapper from a type string, returning just T.
+/// If the type is not an Option, returns it unchanged.
+fn unwrap_option_type(ty: &str) -> &str {
+    if ty.starts_with("Option<") && ty.ends_with('>') {
+        &ty[7..ty.len() - 1]
+    } else {
+        ty
+    }
 }
 
 #[cfg(test)]
@@ -3096,7 +3565,8 @@ mod tests {
         assert!(result.code.contains("// Module is callable: `export = e`"));
         assert!(result.code.contains("mod express;"));
         assert!(result.code.contains("// e is the callable entry point"));
-        assert!(result.code.contains("#[js_name = \"e\"]"));
+        // New implementation uses #[module_call] to call the module directly
+        assert!(result.code.contains("#[module_call = \"express\"]"));
         assert!(result.code.contains("fn express()"));
     }
 
@@ -3123,8 +3593,13 @@ mod tests {
             },
         );
 
-        assert!(result.code.contains("// Module exports class: `export = MyClass`"));
-        assert!(result.code.contains("mod \"my-class\" as my_class;"));
+        assert!(
+            result
+                .code
+                .contains("// Module exports class: `export = MyClass`")
+        );
+        // Class modules use _mod suffix to avoid collision with callable function
+        assert!(result.code.contains("mod \"my-class\" as my_class_mod;"));
         assert!(result.code.contains("struct MyClass;"));
         assert!(result.code.contains("impl MyClass"));
         assert!(result.code.contains("extern \"js\" fn doSomething(self);"));
@@ -3152,10 +3627,14 @@ mod tests {
             },
         );
 
-        assert!(result.code.contains("// Hybrid module: function + namespace merged"));
+        assert!(
+            result
+                .code
+                .contains("// Hybrid module: function + namespace merged")
+        );
         assert!(result.code.contains("mod request;"));
-        // Should have the callable entry point with js_name attribute
-        assert!(result.code.contains("#[js_name = \"req\"]"));
+        // Should have the callable entry point with module_call attribute
+        assert!(result.code.contains("#[module_call = \"request\"]"));
         assert!(result.code.contains("fn request(url: String)"));
         // Should also have the namespace items (the interface struct)
         assert!(result.code.contains("struct Options;"));
@@ -3180,7 +3659,11 @@ mod tests {
             },
         );
 
-        assert!(result.code.contains("// Module exports namespace: `export = ns`"));
+        assert!(
+            result
+                .code
+                .contains("// Module exports namespace: `export = ns`")
+        );
         assert!(result.code.contains("mod mylib;"));
         assert!(result.code.contains("struct Bar;"));
         assert!(result.code.contains("struct Foo;"));
@@ -3423,8 +3906,8 @@ mod tests {
 
     #[test]
     fn test_module_callable_uses_module_alias() {
-        // Issue: When `export = e`, the callable should use #[js_name = "e"] fn express()
-        // not just `fn e()`
+        // When `export = e`, the callable should use #[module_call = "express"] fn express()
+        // to call the module directly (since the module IS the callable function)
         use crate::resolver::ModuleIdentity;
 
         let src = r#"
@@ -3445,10 +3928,10 @@ mod tests {
 
         println!("Generated code:\n{}", result.code);
 
-        // Should use js_name attribute to map to the original function name
+        // Should use module_call attribute to call the module directly
         assert!(
-            result.code.contains("#[js_name = \"e\"]"),
-            "Expected #[js_name = \"e\"] attribute"
+            result.code.contains("#[module_call = \"express\"]"),
+            "Expected #[module_call = \"express\"] attribute"
         );
         assert!(
             result.code.contains("fn express()"),
@@ -3463,8 +3946,8 @@ mod tests {
 
     #[test]
     fn test_class_module_generates_constructor_callable() {
-        // Issue: For modules like better-sqlite3 that export a class,
-        // we should generate a callable that constructs the class
+        // For modules like better-sqlite3 that export a class,
+        // we should generate a callable that constructs the class using #[module_call]
         use crate::oxc_parser::parse_with_oxc;
         use crate::resolver::ModuleIdentity;
 
@@ -3496,14 +3979,74 @@ mod tests {
 
         println!("Generated code:\n{}", result.code);
 
-        // Should have a callable constructor using the module name with js_name attribute
+        // Should have a callable constructor using module_call attribute
+        // The module binding has _mod suffix to avoid collision with the callable function
         assert!(
-            result.code.contains("#[js_name = \"Database\"]"),
-            "Expected #[js_name = \"Database\"] attribute"
+            result.code.contains("#[module_call = \"better_sqlite3_mod\"]"),
+            "Expected #[module_call = \"better_sqlite3_mod\"] attribute"
         );
         assert!(
             result.code.contains("fn better_sqlite3("),
             "Expected fn better_sqlite3() callable"
+        );
+    }
+
+    #[test]
+    fn test_functions_from_different_namespaces_not_merged() {
+        // Issue: When follow_imports=true, functions with the same name from different
+        // namespaces/modules get incorrectly merged. For example, express.json (middleware)
+        // and stream.Consumers.json (stream parser) both become a single merged function.
+        //
+        // This test verifies that functions from different namespaces are NOT merged.
+        use crate::oxc_parser::parse_with_oxc;
+
+        let src = r#"
+            declare namespace express {
+                // Middleware function - returns middleware (no params)
+                var json: () => Middleware;
+            }
+
+            declare namespace stream {
+                namespace Consumers {
+                    // Stream consumer - takes a stream and returns a promise
+                    function json(stream: ReadableStream): Promise<any>;
+                }
+            }
+
+            interface Middleware {}
+            interface ReadableStream {}
+        "#;
+        let file = parse_with_oxc(src, "test.d.ts").unwrap();
+        let result = generate(&file, &CodegenOptions::default());
+
+        println!("Generated code:\n{}", result.code);
+
+        // Both functions should be present with their distinct signatures
+        // express.json: a variable holding a function type -> `fn json() -> fn() -> Middleware`
+        // stream.Consumers.json: takes stream, returns Promise -> `fn json(stream: ...) -> ...`
+
+        // The express namespace variable should be present as a zero-arg function returning a function type
+        let has_express_json = result.code.contains("fn json() -> fn() -> Middleware;");
+        // The stream namespace function should be present with a stream param
+        let has_stream_json = result.code.contains("fn json(stream:");
+
+        assert!(
+            has_express_json,
+            "Expected express.json (variable holding function type) to be present. Got:\n{}",
+            result.code
+        );
+        assert!(
+            has_stream_json,
+            "Expected stream.Consumers.json (with stream param) to be present. Got:\n{}",
+            result.code
+        );
+
+        // They should NOT be merged into a single function with optional stream param
+        let incorrectly_merged = result.code.contains("fn json(stream: Option<");
+        assert!(
+            !incorrectly_merged,
+            "Functions from different namespaces should NOT be merged! Got:\n{}",
+            result.code
         );
     }
 }

@@ -41,11 +41,7 @@ pub fn parse_with_oxc(src: &str, filename: &str) -> Result<DtsFile, OxcParseErro
     let parser_return = Parser::new(&allocator, src, source_type).parse();
 
     if parser_return.panicked {
-        let errors: Vec<String> = parser_return
-            .errors
-            .iter()
-            .map(|e| e.to_string())
-            .collect();
+        let errors: Vec<String> = parser_return.errors.iter().map(|e| e.to_string()).collect();
         return Err(OxcParseError {
             message: errors.join("; "),
         });
@@ -154,7 +150,8 @@ impl<'a> DtsVisitor<'a> {
             }
 
             TSType::TSUnionType(union) => {
-                let types: Vec<DtsType> = union.types.iter().map(|t| self.convert_type(t)).collect();
+                let types: Vec<DtsType> =
+                    union.types.iter().map(|t| self.convert_type(t)).collect();
                 DtsType::Union(types)
             }
 
@@ -410,7 +407,9 @@ impl<'a> DtsVisitor<'a> {
                     TSTupleElement::TSObjectKeyword(_) => DtsType::Primitive(Primitive::Object),
                     TSTupleElement::TSStringKeyword(_) => DtsType::Primitive(Primitive::String),
                     TSTupleElement::TSSymbolKeyword(_) => DtsType::Primitive(Primitive::Symbol),
-                    TSTupleElement::TSUndefinedKeyword(_) => DtsType::Primitive(Primitive::Undefined),
+                    TSTupleElement::TSUndefinedKeyword(_) => {
+                        DtsType::Primitive(Primitive::Undefined)
+                    }
                     TSTupleElement::TSUnknownKeyword(_) => DtsType::Primitive(Primitive::Unknown),
                     TSTupleElement::TSVoidKeyword(_) => DtsType::Primitive(Primitive::Void),
                     TSTupleElement::TSThisType(_) => DtsType::This,
@@ -419,12 +418,15 @@ impl<'a> DtsVisitor<'a> {
                         let type_args = type_ref
                             .type_arguments
                             .as_ref()
-                            .map(|params| params.params.iter().map(|t| self.convert_type(t)).collect())
+                            .map(|params| {
+                                params.params.iter().map(|t| self.convert_type(t)).collect()
+                            })
                             .unwrap_or_default();
                         DtsType::Named { name, type_args }
                     }
                     TSTupleElement::TSUnionType(union) => {
-                        let types: Vec<DtsType> = union.types.iter().map(|t| self.convert_type(t)).collect();
+                        let types: Vec<DtsType> =
+                            union.types.iter().map(|t| self.convert_type(t)).collect();
                         DtsType::Union(types)
                     }
                     TSTupleElement::TSArrayType(arr) => {
@@ -685,10 +687,7 @@ impl<'a> DtsVisitor<'a> {
         })
     }
 
-    fn convert_interface_declaration(
-        &self,
-        decl: &TSInterfaceDeclaration<'_>,
-    ) -> DtsInterface {
+    fn convert_interface_declaration(&self, decl: &TSInterfaceDeclaration<'_>) -> DtsInterface {
         let name = decl.id.name.to_string();
         let type_params = self.convert_type_params(decl.type_parameters.as_ref());
 
@@ -703,9 +702,7 @@ impl<'a> DtsVisitor<'a> {
                 let type_args = heritage
                     .type_arguments
                     .as_ref()
-                    .map(|params| {
-                        params.params.iter().map(|t| self.convert_type(t)).collect()
-                    })
+                    .map(|params| params.params.iter().map(|t| self.convert_type(t)).collect())
                     .unwrap_or_default();
                 DtsType::Named { name, type_args }
             })
@@ -868,9 +865,7 @@ impl<'a> DtsVisitor<'a> {
                 let type_args = impl_decl
                     .type_arguments
                     .as_ref()
-                    .map(|params| {
-                        params.params.iter().map(|t| self.convert_type(t)).collect()
-                    })
+                    .map(|params| params.params.iter().map(|t| self.convert_type(t)).collect())
                     .unwrap_or_default();
                 DtsType::Named { name, type_args }
             })
@@ -1020,22 +1015,18 @@ impl<'a> DtsVisitor<'a> {
             .iter()
             .filter_map(|d| {
                 let name = self.binding_pattern_name(&d.id);
-                let ty = d
-                    .id
-                    .type_annotation
-                    .as_ref()
-                    .map(|ta| self.convert_type(&ta.type_annotation))
-                    .unwrap_or(DtsType::Primitive(Primitive::Any));
+                let ty =
+                    d.id.type_annotation
+                        .as_ref()
+                        .map(|ta| self.convert_type(&ta.type_annotation))
+                        .unwrap_or(DtsType::Primitive(Primitive::Any));
 
                 Some(DtsVariable { name, ty, is_const })
             })
             .collect()
     }
 
-    fn convert_module_declaration(
-        &self,
-        decl: &TSModuleDeclaration<'_>,
-    ) -> Option<DtsItem> {
+    fn convert_module_declaration(&self, decl: &TSModuleDeclaration<'_>) -> Option<DtsItem> {
         // Check if it's an ambient module (string literal name)
         let (name, is_ambient) = match &decl.id {
             TSModuleDeclarationName::Identifier(id) => (id.name.to_string(), false),
@@ -1071,13 +1062,11 @@ impl<'a> DtsVisitor<'a> {
                     Vec::new()
                 }
             }
-            TSModuleDeclarationBody::TSModuleBlock(block) => {
-                block
-                    .body
-                    .iter()
-                    .flat_map(|stmt| self.convert_statement_to_items(stmt))
-                    .collect()
-            }
+            TSModuleDeclarationBody::TSModuleBlock(block) => block
+                .body
+                .iter()
+                .flat_map(|stmt| self.convert_statement_to_items(stmt))
+                .collect(),
         }
     }
 
@@ -1102,10 +1091,9 @@ impl<'a> DtsVisitor<'a> {
                 .into_iter()
                 .map(DtsItem::Variable)
                 .collect(),
-            Statement::TSModuleDeclaration(decl) => self
-                .convert_module_declaration(decl)
-                .into_iter()
-                .collect(),
+            Statement::TSModuleDeclaration(decl) => {
+                self.convert_module_declaration(decl).into_iter().collect()
+            }
             Statement::ExportNamedDeclaration(export) => {
                 if let Some(decl) = &export.declaration {
                     self.convert_declaration_to_items(decl)
@@ -1154,14 +1142,17 @@ impl<'a> DtsVisitor<'a> {
                 .map(DtsItem::Variable)
                 .collect(),
             Declaration::TSInterfaceDeclaration(iface) => {
-                vec![DtsItem::Interface(self.convert_interface_declaration(iface))]
+                vec![DtsItem::Interface(
+                    self.convert_interface_declaration(iface),
+                )]
             }
             Declaration::TSTypeAliasDeclaration(alias) => {
                 vec![DtsItem::TypeAlias(self.convert_type_alias(alias))]
             }
-            Declaration::TSModuleDeclaration(module) => {
-                self.convert_module_declaration(module).into_iter().collect()
-            }
+            Declaration::TSModuleDeclaration(module) => self
+                .convert_module_declaration(module)
+                .into_iter()
+                .collect(),
             Declaration::TSEnumDeclaration(_) => vec![], // Enums not yet supported
             Declaration::TSImportEqualsDeclaration(_) => vec![],
         }
