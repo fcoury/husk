@@ -423,6 +423,12 @@ pub enum JsStmt {
         inclusive: bool,
         body: Vec<JsStmt>,
     },
+    /// For loop over a range object: `for (let binding = range.start; binding < range.end; binding++)`
+    ForRange {
+        binding: String,
+        range_expr: JsExpr,
+        body: Vec<JsStmt>,
+    },
     /// Assignment statement: `target = value`, `target += value`, etc.
     Assign {
         target: JsExpr,
@@ -1425,6 +1431,27 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                     body: js_body,
                 }
             } else {
+                // Check if iterable is a Range type variable (from semantic analysis)
+                // Range objects are {start, end} and need to be iterated with a traditional for loop
+                let iterable_type = ctx
+                    .type_resolution
+                    .get(&(iterable.span.range.start, iterable.span.range.end));
+
+                if let Some(ty) = iterable_type {
+                    if ty.starts_with("Range") {
+                        // Generate: for (let binding = iterable.start; binding < iterable.end; binding++)
+                        let js_iterable = lower_expr(iterable, ctx);
+                        let js_body: Vec<JsStmt> =
+                            body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+
+                        return JsStmt::ForRange {
+                            binding: ctx.resolve_name(&binding.name, &binding.span),
+                            range_expr: js_iterable,
+                            body: js_body,
+                        };
+                    }
+                }
+
                 let js_iterable = lower_expr(iterable, ctx);
                 let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
                 JsStmt::ForOf {
@@ -3747,6 +3774,32 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             }
             write_expr(end, out);
             out.push_str("; ");
+            out.push_str(binding);
+            out.push_str("++) {\n");
+            for s in body {
+                write_stmt(s, indent_level + 1, out);
+                out.push('\n');
+            }
+            indent(indent_level, out);
+            out.push('}');
+        }
+        JsStmt::ForRange {
+            binding,
+            range_expr,
+            body,
+        } => {
+            // Generate: for (let binding = range_expr.start; binding < range_expr.end; binding++)
+            // Note: Range objects use exclusive end (inclusive ranges have end+1 applied at compile time)
+            indent(indent_level, out);
+            out.push_str("for (let ");
+            out.push_str(binding);
+            out.push_str(" = ");
+            write_expr(range_expr, out);
+            out.push_str(".start; ");
+            out.push_str(binding);
+            out.push_str(" < ");
+            write_expr(range_expr, out);
+            out.push_str(".end; ");
             out.push_str(binding);
             out.push_str("++) {\n");
             for s in body {
