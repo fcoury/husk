@@ -1547,6 +1547,60 @@ impl TypeChecker {
             };
         }
 
+        // Set<T> is a built-in generic type for JavaScript Set
+        if name == "Set" {
+            // Set expects exactly 1 type argument (the element type)
+            // Default to i32 if no argument provided (for backwards compatibility)
+            let elem_ty = if args.is_empty() {
+                Type::Primitive(PrimitiveType::I32)
+            } else if args.len() == 1 {
+                args[0].clone()
+            } else {
+                self.errors.push(SemanticError {
+                    message: format!(
+                        "type `Set` expects 0 or 1 type argument(s), got {}",
+                        args.len()
+                    ),
+                    span,
+                });
+                Type::Primitive(PrimitiveType::I32)
+            };
+            return Type::Named {
+                name: "Set".to_string(),
+                args: vec![elem_ty],
+            };
+        }
+
+        // Map<K, V> is a built-in generic type for JavaScript Map
+        if name == "Map" {
+            // Map expects exactly 2 type arguments (key and value types)
+            // Default to Map<String, i32> if no arguments provided
+            let (key_ty, val_ty) = if args.is_empty() {
+                (
+                    Type::Primitive(PrimitiveType::String),
+                    Type::Primitive(PrimitiveType::I32),
+                )
+            } else if args.len() == 2 {
+                (args[0].clone(), args[1].clone())
+            } else {
+                self.errors.push(SemanticError {
+                    message: format!(
+                        "type `Map` expects 0 or 2 type argument(s), got {}",
+                        args.len()
+                    ),
+                    span,
+                });
+                (
+                    Type::Primitive(PrimitiveType::String),
+                    Type::Primitive(PrimitiveType::I32),
+                )
+            };
+            return Type::Named {
+                name: "Map".to_string(),
+                args: vec![key_ty, val_ty],
+            };
+        }
+
         // Known struct or enum: check arity.
         if let Some(def) = self.env.structs.get(name) {
             if def.type_params.len() != args.len() {
@@ -1776,6 +1830,35 @@ impl<'a> FnContext<'a> {
                     }
                 }
             }
+
+            // Handle built-in type static methods (e.g., Set::new(), Map::new())
+            if enum_name == "Set" && variant_name == "new" {
+                // Set::new() returns a Set<T> where T is inferred from context
+                // For now, default to Set<i32>
+                return Type::Function {
+                    params: vec![],
+                    ret: Box::new(Type::Named {
+                        name: "Set".to_string(),
+                        args: vec![Type::Primitive(PrimitiveType::I32)],
+                    }),
+                };
+            }
+
+            if enum_name == "Map" && variant_name == "new" {
+                // Map::new() returns a Map<K, V> where K, V are inferred from context
+                // For now, default to Map<String, i32>
+                return Type::Function {
+                    params: vec![],
+                    ret: Box::new(Type::Named {
+                        name: "Map".to_string(),
+                        args: vec![
+                            Type::Primitive(PrimitiveType::String),
+                            Type::Primitive(PrimitiveType::I32),
+                        ],
+                    }),
+                };
+            }
+
             // Fallback: unknown enum name.
             self.tcx.errors.push(SemanticError {
                 message: format!("unknown enum `{}` in path expression", enum_name),
@@ -2298,6 +2381,9 @@ impl<'a> FnContext<'a> {
                     Type::Named { name, args } if name == "Range" && !args.is_empty() => {
                         args[0].clone() // Range<i32> yields i32
                     }
+                    Type::Named { name, args } if name == "Set" && !args.is_empty() => {
+                        args[0].clone() // Set<T> yields T
+                    }
                     // Also allow String iteration (iterates over chars as strings)
                     Type::Primitive(PrimitiveType::String) => {
                         Type::Primitive(PrimitiveType::String)
@@ -2791,6 +2877,27 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
+                // Handle Range.start and Range.end fields
+                if let Type::Named { name, args } = &base_ty {
+                    if name == "Range" && (member.name == "start" || member.name == "end") {
+                        // Range<T> has start and end fields of type T
+                        let elem_ty = args
+                            .first()
+                            .cloned()
+                            .unwrap_or(Type::Primitive(PrimitiveType::I32));
+                        let type_str = self.format_type(&elem_ty);
+                        self.tcx.hover_info.insert(
+                            (member.span.range.start, member.span.range.end),
+                            HoverInfo {
+                                signature: format!("Range.{}: {}", member.name, type_str),
+                                docs: None,
+                                definition_span: None,
+                            },
+                        );
+                        return elem_ty;
+                    }
+                }
+
                 if let Type::Named { name, args } = &base_ty {
                     // First, check regular struct fields
                     if let Some(def) = self.tcx.env.structs.get(name).cloned() {
@@ -3086,13 +3193,30 @@ impl<'a> FnContext<'a> {
                     _ => None,
                 };
 
+                // For generic types like Set<i32> or Map<String, i32>, generate the generic form
+                // so we can match impl<T> Set<T> { ... } or impl<K, V> Map<K, V> { ... } blocks
+                let generic_type_name = match &receiver_ty {
+                    Type::Named { name, args } if args.len() == 1 => {
+                        Some(format!("{}<T>", name))
+                    }
+                    Type::Named { name, args } if args.len() == 2 => {
+                        Some(format!("{}<K, V>", name))
+                    }
+                    _ => None,
+                };
+
                 // Look up the method in impl blocks and get its return type.
                 // Use Option<Option<TypeExpr>> to distinguish "method not found" from "method found with no return type"
                 let method_lookup_result: Option<Option<TypeExpr>> =
                     if let Some(ref type_name) = receiver_type_name {
                         let mut found = None;
                         for impl_info in &self.tcx.env.impls {
-                            if impl_info.self_ty_name == *type_name {
+                            // Match either the exact type name or the generic form
+                            let matches = impl_info.self_ty_name == *type_name
+                                || generic_type_name
+                                    .as_ref()
+                                    .map_or(false, |g| impl_info.self_ty_name == *g);
+                            if matches {
                                 if let Some(method_info) = impl_info.methods.get(method_name) {
                                     // Found the method - wrap ret_type in Some to indicate success
                                     found = Some(method_info.ret_type.clone());
@@ -3109,14 +3233,34 @@ impl<'a> FnContext<'a> {
                 match method_lookup_result {
                     Some(Some(ret_type_expr)) => {
                         // Method found with explicit return type
-                        // For array methods from `impl<T> [T]`, we need to substitute T
-                        // with the actual element type of the array receiver.
+                        // For generic methods from `impl<T> [T]`, `impl<T> Set<T>`, or
+                        // `impl<K, V> Map<K, V>`, we need to substitute type params.
                         if let Type::Array(elem_ty) = &receiver_ty {
                             // Resolve using "T" as a generic param, then substitute
                             let resolved = self
                                 .tcx
                                 .resolve_type_expr(&ret_type_expr, &["T".to_string()]);
                             substitute_type_param(&resolved, "T", elem_ty)
+                        } else if let Type::Named { args, .. } = &receiver_ty {
+                            match args.len() {
+                                1 => {
+                                    // Single-param generic like Set<i32> - substitute T
+                                    let resolved = self
+                                        .tcx
+                                        .resolve_type_expr(&ret_type_expr, &["T".to_string()]);
+                                    substitute_type_param(&resolved, "T", &args[0])
+                                }
+                                2 => {
+                                    // Two-param generic like Map<String, i32> - substitute K and V
+                                    let resolved = self.tcx.resolve_type_expr(
+                                        &ret_type_expr,
+                                        &["K".to_string(), "V".to_string()],
+                                    );
+                                    let resolved = substitute_type_param(&resolved, "K", &args[0]);
+                                    substitute_type_param(&resolved, "V", &args[1])
+                                }
+                                _ => self.tcx.resolve_type_expr(&ret_type_expr, &[]),
+                            }
                         } else {
                             self.tcx.resolve_type_expr(&ret_type_expr, &[])
                         }

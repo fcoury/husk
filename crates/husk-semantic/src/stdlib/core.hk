@@ -427,3 +427,76 @@ impl Range {
     #[js_name = "__husk_range_is_empty"]
     extern "js" fn is_empty(&self) -> bool;
 }
+
+// ============================================================================
+// Set Methods
+// ============================================================================
+//
+// Generic Set type wrapping JavaScript's native Set. Set<T> stores unique
+// values of any type and provides O(1) add, has, and delete operations.
+
+impl<T> Set<T> {
+    /// Creates a new empty Set.
+    #[js_name = "__husk_set_new"]
+    extern "js" fn new() -> Set<T>;
+
+    /// Adds a value to the set. Returns the set itself for chaining.
+    extern "js" fn add(&mut self, value: T) -> Set<T>;
+
+    /// Returns true if the set contains the specified value.
+    extern "js" fn has(&self, value: T) -> bool;
+
+    /// Removes a value from the set. Returns true if the value was present.
+    extern "js" fn delete(&mut self, value: T) -> bool;
+
+    /// Removes all values from the set.
+    extern "js" fn clear(&mut self);
+
+    /// Returns the number of values in the set.
+    #[js_name = "size"]
+    extern "js" fn len(&self) -> i32;
+
+    /// Returns an array of all values in the set.
+    #[js_name = "__husk_set_values"]
+    extern "js" fn values(&self) -> [T];
+}
+
+// ============================================================================
+// Map Methods
+// ============================================================================
+//
+// Generic Map type wrapping JavaScript's native Map. Map<K, V> stores key-value
+// pairs and provides O(1) get, set, has, and delete operations.
+
+impl<K, V> Map<K, V> {
+    /// Creates a new empty Map.
+    #[js_name = "__husk_map_new"]
+    extern "js" fn new() -> Map<K, V>;
+
+    /// Sets a key-value pair in the map. Returns the map itself for chaining.
+    extern "js" fn set(&mut self, key: K, value: V) -> Map<K, V>;
+
+    /// Gets the value associated with a key, or undefined if not found.
+    extern "js" fn get(&self, key: K) -> V;
+
+    /// Returns true if the map contains the specified key.
+    extern "js" fn has(&self, key: K) -> bool;
+
+    /// Removes a key-value pair from the map. Returns true if the key was present.
+    extern "js" fn delete(&mut self, key: K) -> bool;
+
+    /// Removes all key-value pairs from the map.
+    extern "js" fn clear(&mut self);
+
+    /// Returns the number of key-value pairs in the map.
+    #[js_name = "size"]
+    extern "js" fn len(&self) -> i32;
+
+    /// Returns an array of all keys in the map.
+    #[js_name = "__husk_map_keys"]
+    extern "js" fn keys(&self) -> [K];
+
+    /// Returns an array of all values in the map.
+    #[js_name = "__husk_map_values"]
+    extern "js" fn values(&self) -> [V];
+}
