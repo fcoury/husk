@@ -214,6 +214,7 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
     let mut included_structs = HashSet::new(); // Track which extern structs we've added
     let mut included_fns = HashSet::new(); // Track which extern fns we've added
     let mut included_mods = HashSet::new(); // Track which extern mods we've added
+    let mut included_consts = HashSet::new(); // Track which extern consts we've added
 
     // Phase 1: Process use statements and root items
     for item in root_mod.file.items.iter() {
@@ -277,6 +278,7 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                                 &mut included_structs,
                                 &mut included_fns,
                                 &mut included_mods,
+                                &mut included_consts,
                             ) {
                                 // Set the file path on the cloned item
                                 filtered.set_file_path(module.file_path.clone());
@@ -488,6 +490,7 @@ fn filter_extern_block(
     included_structs: &mut HashSet<String>,
     included_fns: &mut HashSet<String>,
     included_mods: &mut HashSet<String>,
+    included_consts: &mut HashSet<String>,
 ) -> Option<husk_ast::Item> {
     let mut filtered = Vec::new();
     for ext in ext_items {
@@ -510,6 +513,13 @@ fn filter_extern_block(
             ExternItemKind::Mod { binding, .. } => {
                 if included_mods.insert(binding.name.clone()) {
                     filtered.push(ext.clone());
+                }
+            }
+            ExternItemKind::Const { name, .. } => {
+                if imported_types.contains(&name.name) {
+                    if included_consts.insert(name.name.clone()) {
+                        filtered.push(ext.clone());
+                    }
                 }
             }
             _ => {}
