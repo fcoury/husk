@@ -171,20 +171,14 @@ fn handle_include_str(args: &[Expr], ctx: &CodegenContext) -> JsExpr {
         }
     };
 
-    // Get the source path from context
-    let source_path = match ctx.source_path {
-        Some(path) => path,
+    // Resolve path relative to source file or current directory as fallback
+    let base_dir = match ctx.source_path {
+        Some(path) => path.parent().unwrap_or(Path::new(".")).to_path_buf(),
         None => {
-            panic!(
-                "include_str: source file path not available. \
-                 This is required to resolve the relative path '{}'",
-                path_arg
-            );
+            // Fallback: resolve relative to current working directory
+            std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf())
         }
     };
-
-    // Resolve path relative to current source file
-    let base_dir = source_path.parent().unwrap_or(Path::new("."));
     let full_path = base_dir.join(&path_arg);
 
     // Read file contents

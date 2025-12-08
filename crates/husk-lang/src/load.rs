@@ -269,11 +269,13 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
 
                         // For extern blocks, include only relevant items to avoid massive duplicates
                         if let ItemKind::ExternBlock {
-                            items: ext_items, ..
+                            abi,
+                            items: ext_items,
                         } = &export.kind
                         {
                             if let Some(mut filtered) = filter_extern_block(
                                 ext_items,
+                                abi,
                                 &imported_types,
                                 &mut included_structs,
                                 &mut included_fns,
@@ -486,6 +488,7 @@ fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
 /// Filter extern block items down to the imported structs and a small allowlist of functions.
 fn filter_extern_block(
     ext_items: &[husk_ast::ExternItem],
+    abi: &str,
     imported_types: &HashSet<String>,
     included_structs: &mut HashSet<String>,
     included_fns: &mut HashSet<String>,
@@ -538,7 +541,7 @@ fn filter_extern_block(
         visibility: husk_ast::Visibility::Public,
         attributes: Vec::new(),
         kind: husk_ast::ItemKind::ExternBlock {
-            abi: "js".to_string(),
+            abi: abi.to_string(),
             items: filtered,
         },
     })
