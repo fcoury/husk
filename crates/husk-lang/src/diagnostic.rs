@@ -9,6 +9,16 @@ use husk_ast::Span;
 use std::collections::HashMap;
 use std::ops::Range;
 
+/// Emit a diagnostic to stderr using the given file database.
+fn emit_diagnostic_to_stderr(
+    files: &SimpleFiles<String, String>,
+    diagnostic: &Diagnostic<usize>,
+) {
+    let writer = StandardStream::stderr(ColorChoice::Auto);
+    let config = term::Config::default();
+    let _ = term::emit(&mut writer.lock(), &config, files, diagnostic);
+}
+
 /// A source file database for codespan-reporting.
 pub struct SourceDb {
     files: SimpleFiles<String, String>,
@@ -29,13 +39,7 @@ impl SourceDb {
             Label::primary(self.file_id, span).with_message("error occurs here"),
         ]);
 
-        self.emit_diagnostic(&diagnostic);
-    }
-
-    fn emit_diagnostic(&self, diagnostic: &Diagnostic<usize>) {
-        let writer = StandardStream::stderr(ColorChoice::Auto);
-        let config = term::Config::default();
-        let _ = term::emit(&mut writer.lock(), &config, &self.files, diagnostic);
+        emit_diagnostic_to_stderr(&self.files, &diagnostic);
     }
 }
 
@@ -88,13 +92,7 @@ impl MultiFileSourceDb {
             .with_message(message)
             .with_labels(vec![Label::primary(file_id, span.range.clone())]);
 
-        self.emit_diagnostic(&diagnostic);
-    }
-
-    fn emit_diagnostic(&self, diagnostic: &Diagnostic<usize>) {
-        let writer = StandardStream::stderr(ColorChoice::Auto);
-        let config = term::Config::default();
-        let _ = term::emit(&mut writer.lock(), &config, &self.files, diagnostic);
+        emit_diagnostic_to_stderr(&self.files, &diagnostic);
     }
 }
 

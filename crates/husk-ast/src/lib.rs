@@ -1259,17 +1259,27 @@ impl SetFilePath for ImplBlock {
         self.self_ty.set_file_path(file.clone());
         for item in &mut self.items {
             item.span.set_file_path(file.clone());
-            if let ImplItemKind::Method(method) = &mut item.kind {
-                method.name.set_file_path(file.clone());
-                for param in &mut method.params {
-                    param.name.set_file_path(file.clone());
-                    param.ty.set_file_path(file.clone());
+            match &mut item.kind {
+                ImplItemKind::Method(method) => {
+                    method.name.set_file_path(file.clone());
+                    for param in &mut method.params {
+                        param.name.set_file_path(file.clone());
+                        param.ty.set_file_path(file.clone());
+                    }
+                    if let Some(ret) = &mut method.ret_type {
+                        ret.set_file_path(file.clone());
+                    }
+                    for stmt in &mut method.body {
+                        stmt.set_file_path(file.clone());
+                    }
                 }
-                if let Some(ret) = &mut method.ret_type {
-                    ret.set_file_path(file.clone());
-                }
-                for stmt in &mut method.body {
-                    stmt.set_file_path(file.clone());
+                ImplItemKind::Property(prop) => {
+                    for attr in &mut prop.attributes {
+                        attr.span.set_file_path(file.clone());
+                        attr.name.set_file_path(file.clone());
+                    }
+                    prop.name.set_file_path(file.clone());
+                    prop.ty.set_file_path(file.clone());
                 }
             }
         }
@@ -1316,17 +1326,27 @@ impl SetFilePath for ExternItem {
                 self_ty.set_file_path(file.clone());
                 for item in items {
                     item.span.set_file_path(file.clone());
-                    if let ImplItemKind::Method(method) = &mut item.kind {
-                        method.name.set_file_path(file.clone());
-                        for param in &mut method.params {
-                            param.name.set_file_path(file.clone());
-                            param.ty.set_file_path(file.clone());
+                    match &mut item.kind {
+                        ImplItemKind::Method(method) => {
+                            method.name.set_file_path(file.clone());
+                            for param in &mut method.params {
+                                param.name.set_file_path(file.clone());
+                                param.ty.set_file_path(file.clone());
+                            }
+                            if let Some(ret) = &mut method.ret_type {
+                                ret.set_file_path(file.clone());
+                            }
+                            for stmt in &mut method.body {
+                                stmt.set_file_path(file.clone());
+                            }
                         }
-                        if let Some(ret) = &mut method.ret_type {
-                            ret.set_file_path(file.clone());
-                        }
-                        for stmt in &mut method.body {
-                            stmt.set_file_path(file.clone());
+                        ImplItemKind::Property(prop) => {
+                            for attr in &mut prop.attributes {
+                                attr.span.set_file_path(file.clone());
+                                attr.name.set_file_path(file.clone());
+                            }
+                            prop.name.set_file_path(file.clone());
+                            prop.ty.set_file_path(file.clone());
                         }
                     }
                 }
