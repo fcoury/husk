@@ -1,0 +1,21 @@
+fn main() {
+    let data = include_str("input-test.txt").trim();
+    let parts = data.split_once("\n\n").expect("valid input").to_array().expect("valid input").map(|d: String| d.split("\n"));
+
+    let fresh = parts[0];
+    let ingredients = parts[1];
+
+    let ranges: [Range] = [];
+    for range in fresh {
+        let parts = range.split("-").map(|p: String| parse_int(p, 10));
+        ranges.push(parts[0]..=parts[1]);
+    }
+
+    println("Ranges: {ranges:?}");
+
+    for id in ingredients {
+        let found = ranges.some(|r| r.contains(id));
+        println("Ingredient {id} is fresh: {found}");
+    }
+}
+

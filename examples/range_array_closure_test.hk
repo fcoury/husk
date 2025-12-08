@@ -1,0 +1,28 @@
+// Test closure parameter inference for arrays containing Range types
+
+fn main() {
+    // Test 1: Typed array declaration - should work with explicit type annotation
+    let typed_ranges: [Range] = [];
+    typed_ranges.push(1..5);
+    typed_ranges.push(10..20);
+
+    // The closure parameter `r` should be inferred as Range<i32>
+    let found = typed_ranges.some(|r| r.contains(3));
+    assert_msg(found, "typed_ranges should contain 3");
+
+    let not_found = typed_ranges.some(|r| r.contains(100));
+    assert_msg(!not_found, "typed_ranges should not contain 100");
+
+    // Test 2: Empty array with type annotation and Range<i32>
+    let ranges2: [Range<i32>] = [];
+    ranges2.push(5..10);
+    let found2 = ranges2.some(|r| r.contains(7));
+    assert_msg(found2, "ranges2 should contain 7");
+
+    // Test 3: Direct initialization (non-empty array) should still work
+    let ranges3 = [1..5, 10..20];
+    let found3 = ranges3.some(|r| r.contains(15));
+    assert_msg(found3, "ranges3 should contain 15");
+
+    println("All range array closure tests passed!");
+}
