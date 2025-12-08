@@ -152,6 +152,7 @@ pub enum TokenKind {
     EqEq,     // ==
     Bang,     // !
     BangEq,   // !=
+    Question, // ? (try operator)
     Lt,       // <
     Gt,       // >
     Le,       // <=
@@ -650,6 +651,7 @@ impl<'src> Iterator for Lexer<'src> {
                     (TokenKind::Bang, Span::new(start, start + 1))
                 }
             }
+            '?' => (TokenKind::Question, Span::new(start, start + 1)),
             '<' => {
                 if let Some((idx2, '=')) = self.peek() {
                     self.bump();

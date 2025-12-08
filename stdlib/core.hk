@@ -198,6 +198,10 @@ impl PartialEq for f64 {}
 impl PartialEq for bool {}
 impl PartialEq for String {}
 
+// Generic type PartialEq implementations
+impl PartialEq for Option {}
+impl PartialEq for Result {}
+
 // ============================================================================
 // Primitive Eq implementations (not f64 due to NaN != NaN)
 // ============================================================================
@@ -306,6 +310,13 @@ impl String {
 
     /// Replaces all occurrences of a pattern with a replacement string.
     extern "js" fn replace(&self, pattern: String, replacement: String) -> String;
+
+    /// Splits the string at the first occurrence of the delimiter.
+    /// Returns `None` if the delimiter is not found.
+    /// Returns `Some((before, after))` where `before` is the part before the delimiter
+    /// and `after` is the part after (not including the delimiter).
+    #[js_name = "__husk_split_once"]
+    extern "js" fn split_once(&self, delimiter: String) -> Option<(String, String)>;
 }
 
 // i32 methods

@@ -2852,6 +2852,19 @@ impl<'src> Parser<'src> {
                         };
                     }
                 }
+            } else if self.matches_token(&TokenKind::Question) {
+                // Try expression: expr?
+                // Desugars to early return on Err/None
+                let span = Span {
+                    range: expr.span.range.start..self.previous().span.range.end,
+                    file: None,
+                };
+                expr = Expr {
+                    kind: ExprKind::Try {
+                        expr: Box::new(expr),
+                    },
+                    span,
+                };
             } else {
                 break;
             }
