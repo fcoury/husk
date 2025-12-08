@@ -75,6 +75,9 @@ struct PropertyAccessors {
 /// Note: we don't add these to extern_methods because the extern_methods check is
 /// type-agnostic and would incorrectly rename user methods with the same name.
 fn collect_js_name_mappings(file: &File, accessors: &mut PropertyAccessors) {
+    // JS properties that should be accessed as properties, not method calls
+    const JS_PROPERTY_NAMES: &[&str] = &["size", "length"];
+
     for item in &file.items {
         if let ItemKind::Impl(impl_block) = &item.kind {
             let type_name = type_expr_to_js_name(&impl_block.self_ty);
@@ -82,10 +85,24 @@ fn collect_js_name_mappings(file: &File, accessors: &mut PropertyAccessors) {
                 if let ImplItemKind::Method(method) = &impl_item.kind {
                     // Collect #[js_name] overrides for method name mapping
                     if let Some(js_name) = method.js_name() {
+                        let method_name = &method.name.name;
                         accessors.method_js_names.insert(
-                            (type_name.clone(), method.name.name.clone()),
+                            (type_name.clone(), method_name.clone()),
                             js_name.to_string(),
                         );
+
+                        // If the js_name maps to a known JS property, register as getter
+                        // This allows methods like len() -> size/length to be emitted
+                        // as property access instead of method calls
+                        if JS_PROPERTY_NAMES.contains(&js_name)
+                            && method.params.is_empty()
+                            && method.ret_type.is_some()
+                        {
+                            accessors.getters.insert(
+                                (type_name.clone(), method_name.clone()),
+                                js_name.to_string(),
+                            );
+                        }
                     }
                 }
             }
@@ -2113,10 +2130,61 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Check if this is a getter (no args, matches getter pattern)
             if args.is_empty() {
-                // Search for any type that has this method as a getter
-                for ((_, m), prop) in &ctx.accessors.getters {
+                // Try type-specific getter lookup using semantic analysis
+                let receiver_type_from_semantic = ctx
+                    .type_resolution
+                    .get(&(receiver.span.range.start, receiver.span.range.end));
+
+                if let Some(recv_type) = receiver_type_from_semantic {
+                    // Extract base type name (e.g., "Map<String, i32>" -> "Map")
+                    // For arrays like "[String]", normalize to "T[]" which is how they're registered
+                    let (base_type, lookup_type) = if recv_type.starts_with('[') {
+                        // Array type - normalize to T[] for getter lookup
+                        (recv_type.as_str(), "T[]".to_string())
+                    } else if let Some(idx) = recv_type.find('<') {
+                        let base = &recv_type[..idx];
+                        (base, base.to_string())
+                    } else {
+                        (recv_type.as_str(), recv_type.clone())
+                    };
+
+                    // Only apply getter lookup for known stdlib types
+                    // User-defined types should not have their methods converted to property access
+                    let is_stdlib_type = matches!(
+                        base_type,
+                        "String" | "Map" | "Set" | "Range" | "Array"
+                    ) || recv_type.starts_with("[");
+
+                    if is_stdlib_type {
+                        if let Some(prop) = ctx
+                            .accessors
+                            .getters
+                            .get(&(lookup_type, method_name.clone()))
+                        {
+                            return JsExpr::Member {
+                                object: Box::new(lower_expr(receiver, ctx)),
+                                property: prop.clone(),
+                            };
+                        }
+                    }
+                }
+
+                // Only fall back to type-agnostic lookup for user-defined extern methods
+                // (not for stdlib-like method names like 'len' which could conflict)
+                for ((type_name, m), prop) in &ctx.accessors.getters {
+                    // Skip stdlib types in fallback - they should use type-specific lookup
+                    // Arrays use "T[]" as type name, generic types use "Name<T>" etc.
+                    let is_stdlib = matches!(
+                        type_name.as_str(),
+                        "String" | "Map" | "Set" | "Range" | "Array"
+                    ) || type_name.starts_with("[")
+                        || type_name.ends_with("[]") // T[] for arrays
+                        || type_name.contains('<'); // Generic types like Map<K, V>
+                    if is_stdlib {
+                        continue;
+                    }
                     if m == method_name {
-                        // Found a getter! Emit property access instead of method call.
+                        // Found a getter for a user-defined type
                         return JsExpr::Member {
                             object: Box::new(lower_expr(receiver, ctx)),
                             property: prop.clone(),
@@ -2195,6 +2263,38 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                         _ => {}
                     }
                 }
+
+                // Handle Map.keys() and Map.values()
+                // These use helper functions since JS Map.keys()/values() return iterators,
+                // but Husk expects arrays
+                if recv_type.starts_with("Map") {
+                    match method_name.as_str() {
+                        "keys" if args.is_empty() => {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident("__husk_map_keys".to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                        "values" if args.is_empty() => {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident("__husk_map_values".to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Handle Set.values()
+                // Similar to Map, JS Set.values() returns an iterator, but Husk expects arrays
+                if recv_type.starts_with("Set") {
+                    if method_name == "values" && args.is_empty() {
+                        return JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_set_values".to_string())),
+                            args: vec![lower_expr(receiver, ctx)],
+                        };
+                    }
+                }
             }
 
             // Handle type conversion methods (.into(), .parse(), .try_into())
@@ -2237,8 +2337,18 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 || receiver_is_string_literal;
 
             // Check if this method is an extern "js" method for any type in user code,
-            // OR if the receiver is a known stdlib type (like String).
+            // OR if the receiver is a known stdlib type (like String, Set, Map).
+            let receiver_is_known_stdlib = receiver_type_from_semantic
+                .as_ref()
+                .is_some_and(|t| {
+                    t == "String"
+                        || t.starts_with("Set")
+                        || t.starts_with("Map")
+                        || t.starts_with("Range")
+                        || t.starts_with("[") // arrays
+                });
             let is_extern_method = receiver_is_string
+                || receiver_is_known_stdlib
                 || ctx
                     .accessors
                     .extern_methods
@@ -2248,15 +2358,41 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Look up #[js_name] override, but only for extern methods or known stdlib types.
             // User-defined methods should keep their original names even if they
             // match stdlib method names (e.g., user's MyList.len() stays as .len()).
+            //
+            // Extract base type name from receiver type (e.g., "Map<String, i32>" -> "Map")
+            let receiver_base_type = receiver_type_from_semantic
+                .as_ref()
+                .map(|t| {
+                    // Strip generic args: "Map<K, V>" -> "Map", "Set<T>" -> "Set"
+                    if let Some(idx) = t.find('<') {
+                        &t[..idx]
+                    } else {
+                        t.as_str()
+                    }
+                })
+                .map(String::from);
+
             let js_name_override = if is_extern_method {
-                // For String receivers, look up String-specific mapping first
-                if receiver_is_string {
+                // Try type-specific lookup first (e.g., String.len -> length, Map.len -> size)
+                if let Some(ref base_type) = receiver_base_type {
+                    ctx.accessors
+                        .method_js_names
+                        .get(&(base_type.clone(), base_method_name.clone()))
+                        .cloned()
+                        .or_else(|| {
+                            // Fall back to any-type lookup for backwards compatibility
+                            ctx.accessors
+                                .method_js_names
+                                .iter()
+                                .find(|((_, m), _)| m == &base_method_name)
+                                .map(|(_, js_name)| js_name.clone())
+                        })
+                } else if receiver_is_string {
                     ctx.accessors
                         .method_js_names
                         .get(&("String".to_string(), base_method_name.clone()))
                         .cloned()
                         .or_else(|| {
-                            // Fall back to any-type lookup
                             ctx.accessors
                                 .method_js_names
                                 .iter()
@@ -2417,6 +2553,28 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Handle enum variant construction: Option::Some(x) -> {tag: "Some", value: x}
             if let ExprKind::Path { segments } = &callee.kind {
+                // Handle built-in type static methods
+                if segments.len() == 2 {
+                    let type_name = &segments[0].name;
+                    let method_name = &segments[1].name;
+
+                    // Set::new() -> __husk_set_new()
+                    if type_name == "Set" && method_name == "new" {
+                        return JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_set_new".to_string())),
+                            args: vec![],
+                        };
+                    }
+
+                    // Map::new() -> __husk_map_new()
+                    if type_name == "Map" && method_name == "new" {
+                        return JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_map_new".to_string())),
+                            args: vec![],
+                        };
+                    }
+                }
+
                 let variant = segments
                     .last()
                     .map(|id| id.name.clone())

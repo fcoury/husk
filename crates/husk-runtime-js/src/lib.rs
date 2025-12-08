@@ -545,6 +545,28 @@ function __husk_range_is_empty(range) {
     return range.start >= range.end;
 }
 
+// Set helpers
+function __husk_set_new() {
+    return new Set();
+}
+
+function __husk_set_values(set) {
+    return Array.from(set.values());
+}
+
+// Map helpers
+function __husk_map_new() {
+    return new Map();
+}
+
+function __husk_map_keys(map) {
+    return Array.from(map.keys());
+}
+
+function __husk_map_values(map) {
+    return Array.from(map.values());
+}
+
 // Run main() and handle ? operator early returns
 // If main returns Err or None, report the error and exit with code 1
 function __husk_run_main(main) {
@@ -609,5 +631,19 @@ mod tests {
         let src = std_preamble_js();
         assert!(src.contains("function __husk_range_contains("));
         assert!(src.contains("function __husk_range_is_empty("));
+    }
+
+    #[test]
+    fn preamble_contains_set_helper() {
+        let src = std_preamble_js();
+        assert!(src.contains("function __husk_set_new("));
+    }
+
+    #[test]
+    fn preamble_contains_map_helpers() {
+        let src = std_preamble_js();
+        assert!(src.contains("function __husk_map_new("));
+        assert!(src.contains("function __husk_map_keys("));
+        assert!(src.contains("function __husk_map_values("));
     }
 }
