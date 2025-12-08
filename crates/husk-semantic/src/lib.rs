@@ -1523,6 +1523,30 @@ impl TypeChecker {
             return t;
         }
 
+        // Range<T> is a built-in generic type for range expressions
+        if name == "Range" {
+            // Range expects exactly 1 type argument (the element type)
+            // Default to i32 if no argument provided (for backwards compatibility)
+            let elem_ty = if args.is_empty() {
+                Type::Primitive(PrimitiveType::I32)
+            } else if args.len() == 1 {
+                args[0].clone()
+            } else {
+                self.errors.push(SemanticError {
+                    message: format!(
+                        "type `Range` expects 0 or 1 type argument(s), got {}",
+                        args.len()
+                    ),
+                    span,
+                });
+                Type::Primitive(PrimitiveType::I32)
+            };
+            return Type::Named {
+                name: "Range".to_string(),
+                args: vec![elem_ty],
+            };
+        }
+
         // Known struct or enum: check arity.
         if let Some(def) = self.env.structs.get(name) {
             if def.type_params.len() != args.len() {
@@ -3817,6 +3841,18 @@ impl<'a> FnContext<'a> {
 
                 // Fall back to regular check_expr for other method calls
                 self.check_expr(expr)
+            }
+
+            // Handle empty array literals with expected type inference
+            // This allows `let ranges: [Range<i32>] = [];` to properly type the array
+            ExprKind::Array { elements } if elements.is_empty() => {
+                if let Some(Type::Array(elem_ty)) = expected {
+                    // Use the expected element type instead of unit
+                    Type::Array(elem_ty.clone())
+                } else {
+                    // No expected type - fall back to unit element type
+                    Type::Array(Box::new(Type::unit()))
+                }
             }
 
             _ => self.check_expr(expr),
