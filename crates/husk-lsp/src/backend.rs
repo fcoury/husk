@@ -16,7 +16,7 @@ use husk_lang::load::{
     ContentProvider, LoadError, ModuleGraph, assemble_root, load_graph_with_provider,
     module_path_to_file,
 };
-use husk_lexer::Token;
+use husk_lexer::{Token, is_keyword, is_valid_identifier};
 use husk_semantic::{SemanticOptions, SemanticResult};
 
 use crate::diagnostics::{
@@ -801,6 +801,13 @@ impl LanguageServer for HuskBackend {
         })))
     }
 
+    /// Handle rename request.
+    ///
+    /// # Known Limitations
+    ///
+    /// - **Trait renames**: Only the trait definition is renamed. Trait usage sites
+    ///   (bounds like `T: Trait`, `impl Trait for Type`, supertraits) are not yet
+    ///   updated. Users should manually update these after renaming a trait.
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let uri = &params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
@@ -842,6 +849,8 @@ impl LanguageServer for HuskBackend {
             husk_semantic::ReferenceKind::TypeAlias,
             husk_semantic::ReferenceKind::Trait,
             husk_semantic::ReferenceKind::Variable,
+            husk_semantic::ReferenceKind::Field,
+            husk_semantic::ReferenceKind::Variant,
         ];
 
         let mut all_refs = Vec::new();
@@ -919,31 +928,6 @@ impl LanguageServer for HuskBackend {
             change_annotations: None,
         }))
     }
-}
-
-/// Check if a word is a Husk keyword
-fn is_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "fn" | "let" | "mut" | "if" | "else" | "match" | "while" | "for" | "in"
-            | "return" | "break" | "continue" | "struct" | "enum" | "trait" | "impl"
-            | "pub" | "use" | "mod" | "extern" | "type" | "const" | "static"
-            | "true" | "false" | "self" | "Self"
-    )
-}
-
-/// Check if a string is a valid Husk identifier
-fn is_valid_identifier(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-
-    let first = s.chars().next().unwrap();
-    if !first.is_alphabetic() && first != '_' {
-        return false;
-    }
-
-    s.chars().all(|c| c.is_alphanumeric() || c == '_') && !is_keyword(s)
 }
 
 /// Extract definition info from an item if it matches the given name
