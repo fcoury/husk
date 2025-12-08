@@ -4019,10 +4019,11 @@ impl<'src> Parser<'src> {
                 }
 
                 let text = &self.source[text_start..pos];
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
+                // Only skip purely-whitespace text nodes (from indentation/newlines)
+                // but preserve the original text content including spaces around expressions
+                if !text.trim().is_empty() {
                     children.push(HxChild::Text(HxText {
-                        value: trimmed.to_string(),
+                        value: text.to_string(),
                         span: Span::new(text_start, pos),
                     }));
                 }
@@ -4231,10 +4232,11 @@ impl<'src> Parser<'src> {
                 }
 
                 let text = &self.source[text_start..pos];
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
+                // Only skip purely-whitespace text nodes (from indentation/newlines)
+                // but preserve the original text content including spaces around expressions
+                if !text.trim().is_empty() {
                     children.push(HxChild::Text(HxText {
-                        value: trimmed.to_string(),
+                        value: text.to_string(),
                         span: Span::new(text_start, pos),
                     }));
                 }
@@ -6706,11 +6708,11 @@ fn test() {
         };
         assert_eq!(elem.children.len(), 2);
 
-        // First child: text "Hello "
+        // First child: text "Hello " - whitespace before interpolation is preserved
         let HxChild::Text(text) = &elem.children[0] else {
             panic!("Expected text child");
         };
-        assert!(text.value.contains("Hello"));
+        assert_eq!(text.value, "Hello ", "Whitespace before interpolation should be preserved");
 
         // Second child: expression {name}
         let HxChild::Expr(hx_expr) = &elem.children[1] else {

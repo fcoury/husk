@@ -100,7 +100,7 @@
     },
     "hx-element-close": {
       "name": "meta.tag.close.hx.husk",
-      "match": "(</)(\\s*[A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*\\s*)(>)",
+      "match": "(</)\\s*([A-Z][a-zA-Z0-9]*|[a-z][a-zA-Z0-9]*)\\s*(>)",
       "captures": {
         "1": { "name": "punctuation.definition.tag.begin.hx" },
         "2": { "name": "entity.name.tag.hx" },
