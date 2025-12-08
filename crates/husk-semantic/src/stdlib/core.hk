@@ -405,3 +405,25 @@ impl<T> [T] {
     /// Adds one or more elements to the beginning of the array.
     extern "js" fn unshift(&mut self, value: T) -> i32;
 }
+
+// ============================================================================
+// Range Methods
+// ============================================================================
+//
+// Methods on Range type. Ranges are represented at runtime as {start, end}
+// objects. For inclusive ranges (..=), the end is already adjusted to end+1
+// at compile time, so the same runtime helpers work for both.
+
+impl Range {
+    /// Returns true if the range contains the given value.
+    /// For exclusive ranges (start..end): start <= item < end
+    /// For inclusive ranges (start..=end): start <= item <= end
+    #[js_name = "__husk_range_contains"]
+    extern "js" fn contains(&self, item: i32) -> bool;
+
+    /// Returns true if the range is empty.
+    /// For exclusive ranges: empty when start >= end
+    /// For inclusive ranges: empty when start > end
+    #[js_name = "__husk_range_is_empty"]
+    extern "js" fn is_empty(&self) -> bool;
+}

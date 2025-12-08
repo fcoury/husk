@@ -531,6 +531,20 @@ function __husk_tuple_to_array(tuple) {
     return { tag: "Ok", value: tuple.slice() };
 }
 
+// Range helper: check if range contains a value
+// Works for both exclusive (start..end) and inclusive (start..=end) ranges
+// because inclusive ranges have end+1 applied at compile time
+function __husk_range_contains(range, item) {
+    return item >= range.start && item < range.end;
+}
+
+// Range helper: check if range is empty
+// Works for both exclusive (start..end) and inclusive (start..=end) ranges
+// because inclusive ranges have end+1 applied at compile time
+function __husk_range_is_empty(range) {
+    return range.start >= range.end;
+}
+
 // Run main() and handle ? operator early returns
 // If main returns Err or None, report the error and exit with code 1
 function __husk_run_main(main) {
@@ -588,5 +602,12 @@ mod tests {
     fn preamble_contains_split_once() {
         let src = std_preamble_js();
         assert!(src.contains("String.prototype.__husk_split_once"));
+    }
+
+    #[test]
+    fn preamble_contains_range_helpers() {
+        let src = std_preamble_js();
+        assert!(src.contains("function __husk_range_contains("));
+        assert!(src.contains("function __husk_range_is_empty("));
     }
 }
