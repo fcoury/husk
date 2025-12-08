@@ -3340,9 +3340,9 @@ impl<'a> FnContext<'a> {
                 for child in children {
                     self.check_hx_child(child);
                 }
-                // HxBlock expressions return a JSX element type (opaque for now)
+                // HxBlock expressions return JsValue for compatibility with JS interop
                 Type::Named {
-                    name: "JsxElement".to_string(),
+                    name: "JsValue".to_string(),
                     args: Vec::new(),
                 }
             }

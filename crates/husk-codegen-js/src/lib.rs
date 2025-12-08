@@ -801,17 +801,23 @@ pub fn lower_file_to_js_with_source(
                 // This wrapper takes a single props object and extracts each parameter
                 if item.is_react_component() && !params.is_empty() {
                     let wrapper_name = format!("{}$component", name.name);
-                    // Build the call expression: OriginalFn(props.param1, props.param2, ...)
-                    let args: Vec<String> = params
+                    // Build the call expression using proper AST nodes:
+                    // OriginalFn(props.param1, props.param2, ...)
+                    let call_args: Vec<JsExpr> = params
                         .iter()
-                        .map(|p| format!("props.{}", p.name.name))
+                        .map(|p| JsExpr::Member {
+                            object: Box::new(JsExpr::Ident("props".to_string())),
+                            property: p.name.name.clone(),
+                        })
                         .collect();
-                    let call_expr = format!("{}({})", name.name, args.join(", "));
 
                     body.push(JsStmt::Function {
                         name: wrapper_name.clone(),
                         params: vec!["props".to_string()],
-                        body: vec![JsStmt::Return(JsExpr::Raw(call_expr))],
+                        body: vec![JsStmt::Return(JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident(name.name.clone())),
+                            args: call_args,
+                        })],
                         source_span: None,
                     });
                     fn_names.push(wrapper_name);
@@ -2776,10 +2782,10 @@ fn lower_hx_element(elem: &HxElement, ctx: &CodegenContext) -> JsExpr {
 
     // Generate the _jsx() call
     if props.is_empty() {
-        // No props: _jsx("div", null)
+        // No props: _jsx("div", {}) - React expects an object, not null
         JsExpr::Call {
             callee: Box::new(JsExpr::Ident("_jsx".to_string())),
-            args: vec![tag_expr, JsExpr::Null],
+            args: vec![tag_expr, JsExpr::Object(vec![])],
         }
     } else {
         // With props: _jsx("div", { ... })

@@ -11,11 +11,11 @@ use std::path::Path;
 #[serde(rename_all = "lowercase")]
 pub enum ConfigPlatform {
     /// Server-side execution (Node.js)
-    #[default]
     Node,
     /// Client-side execution (Browser)
     Browser,
     /// Auto-detect from package.json
+    #[default]
     Auto,
 }
 
