@@ -2999,15 +2999,11 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                     spec.width
                         .map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
                     spec.precision
-                        .map_or(JsExpr::Ident("null".to_string()), |p| {
-                            JsExpr::Number(p as i64)
-                        }),
-                    spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
-                        JsExpr::String(c.to_string())
-                    }),
-                    spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
-                        JsExpr::String(c.to_string())
-                    }),
+                        .map_or(JsExpr::Null, |p| JsExpr::Number(p as i64)),
+                    spec.fill
+                        .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
+                    spec.align
+                        .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
                     JsExpr::Bool(spec.sign),
                     JsExpr::Bool(spec.alternate),
                     JsExpr::Bool(spec.zero_pad),
@@ -3028,15 +3024,11 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                         spec.width
                             .map_or(JsExpr::Number(0), |w| JsExpr::Number(w as i64)),
                         spec.precision
-                            .map_or(JsExpr::Ident("null".to_string()), |p| {
-                                JsExpr::Number(p as i64)
-                            }),
-                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
-                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
+                            .map_or(JsExpr::Null, |p| JsExpr::Number(p as i64)),
+                        spec.fill
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
+                        spec.align
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
                         JsExpr::Bool(spec.sign),
                         JsExpr::Bool(spec.alternate),
                         JsExpr::Bool(spec.zero_pad),
@@ -3054,12 +3046,10 @@ fn format_arg(arg: JsExpr, spec: &FormatSpec) -> JsExpr {
                     args: vec![
                         str_arg,
                         JsExpr::Number(spec.width.unwrap_or(0) as i64),
-                        spec.fill.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
-                        spec.align.map_or(JsExpr::Ident("null".to_string()), |c| {
-                            JsExpr::String(c.to_string())
-                        }),
+                        spec.fill
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
+                        spec.align
+                            .map_or(JsExpr::Null, |c| JsExpr::String(c.to_string())),
                     ],
                 }
             } else {
