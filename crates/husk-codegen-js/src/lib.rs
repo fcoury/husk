@@ -574,10 +574,19 @@ pub fn lower_file_to_js_with_source(
     let mut react_components: HashSet<String> = HashSet::new();
     for item in &file.items {
         if let ItemKind::Fn { name, params, .. } = &item.kind {
-            // Only collect if it has the attribute AND has parameters
-            // (no wrapper needed for parameterless components)
-            if item.is_react_component() && !params.is_empty() {
-                react_components.insert(name.name.clone());
+            if item.is_react_component() {
+                if params.is_empty() {
+                    // Warn about unnecessary #[react_component] on parameterless functions
+                    eprintln!(
+                        "warning: #[react_component] on `{}` has no effect (function has no parameters)",
+                        name.name
+                    );
+                    eprintln!(
+                        "  help: remove the #[react_component] attribute, or add parameters to accept props"
+                    );
+                } else {
+                    react_components.insert(name.name.clone());
+                }
             }
         }
     }
