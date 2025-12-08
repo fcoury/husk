@@ -177,9 +177,9 @@ fn main() {
 
     // Verify struct is imported
     assert!(
-        file.items.iter().any(
-            |it| matches!(&it.kind, ItemKind::Struct { name, .. } if name.name == "Point")
-        ),
+        file.items
+            .iter()
+            .any(|it| matches!(&it.kind, ItemKind::Struct { name, .. } if name.name == "Point")),
         "Point struct should be imported"
     );
 

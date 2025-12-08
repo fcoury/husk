@@ -31,10 +31,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use oxc_allocator::Allocator;
-use serde_json::Value;
 use oxc_ast::ast::*;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+use serde_json::Value;
 
 use crate::ast::{DtsExport, DtsFile, DtsItem};
 use crate::oxc_parser::parse_with_oxc;
@@ -110,13 +110,42 @@ impl ResolvedModule {
         (self.items_from_order(order), errors)
     }
 
+    /// Get items only from the entry file (not dependencies).
+    ///
+    /// This is used when `entry_file_only` mode is enabled. Dependencies are
+    /// still available via `all_items()` for type resolution, but only entry
+    /// file items are emitted in the output.
+    pub fn entry_file_items(&self) -> Vec<&DtsItem> {
+        self.files
+            .get(&self.entry_path)
+            .map(|f| f.items.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Get items from dependency files only (excludes entry file).
+    ///
+    /// This is useful for collecting type information from dependencies
+    /// without including their items in the output.
+    pub fn dependency_items(&self) -> Vec<&DtsItem> {
+        self.files
+            .iter()
+            .filter(|(path, _)| *path != &self.entry_path)
+            .flat_map(|(_, file)| file.items.iter())
+            .collect()
+    }
+
     /// Helper to extract items from an ordered list of paths.
     fn items_from_order(&self, mut order: Vec<PathBuf>) -> Vec<&DtsItem> {
         order.reverse(); // Leaf dependencies first
 
         order
             .iter()
-            .flat_map(|path| self.files.get(path).map(|f| f.items.iter()).unwrap_or_default())
+            .flat_map(|path| {
+                self.files
+                    .get(path)
+                    .map(|f| f.items.iter())
+                    .unwrap_or_default()
+            })
             .collect()
     }
 
@@ -130,7 +159,13 @@ impl ResolvedModule {
         let mut temp_visited = Vec::new(); // Use Vec to preserve order for cycle detection
 
         for path in self.files.keys() {
-            self.topo_visit(path, &mut visited, &mut temp_visited, &mut result, &mut errors);
+            self.topo_visit(
+                path,
+                &mut visited,
+                &mut temp_visited,
+                &mut result,
+                &mut errors,
+            );
         }
 
         (result, errors)
@@ -302,7 +337,10 @@ impl ResolvedModule {
 #[derive(Debug, Clone)]
 pub enum ResolveError {
     /// File not found
-    FileNotFound { path: PathBuf, from: Option<PathBuf> },
+    FileNotFound {
+        path: PathBuf,
+        from: Option<PathBuf>,
+    },
     /// Parse error in file
     ParseError { path: PathBuf, error: String },
     /// IO error reading file
@@ -316,7 +354,11 @@ impl std::fmt::Display for ResolveError {
         match self {
             ResolveError::FileNotFound { path, from } => {
                 if let Some(from_path) = from {
-                    write!(f, "File not found: {:?} (imported from {:?})", path, from_path)
+                    write!(
+                        f,
+                        "File not found: {:?} (imported from {:?})",
+                        path, from_path
+                    )
                 } else {
                     write!(f, "File not found: {:?}", path)
                 }
@@ -846,7 +888,11 @@ impl Resolver {
             }
             TSSignature::TSIndexSignature(index) => {
                 // type_annotation is not optional in TSIndexSignature
-                self.extract_imports_from_type(&index.type_annotation.type_annotation, imports, seen);
+                self.extract_imports_from_type(
+                    &index.type_annotation.type_annotation,
+                    imports,
+                    seen,
+                );
             }
         }
     }
@@ -1122,10 +1168,17 @@ mod tests {
             export_assignments: HashMap::new(),
         };
         module.files.insert(PathBuf::from("/test.d.ts"), file);
-        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "e".to_string());
+        module
+            .export_assignments
+            .insert(PathBuf::from("/test.d.ts"), "e".to_string());
 
         let identity = module.get_module_identity(Path::new("/test.d.ts"));
-        assert_eq!(identity, ModuleIdentity::Function { name: "e".to_string() });
+        assert_eq!(
+            identity,
+            ModuleIdentity::Function {
+                name: "e".to_string()
+            }
+        );
     }
 
     #[test]
@@ -1154,10 +1207,17 @@ mod tests {
             export_assignments: HashMap::new(),
         };
         module.files.insert(PathBuf::from("/test.d.ts"), file);
-        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "MyClass".to_string());
+        module
+            .export_assignments
+            .insert(PathBuf::from("/test.d.ts"), "MyClass".to_string());
 
         let identity = module.get_module_identity(Path::new("/test.d.ts"));
-        assert_eq!(identity, ModuleIdentity::Class { name: "MyClass".to_string() });
+        assert_eq!(
+            identity,
+            ModuleIdentity::Class {
+                name: "MyClass".to_string()
+            }
+        );
     }
 
     #[test]
@@ -1190,10 +1250,18 @@ mod tests {
             export_assignments: HashMap::new(),
         };
         module.files.insert(PathBuf::from("/test.d.ts"), file);
-        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "req".to_string());
+        module
+            .export_assignments
+            .insert(PathBuf::from("/test.d.ts"), "req".to_string());
 
         let identity = module.get_module_identity(Path::new("/test.d.ts"));
-        assert_eq!(identity, ModuleIdentity::Hybrid { name: "req".to_string(), is_function: true });
+        assert_eq!(
+            identity,
+            ModuleIdentity::Hybrid {
+                name: "req".to_string(),
+                is_function: true
+            }
+        );
     }
 
     #[test]
@@ -1219,10 +1287,17 @@ mod tests {
             export_assignments: HashMap::new(),
         };
         module.files.insert(PathBuf::from("/test.d.ts"), file);
-        module.export_assignments.insert(PathBuf::from("/test.d.ts"), "ns".to_string());
+        module
+            .export_assignments
+            .insert(PathBuf::from("/test.d.ts"), "ns".to_string());
 
         let identity = module.get_module_identity(Path::new("/test.d.ts"));
-        assert_eq!(identity, ModuleIdentity::Namespace { name: "ns".to_string() });
+        assert_eq!(
+            identity,
+            ModuleIdentity::Namespace {
+                name: "ns".to_string()
+            }
+        );
     }
 
     #[test]
@@ -1231,15 +1306,13 @@ mod tests {
 
         // Create a file WITHOUT export = (standard ES module)
         let file = DtsFile {
-            items: vec![
-                DtsItem::Function(DtsFunction {
-                    name: "foo".to_string(),
-                    type_params: vec![],
-                    params: vec![],
-                    return_type: Some(DtsType::Primitive(Primitive::Void)),
-                    this_param: None,
-                }),
-            ],
+            items: vec![DtsItem::Function(DtsFunction {
+                name: "foo".to_string(),
+                type_params: vec![],
+                params: vec![],
+                return_type: Some(DtsType::Primitive(Primitive::Void)),
+                this_param: None,
+            })],
         };
 
         let mut module = ResolvedModule {
@@ -1276,18 +1349,15 @@ mod tests {
         module.files.insert(PathBuf::from("/c.d.ts"), file_c);
 
         // Create import graph: A -> B -> C -> A
-        module.import_graph.insert(
-            PathBuf::from("/a.d.ts"),
-            vec![PathBuf::from("/b.d.ts")],
-        );
-        module.import_graph.insert(
-            PathBuf::from("/b.d.ts"),
-            vec![PathBuf::from("/c.d.ts")],
-        );
-        module.import_graph.insert(
-            PathBuf::from("/c.d.ts"),
-            vec![PathBuf::from("/a.d.ts")],
-        );
+        module
+            .import_graph
+            .insert(PathBuf::from("/a.d.ts"), vec![PathBuf::from("/b.d.ts")]);
+        module
+            .import_graph
+            .insert(PathBuf::from("/b.d.ts"), vec![PathBuf::from("/c.d.ts")]);
+        module
+            .import_graph
+            .insert(PathBuf::from("/c.d.ts"), vec![PathBuf::from("/a.d.ts")]);
 
         // Get items with cycle errors
         let (_items, errors) = module.all_items_with_cycle_errors();
@@ -1328,14 +1398,12 @@ mod tests {
         module.files.insert(PathBuf::from("/c.d.ts"), file_c);
 
         // Create import graph: A -> B -> C (no cycle)
-        module.import_graph.insert(
-            PathBuf::from("/a.d.ts"),
-            vec![PathBuf::from("/b.d.ts")],
-        );
-        module.import_graph.insert(
-            PathBuf::from("/b.d.ts"),
-            vec![PathBuf::from("/c.d.ts")],
-        );
+        module
+            .import_graph
+            .insert(PathBuf::from("/a.d.ts"), vec![PathBuf::from("/b.d.ts")]);
+        module
+            .import_graph
+            .insert(PathBuf::from("/b.d.ts"), vec![PathBuf::from("/c.d.ts")]);
 
         // Get items with cycle errors
         let (_items, errors) = module.all_items_with_cycle_errors();

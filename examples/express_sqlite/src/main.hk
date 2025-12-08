@@ -12,13 +12,12 @@
 use crate::express::Express;
 use crate::express::Request;
 use crate::express::Response;
-use crate::express::express_json;
+use crate::express::json;
 
 // Import better-sqlite3 bindings
 use crate::database::Database;
 use crate::database::Statement;
 use crate::database::RunResult;
-
 // Helper to extract string from JsValue, returns empty string if not found
 fn get_string_or_empty(obj: JsValue, key: String) -> String {
     let val = jsvalue_get(obj, key);
@@ -45,7 +44,7 @@ fn get_bool_as_number(obj: JsValue, key: String) -> f64 {
 
 fn main() {
     // Initialize database
-    let db = better_sqlite3("todos.db");
+    let db = better_sqlite3("todos.db", None);
     db.exec("CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0)");
 
     // Prepare statements
@@ -57,17 +56,17 @@ fn main() {
 
     // Create Express app
     let app = express();
-    app.use_middleware(express_json());
+    app.use_middleware(json());
 
     // GET /todos - List all todos
-    app.get("/todos", |req: Request, res: Response| {
+    app.get("/todos", |req: JsValue, res: JsValue| {
         let todos = select_all_stmt.all();
         res.json(todos);
     });
 
     // GET /todos/:id - Get single todo
-    app.get("/todos/:id", |req: Request, res: Response| {
-        let params = req.params;
+    app.get("/todos/:id", |req: JsValue, res: JsValue| {
+        let params = jsvalue_get(req, "params");
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
@@ -85,24 +84,24 @@ fn main() {
     });
 
     // POST /todos - Create new todo
-    app.post("/todos", |req: Request, res: Response| {
-        let body = req.body;
+    app.post("/todos", |req: JsValue, res: JsValue| {
+        let body = jsvalue_get(req, "body");
         let title = get_string_or_empty(body, "title");
         if title == "" {
             let err = JsObject_new().setString("error", "Title is required").toJsValue();
             res.status(400).json(err);
         } else {
             let result = insert_stmt.run2(title, 0);
-            let id = result.last_insert_rowid;
-            let response = JsObject_new().setNumber("id", id).toJsValue();
+            let id = jsvalue_get(result, "lastInsertRowid");
+            let response = JsObject_new().setJsValue("id", id).toJsValue();
             res.status(201).json(response);
         }
     });
 
     // PUT /todos/:id - Update todo
-    app.put("/todos/:id", |req: Request, res: Response| {
-        let params = req.params;
-        let body = req.body;
+    app.put("/todos/:id", |req: JsValue, res: JsValue| {
+        let params = jsvalue_get(req, "params");
+        let body = jsvalue_get(req, "body");
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
@@ -116,7 +115,7 @@ fn main() {
             } else {
                 let completed_int = get_bool_as_number(body, "completed");
                 let result = update_stmt.run3(title, completed_int, id);
-                let changes = result.changes;
+                let changes = jsvalue_toNumber(jsvalue_get(result, "changes"));
                 if changes > 0.0 {
                     let response = JsObject_new().setNumber("id", id).toJsValue();
                     res.json(response);
@@ -129,8 +128,8 @@ fn main() {
     });
 
     // DELETE /todos/:id - Delete todo
-    app.delete("/todos/:id", |req: Request, res: Response| {
-        let params = req.params;
+    app.delete("/todos/:id", |req: JsValue, res: JsValue| {
+        let params = jsvalue_get(req, "params");
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
@@ -138,7 +137,7 @@ fn main() {
         } else {
             let id = parseFloat(id_str);
             let result = delete_stmt.run1(id);
-            let changes = result.changes;
+            let changes = jsvalue_toNumber(jsvalue_get(result, "changes"));
             if changes > 0.0 {
                 res.status(204).send("");
             } else {

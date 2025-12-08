@@ -1,6 +1,7 @@
 //! Core AST definitions for the language.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 // ============================================================================
 // Attributes
@@ -39,14 +40,41 @@ pub enum CfgPredicate {
 }
 
 /// A span in the source file, represented as a byte range.
+/// Optionally includes the file path for multi-file error reporting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
     pub range: Range<usize>,
+    /// The file path this span belongs to. None means the "current" or "main" file.
+    pub file: Option<Arc<str>>,
 }
 
 impl Span {
     pub fn new(start: usize, end: usize) -> Self {
-        Self { range: start..end }
+        Self {
+            range: start..end,
+            file: None,
+        }
+    }
+
+    /// Create a span with an associated file path.
+    pub fn with_file(start: usize, end: usize, file: Arc<str>) -> Self {
+        Self {
+            range: start..end,
+            file: Some(file),
+        }
+    }
+
+    /// Set the file path on this span, returning a new span.
+    pub fn in_file(self, file: Arc<str>) -> Self {
+        Self {
+            range: self.range,
+            file: Some(file),
+        }
+    }
+
+    /// Get the file path, if any.
+    pub fn file_path(&self) -> Option<&str> {
+        self.file.as_deref()
     }
 }
 
@@ -179,7 +207,9 @@ pub enum ExprKind {
         body: Box<Expr>,
     },
     /// Array literal expression: `[1, 2, 3]` or `[]`
-    Array { elements: Vec<Expr> },
+    Array {
+        elements: Vec<Expr>,
+    },
     /// Array index expression: `array[index]`
     Index {
         base: Box<Expr>,
@@ -212,7 +242,9 @@ pub enum ExprKind {
         target_ty: TypeExpr,
     },
     /// Tuple literal expression: `(1, "hello", true)` or `(a, b)`
-    Tuple { elements: Vec<Expr> },
+    Tuple {
+        elements: Vec<Expr>,
+    },
     /// Tuple field access: `tuple.0`, `tuple.1`, etc.
     TupleField {
         base: Box<Expr>,
@@ -409,9 +441,15 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeExprKind {
     Named(Ident),
-    Generic { name: Ident, args: Vec<TypeExpr> },
+    Generic {
+        name: Ident,
+        args: Vec<TypeExpr>,
+    },
     /// Function type: `fn(T, U) -> V` or `fn() -> T`
-    Function { params: Vec<TypeExpr>, ret: Box<TypeExpr> },
+    Function {
+        params: Vec<TypeExpr>,
+        ret: Box<TypeExpr>,
+    },
     /// Array type: `[ElementType]`
     Array(Box<TypeExpr>),
     /// Tuple type: `(T1, T2, T3)`
@@ -686,7 +724,9 @@ impl Item {
 
     /// Returns true if this item has a #[should_panic] attribute.
     pub fn should_panic(&self) -> bool {
-        self.attributes.iter().any(|a| a.name.name == "should_panic")
+        self.attributes
+            .iter()
+            .any(|a| a.name.name == "should_panic")
     }
 
     /// Returns the expected panic message if #[should_panic(expected = "...")] is present.
@@ -747,17 +787,11 @@ pub enum ExternItemKind {
     },
     /// Static variable declaration: `static __dirname: String;`
     /// Declares a global JavaScript variable accessible from Husk code.
-    Static {
-        name: Ident,
-        ty: TypeExpr,
-    },
+    Static { name: Ident, ty: TypeExpr },
     /// Constant declaration: `const VERSION: String;`
     /// Declares an immutable JavaScript constant accessible from Husk code.
     /// Unlike `Static`, this represents a truly immutable binding from the JS side.
-    Const {
-        name: Ident,
-        ty: TypeExpr,
-    },
+    Const { name: Ident, ty: TypeExpr },
     /// Impl block inside extern block: `impl Request { fn get(&self) -> String; }`
     /// All methods inside are treated as extern "js" methods.
     Impl {
@@ -805,10 +839,524 @@ impl ExternItem {
             }
         })
     }
+
+    /// Returns the module binding to call directly if specified via #[module_call = "binding"].
+    /// This is used for class module callables where the module itself is the constructor.
+    pub fn module_call(&self) -> Option<&str> {
+        self.attributes.iter().find_map(|attr| {
+            if attr.name.name == "module_call" {
+                attr.value.as_deref()
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Returns the namespace binding to access this function through if specified via #[ns = "binding"].
+    /// This is used for namespace member functions (e.g., express.json).
+    pub fn namespace(&self) -> Option<&str> {
+        self.attributes.iter().find_map(|attr| {
+            if attr.name.name == "ns" {
+                attr.value.as_deref()
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// A source file (compilation unit).
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
     pub items: Vec<Item>,
+}
+
+// ============================================================================
+// File Path Setting
+// ============================================================================
+
+/// A trait for AST nodes that can have their spans' file paths set recursively.
+pub trait SetFilePath {
+    /// Set the file path on all spans in this node and its children.
+    fn set_file_path(&mut self, file: Arc<str>);
+}
+
+impl SetFilePath for Span {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.file = Some(file);
+    }
+}
+
+impl SetFilePath for Ident {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file);
+    }
+}
+
+impl SetFilePath for TypeExpr {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        match &mut self.kind {
+            TypeExprKind::Named(ident) => ident.set_file_path(file),
+            TypeExprKind::Generic { name, args } => {
+                name.set_file_path(file.clone());
+                for arg in args {
+                    arg.set_file_path(file.clone());
+                }
+            }
+            TypeExprKind::Function { params, ret } => {
+                for param in params {
+                    param.set_file_path(file.clone());
+                }
+                ret.set_file_path(file);
+            }
+            TypeExprKind::Array(elem) => elem.set_file_path(file),
+            TypeExprKind::Tuple(types) => {
+                for ty in types {
+                    ty.set_file_path(file.clone());
+                }
+            }
+        }
+    }
+}
+
+impl SetFilePath for Expr {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        match &mut self.kind {
+            ExprKind::Literal(lit) => lit.span.set_file_path(file),
+            ExprKind::Ident(ident) => ident.set_file_path(file),
+            ExprKind::Path { segments } => {
+                for seg in segments {
+                    seg.set_file_path(file.clone());
+                }
+            }
+            ExprKind::Call { callee, type_args, args } => {
+                callee.set_file_path(file.clone());
+                for arg in type_args {
+                    arg.set_file_path(file.clone());
+                }
+                for arg in args {
+                    arg.set_file_path(file.clone());
+                }
+            }
+            ExprKind::Field { base, member } => {
+                base.set_file_path(file.clone());
+                member.set_file_path(file);
+            }
+            ExprKind::MethodCall { receiver, method, type_args, args } => {
+                receiver.set_file_path(file.clone());
+                method.set_file_path(file.clone());
+                for arg in type_args {
+                    arg.set_file_path(file.clone());
+                }
+                for arg in args {
+                    arg.set_file_path(file.clone());
+                }
+            }
+            ExprKind::Unary { expr, .. } => expr.set_file_path(file),
+            ExprKind::Binary { left, right, .. } => {
+                left.set_file_path(file.clone());
+                right.set_file_path(file);
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                scrutinee.set_file_path(file.clone());
+                for arm in arms {
+                    arm.pattern.set_file_path(file.clone());
+                    arm.expr.set_file_path(file.clone());
+                }
+            }
+            ExprKind::Block(block) => block.set_file_path(file),
+            ExprKind::Struct { name, fields } => {
+                for seg in name {
+                    seg.set_file_path(file.clone());
+                }
+                for field in fields {
+                    field.name.set_file_path(file.clone());
+                    field.value.set_file_path(file.clone());
+                }
+            }
+            ExprKind::FormatPrint { format, args, .. } | ExprKind::Format { format, args } => {
+                format.span.set_file_path(file.clone());
+                for arg in args {
+                    arg.set_file_path(file.clone());
+                }
+            }
+            ExprKind::Closure { params, ret_type, body } => {
+                for param in params {
+                    param.name.set_file_path(file.clone());
+                    if let Some(ty) = &mut param.ty {
+                        ty.set_file_path(file.clone());
+                    }
+                }
+                if let Some(ret) = ret_type {
+                    ret.set_file_path(file.clone());
+                }
+                body.set_file_path(file);
+            }
+            ExprKind::Array { elements } => {
+                for elem in elements {
+                    elem.set_file_path(file.clone());
+                }
+            }
+            ExprKind::Index { base, index } => {
+                base.set_file_path(file.clone());
+                index.set_file_path(file);
+            }
+            ExprKind::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    s.set_file_path(file.clone());
+                }
+                if let Some(e) = end {
+                    e.set_file_path(file);
+                }
+            }
+            ExprKind::Assign { target, value, .. } => {
+                target.set_file_path(file.clone());
+                value.set_file_path(file);
+            }
+            ExprKind::JsLiteral { .. } => {}
+            ExprKind::Cast { expr, target_ty } => {
+                expr.set_file_path(file.clone());
+                target_ty.set_file_path(file);
+            }
+            ExprKind::Tuple { elements } => {
+                for elem in elements {
+                    elem.set_file_path(file.clone());
+                }
+            }
+            ExprKind::TupleField { base, .. } => {
+                base.set_file_path(file);
+            }
+        }
+    }
+}
+
+impl SetFilePath for Pattern {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        match &mut self.kind {
+            PatternKind::Binding(ident) => ident.set_file_path(file),
+            PatternKind::Wildcard => {}
+            PatternKind::EnumUnit { path } => {
+                for seg in path {
+                    seg.set_file_path(file.clone());
+                }
+            }
+            PatternKind::EnumTuple { path, fields } => {
+                for seg in path {
+                    seg.set_file_path(file.clone());
+                }
+                for p in fields {
+                    p.set_file_path(file.clone());
+                }
+            }
+            PatternKind::EnumStruct { path, fields } => {
+                for seg in path {
+                    seg.set_file_path(file.clone());
+                }
+                for (field_name, field_pat) in fields {
+                    field_name.set_file_path(file.clone());
+                    field_pat.set_file_path(file.clone());
+                }
+            }
+            PatternKind::Tuple { fields } => {
+                for p in fields {
+                    p.set_file_path(file.clone());
+                }
+            }
+        }
+    }
+}
+
+impl SetFilePath for Block {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        for stmt in &mut self.stmts {
+            stmt.set_file_path(file.clone());
+        }
+    }
+}
+
+impl SetFilePath for Stmt {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        match &mut self.kind {
+            StmtKind::Let { pattern, ty, value, else_block, .. } => {
+                pattern.set_file_path(file.clone());
+                if let Some(t) = ty {
+                    t.set_file_path(file.clone());
+                }
+                if let Some(e) = value {
+                    e.set_file_path(file.clone());
+                }
+                if let Some(b) = else_block {
+                    b.set_file_path(file);
+                }
+            }
+            StmtKind::Assign { target, value, .. } => {
+                target.set_file_path(file.clone());
+                value.set_file_path(file);
+            }
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) => expr.set_file_path(file),
+            StmtKind::Return { value } => {
+                if let Some(e) = value {
+                    e.set_file_path(file);
+                }
+            }
+            StmtKind::If { cond, then_branch, else_branch } => {
+                cond.set_file_path(file.clone());
+                then_branch.set_file_path(file.clone());
+                if let Some(else_b) = else_branch {
+                    else_b.set_file_path(file);
+                }
+            }
+            StmtKind::While { cond, body } => {
+                cond.set_file_path(file.clone());
+                body.set_file_path(file);
+            }
+            StmtKind::Loop { body } => {
+                body.set_file_path(file);
+            }
+            StmtKind::ForIn { binding, iterable, body } => {
+                binding.set_file_path(file.clone());
+                iterable.set_file_path(file.clone());
+                body.set_file_path(file);
+            }
+            StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Block(block) => block.set_file_path(file),
+            StmtKind::IfLet { pattern, scrutinee, then_branch, else_branch } => {
+                pattern.set_file_path(file.clone());
+                scrutinee.set_file_path(file.clone());
+                then_branch.set_file_path(file.clone());
+                if let Some(else_b) = else_branch {
+                    else_b.set_file_path(file);
+                }
+            }
+        }
+    }
+}
+
+impl SetFilePath for Item {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        for attr in &mut self.attributes {
+            attr.span.set_file_path(file.clone());
+            attr.name.set_file_path(file.clone());
+        }
+        match &mut self.kind {
+            ItemKind::Fn { name, type_params, params, ret_type, body } => {
+                name.set_file_path(file.clone());
+                for tp in type_params {
+                    tp.name.set_file_path(file.clone());
+                    for bound in &mut tp.bounds {
+                        bound.set_file_path(file.clone());
+                    }
+                }
+                for param in params {
+                    param.name.set_file_path(file.clone());
+                    param.ty.set_file_path(file.clone());
+                }
+                if let Some(ret) = ret_type {
+                    ret.set_file_path(file.clone());
+                }
+                for stmt in body {
+                    stmt.set_file_path(file.clone());
+                }
+            }
+            ItemKind::Struct { name, type_params, fields } => {
+                name.set_file_path(file.clone());
+                for tp in type_params {
+                    tp.set_file_path(file.clone());
+                }
+                for field in fields {
+                    field.name.set_file_path(file.clone());
+                    field.ty.set_file_path(file.clone());
+                }
+            }
+            ItemKind::Enum { name, type_params, variants } => {
+                name.set_file_path(file.clone());
+                for tp in type_params {
+                    tp.set_file_path(file.clone());
+                }
+                for variant in variants {
+                    variant.name.set_file_path(file.clone());
+                    match &mut variant.fields {
+                        EnumVariantFields::Unit => {}
+                        EnumVariantFields::Tuple(types) => {
+                            for ty in types {
+                                ty.set_file_path(file.clone());
+                            }
+                        }
+                        EnumVariantFields::Struct(fields) => {
+                            for field in fields {
+                                field.name.set_file_path(file.clone());
+                                field.ty.set_file_path(file.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            ItemKind::TypeAlias { name, ty } => {
+                name.set_file_path(file.clone());
+                ty.set_file_path(file);
+            }
+            ItemKind::ExternBlock { items, .. } => {
+                for item in items {
+                    item.set_file_path(file.clone());
+                }
+            }
+            ItemKind::Use { path, .. } => {
+                for seg in path {
+                    seg.set_file_path(file.clone());
+                }
+            }
+            ItemKind::Trait(trait_def) => {
+                trait_def.name.set_file_path(file.clone());
+                for tp in &mut trait_def.type_params {
+                    tp.name.set_file_path(file.clone());
+                    for bound in &mut tp.bounds {
+                        bound.set_file_path(file.clone());
+                    }
+                }
+                for item in &mut trait_def.items {
+                    item.span.set_file_path(file.clone());
+                    let TraitItemKind::Method(method) = &mut item.kind;
+                    method.name.set_file_path(file.clone());
+                    for param in &mut method.params {
+                        param.name.set_file_path(file.clone());
+                        param.ty.set_file_path(file.clone());
+                    }
+                    if let Some(ret) = &mut method.ret_type {
+                        ret.set_file_path(file.clone());
+                    }
+                    if let Some(body) = &mut method.default_body {
+                        for stmt in body {
+                            stmt.set_file_path(file.clone());
+                        }
+                    }
+                }
+            }
+            ItemKind::Impl(impl_block) => {
+                impl_block.set_file_path(file);
+            }
+        }
+    }
+}
+
+impl SetFilePath for ImplBlock {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        for tp in &mut self.type_params {
+            tp.name.set_file_path(file.clone());
+            for bound in &mut tp.bounds {
+                bound.set_file_path(file.clone());
+            }
+        }
+        if let Some(trait_ref) = &mut self.trait_ref {
+            trait_ref.set_file_path(file.clone());
+        }
+        self.self_ty.set_file_path(file.clone());
+        for item in &mut self.items {
+            item.span.set_file_path(file.clone());
+            if let ImplItemKind::Method(method) = &mut item.kind {
+                method.name.set_file_path(file.clone());
+                for param in &mut method.params {
+                    param.name.set_file_path(file.clone());
+                    param.ty.set_file_path(file.clone());
+                }
+                if let Some(ret) = &mut method.ret_type {
+                    ret.set_file_path(file.clone());
+                }
+                for stmt in &mut method.body {
+                    stmt.set_file_path(file.clone());
+                }
+            }
+        }
+    }
+}
+
+impl SetFilePath for ExternItem {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        for attr in &mut self.attributes {
+            attr.span.set_file_path(file.clone());
+            attr.name.set_file_path(file.clone());
+        }
+        match &mut self.kind {
+            ExternItemKind::Fn { name, params, ret_type } => {
+                name.set_file_path(file.clone());
+                for param in params {
+                    param.name.set_file_path(file.clone());
+                    param.ty.set_file_path(file.clone());
+                }
+                if let Some(ret) = ret_type {
+                    ret.set_file_path(file);
+                }
+            }
+            ExternItemKind::Mod { binding, items, .. } => {
+                binding.set_file_path(file.clone());
+                for item in items {
+                    item.set_file_path(file.clone());
+                }
+            }
+            ExternItemKind::Struct { name, type_params, .. } => {
+                name.set_file_path(file.clone());
+                for tp in type_params {
+                    tp.set_file_path(file.clone());
+                }
+            }
+            ExternItemKind::Impl { type_params, self_ty, items } => {
+                for tp in type_params {
+                    tp.name.set_file_path(file.clone());
+                    for bound in &mut tp.bounds {
+                        bound.set_file_path(file.clone());
+                    }
+                }
+                self_ty.set_file_path(file.clone());
+                for item in items {
+                    item.span.set_file_path(file.clone());
+                    if let ImplItemKind::Method(method) = &mut item.kind {
+                        method.name.set_file_path(file.clone());
+                        for param in &mut method.params {
+                            param.name.set_file_path(file.clone());
+                            param.ty.set_file_path(file.clone());
+                        }
+                        if let Some(ret) = &mut method.ret_type {
+                            ret.set_file_path(file.clone());
+                        }
+                        for stmt in &mut method.body {
+                            stmt.set_file_path(file.clone());
+                        }
+                    }
+                }
+            }
+            ExternItemKind::Static { name, ty } => {
+                name.set_file_path(file.clone());
+                ty.set_file_path(file);
+            }
+            ExternItemKind::Const { name, ty } => {
+                name.set_file_path(file.clone());
+                ty.set_file_path(file);
+            }
+        }
+    }
+}
+
+impl SetFilePath for ModItem {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        match &mut self.kind {
+            ModItemKind::Fn { name, params, ret_type } => {
+                name.set_file_path(file.clone());
+                for param in params {
+                    param.name.set_file_path(file.clone());
+                    param.ty.set_file_path(file.clone());
+                }
+                if let Some(ret) = ret_type {
+                    ret.set_file_path(file);
+                }
+            }
+        }
+    }
 }

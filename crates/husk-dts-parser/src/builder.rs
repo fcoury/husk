@@ -171,14 +171,8 @@ fn generate_builder_code(
     };
 
     // Builder struct definition
-    code.push_str(&format!(
-        "/// Builder for `{}`.\n",
-        interface_name
-    ));
-    code.push_str(&format!(
-        "struct {}{} {{\n",
-        builder_name, type_params_str
-    ));
+    code.push_str(&format!("/// Builder for `{}`.\n", interface_name));
+    code.push_str(&format!("struct {}{} {{\n", builder_name, type_params_str));
 
     // Required properties (stored directly)
     for prop in required_props {
@@ -210,7 +204,13 @@ fn generate_builder_code(
     if config.generate_new {
         let params: Vec<_> = required_props
             .iter()
-            .map(|p| format!("{}: {}", escape_keyword(&p.name), type_to_husk_string(&p.ty)))
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    escape_keyword(&p.name),
+                    type_to_husk_string(&p.ty)
+                )
+            })
             .collect();
 
         code.push_str(&format!(
@@ -221,17 +221,17 @@ fn generate_builder_code(
                 " with required properties"
             }
         ));
-        code.push_str(&format!(
-            "    fn new({}) -> Self {{\n",
-            params.join(", ")
-        ));
+        code.push_str(&format!("    fn new({}) -> Self {{\n", params.join(", ")));
         code.push_str("        Self {\n");
 
         for prop in required_props {
             code.push_str(&format!("            {},\n", escape_keyword(&prop.name)));
         }
         for prop in optional_props {
-            code.push_str(&format!("            {}: None,\n", escape_keyword(&prop.name)));
+            code.push_str(&format!(
+                "            {}: None,\n",
+                escape_keyword(&prop.name)
+            ));
         }
 
         code.push_str("        }\n");
@@ -242,29 +242,20 @@ fn generate_builder_code(
     for prop in optional_props {
         let method_name = escape_keyword(&to_snake_case(&prop.name));
         let escaped_name = escape_keyword(&prop.name);
-        code.push_str(&format!(
-            "    /// Set the `{}` property.\n",
-            prop.name
-        ));
+        code.push_str(&format!("    /// Set the `{}` property.\n", prop.name));
         code.push_str(&format!(
             "    fn {}(mut self, value: {}) -> Self {{\n",
             method_name,
             type_to_husk_string(&prop.ty)
         ));
-        code.push_str(&format!(
-            "        self.{} = Some(value);\n",
-            escaped_name
-        ));
+        code.push_str(&format!("        self.{} = Some(value);\n", escaped_name));
         code.push_str("        self\n");
         code.push_str("    }\n\n");
     }
 
     // build() method
     if config.generate_build {
-        code.push_str(&format!(
-            "    /// Build the final `{}`.\n",
-            interface_name
-        ));
+        code.push_str(&format!("    /// Build the final `{}`.\n", interface_name));
         code.push_str(&format!(
             "    fn build(self) -> {}{} {{\n",
             interface_name, type_args_str
@@ -273,11 +264,17 @@ fn generate_builder_code(
 
         for prop in required_props {
             let escaped_name = escape_keyword(&prop.name);
-            code.push_str(&format!("            {}: self.{},\n", escaped_name, escaped_name));
+            code.push_str(&format!(
+                "            {}: self.{},\n",
+                escaped_name, escaped_name
+            ));
         }
         for prop in optional_props {
             let escaped_name = escape_keyword(&prop.name);
-            code.push_str(&format!("            {}: self.{},\n", escaped_name, escaped_name));
+            code.push_str(&format!(
+                "            {}: self.{},\n",
+                escaped_name, escaped_name
+            ));
         }
 
         code.push_str("        }\n");
@@ -371,7 +368,11 @@ mod tests {
         assert_eq!(builder.required_props.len(), 1); // url
         assert_eq!(builder.optional_props.len(), 4); // method, headers, body, timeout
         assert!(builder.code.contains("fn new(url: String) -> Self"));
-        assert!(builder.code.contains("fn method(mut self, value: String) -> Self"));
+        assert!(
+            builder
+                .code
+                .contains("fn method(mut self, value: String) -> Self")
+        );
     }
 
     #[test]

@@ -52,9 +52,7 @@ pub enum UnionStrategy {
 
     /// Function overloads: union of function types
     /// Each function signature becomes a separate overload
-    Overloaded {
-        signatures: Vec<Box<DtsType>>,
-    },
+    Overloaded { signatures: Vec<Box<DtsType>> },
 
     /// Simple union of named types that can become an enum
     TypeEnum {
@@ -156,7 +154,9 @@ fn check_boolean_union(types: &[DtsType]) -> Option<UnionStrategy> {
         return None;
     }
 
-    let has_true = types.iter().any(|t| matches!(t, DtsType::BooleanLiteral(true)));
+    let has_true = types
+        .iter()
+        .any(|t| matches!(t, DtsType::BooleanLiteral(true)));
     let has_false = types
         .iter()
         .any(|t| matches!(t, DtsType::BooleanLiteral(false)));
@@ -329,11 +329,7 @@ fn check_discriminated_union(types: &[DtsType]) -> Option<UnionStrategy> {
 
         // Clone the type and strip the discriminant field
         let ty = strip_discriminant_field(&types[i], &discriminant);
-        variants.push(DiscriminatedVariant {
-            tag,
-            name,
-            ty,
-        });
+        variants.push(DiscriminatedVariant { tag, name, ty });
     }
 
     Some(UnionStrategy::Discriminated {
@@ -422,7 +418,12 @@ fn string_to_pascal_case(s: &str) -> String {
     }
 
     // Handle result starting with digit (e.g., "123" or "1foo")
-    if result.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    if result
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         return format!("V{}", result);
     }
 
@@ -435,10 +436,7 @@ fn check_function_overloads(types: &[DtsType]) -> Option<UnionStrategy> {
 
     if all_functions && types.len() > 1 {
         Some(UnionStrategy::Overloaded {
-            signatures: types
-                .iter()
-                .map(|t| Box::new(t.clone()))
-                .collect(),
+            signatures: types.iter().map(|t| Box::new(t.clone())).collect(),
         })
     } else {
         None
@@ -504,10 +502,7 @@ fn should_use_jsvalue(types: &[DtsType]) -> bool {
     let has_complex = types.iter().any(|t| {
         matches!(
             t,
-            DtsType::Named { .. }
-                | DtsType::Object(_)
-                | DtsType::Array(_)
-                | DtsType::Function(_)
+            DtsType::Named { .. } | DtsType::Object(_) | DtsType::Array(_) | DtsType::Function(_)
         )
     });
 
@@ -592,7 +587,10 @@ mod tests {
 
     #[test]
     fn test_boolean_union() {
-        let types = vec![DtsType::BooleanLiteral(true), DtsType::BooleanLiteral(false)];
+        let types = vec![
+            DtsType::BooleanLiteral(true),
+            DtsType::BooleanLiteral(false),
+        ];
         let strategy = analyze_union(&types);
         assert!(matches!(strategy, UnionStrategy::Boolean));
     }

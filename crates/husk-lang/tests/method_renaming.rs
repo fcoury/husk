@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use husk_codegen_js::{lower_file_to_js, JsTarget};
+use husk_codegen_js::{JsTarget, lower_file_to_js};
 use husk_parser::parse_str;
 use husk_semantic::SemanticOptions;
 
@@ -34,7 +34,11 @@ fn main() {
 "#;
 
     let result = parse_str(source);
-    assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+    assert!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
     let file = result.file.expect("no file parsed");
     let sem = husk_semantic::analyze_file_with_options(
         &file,
@@ -112,7 +116,11 @@ fn main() {
 "#;
 
     let result = parse_str(source);
-    assert!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+    assert!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
     let file = result.file.expect("no file parsed");
     let sem = husk_semantic::analyze_file_with_options(
         &file,

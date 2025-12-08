@@ -3,7 +3,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use husk_ast::{ExternItemKind, File, Ident, Item, ItemKind, TypeExpr, TypeExprKind, Visibility};
+use husk_ast::{ExternItemKind, File, Ident, Item, ItemKind, SetFilePath, TypeExpr, TypeExprKind, Visibility};
+use std::sync::Arc;
 use husk_parser::parse_str;
 
 /// Trait for providing file content during module loading.
@@ -24,6 +25,10 @@ impl ContentProvider for FileSystemProvider {
 #[derive(Debug, Clone)]
 pub struct Module {
     pub file: File,
+    /// The file path this module was loaded from (for error reporting)
+    pub file_path: Arc<str>,
+    /// The source code of this module (for error reporting)
+    pub source: String,
 }
 
 #[derive(Debug)]
@@ -122,15 +127,22 @@ fn dfs_load<P: ContentProvider>(
         if !dep_fs_path.exists() {
             return Err(LoadError::Missing(dep_mod_path.join("::")));
         }
-        dfs_load(&dep_fs_path, root, dep_mod_path, modules, visiting, order, provider)?;
+        dfs_load(
+            &dep_fs_path,
+            root,
+            dep_mod_path,
+            modules,
+            visiting,
+            order,
+            provider,
+        )?;
     }
 
-    modules.insert(
-        module_path.clone(),
-        Module {
-            file: file.clone(),
-        },
-    );
+    modules.insert(module_path.clone(), Module {
+        file: file.clone(),
+        file_path: path.display().to_string().into(),
+        source: src.clone(),
+    });
     order.push(module_path.clone());
     visiting.remove(&module_path);
     Ok(())
@@ -199,7 +211,9 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
     let mut items = Vec::new();
     let mut seen_names = HashSet::new();
     let mut imported_types = HashSet::new(); // Track imported type names
-    let mut included_extern_blocks = HashSet::new(); // Track which extern blocks we've added
+    let mut included_structs = HashSet::new(); // Track which extern structs we've added
+    let mut included_fns = HashSet::new(); // Track which extern fns we've added
+    let mut included_mods = HashSet::new(); // Track which extern mods we've added
 
     // Phase 1: Process use statements and root items
     for item in root_mod.file.items.iter() {
@@ -230,7 +244,9 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                             ItemKind::Struct { name, .. } | ItemKind::Enum { name, .. } => {
                                 imported_types.insert(name.name.clone());
                             }
-                            ItemKind::ExternBlock { items: ext_items, .. } => {
+                            ItemKind::ExternBlock {
+                                items: ext_items, ..
+                            } => {
                                 // If we're importing from an extern block, track the type
                                 for ext in ext_items {
                                     if let ExternItemKind::Struct { name, .. } = &ext.kind {
@@ -250,35 +266,27 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                             )));
                         }
 
-                        // For extern blocks, avoid adding the same block multiple times
-                        // (e.g., when importing multiple items from the same extern block)
-                        if let ItemKind::ExternBlock { items: ext_items, .. } = &export.kind {
-                            // Check if all trackable items (structs and consts) have been included
-                            let all_items_included = ext_items.iter().all(|ext| {
-                                match &ext.kind {
-                                    ExternItemKind::Struct { name, .. }
-                                    | ExternItemKind::Const { name, .. } => {
-                                        included_extern_blocks.contains(&name.name)
-                                    }
-                                    _ => true,
-                                }
-                            });
-
-                            if !all_items_included {
-                                // Mark all structs and consts as included
-                                for ext in ext_items {
-                                    match &ext.kind {
-                                        ExternItemKind::Struct { name, .. }
-                                        | ExternItemKind::Const { name, .. } => {
-                                            included_extern_blocks.insert(name.name.clone());
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                items.push(export.clone());
+                        // For extern blocks, include only relevant items to avoid massive duplicates
+                        if let ItemKind::ExternBlock {
+                            items: ext_items, ..
+                        } = &export.kind
+                        {
+                            if let Some(mut filtered) = filter_extern_block(
+                                ext_items,
+                                &imported_types,
+                                &mut included_structs,
+                                &mut included_fns,
+                                &mut included_mods,
+                            ) {
+                                // Set the file path on the cloned item
+                                filtered.set_file_path(module.file_path.clone());
+                                items.push(filtered);
                             }
                         } else {
-                            items.push(export.clone());
+                            let mut cloned = export.clone();
+                            // Set the file path on the cloned item
+                            cloned.set_file_path(module.file_path.clone());
+                            items.push(cloned);
                         }
                     }
                     husk_ast::UseKind::Glob | husk_ast::UseKind::Variants(_) => {
@@ -316,62 +324,68 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
         for item in &module.file.items {
             match &item.kind {
                 // Include extern blocks that declare imported types
-                ItemKind::ExternBlock { items: ext_items, .. } => {
-                    let has_imported_type = ext_items.iter().any(|ext| {
-                        if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                            imported_types.contains(&name.name)
-                        } else {
-                            false
-                        }
-                    });
+                ItemKind::ExternBlock {
+                    items: ext_items, ..
+                } => {
+                    // Filter extern items to just the ones we actually import or need as entry points.
+                    let filtered: Vec<_> = ext_items
+                        .iter()
+                        .filter(|ext| match &ext.kind {
+                            ExternItemKind::Struct { name, .. } => {
+                                imported_types.contains(&name.name)
+                            }
+                            ExternItemKind::Fn { name, .. } => {
+                                // Keep callable module entry points
+                                name.name == "express" || name.name == "better_sqlite3"
+                            }
+                            ExternItemKind::Mod { .. } => true,
+                            _ => false,
+                        })
+                        .cloned()
+                        .collect();
 
-                    if has_imported_type {
-                        // Track extern structs to avoid duplicates
-                        let mut should_include = false;
-                        for ext in ext_items {
-                            if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                                if !included_extern_blocks.contains(&name.name) {
-                                    included_extern_blocks.insert(name.name.clone());
-                                    should_include = true;
+                    if filtered.is_empty() {
+                        continue;
+                    }
+
+                    // Deduplicate by struct/const and fn name
+                    let mut has_new = false;
+                    for ext in &filtered {
+                        match &ext.kind {
+                            ExternItemKind::Struct { name, .. } => {
+                                if included_structs.insert(name.name.clone()) {
+                                    has_new = true;
                                 }
                             }
-                        }
-                        // Only include if we haven't already included these structs
-                        if should_include {
-                            // Check if this exact block is already in items (from find_pub_item)
-                            let already_included = items.iter().any(|existing| {
-                                if let ItemKind::ExternBlock {
-                                    items: existing_items,
-                                    ..
-                                } = &existing.kind
-                                {
-                                    // Same items means same block
-                                    existing_items.len() == ext_items.len()
-                                        && existing_items.iter().zip(ext_items.iter()).all(
-                                            |(a, b)| match (&a.kind, &b.kind) {
-                                                (
-                                                    ExternItemKind::Struct { name: n1, .. },
-                                                    ExternItemKind::Struct { name: n2, .. },
-                                                ) => n1.name == n2.name,
-                                                _ => false,
-                                            },
-                                        )
-                                } else {
-                                    false
+                            ExternItemKind::Fn { name, .. } => {
+                                if included_fns.insert(name.name.clone()) {
+                                    has_new = true;
                                 }
-                            });
-
-                            if !already_included {
-                                items.push(item.clone());
                             }
+                            _ => {}
                         }
+                    }
+                    if has_new {
+                        let mut new_block = item.clone();
+                        if let ItemKind::ExternBlock {
+                            items: block_items, ..
+                        } = &mut new_block.kind
+                        {
+                            *block_items = filtered;
+                        }
+                        // Set the file path on the cloned item
+                        new_block.set_file_path(module.file_path.clone());
+                        items.push(new_block);
                     }
                 }
                 // Include impl blocks for imported types
                 ItemKind::Impl(impl_block) => {
                     let self_ty_name = type_expr_to_name(&impl_block.self_ty);
                     if imported_types.contains(&self_ty_name) {
-                        items.push(item.clone());
+                        let mut cloned = item.clone();
+                        // Set the file path on the cloned item
+                        cloned.set_file_path(module.file_path.clone());
+                        items.push(cloned);
                     }
                 }
                 _ => {}
@@ -402,7 +416,10 @@ fn find_pub_item<'a>(file: &'a File, name: &str) -> Option<&'a Item> {
 
     // Then, check extern block items (they don't have explicit visibility on individual items)
     for item in &file.items {
-        if let ItemKind::ExternBlock { items: ext_items, .. } = &item.kind {
+        if let ItemKind::ExternBlock {
+            items: ext_items, ..
+        } = &item.kind
+        {
             for ext in ext_items {
                 if matches_extern_item_name(&ext.kind, name) {
                     // Return the extern block containing this item
@@ -462,4 +479,57 @@ fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
         ExternItemKind::Const { name: n, .. } => n.name == name,
         ExternItemKind::Impl { .. } => false, // Impl blocks don't have a top-level name
     }
+}
+
+/// Filter extern block items down to the imported structs and a small allowlist of functions.
+fn filter_extern_block(
+    ext_items: &[husk_ast::ExternItem],
+    imported_types: &HashSet<String>,
+    included_structs: &mut HashSet<String>,
+    included_fns: &mut HashSet<String>,
+    included_mods: &mut HashSet<String>,
+) -> Option<husk_ast::Item> {
+    let mut filtered = Vec::new();
+    for ext in ext_items {
+        match &ext.kind {
+            ExternItemKind::Struct { name, .. } => {
+                if imported_types.contains(&name.name) {
+                    if included_structs.insert(name.name.clone()) {
+                        filtered.push(ext.clone());
+                    }
+                }
+            }
+            ExternItemKind::Fn { name, .. } => {
+                // Allow only the entry-point callables we need
+                if name.name == "express" || name.name == "better_sqlite3" || name.name == "json" {
+                    if included_fns.insert(name.name.clone()) {
+                        filtered.push(ext.clone());
+                    }
+                }
+            }
+            ExternItemKind::Mod { binding, .. } => {
+                if included_mods.insert(binding.name.clone()) {
+                    filtered.push(ext.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if filtered.is_empty() {
+        return None;
+    }
+
+    Some(husk_ast::Item {
+        span: ext_items
+            .first()
+            .map(|e| e.span.clone())
+            .unwrap_or_else(|| husk_ast::Span { range: 0..0, file: None }),
+        visibility: husk_ast::Visibility::Public,
+        attributes: Vec::new(),
+        kind: husk_ast::ItemKind::ExternBlock {
+            abi: "js".to_string(),
+            items: filtered,
+        },
+    })
 }

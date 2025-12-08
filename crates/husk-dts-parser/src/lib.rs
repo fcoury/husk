@@ -18,9 +18,9 @@ pub mod utility_types;
 
 pub use ast::*;
 pub use codegen::{
-    generate, generate_from_module, CodegenOptions, CodegenResult, UnionStrategy, Warning,
-    WarningKind,
+    CodegenOptions, CodegenResult, UnionStrategy, Warning, WarningKind, generate,
+    generate_from_module,
 };
 pub use lexer::{Lexer, Token, TokenKind};
-pub use parser::{parse, ParseError, ParseResult};
+pub use parser::{ParseError, ParseResult, parse};
 pub use resolver::{ModuleIdentity, ResolvedModule};

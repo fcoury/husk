@@ -82,11 +82,7 @@ impl ExpansionContext {
 }
 
 /// Expand a type, resolving utility types and substituting type parameters.
-pub fn expand_type(
-    ty: &DtsType,
-    registry: &TypeRegistry,
-    ctx: &ExpansionContext,
-) -> DtsType {
+pub fn expand_type(ty: &DtsType, registry: &TypeRegistry, ctx: &ExpansionContext) -> DtsType {
     expand_type_with_depth(ty, registry, ctx, 0)
 }
 
@@ -205,7 +201,8 @@ fn expand_type_with_depth(
                     rest: p.rest,
                 })
                 .collect();
-            let expanded_return = expand_type_with_depth(&func.return_type, registry, ctx, depth + 1);
+            let expanded_return =
+                expand_type_with_depth(&func.return_type, registry, ctx, depth + 1);
 
             DtsType::Function(Box::new(crate::ast::FunctionType {
                 type_params: func.type_params.clone(),
@@ -268,46 +265,65 @@ fn expand_object_member_with_depth(
                 name: name.clone(),
                 type_params: type_params.clone(),
                 params: expanded_params,
-                return_type: return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
+                return_type: return_type
+                    .as_ref()
+                    .map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
                 optional: *optional,
-                this_param: this_param.as_ref().map(|tp| Box::new(expand_type_with_depth(tp, registry, ctx, depth))),
+                this_param: this_param
+                    .as_ref()
+                    .map(|tp| Box::new(expand_type_with_depth(tp, registry, ctx, depth))),
             }
         }
-        ObjectMember::IndexSignature(sig) => ObjectMember::IndexSignature(crate::ast::IndexSignature {
-            key_name: sig.key_name.clone(),
-            key_type: expand_type_with_depth(&sig.key_type, registry, ctx, depth),
-            value_type: expand_type_with_depth(&sig.value_type, registry, ctx, depth),
-            readonly: sig.readonly,
-        }),
-        ObjectMember::CallSignature(sig) => ObjectMember::CallSignature(crate::ast::CallSignature {
-            type_params: sig.type_params.clone(),
-            params: sig
-                .params
-                .iter()
-                .map(|p| crate::ast::Param {
-                    name: p.name.clone(),
-                    ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
-                    optional: p.optional,
-                    rest: p.rest,
-                })
-                .collect(),
-            return_type: sig.return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
-            this_param: sig.this_param.as_ref().map(|tp| Box::new(expand_type_with_depth(tp, registry, ctx, depth))),
-        }),
-        ObjectMember::ConstructSignature(sig) => ObjectMember::ConstructSignature(crate::ast::ConstructSignature {
-            type_params: sig.type_params.clone(),
-            params: sig
-                .params
-                .iter()
-                .map(|p| crate::ast::Param {
-                    name: p.name.clone(),
-                    ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
-                    optional: p.optional,
-                    rest: p.rest,
-                })
-                .collect(),
-            return_type: sig.return_type.as_ref().map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
-        }),
+        ObjectMember::IndexSignature(sig) => {
+            ObjectMember::IndexSignature(crate::ast::IndexSignature {
+                key_name: sig.key_name.clone(),
+                key_type: expand_type_with_depth(&sig.key_type, registry, ctx, depth),
+                value_type: expand_type_with_depth(&sig.value_type, registry, ctx, depth),
+                readonly: sig.readonly,
+            })
+        }
+        ObjectMember::CallSignature(sig) => {
+            ObjectMember::CallSignature(crate::ast::CallSignature {
+                type_params: sig.type_params.clone(),
+                params: sig
+                    .params
+                    .iter()
+                    .map(|p| crate::ast::Param {
+                        name: p.name.clone(),
+                        ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
+                        optional: p.optional,
+                        rest: p.rest,
+                    })
+                    .collect(),
+                return_type: sig
+                    .return_type
+                    .as_ref()
+                    .map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
+                this_param: sig
+                    .this_param
+                    .as_ref()
+                    .map(|tp| Box::new(expand_type_with_depth(tp, registry, ctx, depth))),
+            })
+        }
+        ObjectMember::ConstructSignature(sig) => {
+            ObjectMember::ConstructSignature(crate::ast::ConstructSignature {
+                type_params: sig.type_params.clone(),
+                params: sig
+                    .params
+                    .iter()
+                    .map(|p| crate::ast::Param {
+                        name: p.name.clone(),
+                        ty: expand_type_with_depth(&p.ty, registry, ctx, depth),
+                        optional: p.optional,
+                        rest: p.rest,
+                    })
+                    .collect(),
+                return_type: sig
+                    .return_type
+                    .as_ref()
+                    .map(|rt| expand_type_with_depth(rt, registry, ctx, depth)),
+            })
+        }
     }
 }
 
@@ -335,10 +351,7 @@ fn expand_partial(
                 .into_iter()
                 .map(|m| match m {
                     ObjectMember::Property {
-                        name,
-                        ty,
-                        readonly,
-                        ..
+                        name, ty, readonly, ..
                     } => ObjectMember::Property {
                         name,
                         ty,
@@ -378,10 +391,7 @@ fn expand_required(
                 .into_iter()
                 .map(|m| match m {
                     ObjectMember::Property {
-                        name,
-                        ty,
-                        readonly,
-                        ..
+                        name, ty, readonly, ..
                     } => ObjectMember::Property {
                         name,
                         ty,
@@ -420,10 +430,7 @@ fn expand_readonly(
                 .into_iter()
                 .map(|m| match m {
                     ObjectMember::Property {
-                        name,
-                        ty,
-                        optional,
-                        ..
+                        name, ty, optional, ..
                     } => ObjectMember::Property {
                         name,
                         ty,
@@ -537,12 +544,14 @@ fn expand_record(
     }
 
     // Otherwise create index signature
-    DtsType::Object(vec![ObjectMember::IndexSignature(crate::ast::IndexSignature {
-        key_name: "key".to_string(),
-        key_type: expanded_key,
-        value_type: expanded_value,
-        readonly: false,
-    })])
+    DtsType::Object(vec![ObjectMember::IndexSignature(
+        crate::ast::IndexSignature {
+            key_name: "key".to_string(),
+            key_type: expanded_key,
+            value_type: expanded_value,
+            readonly: false,
+        },
+    )])
 }
 
 /// Exclude<T, U> - exclude types from union
@@ -841,9 +850,11 @@ mod tests {
         let expanded = expand_type(&partial_ty, &registry, &ctx);
 
         if let DtsType::Object(members) = expanded {
-            assert!(members.iter().all(|m| {
-                matches!(m, ObjectMember::Property { optional: true, .. })
-            }));
+            assert!(
+                members
+                    .iter()
+                    .all(|m| { matches!(m, ObjectMember::Property { optional: true, .. }) })
+            );
         } else {
             panic!("expected object type");
         }

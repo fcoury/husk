@@ -140,7 +140,7 @@ impl<'src> Parser<'src> {
 
     fn ast_span_from(&self, span: &husk_lexer::Span) -> Span {
         Span {
-            range: span.range.clone(),
+            range: span.range.clone(), file: None
         }
     }
 
@@ -247,7 +247,7 @@ impl<'src> Parser<'src> {
         // Update span to start from visibility keyword if present
         if visibility == husk_ast::Visibility::Public {
             item.span = Span {
-                range: item_start..item.span.range.end,
+                range: item_start..item.span.range.end, file: None
             };
         }
 
@@ -278,7 +278,7 @@ impl<'src> Parser<'src> {
 
         let body_block = self.parse_block()?;
         let span = Span {
-            range: fn_tok.span.range.start..body_block.span.range.end,
+            range: fn_tok.span.range.start..body_block.span.range.end, file: None
         };
 
         Some(Item {
@@ -324,7 +324,7 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: struct_tok.span.range.start..end,
+            range: struct_tok.span.range.start..end, file: None
         };
 
         Some(Item {
@@ -403,7 +403,7 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: enum_tok.span.range.start..end,
+            range: enum_tok.span.range.start..end, file: None
         };
 
         Some(Item {
@@ -432,7 +432,7 @@ impl<'src> Parser<'src> {
         }
         let end = self.previous().span.range.end;
         let span = Span {
-            range: type_tok.span.range.start..end,
+            range: type_tok.span.range.start..end, file: None
         };
         Some(Item {
             attributes: Vec::new(),
@@ -486,7 +486,7 @@ impl<'src> Parser<'src> {
                             Ident {
                                 name: binding_name,
                                 span: Span {
-                                    range: tok.span.range.clone(),
+                                    range: tok.span.range.clone(), file: None
                                 },
                             },
                         )
@@ -551,7 +551,7 @@ impl<'src> Parser<'src> {
                         }
 
                         let fn_span = Span {
-                            range: fn_name.span.range.start..self.previous().span.range.end,
+                            range: fn_name.span.range.start..self.previous().span.range.end, file: None
                         };
                         nested.push(husk_ast::ModItem {
                             kind: husk_ast::ModItemKind::Fn {
@@ -572,7 +572,7 @@ impl<'src> Parser<'src> {
                 };
 
                 let span = Span {
-                    range: mod_start..self.previous().span.range.end,
+                    range: mod_start..self.previous().span.range.end, file: None
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -624,7 +624,7 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: struct_start..self.previous().span.range.end,
+                    range: struct_start..self.previous().span.range.end, file: None
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -666,7 +666,7 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: static_start..self.previous().span.range.end,
+                    range: static_start..self.previous().span.range.end, file: None
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -708,7 +708,7 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: const_start..self.previous().span.range.end,
+                    range: const_start..self.previous().span.range.end, file: None
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -756,7 +756,7 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: impl_start..self.previous().span.range.end,
+                    range: impl_start..self.previous().span.range.end, file: None
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -805,7 +805,7 @@ impl<'src> Parser<'src> {
             }
 
             let span = Span {
-                range: fn_start..self.previous().span.range.end,
+                range: fn_start..self.previous().span.range.end, file: None
             };
             items.push(husk_ast::ExternItem {
                 attributes: item_attributes,
@@ -820,7 +820,7 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: extern_tok.span.range.start..end,
+            range: extern_tok.span.range.start..end, file: None
         };
 
         Some(Item {
@@ -862,7 +862,7 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: trait_tok.span.range.start..end,
+            range: trait_tok.span.range.start..end, file: None
         };
 
         Some(Item {
@@ -925,7 +925,7 @@ impl<'src> Parser<'src> {
                 default_body,
             }),
             span: Span {
-                range: fn_start..end,
+                range: fn_start..end, file: None
             },
         })
     }
@@ -971,7 +971,7 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: impl_tok.span.range.start..end,
+            range: impl_tok.span.range.start..end, file: None
         };
 
         Some(Item {
@@ -1075,7 +1075,7 @@ impl<'src> Parser<'src> {
             name,
             value,
             cfg_predicate,
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -1249,7 +1249,7 @@ impl<'src> Parser<'src> {
                     is_extern: true,
                 }),
                 span: Span {
-                    range: item_start..end,
+                    range: item_start..end, file: None
                 },
             })
         } else {
@@ -1267,7 +1267,7 @@ impl<'src> Parser<'src> {
                     is_extern: false,
                 }),
                 span: Span {
-                    range: item_start..end,
+                    range: item_start..end, file: None
                 },
             })
         }
@@ -1306,9 +1306,9 @@ impl<'src> Parser<'src> {
                 attributes,
                 name,
                 ty,
-                span: Span { range: start..end },
+                span: Span { range: start..end, file: None },
             }),
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -1361,7 +1361,7 @@ impl<'src> Parser<'src> {
                 is_extern: true,
             }),
             span: Span {
-                range: item_start..end,
+                range: item_start..end, file: None
             },
         })
     }
@@ -1601,7 +1601,7 @@ impl<'src> Parser<'src> {
                         params,
                         ret: Box::new(ret),
                     },
-                    span: Span { range: start..end },
+                    span: Span { range: start..end, file: None },
                 })
             }
             // Unit type `()` or tuple type `(T1, T2, ...)`
@@ -1616,9 +1616,9 @@ impl<'src> Parser<'src> {
                     return Some(TypeExpr {
                         kind: TypeExprKind::Named(Ident {
                             name: "()".to_string(),
-                            span: Span { range: start..end },
+                            span: Span { range: start..end, file: None },
                         }),
-                        span: Span { range: start..end },
+                        span: Span { range: start..end, file: None },
                     });
                 }
 
@@ -1656,7 +1656,7 @@ impl<'src> Parser<'src> {
 
                 Some(TypeExpr {
                     kind: TypeExprKind::Tuple(types),
-                    span: Span { range: start..end },
+                    span: Span { range: start..end, file: None },
                 })
             }
             // Array type: `[ElementType]`
@@ -1675,7 +1675,7 @@ impl<'src> Parser<'src> {
 
                 Some(TypeExpr {
                     kind: TypeExprKind::Array(Box::new(elem_type)),
-                    span: Span { range: start..end },
+                    span: Span { range: start..end, file: None },
                 })
             }
             // Self type (capital S) - used in trait definitions
@@ -1711,7 +1711,7 @@ impl<'src> Parser<'src> {
                         }
                     }
                     let span = Span {
-                        range: ident.span.range.start..self.previous().span.range.end,
+                        range: ident.span.range.start..self.previous().span.range.end, file: None
                     };
                     Some(TypeExpr {
                         kind: TypeExprKind::Generic { name: ident, args },
@@ -1792,7 +1792,7 @@ impl<'src> Parser<'src> {
         let end = self.previous().span.range.end;
         Some(Block {
             stmts,
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -1836,7 +1836,7 @@ impl<'src> Parser<'src> {
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Use { path, kind },
             span: Span {
-                range: use_tok.span.range.start..end,
+                range: use_tok.span.range.start..end, file: None
             },
         })
     }
@@ -1990,7 +1990,7 @@ impl<'src> Parser<'src> {
                 else_block,
             },
             span: Span {
-                range: let_tok.span.range.start..end,
+                range: let_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2009,7 +2009,7 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Return { value },
             span: Span {
-                range: ret_tok.span.range.start..end,
+                range: ret_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2057,7 +2057,7 @@ impl<'src> Parser<'src> {
                 else_branch,
             },
             span: Span {
-                range: if_tok.span.range.start..end,
+                range: if_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2099,7 +2099,7 @@ impl<'src> Parser<'src> {
                 else_branch,
             },
             span: Span {
-                range: if_tok.span.range.start..end,
+                range: if_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2118,7 +2118,7 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::While { cond, body },
             span: Span {
-                range: while_tok.span.range.start..end,
+                range: while_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2134,7 +2134,7 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Loop { body },
             span: Span {
-                range: loop_tok.span.range.start..end,
+                range: loop_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2164,7 +2164,7 @@ impl<'src> Parser<'src> {
                 body,
             },
             span: Span {
-                range: for_tok.span.range.start..end,
+                range: for_tok.span.range.start..end, file: None
             },
         })
     }
@@ -2178,7 +2178,7 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Break,
             span: Span {
-                range: tok.span.range.start..end,
+                range: tok.span.range.start..end, file: None
             },
         })
     }
@@ -2192,7 +2192,7 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Continue,
             span: Span {
-                range: tok.span.range.start..end,
+                range: tok.span.range.start..end, file: None
             },
         })
     }
@@ -2225,7 +2225,7 @@ impl<'src> Parser<'src> {
                     op,
                     value,
                 },
-                span: Span { range: start..end },
+                span: Span { range: start..end, file: None },
             });
         }
 
@@ -2265,7 +2265,7 @@ impl<'src> Parser<'src> {
             // Right-associative: parse the right side as another assignment
             let value = self.parse_assignment_expr()?;
             let span = Span {
-                range: expr.span.range.start..value.span.range.end,
+                range: expr.span.range.start..value.span.range.end, file: None
             };
             Some(Expr {
                 kind: ExprKind::Assign {
@@ -2287,7 +2287,7 @@ impl<'src> Parser<'src> {
                 let op_span = self.previous().span.clone();
                 let right = self.parse_logical_and()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2311,7 +2311,7 @@ impl<'src> Parser<'src> {
             if self.matches_token(&TokenKind::AndAnd) {
                 let right = self.parse_equality()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2334,7 +2334,7 @@ impl<'src> Parser<'src> {
             if self.matches_token(&TokenKind::EqEq) {
                 let right = self.parse_range()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2347,7 +2347,7 @@ impl<'src> Parser<'src> {
             } else if self.matches_token(&TokenKind::BangEq) {
                 let right = self.parse_range()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2370,7 +2370,7 @@ impl<'src> Parser<'src> {
         if self.matches_token(&TokenKind::DotDot) {
             let end = self.parse_comparison()?;
             let span = Span {
-                range: expr.span.range.start..end.span.range.end,
+                range: expr.span.range.start..end.span.range.end, file: None
             };
             return Some(Expr {
                 kind: ExprKind::Range {
@@ -2383,7 +2383,7 @@ impl<'src> Parser<'src> {
         } else if self.matches_token(&TokenKind::DotDotEq) {
             let end = self.parse_comparison()?;
             let span = Span {
-                range: expr.span.range.start..end.span.range.end,
+                range: expr.span.range.start..end.span.range.end, file: None
             };
             return Some(Expr {
                 kind: ExprKind::Range {
@@ -2416,7 +2416,7 @@ impl<'src> Parser<'src> {
             if let Some(op) = op {
                 let right = self.parse_additive()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2443,7 +2443,7 @@ impl<'src> Parser<'src> {
             if self.matches_keyword(Keyword::As) {
                 let target_ty = self.parse_type_expr()?;
                 let span = Span {
-                    range: expr.span.range.start..target_ty.span.range.end,
+                    range: expr.span.range.start..target_ty.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Cast {
@@ -2474,7 +2474,7 @@ impl<'src> Parser<'src> {
             if let Some(op) = op {
                 let right = self.parse_multiplicative()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2507,7 +2507,7 @@ impl<'src> Parser<'src> {
             if let Some(op) = op {
                 let right = self.parse_cast()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end,
+                    range: expr.span.range.start..right.span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2529,7 +2529,7 @@ impl<'src> Parser<'src> {
             let op_tok = self.previous().clone();
             let expr = self.parse_unary()?;
             let span = Span {
-                range: op_tok.span.range.start..expr.span.range.end,
+                range: op_tok.span.range.start..expr.span.range.end, file: None
             };
             return Some(Expr {
                 kind: ExprKind::Unary {
@@ -2543,7 +2543,7 @@ impl<'src> Parser<'src> {
             let op_tok = self.previous().clone();
             let expr = self.parse_unary()?;
             let span = Span {
-                range: op_tok.span.range.start..expr.span.range.end,
+                range: op_tok.span.range.start..expr.span.range.end, file: None
             };
             return Some(Expr {
                 kind: ExprKind::Unary {
@@ -2583,7 +2583,7 @@ impl<'src> Parser<'src> {
                 // Regular function call (no turbofish in this path since we already matched LParen)
                 let args = self.parse_argument_list();
                 let span = Span {
-                    range: expr.span.range.start..self.previous().span.range.end,
+                    range: expr.span.range.start..self.previous().span.range.end, file: None
                 };
                 expr = Expr {
                     kind: ExprKind::Call {
@@ -2608,7 +2608,7 @@ impl<'src> Parser<'src> {
                         }
                     };
                     let span = Span {
-                        range: expr.span.range.start..name_tok.span.range.end,
+                        range: expr.span.range.start..name_tok.span.range.end, file: None
                     };
                     expr = Expr {
                         kind: ExprKind::TupleField {
@@ -2629,7 +2629,7 @@ impl<'src> Parser<'src> {
                             self.advance();
                             // First tuple access
                             let mid_span = Span {
-                                range: expr.span.range.start..name_tok.span.range.end,
+                                range: expr.span.range.start..name_tok.span.range.end, file: None
                             };
                             let first_access = Expr {
                                 kind: ExprKind::TupleField {
@@ -2676,7 +2676,7 @@ impl<'src> Parser<'src> {
                     // Method call: expr.ident(args...) or expr.ident::<T>(args...)
                     let args = self.parse_argument_list();
                     let span = Span {
-                        range: expr.span.range.start..self.previous().span.range.end,
+                        range: expr.span.range.start..self.previous().span.range.end, file: None
                     };
                     expr = Expr {
                         kind: ExprKind::MethodCall {
@@ -2694,7 +2694,7 @@ impl<'src> Parser<'src> {
                 } else {
                     // Field access: expr.ident
                     let span = Span {
-                        range: expr.span.range.start..ident.span.range.end,
+                        range: expr.span.range.start..ident.span.range.end, file: None
                     };
                     expr = Expr {
                         kind: ExprKind::Field {
@@ -2723,10 +2723,10 @@ impl<'src> Parser<'src> {
                         return None;
                     }
                     let span = Span {
-                        range: expr.span.range.start..self.previous().span.range.end,
+                        range: expr.span.range.start..self.previous().span.range.end, file: None
                     };
                     let range_span = Span {
-                        range: bracket_start..self.previous().span.range.end,
+                        range: bracket_start..self.previous().span.range.end, file: None
                     };
                     expr = Expr {
                         kind: ExprKind::Index {
@@ -2750,10 +2750,10 @@ impl<'src> Parser<'src> {
                         return None;
                     }
                     let span = Span {
-                        range: expr.span.range.start..self.previous().span.range.end,
+                        range: expr.span.range.start..self.previous().span.range.end, file: None
                     };
                     let range_span = Span {
-                        range: bracket_start..self.previous().span.range.end,
+                        range: bracket_start..self.previous().span.range.end, file: None
                     };
                     expr = Expr {
                         kind: ExprKind::Index {
@@ -2788,10 +2788,10 @@ impl<'src> Parser<'src> {
                             return None;
                         }
                         let span = Span {
-                            range: expr.span.range.start..self.previous().span.range.end,
+                            range: expr.span.range.start..self.previous().span.range.end, file: None
                         };
                         let range_span = Span {
-                            range: first_expr.span.range.start..self.previous().span.range.end,
+                            range: first_expr.span.range.start..self.previous().span.range.end, file: None
                         };
                         expr = Expr {
                             kind: ExprKind::Index {
@@ -2815,10 +2815,10 @@ impl<'src> Parser<'src> {
                             return None;
                         }
                         let span = Span {
-                            range: expr.span.range.start..self.previous().span.range.end,
+                            range: expr.span.range.start..self.previous().span.range.end, file: None
                         };
                         let range_span = Span {
-                            range: first_expr.span.range.start..self.previous().span.range.end,
+                            range: first_expr.span.range.start..self.previous().span.range.end, file: None
                         };
                         expr = Expr {
                             kind: ExprKind::Index {
@@ -2841,7 +2841,7 @@ impl<'src> Parser<'src> {
                             return None;
                         }
                         let span = Span {
-                            range: expr.span.range.start..self.previous().span.range.end,
+                            range: expr.span.range.start..self.previous().span.range.end, file: None
                         };
                         expr = Expr {
                             kind: ExprKind::Index {
@@ -2957,7 +2957,7 @@ impl<'src> Parser<'src> {
                 args,
                 newline,
             },
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -3012,7 +3012,7 @@ impl<'src> Parser<'src> {
                 format: parsed_format,
                 args,
             },
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -3055,7 +3055,7 @@ impl<'src> Parser<'src> {
                 }
 
                 let placeholder_span = Span {
-                    range: span.range.start + placeholder_start..span.range.start + char_offset,
+                    range: span.range.start + placeholder_start..span.range.start + char_offset, file: None
                 };
                 let placeholder = self.parse_placeholder(&placeholder_content, &placeholder_span);
                 segments.push(FormatSegment::Placeholder(placeholder));
@@ -3350,7 +3350,7 @@ impl<'src> Parser<'src> {
                 arms,
             },
             span: Span {
-                range: match_tok.span.range.start..end,
+                range: match_tok.span.range.start..end, file: None
             },
         })
     }
@@ -3368,7 +3368,7 @@ impl<'src> Parser<'src> {
                     let end = self.previous().span.range.end;
                     return Some(Pattern {
                         kind: PatternKind::Tuple { fields: Vec::new() },
-                        span: Span { range: start..end },
+                        span: Span { range: start..end, file: None },
                     });
                 }
 
@@ -3406,7 +3406,7 @@ impl<'src> Parser<'src> {
 
                 return Some(Pattern {
                     kind: PatternKind::Tuple { fields },
-                    span: Span { range: start..end },
+                    span: Span { range: start..end, file: None },
                 });
             }
             TokenKind::Ident(name) => {
@@ -3508,7 +3508,7 @@ impl<'src> Parser<'src> {
                 ret_type,
                 body: Box::new(body),
             },
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -3637,7 +3637,7 @@ impl<'src> Parser<'src> {
                         .unwrap_or(tok.span.range.end);
                     Some(Expr {
                         kind: ExprKind::Path { segments: path },
-                        span: Span { range: start..end },
+                        span: Span { range: start..end, file: None },
                     })
                 }
             }
@@ -3650,7 +3650,7 @@ impl<'src> Parser<'src> {
                     let end = self.previous().span.range.end;
                     return Some(Expr {
                         kind: ExprKind::Tuple { elements: Vec::new() },
-                        span: Span { range: start..end },
+                        span: Span { range: start..end, file: None },
                     });
                 }
 
@@ -3673,7 +3673,7 @@ impl<'src> Parser<'src> {
                     let end = self.previous().span.range.end;
                     return Some(Expr {
                         kind: ExprKind::Tuple { elements: vec![first_expr] },
-                        span: Span { range: start..end },
+                        span: Span { range: start..end, file: None },
                     });
                 }
 
@@ -3699,7 +3699,7 @@ impl<'src> Parser<'src> {
                 let end = self.previous().span.range.end;
                 Some(Expr {
                     kind: ExprKind::Tuple { elements },
-                    span: Span { range: start..end },
+                    span: Span { range: start..end, file: None },
                 })
             }
             TokenKind::LBracket => self.parse_array_expr(),
@@ -3887,7 +3887,7 @@ impl<'src> Parser<'src> {
 
         Some(Expr {
             kind: ExprKind::Array { elements },
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 
@@ -3935,7 +3935,7 @@ impl<'src> Parser<'src> {
 
         Some(Expr {
             kind: ExprKind::Struct { name, fields },
-            span: Span { range: start..end },
+            span: Span { range: start..end, file: None },
         })
     }
 }
