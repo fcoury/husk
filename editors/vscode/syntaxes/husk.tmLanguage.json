@@ -111,7 +111,7 @@
       "patterns": [
         {
           "name": "meta.attribute.expression.hx",
-          "begin": "([a-zA-Z][a-zA-Z0-9]*)\\s*(=)\\s*(\\{)",
+          "begin": "([a-zA-Z_][a-zA-Z0-9_-]*)\\s*(=)\\s*(\\{)",
           "beginCaptures": {
             "1": { "name": "entity.other.attribute-name.hx" },
             "2": { "name": "punctuation.separator.key-value.hx" },
@@ -127,7 +127,7 @@
         },
         {
           "name": "meta.attribute.string.hx",
-          "match": "([a-zA-Z][a-zA-Z0-9]*)\\s*(=)\\s*(\"[^\"]*\")",
+          "match": "([a-zA-Z_][a-zA-Z0-9_-]*)\\s*(=)\\s*(\"[^\"]*\")",
           "captures": {
             "1": { "name": "entity.other.attribute-name.hx" },
             "2": { "name": "punctuation.separator.key-value.hx" },
@@ -136,7 +136,7 @@
         },
         {
           "name": "entity.other.attribute-name.hx",
-          "match": "[a-zA-Z][a-zA-Z0-9]*"
+          "match": "[a-zA-Z_][a-zA-Z0-9_-]*"
         }
       ]
     },
@@ -162,7 +162,7 @@
       "patterns": [
         {
           "name": "keyword.control.husk",
-          "match": "\\b(if|else|while|match|return|break|continue|for|hx|js)\\b"
+          "match": "\\b(if|else|while|match|return|break|continue|for)\\b"
         },
         {
           "name": "keyword.other.husk",
