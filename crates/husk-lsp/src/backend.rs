@@ -369,6 +369,10 @@ impl LanguageServer for HuskBackend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
@@ -746,6 +750,200 @@ impl LanguageServer for HuskBackend {
             Ok(None)
         }
     }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = &params.text_document.uri;
+        let position = params.position;
+
+        // Get the document
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc,
+            None => return Ok(None),
+        };
+
+        // Find the word at the position
+        let offset = doc.position_to_offset(position);
+        let (word, start, end) = match doc.word_span_at_offset(offset) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+
+        // Check if this is a renamable symbol (not a keyword)
+        if is_keyword(&word) {
+            return Ok(None);
+        }
+
+        // Check if this word corresponds to a known symbol
+        let semantic_result = self.semantic_result.read().await;
+        if let Some(semantic) = semantic_result.as_ref() {
+            // Check if there are any references for this symbol
+            let has_references = semantic.references.iter().any(|((name, _), refs)| {
+                name == &word && !refs.is_empty()
+            });
+
+            if !has_references {
+                // Not a known symbol definition or reference
+                return Ok(None);
+            }
+        }
+        drop(semantic_result);
+
+        // Return the range of the symbol that can be renamed
+        let start_pos = doc.offset_to_position(start);
+        let end_pos = doc.offset_to_position(end);
+
+        Ok(Some(PrepareRenameResponse::Range(Range {
+            start: start_pos,
+            end: end_pos,
+        })))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = &params.new_name;
+
+        // Validate new name
+        if !is_valid_identifier(new_name) {
+            return Err(tower_lsp::jsonrpc::Error::invalid_params(
+                "Invalid identifier: must be alphanumeric with underscores, cannot start with digit",
+            ));
+        }
+
+        // Get the document
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc,
+            None => return Ok(None),
+        };
+
+        // Find the word at the position
+        let offset = doc.position_to_offset(position);
+        let (word, _, _) = match doc.word_span_at_offset(offset) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+
+        // Get semantic result with references
+        let semantic_result = self.semantic_result.read().await;
+        let semantic = match semantic_result.as_ref() {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        // Find all references for this symbol
+        // We need to find the right ReferenceKind - try each one
+        let reference_kinds = [
+            husk_semantic::ReferenceKind::Function,
+            husk_semantic::ReferenceKind::Struct,
+            husk_semantic::ReferenceKind::Enum,
+            husk_semantic::ReferenceKind::TypeAlias,
+            husk_semantic::ReferenceKind::Trait,
+            husk_semantic::ReferenceKind::Variable,
+        ];
+
+        let mut all_refs = Vec::new();
+        for kind in &reference_kinds {
+            if let Some(refs) = semantic.references.get(&(word.clone(), *kind)) {
+                all_refs.extend(refs.iter().cloned());
+            }
+        }
+
+        if all_refs.is_empty() {
+            return Ok(None);
+        }
+
+        // Get entry point for cross-file resolution
+        let entry = self.entry_point.read().await.clone();
+        let project_root = entry.as_ref().and_then(|e| e.parent().map(|p| p.to_path_buf()));
+
+        // Build text edits grouped by URI
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+
+        for reference in &all_refs {
+            // Determine the URI for this reference
+            let ref_uri = if let Some(ref module_path) = reference.module_path {
+                // Cross-file reference - convert module path to URI
+                if let Some(ref root) = project_root {
+                    match self.module_path_to_uri(module_path, root) {
+                        Some(u) => u,
+                        None => uri.clone(), // Fall back to current file
+                    }
+                } else {
+                    uri.clone()
+                }
+            } else {
+                // Same file reference
+                uri.clone()
+            };
+
+            // Get the document for this URI to convert spans to positions
+            let ref_doc = if ref_uri == *uri {
+                doc.clone()
+            } else if let Some(d) = self.documents.get(&ref_uri) {
+                d.clone()
+            } else {
+                // Try to read the file from disk
+                if let Ok(path) = ref_uri.to_file_path() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        Document::new(content, 0)
+                    } else {
+                        continue; // Skip if we can't read the file
+                    }
+                } else {
+                    continue;
+                }
+            };
+
+            let start_pos = ref_doc.offset_to_position(reference.span.range.start);
+            let end_pos = ref_doc.offset_to_position(reference.span.range.end);
+
+            let edit = TextEdit {
+                range: Range {
+                    start: start_pos,
+                    end: end_pos,
+                },
+                new_text: new_name.clone(),
+            };
+
+            changes.entry(ref_uri).or_default().push(edit);
+        }
+
+        drop(semantic_result);
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }))
+    }
+}
+
+/// Check if a word is a Husk keyword
+fn is_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "fn" | "let" | "mut" | "if" | "else" | "match" | "while" | "for" | "in"
+            | "return" | "break" | "continue" | "struct" | "enum" | "trait" | "impl"
+            | "pub" | "use" | "mod" | "extern" | "type" | "const" | "static"
+            | "true" | "false" | "self" | "Self"
+    )
+}
+
+/// Check if a string is a valid Husk identifier
+fn is_valid_identifier(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    let first = s.chars().next().unwrap();
+    if !first.is_alphabetic() && first != '_' {
+        return false;
+    }
+
+    s.chars().all(|c| c.is_alphanumeric() || c == '_') && !is_keyword(s)
 }
 
 /// Extract definition info from an item if it matches the given name

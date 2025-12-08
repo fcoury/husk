@@ -94,6 +94,41 @@ pub type VariantCallMap = HashMap<(usize, usize), (String, String)>;
 /// Used by codegen to emit proper tag checks for patterns like `None` in match arms.
 pub type VariantPatternMap = HashMap<(usize, usize), (String, String)>;
 
+/// A reference to a symbol, including its span and the file it's in (if known).
+#[derive(Debug, Clone)]
+pub struct SymbolReference {
+    /// The byte range of this reference
+    pub span: Span,
+    /// Module path if this reference is in a different module (for multi-file projects)
+    pub module_path: Option<Vec<String>>,
+}
+
+/// Maps symbol names to all spans where they are referenced.
+/// Used by LSP for rename operations to find all usages of a symbol.
+/// Keys are (symbol_name, symbol_kind) to disambiguate different kinds of symbols.
+pub type ReferenceMap = HashMap<(String, ReferenceKind), Vec<SymbolReference>>;
+
+/// Kind of symbol reference (to disambiguate same-named symbols of different kinds).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReferenceKind {
+    /// Function or method
+    Function,
+    /// Struct type
+    Struct,
+    /// Enum type
+    Enum,
+    /// Enum variant
+    Variant,
+    /// Type alias
+    TypeAlias,
+    /// Trait
+    Trait,
+    /// Local variable or parameter
+    Variable,
+    /// Struct field
+    Field,
+}
+
 /// Information for LSP hover display (rust-analyzer style).
 #[derive(Debug, Clone)]
 pub struct HoverInfo {
@@ -124,6 +159,8 @@ pub struct SemanticResult {
     pub variant_patterns: VariantPatternMap,
     /// Maps spans to hover information for LSP.
     pub hover_info: HoverMap,
+    /// Maps symbol names to all their references for LSP rename operations.
+    pub references: ReferenceMap,
 }
 
 /// Options controlling semantic analysis.
@@ -214,6 +251,7 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         variant_calls,
         variant_patterns,
         hover_info,
+        references,
     ) = checker.check_file(&filtered_file);
     SemanticResult {
         symbols,
@@ -223,6 +261,7 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
         variant_calls,
         variant_patterns,
         hover_info,
+        references,
     }
 }
 
@@ -614,6 +653,8 @@ struct TypeChecker {
     variant_patterns: VariantPatternMap,
     /// Maps spans to hover information for LSP.
     hover_info: HoverMap,
+    /// Maps symbol names to all their references for LSP rename operations.
+    references: ReferenceMap,
 }
 
 impl TypeChecker {
@@ -626,7 +667,17 @@ impl TypeChecker {
             variant_calls: HashMap::new(),
             variant_patterns: HashMap::new(),
             hover_info: HashMap::new(),
+            references: HashMap::new(),
         }
+    }
+
+    /// Record a reference to a symbol.
+    fn add_reference(&mut self, name: &str, kind: ReferenceKind, span: Span) {
+        let key = (name.to_string(), kind);
+        self.references.entry(key).or_default().push(SymbolReference {
+            span,
+            module_path: None,
+        });
     }
 
     fn build_type_env(&mut self, file: &File) {
@@ -645,6 +696,15 @@ impl TypeChecker {
                             .collect(),
                     };
                     self.env.structs.insert(name.name.clone(), def.clone());
+
+                    // Track struct definition for rename support
+                    self.add_reference(&name.name, ReferenceKind::Struct, name.span.clone());
+
+                    // Track field definitions for rename support
+                    for field in fields {
+                        let field_key = format!("{}.{}", name.name, field.name.name);
+                        self.add_reference(&field_key, ReferenceKind::Field, field.name.span.clone());
+                    }
 
                     // Register hover info for struct definition
                     let type_params_str = if type_params.is_empty() {
@@ -697,6 +757,15 @@ impl TypeChecker {
                             .collect(),
                     };
                     self.env.enums.insert(name.name.clone(), def);
+
+                    // Track enum definition for rename support
+                    self.add_reference(&name.name, ReferenceKind::Enum, name.span.clone());
+
+                    // Track variant definitions for rename support
+                    for variant in variants {
+                        let variant_key = format!("{}::{}", name.name, variant.name.name);
+                        self.add_reference(&variant_key, ReferenceKind::Variant, variant.name.span.clone());
+                    }
 
                     // Register hover info for enum definition
                     let type_params_str = if type_params.is_empty() {
@@ -758,6 +827,8 @@ impl TypeChecker {
                 }
                 ItemKind::TypeAlias { name, ty } => {
                     self.env.type_aliases.insert(name.name.clone(), ty.clone());
+                    // Track type alias definition for rename support
+                    self.add_reference(&name.name, ReferenceKind::TypeAlias, name.span.clone());
                 }
                 ItemKind::Fn {
                     name,
@@ -772,6 +843,9 @@ impl TypeChecker {
                         ret_type: ret_type.clone(),
                     };
                     self.env.functions.insert(name.name.clone(), def);
+
+                    // Track function definition for rename support
+                    self.add_reference(&name.name, ReferenceKind::Function, name.span.clone());
 
                     // Register hover info for function definition
                     let type_params_str = if type_params.is_empty() {
@@ -994,6 +1068,8 @@ impl TypeChecker {
                         methods,
                     };
                     self.env.traits.insert(trait_def.name.name.clone(), info);
+                    // Track trait definition for rename support
+                    self.add_reference(&trait_def.name.name, ReferenceKind::Trait, trait_def.name.span.clone());
                 }
                 ItemKind::Impl(impl_block) => {
                     let self_ty_name = type_expr_to_name(&impl_block.self_ty);
@@ -1160,6 +1236,7 @@ impl TypeChecker {
         VariantCallMap,
         VariantPatternMap,
         HoverMap,
+        ReferenceMap,
     ) {
         // Verify trait implementations
         self.verify_trait_impls();
@@ -1192,6 +1269,7 @@ impl TypeChecker {
             std::mem::take(&mut self.variant_calls),
             std::mem::take(&mut self.variant_patterns),
             std::mem::take(&mut self.hover_info),
+            std::mem::take(&mut self.references),
         )
     }
 
@@ -1376,9 +1454,11 @@ impl TypeChecker {
                         def.type_params.len(),
                         args.len()
                     ),
-                    span,
+                    span: span.clone(),
                 });
             }
+            // Track struct type reference for rename support
+            self.add_reference(name, ReferenceKind::Struct, span);
             return Type::Named {
                 name: name.to_string(),
                 args: args.to_vec(),
@@ -1394,9 +1474,11 @@ impl TypeChecker {
                         def.type_params.len(),
                         args.len()
                     ),
-                    span,
+                    span: span.clone(),
                 });
             }
+            // Track enum type reference for rename support
+            self.add_reference(name, ReferenceKind::Enum, span);
             return Type::Named {
                 name: name.to_string(),
                 args: args.to_vec(),
@@ -1405,6 +1487,8 @@ impl TypeChecker {
 
         // Type alias: expand once.
         if let Some(alias) = self.env.type_aliases.get(name).cloned() {
+            // Track type alias reference for rename support
+            self.add_reference(name, ReferenceKind::TypeAlias, span);
             return self.resolve_type_expr(&alias, generic_params);
         }
 
@@ -2199,6 +2283,8 @@ impl<'a> FnContext<'a> {
                             definition_span: None, // Could look up definition span if stored
                         },
                     );
+                    // Track variable reference for rename support
+                    self.tcx.add_reference(&id.name, ReferenceKind::Variable, id.span.clone());
                     return ty;
                 }
                 // Try top-level function.
@@ -2239,6 +2325,8 @@ impl<'a> FnContext<'a> {
                             definition_span: None,
                         },
                     );
+                    // Track function reference for rename support
+                    self.tcx.add_reference(&id.name, ReferenceKind::Function, id.span.clone());
                     return fn_type;
                 }
 
@@ -2561,6 +2649,10 @@ impl<'a> FnContext<'a> {
                                     definition_span: None,
                                 },
                             );
+                            // Track field reference for rename support
+                            // Use format "StructName.field_name" to identify fields uniquely
+                            let field_key = format!("{}.{}", name, member.name);
+                            self.tcx.add_reference(&field_key, ReferenceKind::Field, member.span.clone());
                             return field_ty;
                         }
                     }
