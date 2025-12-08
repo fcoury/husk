@@ -42,11 +42,11 @@ fn sum_until_none(opt: Option<i32>) -> i32 {
     result
 }
 
-// String indexOf and lastIndexOf methods
+// String index_of and last_index_of methods
 fn test_string_methods() {
     let s = "hello world hello";
-    let first = s.indexOf("hello");
-    let last = s.lastIndexOf("hello");
+    let first = s.index_of("hello");
+    let last = s.last_index_of("hello");
     println("First 'hello' at: {first}");
     println("Last 'hello' at: {last}");
 }
