@@ -1154,6 +1154,10 @@ impl SetFilePath for Item {
                     }
                 }
                 for param in params {
+                    for attr in &mut param.attributes {
+                        attr.span.set_file_path(file.clone());
+                        attr.name.set_file_path(file.clone());
+                    }
                     param.name.set_file_path(file.clone());
                     param.ty.set_file_path(file.clone());
                 }
@@ -1224,6 +1228,10 @@ impl SetFilePath for Item {
                     let TraitItemKind::Method(method) = &mut item.kind;
                     method.name.set_file_path(file.clone());
                     for param in &mut method.params {
+                        for attr in &mut param.attributes {
+                            attr.span.set_file_path(file.clone());
+                            attr.name.set_file_path(file.clone());
+                        }
                         param.name.set_file_path(file.clone());
                         param.ty.set_file_path(file.clone());
                     }
@@ -1261,8 +1269,16 @@ impl SetFilePath for ImplBlock {
             item.span.set_file_path(file.clone());
             match &mut item.kind {
                 ImplItemKind::Method(method) => {
+                    for attr in &mut method.attributes {
+                        attr.span.set_file_path(file.clone());
+                        attr.name.set_file_path(file.clone());
+                    }
                     method.name.set_file_path(file.clone());
                     for param in &mut method.params {
+                        for attr in &mut param.attributes {
+                            attr.span.set_file_path(file.clone());
+                            attr.name.set_file_path(file.clone());
+                        }
                         param.name.set_file_path(file.clone());
                         param.ty.set_file_path(file.clone());
                     }
@@ -1297,6 +1313,10 @@ impl SetFilePath for ExternItem {
             ExternItemKind::Fn { name, params, ret_type } => {
                 name.set_file_path(file.clone());
                 for param in params {
+                    for attr in &mut param.attributes {
+                        attr.span.set_file_path(file.clone());
+                        attr.name.set_file_path(file.clone());
+                    }
                     param.name.set_file_path(file.clone());
                     param.ty.set_file_path(file.clone());
                 }
@@ -1328,8 +1348,16 @@ impl SetFilePath for ExternItem {
                     item.span.set_file_path(file.clone());
                     match &mut item.kind {
                         ImplItemKind::Method(method) => {
+                            for attr in &mut method.attributes {
+                                attr.span.set_file_path(file.clone());
+                                attr.name.set_file_path(file.clone());
+                            }
                             method.name.set_file_path(file.clone());
                             for param in &mut method.params {
+                                for attr in &mut param.attributes {
+                                    attr.span.set_file_path(file.clone());
+                                    attr.name.set_file_path(file.clone());
+                                }
                                 param.name.set_file_path(file.clone());
                                 param.ty.set_file_path(file.clone());
                             }
@@ -1370,6 +1398,10 @@ impl SetFilePath for ModItem {
             ModItemKind::Fn { name, params, ret_type } => {
                 name.set_file_path(file.clone());
                 for param in params {
+                    for attr in &mut param.attributes {
+                        attr.span.set_file_path(file.clone());
+                        attr.name.set_file_path(file.clone());
+                    }
                     param.name.set_file_path(file.clone());
                     param.ty.set_file_path(file.clone());
                 }

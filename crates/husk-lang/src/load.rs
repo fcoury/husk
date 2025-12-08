@@ -250,10 +250,14 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                             } => {
                                 // If we're importing from an extern block, track the type
                                 for ext in ext_items {
-                                    if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                                        if name.name == item_name {
-                                            imported_types.insert(name.name.clone());
+                                    match &ext.kind {
+                                        ExternItemKind::Struct { name, .. }
+                                        | ExternItemKind::Const { name, .. } => {
+                                            if name.name == item_name {
+                                                imported_types.insert(name.name.clone());
+                                            }
                                         }
+                                        _ => {}
                                     }
                                 }
                             }
@@ -329,57 +333,21 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
             match &item.kind {
                 // Include extern blocks that declare imported types
                 ItemKind::ExternBlock {
-                    items: ext_items, ..
+                    abi,
+                    items: ext_items,
                 } => {
-                    // Filter extern items to just the ones we actually import or need as entry points.
-                    let filtered: Vec<_> = ext_items
-                        .iter()
-                        .filter(|ext| match &ext.kind {
-                            ExternItemKind::Struct { name, .. } => {
-                                imported_types.contains(&name.name)
-                            }
-                            ExternItemKind::Fn { name, .. } => {
-                                // Keep callable module entry points
-                                name.name == "express" || name.name == "better_sqlite3"
-                            }
-                            ExternItemKind::Mod { .. } => true,
-                            _ => false,
-                        })
-                        .cloned()
-                        .collect();
-
-                    if filtered.is_empty() {
-                        continue;
-                    }
-
-                    // Deduplicate by struct/const and fn name
-                    let mut has_new = false;
-                    for ext in &filtered {
-                        match &ext.kind {
-                            ExternItemKind::Struct { name, .. } => {
-                                if included_structs.insert(name.name.clone()) {
-                                    has_new = true;
-                                }
-                            }
-                            ExternItemKind::Fn { name, .. } => {
-                                if included_fns.insert(name.name.clone()) {
-                                    has_new = true;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    if has_new {
-                        let mut new_block = item.clone();
-                        if let ItemKind::ExternBlock {
-                            items: block_items, ..
-                        } = &mut new_block.kind
-                        {
-                            *block_items = filtered;
-                        }
-                        // Set the file path on the cloned item
-                        new_block.set_file_path(module.file_path.clone());
-                        items.push(new_block);
+                    // Reuse filter_extern_block for consistent filtering across phases
+                    if let Some(mut filtered) = filter_extern_block(
+                        ext_items,
+                        abi,
+                        &imported_types,
+                        &mut included_structs,
+                        &mut included_fns,
+                        &mut included_mods,
+                        &mut included_consts,
+                    ) {
+                        filtered.set_file_path(module.file_path.clone());
+                        items.push(filtered);
                     }
                 }
                 // Include impl blocks for imported types
