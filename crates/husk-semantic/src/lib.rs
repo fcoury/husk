@@ -7673,4 +7673,59 @@ fn check(e: MyEnum) -> i32 {
             refs.len()
         );
     }
+
+    #[test]
+    fn reference_map_tracks_struct_literal() {
+        let src = r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn make_point() -> Point {
+    Point { x: 10, y: 20 }
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+
+        // Check struct name reference in literal
+        let struct_key = ("Point".to_string(), ReferenceKind::Struct);
+        let struct_refs = result.references.get(&struct_key);
+        assert!(
+            struct_refs.is_some(),
+            "expected references for struct 'Point'"
+        );
+        let struct_refs = struct_refs.unwrap();
+        // Should have at least 2: definition + literal usage
+        assert!(
+            struct_refs.len() >= 2,
+            "expected at least 2 references for 'Point' (def + literal), got {}",
+            struct_refs.len()
+        );
+
+        // Check field references in literal
+        let x_key = ("Point.x".to_string(), ReferenceKind::Field);
+        let x_refs = result.references.get(&x_key);
+        assert!(x_refs.is_some(), "expected references for field 'Point.x'");
+        let x_refs = x_refs.unwrap();
+        // Should have at least 2: definition + literal usage
+        assert!(
+            x_refs.len() >= 2,
+            "expected at least 2 references for 'Point.x' (def + literal), got {}",
+            x_refs.len()
+        );
+
+        let y_key = ("Point.y".to_string(), ReferenceKind::Field);
+        let y_refs = result.references.get(&y_key);
+        assert!(y_refs.is_some(), "expected references for field 'Point.y'");
+        let y_refs = y_refs.unwrap();
+        assert!(
+            y_refs.len() >= 2,
+            "expected at least 2 references for 'Point.y' (def + literal), got {}",
+            y_refs.len()
+        );
+    }
 }
