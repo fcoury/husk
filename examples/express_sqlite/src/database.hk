@@ -75,20 +75,20 @@ impl Database {
     #[setter]
     extern "js" inTransaction: bool;
 
-    extern "js" fn backup(self, destinationFile: String, options: Option<JsValue>) -> JsPromise<JsValue>;
-    extern "js" fn unsafeMode(self, unsafe: Option<bool>) -> Database;
-    extern "js" fn close(self) -> Database;
-    extern "js" fn aggregate(self, name: String, options: JsValue) -> Database;
-    extern "js" fn table(self, name: String, options: VirtualTableOptions) -> Database;
-    extern "js" fn loadExtension(self, path: String) -> Database;
-    extern "js" fn transaction(self, fn_: JsValue) -> JsValue;
-    extern "js" fn pragma(self, source: String, options: Option<JsValue>) -> JsValue;
-    extern "js" fn defaultSafeIntegers(self, toggleState: Option<bool>) -> Database;
-    extern "js" fn serialize(self, options: Option<JsValue>) -> JsValue;
     // merged from 2 overloads
     extern "js" fn function_(self, name: String, options: JsValue, cb: Option<fn(JsArray<JsValue>) -> JsValue>) -> Database;
-    extern "js" fn prepare(self, source: String) -> Statement<JsValue, JsValue>;
+    extern "js" fn aggregate(self, name: String, options: JsValue) -> Database;
+    extern "js" fn defaultSafeIntegers(self, toggleState: Option<bool>) -> Database;
+    extern "js" fn loadExtension(self, path: String) -> Database;
+    extern "js" fn backup(self, destinationFile: String, options: Option<JsValue>) -> JsPromise<JsValue>;
+    extern "js" fn unsafeMode(self, unsafe: Option<bool>) -> Database;
     extern "js" fn exec(self, source: String) -> Database;
+    extern "js" fn table(self, name: String, options: VirtualTableOptions) -> Database;
+    extern "js" fn close(self) -> Database;
+    extern "js" fn serialize(self, options: Option<JsValue>) -> JsValue;
+    extern "js" fn transaction(self, fn_: JsValue) -> JsValue;
+    extern "js" fn prepare(self, source: String) -> Statement<JsValue, JsValue>;
+    extern "js" fn pragma(self, source: String, options: Option<JsValue>) -> JsValue;
 }
 
 impl DatabaseConstructor {
@@ -120,7 +120,7 @@ impl Options {
     #[setter]
     extern "js" nativeBinding: Option<Option<String>>;
 
-    extern "js" fn clientFactory(self, origin: JsValue, opts: JsValue) -> JsValue;
+    extern "js" fn factory(self, origin: JsValue, opts: JsValue) -> JsValue;
 }
 
 impl PragmaOptions {
@@ -161,18 +161,18 @@ impl SerializeOptions {
 
 impl SqliteErrorClass {
     // property getter
-    extern "js" fn code(self) -> String;
-    // property getter
     extern "js" fn name(self) -> String;
     // property setter
     extern "js" fn set_code(self, value: String);
+    extern "js" fn new_(message: String, code: String) -> SqliteErrorClass;
+    // property getter
+    extern "js" fn message(self) -> String;
     // property setter
     extern "js" fn set_message(self, value: String);
     // property setter
     extern "js" fn set_name(self, value: String);
-    extern "js" fn new_(message: String, code: String) -> SqliteErrorClass;
     // property getter
-    extern "js" fn message(self) -> String;
+    extern "js" fn code(self) -> String;
 }
 
 impl Statement {
@@ -192,23 +192,23 @@ impl Statement {
     #[setter]
     extern "js" busy: bool;
 
-    extern "js" fn all(self, params: JsValue) -> JsArray<JsValue>;
-    extern "js" fn pluck(self, toggleState: Option<bool>) -> Statement;
-    extern "js" fn get(self, params: JsValue) -> Option<JsValue>;
     extern "js" fn raw(self, toggleState: Option<bool>) -> Statement;
-    extern "js" fn run(self, params: JsValue) -> JsValue;
-    extern "js" fn expand(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn get(self, params: JsValue) -> Option<JsValue>;
+    extern "js" fn safeIntegers(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn all(self, params: JsValue) -> JsArray<JsValue>;
+    extern "js" fn iterate(self, params: JsValue) -> JsValue;
+    extern "js" fn pluck(self, toggleState: Option<bool>) -> Statement;
     extern "js" fn bind(self, params: JsValue) -> Statement;
     extern "js" fn columns(self) -> JsArray<JsValue>;
-    extern "js" fn safeIntegers(self, toggleState: Option<bool>) -> Statement;
-    extern "js" fn iterate(self, params: JsValue) -> JsValue;
+    extern "js" fn expand(self, toggleState: Option<bool>) -> Statement;
+    extern "js" fn run(self, params: JsValue) -> JsValue;
 }
 
 impl Transaction {
+    extern "js" fn default_(self, params: JsValue) -> JsValue;
+    extern "js" fn deferred(self, params: JsValue) -> JsValue;
     extern "js" fn immediate(self, params: JsValue) -> JsValue;
     extern "js" fn exclusive(self, params: JsValue) -> JsValue;
-    extern "js" fn deferred(self, params: JsValue) -> JsValue;
-    extern "js" fn default_(self, params: JsValue) -> JsValue;
 }
 
 impl VirtualTableOptions {
