@@ -194,12 +194,9 @@ impl ResolvedModule {
                 cycle,
             });
 
-            // Mark as visited to avoid re-processing, but still add to result
-            // so the node appears in topological output (at a valid position)
-            if !visited.contains(path) {
-                visited.insert(path.to_path_buf());
-                result.push(path.to_path_buf());
-            }
+            // Just record the error and return - don't modify visited or result here.
+            // The original call that first added this path to temp_visited will handle
+            // adding it to visited and result when it unwinds normally.
             return;
         }
 

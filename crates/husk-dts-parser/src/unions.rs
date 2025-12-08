@@ -430,6 +430,46 @@ fn string_to_pascal_case(s: &str) -> String {
     result
 }
 
+/// Deduplicate variant names by adding numeric suffixes to collisions.
+///
+/// For example, if input is ["Unnamed", "Unnamed", "Foo"], returns ["Unnamed1", "Unnamed2", "Foo"].
+fn deduplicate_variant_names(names: Vec<String>) -> Vec<String> {
+    use std::collections::HashMap;
+
+    // Count occurrences of each name
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for name in &names {
+        *counts.entry(name.as_str()).or_insert(0) += 1;
+    }
+
+    // Track which names have duplicates
+    let duplicates: std::collections::HashSet<&str> = counts
+        .iter()
+        .filter(|&(_, count)| *count > 1)
+        .map(|(&name, _)| name)
+        .collect();
+
+    // If no duplicates, return as-is
+    if duplicates.is_empty() {
+        return names;
+    }
+
+    // Assign numeric suffixes to duplicates
+    let mut suffix_counters: HashMap<&str, usize> = HashMap::new();
+    names
+        .iter()
+        .map(|name| {
+            if duplicates.contains(name.as_str()) {
+                let counter = suffix_counters.entry(name.as_str()).or_insert(0);
+                *counter += 1;
+                format!("{}{}", name, counter)
+            } else {
+                name.clone()
+            }
+        })
+        .collect()
+}
+
 /// Check if all types are function types → overloads.
 fn check_function_overloads(types: &[DtsType]) -> Option<UnionStrategy> {
     let all_functions = types.iter().all(|t| matches!(t, DtsType::Function(_)));
@@ -518,11 +558,13 @@ pub fn generate_union_code(strategy: &UnionStrategy, union_name: Option<&str>) -
         }
 
         UnionStrategy::StringEnum { variants } => {
-            // Generate enum definition
+            // Generate enum definition with collision handling
             let name = union_name.unwrap_or("StringUnion");
-            let variant_defs: Vec<_> = variants
+            let pascal_names: Vec<_> = variants.iter().map(|v| string_to_pascal_case(v)).collect();
+            let unique_names = deduplicate_variant_names(pascal_names);
+            let variant_defs: Vec<_> = unique_names
                 .iter()
-                .map(|v| format!("    {},", string_to_pascal_case(v)))
+                .map(|v| format!("    {},", v))
                 .collect();
             format!("enum {} {{\n{}\n}}", name, variant_defs.join("\n"))
         }
@@ -539,10 +581,14 @@ pub fn generate_union_code(strategy: &UnionStrategy, union_name: Option<&str>) -
         UnionStrategy::Boolean => "bool".to_string(),
 
         UnionStrategy::Discriminated { variants, .. } => {
+            // Deduplicate variant names to handle collisions (e.g., symbol-only tags)
             let name = union_name.unwrap_or("TaggedUnion");
+            let pascal_names: Vec<_> = variants.iter().map(|v| v.name.clone()).collect();
+            let unique_names = deduplicate_variant_names(pascal_names);
             let variant_defs: Vec<_> = variants
                 .iter()
-                .map(|v| format!("    {}({}),", v.name, type_to_husk_string(&v.ty)))
+                .zip(unique_names.iter())
+                .map(|(v, unique_name)| format!("    {}({}),", unique_name, type_to_husk_string(&v.ty)))
                 .collect();
             format!("enum {} {{\n{}\n}}", name, variant_defs.join("\n"))
         }
@@ -698,6 +744,39 @@ mod tests {
         assert_eq!(string_to_pascal_case("123"), "V123");
         assert_eq!(string_to_pascal_case("1foo"), "V1foo");
         assert_eq!(string_to_pascal_case("2-bar"), "V2Bar");
+    }
+
+    #[test]
+    fn test_deduplicate_variant_names() {
+        // No duplicates - unchanged
+        assert_eq!(
+            deduplicate_variant_names(vec!["Foo".into(), "Bar".into(), "Baz".into()]),
+            vec!["Foo", "Bar", "Baz"]
+        );
+
+        // All duplicates get numbered
+        assert_eq!(
+            deduplicate_variant_names(vec!["Unnamed".into(), "Unnamed".into()]),
+            vec!["Unnamed1", "Unnamed2"]
+        );
+
+        // Mixed: only duplicates get numbered
+        assert_eq!(
+            deduplicate_variant_names(vec!["Unnamed".into(), "Foo".into(), "Unnamed".into()]),
+            vec!["Unnamed1", "Foo", "Unnamed2"]
+        );
+
+        // Three-way collision
+        assert_eq!(
+            deduplicate_variant_names(vec!["X".into(), "X".into(), "X".into()]),
+            vec!["X1", "X2", "X3"]
+        );
+
+        // Empty list
+        assert_eq!(
+            deduplicate_variant_names(vec![]),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
