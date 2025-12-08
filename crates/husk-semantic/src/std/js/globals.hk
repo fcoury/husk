@@ -143,4 +143,23 @@ extern "js" {
 
     /// Coerce a JsValue to a number.
     fn jsvalue_toNumber(obj: JsValue) -> f64;
+
+    // Function call helpers
+    // Call a JsValue as a function with varying number of arguments
+
+    /// Call a JsValue function with no arguments.
+    /// Returns null if the value is not a function.
+    fn jsvalue_call0(fn_: JsValue) -> JsValue;
+
+    /// Call a JsValue function with one argument.
+    /// Returns null if the value is not a function.
+    fn jsvalue_call1(fn_: JsValue, arg: JsValue) -> JsValue;
+
+    /// Call a JsValue function with two arguments.
+    /// Returns null if the value is not a function.
+    fn jsvalue_call2(fn_: JsValue, arg1: JsValue, arg2: JsValue) -> JsValue;
+
+    /// Call a JsValue function with three arguments.
+    /// Returns null if the value is not a function.
+    fn jsvalue_call3(fn_: JsValue, arg1: JsValue, arg2: JsValue, arg3: JsValue) -> JsValue;
 }

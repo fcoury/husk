@@ -9,8 +9,8 @@ use std::sync::OnceLock;
 
 use husk_ast::{
     Block, CfgPredicate, ClosureParam, EnumVariantFields, Expr, ExprKind, File, FormatSegment,
-    Ident, Item, ItemKind, LiteralKind, MatchArm, Param, Pattern, PatternKind, Span, Stmt,
-    StmtKind, TypeExpr, TypeExprKind,
+    HxAttrValue, HxAttribute, HxChild, Ident, Item, ItemKind, LiteralKind, MatchArm, Param,
+    Pattern, PatternKind, Span, Stmt, StmtKind, TypeExpr, TypeExprKind,
 };
 use husk_parser::parse_str;
 use husk_types::{PrimitiveType, Type};
@@ -3335,6 +3335,17 @@ impl<'a> FnContext<'a> {
                     }
                 }
             }
+            ExprKind::HxBlock { children } => {
+                // Type check all expressions inside the hx block
+                for child in children {
+                    self.check_hx_child(child);
+                }
+                // HxBlock expressions return a JSX element type (opaque for now)
+                Type::Named {
+                    name: "JsxElement".to_string(),
+                    args: Vec::new(),
+                }
+            }
         }
     }
 
@@ -3762,6 +3773,33 @@ impl<'a> FnContext<'a> {
         Type::Function {
             params: param_types,
             ret: Box::new(actual_ret_ty),
+        }
+    }
+
+    /// Check a child node inside an hx block (element, text, or expression).
+    fn check_hx_child(&mut self, child: &HxChild) {
+        match child {
+            HxChild::Element(elem) => {
+                // Check attribute expressions
+                for attr in &elem.attributes {
+                    if let HxAttribute::KeyValue { value, .. } = attr {
+                        if let HxAttrValue::Expr(expr) = value {
+                            self.check_expr(expr);
+                        }
+                    }
+                }
+                // Recursively check children
+                for child in &elem.children {
+                    self.check_hx_child(child);
+                }
+            }
+            HxChild::Text(_) => {
+                // Text nodes have no expressions to check
+            }
+            HxChild::Expr(expr) => {
+                // Type check the interpolated expression
+                self.check_expr(&expr.expr);
+            }
         }
     }
 

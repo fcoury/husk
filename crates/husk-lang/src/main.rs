@@ -44,6 +44,9 @@ enum Command {
         /// JavaScript output target: esm or cjs (default: auto-detect from package.json)
         #[arg(long, value_enum)]
         target: Option<Target>,
+        /// Platform target: node or browser (default: node)
+        #[arg(long, value_enum)]
+        platform: Option<Platform>,
         /// Compile in library mode (do not auto-call `main`)
         #[arg(long)]
         lib: bool,
@@ -233,10 +236,22 @@ enum DtsAction {
     },
 }
 
+/// JavaScript module format for output.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum Target {
     Esm,
     Cjs,
+}
+
+/// Platform target for code generation.
+/// Browser platform implies ESM module format.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
+pub enum Platform {
+    /// Server-side execution (Node.js)
+    #[default]
+    Node,
+    /// Client-side execution (Browser)
+    Browser,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
@@ -266,6 +281,7 @@ fn main() {
             file,
             output,
             target,
+            platform,
             lib,
             emit_dts,
             source_map,
@@ -276,6 +292,7 @@ fn main() {
             file.as_deref(),
             &output,
             target,
+            platform,
             lib,
             emit_dts,
             source_map,
@@ -1179,11 +1196,27 @@ fn detect_target_from_package_json() -> Target {
     Target::Cjs
 }
 
+/// Detect platform from package.json.
+/// - If "browser" field exists, return Browser (strongest signal)
+/// - Otherwise return Node (default)
+fn detect_platform_from_package_json() -> Platform {
+    let pkg_path = Path::new("package.json");
+    if let Ok(content) = fs::read_to_string(pkg_path) {
+        // Check for "browser" field - strongest signal for browser platform
+        if content.contains("\"browser\"") {
+            debug_log("[huskc] Info: Auto-detected platform 'browser' from package.json browser field");
+            return Platform::Browser;
+        }
+    }
+    Platform::Node
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_build(
     file: Option<&str>,
     output_dir: &str,
     target: Option<Target>,
+    platform: Option<Platform>,
     cli_lib: bool,
     cli_emit_dts: bool,
     cli_source_map: bool,
@@ -1234,6 +1267,15 @@ fn run_build(
     }
     debug_log(&format!("[huskc] building from entry point: {}", entry_str));
 
+    // Resolve platform: CLI arg > config > default (Node)
+    let effective_platform = platform.unwrap_or_else(|| {
+        match config.build.platform.as_deref() {
+            Some("browser") => Platform::Browser,
+            Some("node") => Platform::Node,
+            _ => detect_platform_from_package_json(),
+        }
+    });
+
     // Resolve target: CLI arg > config > auto-detect
     let js_target = match target {
         Some(t) => t,
@@ -1245,6 +1287,18 @@ fn run_build(
             }
         }
     };
+
+    // Validate: Browser platform requires ESM module format
+    if effective_platform == Platform::Browser && js_target == Target::Cjs {
+        eprintln!("error: Browser platform requires ESM module format");
+        eprintln!("  CJS is not supported for browser targets");
+        eprintln!();
+        eprintln!("  help: Remove `target = \"cjs\"` or use `--platform node`");
+        eprintln!("  note: Modern browsers and bundlers require ES modules");
+        std::process::exit(1);
+    }
+
+    debug_log(&format!("[huskc] platform: {:?}", effective_platform));
 
     // Resolve build options: CLI flags override config
     let lib = cli_lib || config.build.lib();
@@ -1428,7 +1482,8 @@ fn run_run(
 
     // Build first (quiet mode)
     run_build(
-        file, output_dir, target, false, // not lib mode - we need main()
+        file, output_dir, target, None, // platform: default to Node for run command
+        false, // not lib mode - we need main()
         false, // no dts
         true,  // source maps for better stack traces
         no_prelude, false, // don't clean

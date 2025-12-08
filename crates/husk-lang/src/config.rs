@@ -51,6 +51,8 @@ pub struct BuildConfig {
     pub output: Option<String>,
     /// JavaScript target: "esm", "cjs", or "auto".
     pub target: Option<String>,
+    /// Platform target: "node", "browser", or "auto".
+    pub platform: Option<String>,
     /// Library mode (don't call main()).
     pub lib: Option<bool>,
     /// Emit TypeScript declaration file.

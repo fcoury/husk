@@ -5,9 +5,10 @@
 use husk_ast::{
     AssignOp, Attribute, BinaryOp, Block, CfgPredicate, ClosureParam, EnumVariant,
     EnumVariantFields, Expr, ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment,
-    FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind,
-    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind,
-    StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    FormatSpec, FormatString, HxAttrValue, HxAttribute, HxChild, HxElement, HxExpr, HxText,
+    Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind, Literal, LiteralKind,
+    MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind, StructField,
+    TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -171,6 +172,52 @@ impl<'src> Parser<'src> {
     fn error_here(&mut self, message: impl Into<String>) {
         let tok = self.current().clone();
         self.error_at_token(&tok, message);
+    }
+
+    /// Report an error at a specific byte position in the source.
+    fn error_at_pos(&mut self, pos: usize, message: impl Into<String>) {
+        self.errors.push(ParseError {
+            message: message.into(),
+            span: Span::new(pos, pos + 1),
+        });
+    }
+
+    /// Synchronize hx block parsing by skipping to the closing `}`.
+    /// Returns the position after the closing brace if found.
+    fn synchronize_hx_block(&mut self, start_pos: usize) -> usize {
+        let source_bytes = self.source.as_bytes();
+        let source_len = source_bytes.len();
+        let mut pos = start_pos;
+        let mut depth = 1; // We're inside an hx block
+
+        while pos < source_len && depth > 0 {
+            let ch = source_bytes[pos] as char;
+            if ch == '{' {
+                depth += 1;
+            } else if ch == '}' {
+                depth -= 1;
+            } else if ch == '"' || ch == '\'' {
+                // Skip strings to avoid counting braces inside them
+                let quote = ch;
+                pos += 1;
+                while pos < source_len && source_bytes[pos] as char != quote {
+                    if source_bytes[pos] as char == '\\' && pos + 1 < source_len {
+                        pos += 2;
+                    } else {
+                        pos += 1;
+                    }
+                }
+            }
+            pos += 1;
+        }
+
+        // Advance parser token position to after the `}`
+        let new_pos = self.find_token_at_or_after(pos);
+        if new_pos < self.tokens.len() {
+            self.pos = new_pos;
+        }
+
+        pos
     }
 
     /// Synchronize after an error by skipping tokens until we reach a likely
@@ -3606,6 +3653,11 @@ impl<'src> Parser<'src> {
                 })
             }
             TokenKind::Ident(ref name) => {
+                // Check for contextual keyword: `hx { ... }` for HTML templating
+                if name == "hx" && self.peek_is_lbrace() {
+                    return self.parse_hx_block();
+                }
+
                 // Could be a simple identifier, a path like `Enum::Variant`,
                 // or a struct literal like `Point { x: 1, y: 2 }`.
                 let first = Ident {
@@ -3855,6 +3907,574 @@ impl<'src> Parser<'src> {
         }
 
         Some(trimmed)
+    }
+
+    /// Check if the next token is `{` without consuming any tokens.
+    /// Used to detect contextual keywords like `hx { ... }`.
+    fn peek_is_lbrace(&self) -> bool {
+        // Peek at the next token (after current)
+        if self.pos + 1 < self.tokens.len() {
+            matches!(self.tokens[self.pos + 1].kind, TokenKind::LBrace)
+        } else {
+            false
+        }
+    }
+
+    // ========================================================================
+    // Hx Template Parsing
+    // ========================================================================
+
+    /// Parse an `hx { ... }` block expression for HTML/JSX-like templating.
+    ///
+    /// The `hx` contextual keyword introduces an HTML-like template block.
+    /// Inside the block, we parse JSX-like syntax:
+    /// - Elements: `<div>...</div>`, `<Component prop="value" />`
+    /// - Text: `Hello World`
+    /// - Expressions: `{variable}` or `{compute()}`
+    fn parse_hx_block(&mut self) -> Option<Expr> {
+        let start_tok = self.advance().clone(); // consume `hx`
+
+        if !self.matches_token(&TokenKind::LBrace) {
+            self.error_here("expected `{` after `hx`");
+            return None;
+        }
+
+        // The opening brace was just consumed. Parse HX content.
+        let content_start = self.previous().span.range.end;
+        let children = match self.parse_hx_children(content_start) {
+            Some(c) => c,
+            None => {
+                // Error recovery: skip to the closing `}` of this hx block
+                // This prevents cascading errors from confusing the user
+                self.synchronize_hx_block(content_start);
+                return None;
+            }
+        };
+
+        // Consume closing brace (already handled by parse_hx_children)
+        let end = self.previous().span.range.end;
+
+        Some(Expr {
+            kind: ExprKind::HxBlock { children },
+            span: Span::new(start_tok.span.range.start, end),
+        })
+    }
+
+    /// Parse HX children until we hit a closing `}` at the top level.
+    /// Returns the parsed children.
+    fn parse_hx_children(&mut self, content_start: usize) -> Option<Vec<HxChild>> {
+        let mut children = Vec::new();
+        let source_bytes = self.source.as_bytes();
+        let source_len = source_bytes.len();
+        let mut pos = content_start;
+
+        // Skip leading whitespace
+        while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        loop {
+            // Skip whitespace
+            while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
+
+            if pos >= source_len {
+                self.error_here("unexpected end of file in hx block");
+                return None;
+            }
+
+            let ch = source_bytes[pos] as char;
+
+            if ch == '}' {
+                // End of hx block
+                // Advance parser position to after the `}`
+                let new_pos = self.find_token_at_or_after(pos);
+                if new_pos < self.tokens.len() {
+                    self.pos = new_pos;
+                    if self.current().kind == TokenKind::RBrace {
+                        self.advance(); // consume the `}`
+                    }
+                }
+                break;
+            } else if ch == '<' {
+                // Start of an element
+                let (element, new_pos) = self.parse_hx_element(pos)?;
+                children.push(HxChild::Element(element));
+                pos = new_pos;
+            } else if ch == '{' {
+                // Expression interpolation
+                let (expr_child, new_pos) = self.parse_hx_expr_interpolation(pos)?;
+                children.push(HxChild::Expr(expr_child));
+                pos = new_pos;
+            } else {
+                // Text content - read until we hit `<`, `{`, or `}`
+                let text_start = pos;
+                while pos < source_len {
+                    let c = source_bytes[pos] as char;
+                    if c == '<' || c == '{' || c == '}' {
+                        break;
+                    }
+                    pos += 1;
+                }
+
+                let text = &self.source[text_start..pos];
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    children.push(HxChild::Text(HxText {
+                        value: trimmed.to_string(),
+                        span: Span::new(text_start, pos),
+                    }));
+                }
+            }
+        }
+
+        Some(children)
+    }
+
+    /// Parse an HX element: `<tag attr="value">children</tag>` or `<tag />`
+    /// Returns the element and the new position after parsing.
+    fn parse_hx_element(&mut self, start_pos: usize) -> Option<(HxElement, usize)> {
+        let source_bytes = self.source.as_bytes();
+        let source_len = source_bytes.len();
+        let mut pos = start_pos;
+
+        // Consume `<`
+        if pos >= source_len || source_bytes[pos] as char != '<' {
+            self.error_here("expected `<` to start element");
+            return None;
+        }
+        pos += 1;
+
+        // Skip whitespace after `<`
+        while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        // Check for closing tag `</`
+        if pos < source_len && source_bytes[pos] as char == '/' {
+            self.error_here("unexpected closing tag");
+            return None;
+        }
+
+        // Parse tag name
+        let tag_start = pos;
+        while pos < source_len {
+            let c = source_bytes[pos] as char;
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                pos += 1;
+            } else {
+                break;
+            }
+        }
+
+        if pos == tag_start {
+            self.error_here("expected tag name after `<`");
+            return None;
+        }
+
+        let tag_name = &self.source[tag_start..pos];
+        let tag = Ident {
+            name: tag_name.to_string(),
+            span: Span::new(tag_start, pos),
+        };
+
+        // Parse attributes
+        let mut attributes = Vec::new();
+        loop {
+            // Skip whitespace
+            while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
+
+            if pos >= source_len {
+                self.error_at_pos(pos.saturating_sub(1), "unexpected end of file in element");
+                return None;
+            }
+
+            let ch = source_bytes[pos] as char;
+
+            // Check for self-closing or end of opening tag
+            if ch == '/' {
+                // Self-closing tag: <tag />
+                pos += 1;
+                // Skip whitespace
+                while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+                    pos += 1;
+                }
+                if pos >= source_len || source_bytes[pos] as char != '>' {
+                    self.error_at_pos(pos, "expected `>` after `/` in self-closing tag");
+                    return None;
+                }
+                pos += 1;
+
+                return Some((
+                    HxElement {
+                        tag,
+                        attributes,
+                        children: Vec::new(),
+                        self_closing: true,
+                        span: Span::new(start_pos, pos),
+                    },
+                    pos,
+                ));
+            } else if ch == '>' {
+                // End of opening tag, expect children and closing tag
+                pos += 1;
+                break;
+            } else if ch.is_ascii_alphabetic() || ch == '_' {
+                // Parse attribute
+                let (attr, new_pos) = self.parse_hx_attribute(pos)?;
+                attributes.push(attr);
+                pos = new_pos;
+            } else {
+                self.error_at_pos(
+                    pos,
+                    format!("unexpected character '{}' in element tag", ch),
+                );
+                return None;
+            }
+        }
+
+        // Parse children until closing tag
+        let mut children = Vec::new();
+        loop {
+            // Skip whitespace
+            while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
+
+            if pos >= source_len {
+                self.error_at_pos(
+                    tag_start,
+                    format!("unclosed element `<{}>`, expected closing tag `</{}>`", tag_name, tag_name),
+                );
+                return None;
+            }
+
+            let ch = source_bytes[pos] as char;
+
+            if ch == '<' {
+                // Check if this is a closing tag
+                if pos + 1 < source_len && source_bytes[pos + 1] as char == '/' {
+                    // Closing tag
+                    pos += 2; // consume `</`
+
+                    // Skip whitespace
+                    while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+                        pos += 1;
+                    }
+
+                    // Parse closing tag name
+                    let close_tag_start = pos;
+                    while pos < source_len {
+                        let c = source_bytes[pos] as char;
+                        if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                            pos += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let close_tag_name = &self.source[close_tag_start..pos];
+                    if close_tag_name != tag_name {
+                        self.error_at_pos(
+                            close_tag_start,
+                            format!("closing tag `</{}>` does not match opening tag `<{}>`",
+                            close_tag_name, tag_name
+                        ));
+                        return None;
+                    }
+
+                    // Skip whitespace
+                    while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+                        pos += 1;
+                    }
+
+                    // Expect `>`
+                    if pos >= source_len || source_bytes[pos] as char != '>' {
+                        self.error_at_pos(pos, "expected `>` after closing tag name");
+                        return None;
+                    }
+                    pos += 1;
+
+                    return Some((
+                        HxElement {
+                            tag,
+                            attributes,
+                            children,
+                            self_closing: false,
+                            span: Span::new(start_pos, pos),
+                        },
+                        pos,
+                    ));
+                } else {
+                    // Nested element
+                    let (child_element, new_pos) = self.parse_hx_element(pos)?;
+                    children.push(HxChild::Element(child_element));
+                    pos = new_pos;
+                }
+            } else if ch == '{' {
+                // Expression interpolation
+                let (expr_child, new_pos) = self.parse_hx_expr_interpolation(pos)?;
+                children.push(HxChild::Expr(expr_child));
+                pos = new_pos;
+            } else {
+                // Text content
+                let text_start = pos;
+                while pos < source_len {
+                    let c = source_bytes[pos] as char;
+                    if c == '<' || c == '{' {
+                        break;
+                    }
+                    pos += 1;
+                }
+
+                let text = &self.source[text_start..pos];
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    children.push(HxChild::Text(HxText {
+                        value: trimmed.to_string(),
+                        span: Span::new(text_start, pos),
+                    }));
+                }
+            }
+        }
+    }
+
+    /// Parse an HX attribute: `name="value"` or `name={expr}` or `name`
+    fn parse_hx_attribute(&mut self, start_pos: usize) -> Option<(HxAttribute, usize)> {
+        let source_bytes = self.source.as_bytes();
+        let source_len = source_bytes.len();
+        let mut pos = start_pos;
+
+        // Parse attribute name
+        let name_start = pos;
+        while pos < source_len {
+            let c = source_bytes[pos] as char;
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                pos += 1;
+            } else {
+                break;
+            }
+        }
+
+        if pos == name_start {
+            self.error_at_pos(pos, "expected attribute name");
+            return None;
+        }
+
+        let attr_name = &self.source[name_start..pos];
+        let name = Ident {
+            name: attr_name.to_string(),
+            span: Span::new(name_start, pos),
+        };
+
+        // Skip whitespace
+        while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        // Check for `=`
+        if pos >= source_len || source_bytes[pos] as char != '=' {
+            // Boolean attribute (no value)
+            return Some((
+                HxAttribute::Boolean {
+                    name,
+                    span: Span::new(start_pos, pos),
+                },
+                pos,
+            ));
+        }
+
+        pos += 1; // consume `=`
+
+        // Skip whitespace
+        while pos < source_len && source_bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        if pos >= source_len {
+            self.error_at_pos(pos.saturating_sub(1), format!("expected attribute value after `{attr_name}=`"));
+            return None;
+        }
+
+        let ch = source_bytes[pos] as char;
+        let value = if ch == '"' {
+            // String literal
+            pos += 1; // consume opening `"`
+            let value_start = pos;
+            while pos < source_len && source_bytes[pos] as char != '"' {
+                // Handle escape sequences
+                if source_bytes[pos] as char == '\\' && pos + 1 < source_len {
+                    pos += 2;
+                } else {
+                    pos += 1;
+                }
+            }
+
+            if pos >= source_len {
+                self.error_at_pos(value_start - 1, "unterminated string in attribute");
+                return None;
+            }
+
+            let string_value = &self.source[value_start..pos];
+            pos += 1; // consume closing `"`
+
+            HxAttrValue::String(string_value.to_string(), Span::new(value_start - 1, pos))
+        } else if ch == '\'' {
+            // Single-quoted string literal
+            pos += 1; // consume opening `'`
+            let value_start = pos;
+            while pos < source_len && source_bytes[pos] as char != '\'' {
+                if source_bytes[pos] as char == '\\' && pos + 1 < source_len {
+                    pos += 2;
+                } else {
+                    pos += 1;
+                }
+            }
+
+            if pos >= source_len {
+                self.error_at_pos(value_start - 1, "unterminated string in attribute");
+                return None;
+            }
+
+            let string_value = &self.source[value_start..pos];
+            pos += 1; // consume closing `'`
+
+            HxAttrValue::String(string_value.to_string(), Span::new(value_start - 1, pos))
+        } else if ch == '{' {
+            // Expression value
+            pos += 1; // consume `{`
+
+            // Find matching `}` (handling nested braces)
+            let mut depth = 1;
+            let inner_start = pos;
+            while pos < source_len && depth > 0 {
+                let c = source_bytes[pos] as char;
+                if c == '{' {
+                    depth += 1;
+                } else if c == '}' {
+                    depth -= 1;
+                } else if c == '"' || c == '\'' {
+                    // Skip strings
+                    let quote = c;
+                    pos += 1;
+                    while pos < source_len && source_bytes[pos] as char != quote {
+                        if source_bytes[pos] as char == '\\' && pos + 1 < source_len {
+                            pos += 2;
+                        } else {
+                            pos += 1;
+                        }
+                    }
+                }
+                if depth > 0 {
+                    pos += 1;
+                }
+            }
+
+            if depth != 0 {
+                self.error_at_pos(inner_start - 1, "unclosed expression in attribute");
+                return None;
+            }
+
+            // Parse the expression
+            let expr_source = &self.source[inner_start..pos];
+            let expr = self.parse_expression_from_string(expr_source, inner_start)?;
+            pos += 1; // consume `}`
+
+            HxAttrValue::Expr(Box::new(expr))
+        } else {
+            self.error_at_pos(
+                pos,
+                format!("expected attribute value (string or expression) for `{attr_name}`, found '{ch}'"),
+            );
+            return None;
+        };
+
+        Some((
+            HxAttribute::KeyValue {
+                name,
+                value,
+                span: Span::new(start_pos, pos),
+            },
+            pos,
+        ))
+    }
+
+    /// Parse an expression interpolation: `{expr}`
+    fn parse_hx_expr_interpolation(&mut self, start_pos: usize) -> Option<(HxExpr, usize)> {
+        let source_bytes = self.source.as_bytes();
+        let source_len = source_bytes.len();
+        let mut pos = start_pos;
+
+        // Consume `{`
+        if pos >= source_len || source_bytes[pos] as char != '{' {
+            self.error_at_pos(pos, "expected `{` to start expression interpolation");
+            return None;
+        }
+        pos += 1;
+
+        let inner_start = pos;
+
+        // Find matching `}` (handling nested braces)
+        let mut depth = 1;
+        while pos < source_len && depth > 0 {
+            let c = source_bytes[pos] as char;
+            if c == '{' {
+                depth += 1;
+            } else if c == '}' {
+                depth -= 1;
+            } else if c == '"' || c == '\'' {
+                // Skip strings
+                let quote = c;
+                pos += 1;
+                while pos < source_len && source_bytes[pos] as char != quote {
+                    if source_bytes[pos] as char == '\\' && pos + 1 < source_len {
+                        pos += 2;
+                    } else {
+                        pos += 1;
+                    }
+                }
+            }
+            if depth > 0 {
+                pos += 1;
+            }
+        }
+
+        if depth != 0 {
+            self.error_at_pos(start_pos, "unclosed expression interpolation `{...}`");
+            return None;
+        }
+
+        // Parse the expression
+        let expr_source = &self.source[inner_start..pos];
+        let expr = self.parse_expression_from_string(expr_source, inner_start)?;
+        pos += 1; // consume `}`
+
+        Some((
+            HxExpr {
+                expr: Box::new(expr),
+                span: Span::new(start_pos, pos),
+            },
+            pos,
+        ))
+    }
+
+    /// Parse an expression from a string slice at a given offset.
+    /// This is used for parsing expressions inside hx blocks.
+    fn parse_expression_from_string(&mut self, source: &str, _offset: usize) -> Option<Expr> {
+        // Re-lex and parse the expression
+        let tokens: Vec<Token> = husk_lexer::Lexer::new(source).collect();
+        let mut sub_parser = Parser::new(&tokens, source);
+        let expr = sub_parser.parse_expr()?;
+
+        // Merge any errors from sub-parser
+        for err in sub_parser.errors {
+            self.errors.push(err);
+        }
+
+        Some(expr)
     }
 
     fn parse_array_expr(&mut self) -> Option<Expr> {
@@ -5666,5 +6286,71 @@ fn test() {
         } else {
             panic!("expected ExternBlock");
         }
+    }
+
+    // ============================================================================
+    // Hx Block Parser Tests
+    // ============================================================================
+
+    #[test]
+    fn parses_simple_hx_block() {
+        let src = r#"fn main() { let x = hx { <div>Hello</div> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+        assert_eq!(file.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_hx_block_with_attributes() {
+        let src = r#"fn main() { let x = hx { <div class="container" id="main">Hello</div> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parses_hx_block_self_closing() {
+        let src = r#"fn main() { let x = hx { <br /> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parses_hx_block_with_expr_interpolation() {
+        let src = r#"fn main() { let name = "World"; let x = hx { <div>Hello {name}</div> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parses_hx_block_with_expr_attribute() {
+        let src = r#"fn main() { let cls = "container"; let x = hx { <div class={cls}>Hello</div> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parses_nested_hx_elements() {
+        let src = r#"fn main() { let x = hx { <div><span>Nested</span></div> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn parses_hx_boolean_attribute() {
+        let src = r#"fn main() { let x = hx { <input disabled /> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn hx_identifier_without_brace_is_ident() {
+        // `hx` by itself should be parsed as an identifier, not a keyword
+        let src = r#"fn main() { let hx = 42; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        // The variable `hx` should be usable
+        let file = result.file.unwrap();
+        assert_eq!(file.items.len(), 1);
     }
 }
