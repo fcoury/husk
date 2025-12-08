@@ -54,17 +54,17 @@ fn FeatureList() -> JsValue {
 }
 
 fn Counter() -> JsValue {
-    // useState returns a JsValue array: [count, setCount]
-    let state = useState(js { 0 });
+    // Phase 3: Native primitive conversion instead of js { 0 }
+    let state = useState(jsvalue_from_int(0));
 
     // Extract count (index 0) and setter (index 1) from the state array
     let count = jsvalue_get(state, "0");
     let set_count = jsvalue_get(state, "1");
 
-    // For the click handler, we need to create a function that captures the state
-    // We use jsvalue_call1 to call the setter with the new value
-    let increment = js {
-        () => set_count(count + 1)
+    // Phase 1+2: Native Husk closure with jsvalue_call and arithmetic
+    // No more js blocks needed for the callback!
+    let increment = || {
+        jsvalue_call1(set_count, jsvalue_add_num(count, 1.0));
     };
 
     hx {
@@ -98,7 +98,8 @@ fn App() -> JsValue {
 }
 
 fn main() {
-    let root_element = js { document.getElementById("root") };
+    // Phase 4: Native browser global access instead of js block
+    let root_element = jsvalue_method1_str(get_document(), "getElementById", "root");
     let root = createRoot(root_element);
     root.render(hx { <App /> });
 }

@@ -323,6 +323,29 @@ function jsvalue_call3(fn, a, b, c) {
     return fn(a, b, c);
 }
 
+// JsValue arithmetic helpers
+function jsvalue_add_num(a, b) { return a + b; }
+function jsvalue_sub_num(a, b) { return a - b; }
+function jsvalue_mul_num(a, b) { return a * b; }
+function jsvalue_div_num(a, b) { return a / b; }
+
+// Primitive to JsValue conversion helpers
+function jsvalue_from_int(n) { return n; }
+function jsvalue_from_float(n) { return n; }
+function jsvalue_from_bool(b) { return b; }
+function jsvalue_null() { return null; }
+function jsvalue_undefined() { return undefined; }
+
+// Browser globals access
+function get_document() { return typeof document !== 'undefined' ? document : null; }
+function get_window() { return typeof window !== 'undefined' ? window : null; }
+
+// JsValue method call helpers
+function jsvalue_method0(obj, method) { return obj[method](); }
+function jsvalue_method1(obj, method, arg) { return obj[method](arg); }
+function jsvalue_method2(obj, method, arg1, arg2) { return obj[method](arg1, arg2); }
+function jsvalue_method1_str(obj, method, arg) { return obj[method](arg); }
+
 // JsObject builder class for fluent API
 // Usage: JsObject_new().setString("key", "value").setNumber("count", 42).toJsValue()
 function JsObject_new() {
@@ -852,6 +875,29 @@ function jsvalue_call3(fn, a, b, c) {
     if (typeof fn !== 'function') return null;
     return fn(a, b, c);
 }
+
+// JsValue arithmetic helpers
+function jsvalue_add_num(a, b) { return a + b; }
+function jsvalue_sub_num(a, b) { return a - b; }
+function jsvalue_mul_num(a, b) { return a * b; }
+function jsvalue_div_num(a, b) { return a / b; }
+
+// Primitive to JsValue conversion helpers
+function jsvalue_from_int(n) { return n; }
+function jsvalue_from_float(n) { return n; }
+function jsvalue_from_bool(b) { return b; }
+function jsvalue_null() { return null; }
+function jsvalue_undefined() { return undefined; }
+
+// Browser globals access
+function get_document() { return typeof document !== 'undefined' ? document : null; }
+function get_window() { return typeof window !== 'undefined' ? window : null; }
+
+// JsValue method call helpers
+function jsvalue_method0(obj, method) { return obj[method](); }
+function jsvalue_method1(obj, method, arg) { return obj[method](arg); }
+function jsvalue_method2(obj, method, arg1, arg2) { return obj[method](arg1, arg2); }
+function jsvalue_method1_str(obj, method, arg) { return obj[method](arg); }
 
 // JsObject builder class for fluent API
 // Usage: JsObject_new().setString("key", "value").setNumber("count", 42).toJsValue()

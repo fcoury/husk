@@ -162,4 +162,61 @@ extern "js" {
     /// Call a JsValue function with three arguments.
     /// Returns null if the value is not a function.
     fn jsvalue_call3(fn_: JsValue, arg1: JsValue, arg2: JsValue, arg3: JsValue) -> JsValue;
+
+    // JsValue arithmetic helpers
+    // Perform arithmetic on JsValue numbers
+
+    /// Add a number to a JsValue (numeric).
+    fn jsvalue_add_num(a: JsValue, b: f64) -> JsValue;
+
+    /// Subtract a number from a JsValue (numeric).
+    fn jsvalue_sub_num(a: JsValue, b: f64) -> JsValue;
+
+    /// Multiply a JsValue by a number (numeric).
+    fn jsvalue_mul_num(a: JsValue, b: f64) -> JsValue;
+
+    /// Divide a JsValue by a number (numeric).
+    fn jsvalue_div_num(a: JsValue, b: f64) -> JsValue;
+
+    // Primitive to JsValue conversion helpers
+    // Convert Husk primitives to JsValue for passing to JS functions
+
+    /// Convert an integer to JsValue.
+    fn jsvalue_from_int(n: i32) -> JsValue;
+
+    /// Convert a float to JsValue.
+    fn jsvalue_from_float(n: f64) -> JsValue;
+
+    /// Convert a boolean to JsValue.
+    fn jsvalue_from_bool(b: bool) -> JsValue;
+
+    /// Create a null JsValue.
+    fn jsvalue_null() -> JsValue;
+
+    /// Create an undefined JsValue.
+    fn jsvalue_undefined() -> JsValue;
+
+    // Browser globals access
+    // These functions return browser global objects (browser platform only)
+
+    /// Get the global document object.
+    fn get_document() -> JsValue;
+
+    /// Get the global window object.
+    fn get_window() -> JsValue;
+
+    // JsValue method call helpers
+    // Call methods on JsValue objects
+
+    /// Call a method on a JsValue with one string argument.
+    fn jsvalue_method1_str(obj: JsValue, method: String, arg: String) -> JsValue;
+
+    /// Call a method on a JsValue with no arguments.
+    fn jsvalue_method0(obj: JsValue, method: String) -> JsValue;
+
+    /// Call a method on a JsValue with one JsValue argument.
+    fn jsvalue_method1(obj: JsValue, method: String, arg: JsValue) -> JsValue;
+
+    /// Call a method on a JsValue with two JsValue arguments.
+    fn jsvalue_method2(obj: JsValue, method: String, arg1: JsValue, arg2: JsValue) -> JsValue;
 }

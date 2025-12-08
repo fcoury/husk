@@ -12,7 +12,7 @@ use husk_ast::{
     Param, Pattern, PatternKind, Span, Stmt, StmtKind, StructField, TypeExpr, TypeExprKind,
     TypeParam,
 };
-use husk_runtime_js::std_preamble_js;
+use husk_runtime_js::std_preamble_js_for_platform;
 use husk_semantic::{NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
 use sourcemap::SourceMapBuilder;
 use std::collections::{HashMap, HashSet};
@@ -433,15 +433,8 @@ pub enum JsBinaryOp {
     StrictNe, // !==
 }
 
-/// Platform target for code generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Platform {
-    /// Server-side execution (Node.js)
-    #[default]
-    Node,
-    /// Client-side execution (Browser)
-    Browser,
-}
+// Re-export Platform from the runtime crate to ensure consistency.
+pub use husk_runtime_js::Platform;
 
 /// Output module format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -2689,12 +2682,12 @@ fn lower_hx_children(children: &[HxChild], ctx: &CodegenContext) -> JsExpr {
         0 => JsExpr::Null,
         1 => lowered.into_iter().next().unwrap(),
         _ => {
-            // Multiple children: wrap in _jsx("Fragment", { children: [...] })
+            // Multiple children: wrap in _jsx(Fragment, { children: [...] })
             // or just return an array if the runtime supports it
             JsExpr::Call {
                 callee: Box::new(JsExpr::Ident("_jsx".to_string())),
                 args: vec![
-                    JsExpr::Ident("_Fragment".to_string()),
+                    JsExpr::Ident("Fragment".to_string()),
                     JsExpr::Object(vec![("children".to_string(), JsExpr::Array(lowered))]),
                 ],
             }
@@ -3363,7 +3356,15 @@ impl JsModule {
     /// Render the module to a JavaScript source string with the Husk preamble.
     /// Import/require statements are placed at the very top, followed by the preamble,
     /// then the rest of the code.
+    /// Uses Node preamble by default for backwards compatibility.
     pub fn to_source_with_preamble(&self) -> String {
+        self.to_source_with_preamble_for_platform(Platform::Node)
+    }
+
+    /// Render the module to a JavaScript source string with the platform-specific preamble.
+    /// Import/require statements are placed at the very top, followed by the preamble,
+    /// then the rest of the code.
+    pub fn to_source_with_preamble_for_platform(&self, platform: Platform) -> String {
         let mut out = String::new();
 
         // First, output all import/require statements at the top
@@ -3379,8 +3380,8 @@ impl JsModule {
             out.push('\n');
         }
 
-        // Then output the preamble
-        out.push_str(std_preamble_js());
+        // Then output the platform-specific preamble
+        out.push_str(std_preamble_js_for_platform(platform));
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -3399,10 +3400,22 @@ impl JsModule {
 
     /// Render the module to JavaScript source with a source map.
     /// Returns (js_source, source_map_json).
+    /// Uses Node preamble by default for backwards compatibility.
     pub fn to_source_with_sourcemap(
         &self,
         source_file: &str,
         source_content: &str,
+    ) -> (String, String) {
+        self.to_source_with_sourcemap_for_platform(source_file, source_content, Platform::Node)
+    }
+
+    /// Render the module to JavaScript source with a source map for a specific platform.
+    /// Returns (js_source, source_map_json).
+    pub fn to_source_with_sourcemap_for_platform(
+        &self,
+        source_file: &str,
+        source_content: &str,
+        platform: Platform,
     ) -> (String, String) {
         let mut out = String::new();
         let mut builder = SourceMapBuilder::new(Some(source_file));
@@ -3412,7 +3425,7 @@ impl JsModule {
         builder.set_source_contents(source_id, Some(source_content));
 
         // Count preamble lines
-        let preamble = std_preamble_js();
+        let preamble = std_preamble_js_for_platform(platform);
         let preamble_lines = preamble.lines().count() as u32;
 
         // First, output all import/require statements at the top

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
+use husk_codegen_js::{JsTarget, Platform as CodegenPlatform, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
 use husk_dts_parser::{
     CodegenOptions as DtsCodegenOptions, DtsFile, UnionStrategy, generate as generate_husk,
     generate_from_module as generate_husk_from_module, parse as parse_dts,
@@ -252,6 +252,15 @@ pub enum Platform {
     Node,
     /// Client-side execution (Browser)
     Browser,
+}
+
+impl From<Platform> for CodegenPlatform {
+    fn from(p: Platform) -> Self {
+        match p {
+            Platform::Node => CodegenPlatform::Node,
+            Platform::Browser => CodegenPlatform::Browser,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum, Default)]
@@ -1269,10 +1278,10 @@ fn run_build(
 
     // Resolve platform: CLI arg > config > default (Node)
     let effective_platform = platform.unwrap_or_else(|| {
-        match config.build.platform.as_deref() {
-            Some("browser") => Platform::Browser,
-            Some("node") => Platform::Node,
-            _ => detect_platform_from_package_json(),
+        match config.build.platform() {
+            config::ConfigPlatform::Browser => Platform::Browser,
+            config::ConfigPlatform::Node => Platform::Node,
+            config::ConfigPlatform::Auto => detect_platform_from_package_json(),
         }
     });
 
@@ -1410,7 +1419,7 @@ fn run_build(
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or(&entry_str);
-        let (mut js, map_json) = module.to_source_with_sourcemap(source_file, &content);
+        let (mut js, map_json) = module.to_source_with_sourcemap_for_platform(source_file, &content, effective_platform.into());
 
         let map_file = output_path.join(format!("{stem}.js.map"));
         let map_name = format!("{stem}.js.map");
@@ -1443,7 +1452,7 @@ fn run_build(
             &semantic.variant_calls,
             &semantic.variant_patterns,
         );
-        let js = module.to_source_with_preamble();
+        let js = module.to_source_with_preamble_for_platform(effective_platform.into());
 
         if let Err(err) = fs::write(&js_file, &js) {
             eprintln!("Failed to write {}: {err}", js_file.display());

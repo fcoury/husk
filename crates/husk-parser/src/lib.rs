@@ -4464,18 +4464,35 @@ impl<'src> Parser<'src> {
     /// Parse an expression from a string slice at a given offset.
     /// This is used for parsing expressions inside hx blocks.
     fn parse_expression_from_string(&mut self, source: &str, offset: usize) -> Option<Expr> {
-        // Re-lex and parse the expression
+        // Re-lex and parse the embedded expression.
         let tokens: Vec<Token> = husk_lexer::Lexer::new(source).collect();
         let mut sub_parser = Parser::new(&tokens, source);
-        let mut expr = sub_parser.parse_expr()?;
+        let expr_result = sub_parser.parse_expr();
 
-        // Adjust spans by the offset so they refer to positions in the original source
-        Self::offset_expr_spans(&mut expr, offset);
+        // If we successfully parsed an expression, require that all tokens were consumed.
+        if expr_result.is_some() && !matches!(sub_parser.current().kind, TokenKind::Eof) {
+            let tok = sub_parser.current().clone();
+            let span = Span::new(
+                offset + tok.span.range.start,
+                offset + tok.span.range.end,
+            );
+            self.errors.push(ParseError {
+                message: "unexpected tokens after expression in hx block".to_string(),
+                span,
+            });
+        }
 
-        // Merge any errors from sub-parser
-        for err in sub_parser.errors {
+        // Rebase any errors from the sub-parser into the outer source coordinates.
+        for mut err in sub_parser.errors {
+            err.span.range = (err.span.range.start + offset)..(err.span.range.end + offset);
             self.errors.push(err);
         }
+
+        // Bail out if no expression AST was produced.
+        let mut expr = expr_result?;
+
+        // Adjust all spans in the embedded AST by the offset.
+        Self::offset_expr_spans(&mut expr, offset);
 
         Some(expr)
     }
@@ -6574,6 +6591,20 @@ fn test() {
     // Hx Block Parser Tests
     // ============================================================================
 
+    /// Helper to extract the HxBlock children from a simple `fn main() { let x = hx { ... }; }` pattern
+    fn extract_hx_children(file: &File) -> &Vec<HxChild> {
+        let ItemKind::Fn { body, .. } = &file.items[0].kind else {
+            panic!("Expected function");
+        };
+        let StmtKind::Let { value: Some(expr), .. } = &body[0].kind else {
+            panic!("Expected let with value");
+        };
+        let ExprKind::HxBlock { children } = &expr.kind else {
+            panic!("Expected HxBlock");
+        };
+        children
+    }
+
     #[test]
     fn parses_simple_hx_block() {
         let src = r#"fn main() { let x = hx { <div>Hello</div> }; }"#;
@@ -6581,6 +6612,22 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         assert_eq!(file.items.len(), 1);
+
+        // Verify AST structure
+        let children = extract_hx_children(&file);
+        assert_eq!(children.len(), 1);
+
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+        assert_eq!(elem.tag.name, "div");
+        assert!(!elem.self_closing);
+        assert_eq!(elem.children.len(), 1);
+
+        let HxChild::Text(text) = &elem.children[0] else {
+            panic!("Expected text child");
+        };
+        assert_eq!(text.value, "Hello");
     }
 
     #[test]
@@ -6588,6 +6635,35 @@ fn test() {
         let src = r#"fn main() { let x = hx { <div class="container" id="main">Hello</div> }; }"#;
         let result = parse_str(src);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        // Verify attributes
+        let children = extract_hx_children(&file);
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+        assert_eq!(elem.tag.name, "div");
+        assert_eq!(elem.attributes.len(), 2);
+
+        // Check first attribute: class="container"
+        let HxAttribute::KeyValue { name, value, .. } = &elem.attributes[0] else {
+            panic!("Expected KeyValue attribute");
+        };
+        assert_eq!(name.name, "class");
+        let HxAttrValue::String(val, _) = value else {
+            panic!("Expected string value");
+        };
+        assert_eq!(val, "container");
+
+        // Check second attribute: id="main"
+        let HxAttribute::KeyValue { name, value, .. } = &elem.attributes[1] else {
+            panic!("Expected KeyValue attribute");
+        };
+        assert_eq!(name.name, "id");
+        let HxAttrValue::String(val, _) = value else {
+            panic!("Expected string value");
+        };
+        assert_eq!(val, "main");
     }
 
     #[test]
@@ -6595,6 +6671,16 @@ fn test() {
         let src = r#"fn main() { let x = hx { <br /> }; }"#;
         let result = parse_str(src);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        // Verify self-closing
+        let children = extract_hx_children(&file);
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+        assert_eq!(elem.tag.name, "br");
+        assert!(elem.self_closing);
+        assert!(elem.children.is_empty());
     }
 
     #[test]
@@ -6602,6 +6688,38 @@ fn test() {
         let src = r#"fn main() { let name = "World"; let x = hx { <div>Hello {name}</div> }; }"#;
         let result = parse_str(src);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        // Get the second let statement (the hx block)
+        let ItemKind::Fn { body, .. } = &file.items[0].kind else {
+            panic!("Expected function");
+        };
+        let StmtKind::Let { value: Some(expr), .. } = &body[1].kind else {
+            panic!("Expected let with value");
+        };
+        let ExprKind::HxBlock { children } = &expr.kind else {
+            panic!("Expected HxBlock");
+        };
+
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+        assert_eq!(elem.children.len(), 2);
+
+        // First child: text "Hello "
+        let HxChild::Text(text) = &elem.children[0] else {
+            panic!("Expected text child");
+        };
+        assert!(text.value.contains("Hello"));
+
+        // Second child: expression {name}
+        let HxChild::Expr(hx_expr) = &elem.children[1] else {
+            panic!("Expected expr child");
+        };
+        let ExprKind::Ident(ident) = &hx_expr.expr.kind else {
+            panic!("Expected ident in interpolation");
+        };
+        assert_eq!(ident.name, "name");
     }
 
     #[test]
@@ -6609,6 +6727,35 @@ fn test() {
         let src = r#"fn main() { let cls = "container"; let x = hx { <div class={cls}>Hello</div> }; }"#;
         let result = parse_str(src);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        // Get the second let statement
+        let ItemKind::Fn { body, .. } = &file.items[0].kind else {
+            panic!("Expected function");
+        };
+        let StmtKind::Let { value: Some(expr), .. } = &body[1].kind else {
+            panic!("Expected let with value");
+        };
+        let ExprKind::HxBlock { children } = &expr.kind else {
+            panic!("Expected HxBlock");
+        };
+
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+
+        // Verify expression attribute
+        let HxAttribute::KeyValue { name, value, .. } = &elem.attributes[0] else {
+            panic!("Expected KeyValue attribute");
+        };
+        assert_eq!(name.name, "class");
+        let HxAttrValue::Expr(attr_expr) = value else {
+            panic!("Expected expression value");
+        };
+        let ExprKind::Ident(ident) = &attr_expr.kind else {
+            panic!("Expected ident in attribute expr");
+        };
+        assert_eq!(ident.name, "cls");
     }
 
     #[test]
@@ -6616,6 +6763,26 @@ fn test() {
         let src = r#"fn main() { let x = hx { <div><span>Nested</span></div> }; }"#;
         let result = parse_str(src);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        // Verify nesting structure
+        let children = extract_hx_children(&file);
+        let HxChild::Element(div) = &children[0] else {
+            panic!("Expected div element");
+        };
+        assert_eq!(div.tag.name, "div");
+        assert_eq!(div.children.len(), 1);
+
+        let HxChild::Element(span) = &div.children[0] else {
+            panic!("Expected span element");
+        };
+        assert_eq!(span.tag.name, "span");
+        assert_eq!(span.children.len(), 1);
+
+        let HxChild::Text(text) = &span.children[0] else {
+            panic!("Expected text in span");
+        };
+        assert_eq!(text.value, "Nested");
     }
 
     #[test]
@@ -6623,6 +6790,21 @@ fn test() {
         let src = r#"fn main() { let x = hx { <input disabled /> }; }"#;
         let result = parse_str(src);
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        // Verify boolean attribute
+        let children = extract_hx_children(&file);
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+        assert_eq!(elem.tag.name, "input");
+        assert!(elem.self_closing);
+        assert_eq!(elem.attributes.len(), 1);
+
+        let HxAttribute::Boolean { name, .. } = &elem.attributes[0] else {
+            panic!("Expected Boolean attribute");
+        };
+        assert_eq!(name.name, "disabled");
     }
 
     #[test]
@@ -6634,5 +6816,62 @@ fn test() {
         // The variable `hx` should be usable
         let file = result.file.unwrap();
         assert_eq!(file.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_hx_component_tag() {
+        // Component tags start with uppercase
+        let src = r#"fn main() { let x = hx { <MyComponent prop="value" /> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        let children = extract_hx_children(&file);
+        let HxChild::Element(elem) = &children[0] else {
+            panic!("Expected element");
+        };
+        assert_eq!(elem.tag.name, "MyComponent");
+        assert!(elem.self_closing);
+    }
+
+    #[test]
+    fn parses_hx_multiple_children() {
+        let src = r#"fn main() { let x = hx { <div><span>A</span><span>B</span></div> }; }"#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let file = result.file.unwrap();
+
+        let children = extract_hx_children(&file);
+        let HxChild::Element(div) = &children[0] else {
+            panic!("Expected div");
+        };
+        assert_eq!(div.children.len(), 2);
+
+        // Both children should be span elements
+        for (i, child) in div.children.iter().enumerate() {
+            let HxChild::Element(span) = child else {
+                panic!("Expected span at index {}", i);
+            };
+            assert_eq!(span.tag.name, "span");
+        }
+    }
+
+    #[test]
+    fn hx_trailing_tokens_in_interpolation_reports_error() {
+        // The sub-parser should catch trailing tokens like `{x y}`
+        let src = r#"fn main() { let x = hx { <div>{foo bar}</div> }; }"#;
+        let result = parse_str(src);
+        // This should produce an error about unexpected tokens
+        assert!(
+            !result.errors.is_empty(),
+            "Expected error for trailing tokens in interpolation"
+        );
+        assert!(
+            result.errors[0]
+                .message
+                .contains("unexpected tokens after expression"),
+            "Error message should mention unexpected tokens: {:?}",
+            result.errors[0].message
+        );
     }
 }
