@@ -17,6 +17,7 @@ fn type_expr_to_name(ty: &husk_ast::TypeExpr) -> String {
             let type_names: Vec<String> = types.iter().map(type_expr_to_name).collect();
             format!("({})", type_names.join(", "))
         }
+        TypeExprKind::ImplTrait { trait_ty } => type_expr_to_name(trait_ty),
     }
 }
 

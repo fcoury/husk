@@ -37,6 +37,12 @@ pub enum Type {
     Array(Box<Type>),
     /// A tuple type: `(T1, T2, ...)`.
     Tuple(Vec<Type>),
+    /// An impl Trait type: `impl Iterator<T>` - used for return types
+    /// Stores the underlying trait type for resolution
+    ImplTrait {
+        /// The trait type (e.g., `Iterator<i32>`)
+        trait_ty: Box<Type>,
+    },
 }
 
 impl Type {

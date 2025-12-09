@@ -1,0 +1,6 @@
+// Debug test - just array
+fn main() {
+    let arr = [1, 2, 3];
+    println("Array: {}", arr);
+}
+

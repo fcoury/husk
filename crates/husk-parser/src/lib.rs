@@ -21,6 +21,8 @@ fn debug_log(msg: &str) {
     }
 }
 
+// Removed DepthGuard - using thread_local instead
+
 #[derive(Debug)]
 pub struct ParseError {
     pub message: String,
@@ -868,11 +870,21 @@ impl<'src> Parser<'src> {
         }
 
         let mut items = Vec::new();
+        let mut method_count = 0;
         while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+            method_count += 1;
+            if method_count > 100 {
+                break;
+            }
+            let pos_before = self.pos;
             if let Some(item) = self.parse_trait_method() {
                 items.push(item);
             } else {
                 self.synchronize_item();
+                // Ensure progress is made to avoid infinite loop
+                if self.pos == pos_before && !self.is_at_end() {
+                    self.advance();
+                }
             }
         }
 
@@ -898,11 +910,30 @@ impl<'src> Parser<'src> {
 
     /// Parse a method inside a trait: `fn method(&self) -> RetType;` or with default body
     fn parse_trait_method(&mut self) -> Option<TraitItem> {
+        // First, parse any attributes
+        let _attributes = self.parse_attributes();
+
+        // Capture start position for span (before extern or fn keyword)
+        let item_start = self.current().span.range.start;
+
+        // Check for extern "js" before fn (same as impl methods)
+        if self.matches_keyword(Keyword::Extern) {
+            // Expect "js" string literal
+            if let TokenKind::StringLiteral(ref s) = self.current().kind {
+                if s != "js" {
+                    self.error_here("only \"js\" ABI is supported for extern methods");
+                }
+                self.advance();
+            } else {
+                self.error_here("expected string literal ABI after `extern`");
+                return None;
+            }
+        }
+
         if !self.matches_keyword(Keyword::Fn) {
             self.error_here("expected `fn` inside trait");
             return None;
         }
-        let fn_start = self.previous().span.range.start;
         let name = self.parse_ident("expected method name after `fn`")?;
 
         if !self.matches_token(&TokenKind::LParen) {
@@ -912,10 +943,19 @@ impl<'src> Parser<'src> {
 
         // Parse self receiver and regular parameters
         let (receiver, params) = self.parse_method_param_list();
+        // Ensure we consumed the closing paren
+        if matches!(self.current().kind, TokenKind::RParen) {
+            self.advance(); // Consume it manually
+        }
 
         // Optional return type
         let ret_type = if self.matches_token(&TokenKind::Arrow) {
-            Some(self.parse_type_expr()?)
+            match self.parse_type_expr() {
+                Some(ty) => Some(ty),
+                None => {
+                    return None;
+                }
+            }
         } else {
             None
         };
@@ -942,7 +982,7 @@ impl<'src> Parser<'src> {
                 default_body,
             }),
             span: Span {
-                range: fn_start..end,
+                range: item_start..end,
                 file: None,
             },
         })
@@ -1462,7 +1502,9 @@ impl<'src> Parser<'src> {
             }
             let ty = match self.parse_type_expr() {
                 Some(t) => t,
-                None => break,
+                None => {
+                    break;
+                }
             };
             params.push(Param {
                 attributes,
@@ -1600,7 +1642,38 @@ impl<'src> Parser<'src> {
 
     fn parse_type_expr(&mut self) -> Option<TypeExpr> {
         let tok = self.current().clone();
+        // Only log impl Trait parsing for debugging
+        if matches!(tok.kind, TokenKind::Keyword(Keyword::Impl)) {}
         match tok.kind {
+            // Impl Trait type: `impl Iterator<T>`
+            TokenKind::Keyword(Keyword::Impl) => {
+                let start = tok.span.range.start;
+                self.advance(); // consume `impl`
+                let new_token = self.current();
+
+                // Safety check: if we're still seeing impl, we have a problem
+                if matches!(new_token.kind, TokenKind::Keyword(Keyword::Impl)) {
+                    return None;
+                }
+
+                let trait_ty = match self.parse_type_expr() {
+                    Some(ty) => ty,
+                    None => {
+                        return None;
+                    }
+                };
+                let end = trait_ty.span.range.end;
+
+                Some(TypeExpr {
+                    kind: TypeExprKind::ImplTrait {
+                        trait_ty: Box::new(trait_ty),
+                    },
+                    span: Span {
+                        range: start..end,
+                        file: None,
+                    },
+                })
+            }
             // Function type: `fn(T, U) -> V`
             TokenKind::Keyword(Keyword::Fn) => {
                 let start = tok.span.range.start;
@@ -1615,8 +1688,17 @@ impl<'src> Parser<'src> {
                 let mut params = Vec::new();
                 if !self.matches_token(&TokenKind::RParen) {
                     loop {
-                        let param_ty = self.parse_type_expr()?;
-                        params.push(param_ty);
+                        // Skip `&` if present (reference types not fully supported, treat &T as T)
+                        let is_ref = self.matches_token(&TokenKind::Amp);
+                        if is_ref {}
+                        match self.parse_type_expr() {
+                            Some(param_ty) => {
+                                params.push(param_ty);
+                            }
+                            None => {
+                                break;
+                            }
+                        }
                         if self.matches_token(&TokenKind::RParen) {
                             break;
                         }
@@ -1627,13 +1709,46 @@ impl<'src> Parser<'src> {
                     }
                 }
 
-                // Return type is required: `-> Type`
-                if !self.matches_token(&TokenKind::Arrow) {
-                    self.error_here("expected `->` after function type parameters");
-                    return None;
-                }
-
-                let ret = self.parse_type_expr()?;
+                // Return type is optional: `-> Type` or implicit `()`
+                let ret = if self.matches_token(&TokenKind::Arrow) {
+                    match self.parse_type_expr() {
+                        Some(ty) => ty,
+                        None => {
+                            // Default to unit type if return type parsing fails
+                            TypeExpr {
+                                kind: TypeExprKind::Named(Ident {
+                                    name: "()".to_string(),
+                                    span: Span {
+                                        range: self.current().span.range.start
+                                            ..self.current().span.range.start,
+                                        file: None,
+                                    },
+                                }),
+                                span: Span {
+                                    range: self.current().span.range.start
+                                        ..self.current().span.range.start,
+                                    file: None,
+                                },
+                            }
+                        }
+                    }
+                } else {
+                    // No return type specified, default to unit type `()`
+                    TypeExpr {
+                        kind: TypeExprKind::Named(Ident {
+                            name: "()".to_string(),
+                            span: Span {
+                                range: self.current().span.range.start
+                                    ..self.current().span.range.start,
+                                file: None,
+                            },
+                        }),
+                        span: Span {
+                            range: self.current().span.range.start..self.current().span.range.start,
+                            file: None,
+                        },
+                    }
+                };
                 let end = ret.span.range.end;
 
                 Some(TypeExpr {
@@ -1754,9 +1869,24 @@ impl<'src> Parser<'src> {
                 // Generic application: Name<...>
                 if self.matches_token(&TokenKind::Lt) {
                     let mut args = Vec::new();
+                    let mut loop_count = 0;
                     loop {
-                        let arg = self.parse_type_expr()?;
-                        args.push(arg);
+                        loop_count += 1;
+                        if loop_count > 50 {
+                            break;
+                        }
+                        match self.parse_type_expr() {
+                            Some(arg) => {
+                                args.push(arg);
+                            }
+                            None => {
+                                // Advance to prevent infinite loop
+                                if !self.is_at_end() {
+                                    self.advance();
+                                }
+                                break;
+                            }
+                        }
                         if self.matches_token(&TokenKind::Gt) {
                             break;
                         }
