@@ -172,6 +172,13 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// If expression: `if cond { ... } else { ... }`
+    /// Always requires an `else` branch so the expression has a value.
+    If {
+        cond: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+    },
     Match {
         scrutinee: Box<Expr>,
         arms: Vec<MatchArm>,
@@ -982,6 +989,15 @@ impl SetFilePath for Expr {
                 }
             }
             ExprKind::Block(block) => block.set_file_path(file),
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                cond.set_file_path(file.clone());
+                then_branch.set_file_path(file.clone());
+                else_branch.set_file_path(file);
+            }
             ExprKind::Struct { name, fields } => {
                 for seg in name {
                     seg.set_file_path(file.clone());

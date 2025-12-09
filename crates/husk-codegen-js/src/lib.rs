@@ -938,6 +938,11 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             ExprKind::Field { base, .. } => check_expr(base),
             ExprKind::Index { base, index } => check_expr(base) || check_expr(index),
             ExprKind::Block(block) => contains_try_expr(&block.stmts),
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => check_expr(cond) || check_expr(then_branch) || check_expr(else_branch),
             ExprKind::Match { scrutinee, arms } => {
                 check_expr(scrutinee) || arms.iter().any(|arm| check_expr(&arm.expr))
             }
@@ -2674,6 +2679,15 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 right: Box::new(lower_expr(right, ctx)),
             }
         }
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => JsExpr::Conditional {
+            test: Box::new(lower_expr(cond, ctx)),
+            then_branch: Box::new(lower_expr(then_branch, ctx)),
+            else_branch: Box::new(lower_expr(else_branch, ctx)),
+        },
         ExprKind::Match { scrutinee, arms } => lower_match_expr(scrutinee, arms, ctx),
         ExprKind::Struct { name, fields } => {
             // Lower struct instantiation to a constructor call.

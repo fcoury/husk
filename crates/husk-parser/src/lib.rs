@@ -3682,11 +3682,59 @@ impl<'src> Parser<'src> {
         params
     }
 
+    /// Parse an `if` expression (expression position). Requires `else` so it has a value.
+    fn parse_if_expr(&mut self) -> Option<Expr> {
+        let if_tok = self.advance().clone(); // consume `if`
+
+        // Condition shouldn't parse struct literals
+        let cond = self.parse_expr_no_struct()?;
+
+        // then branch: block or single expression
+        let then_branch = if matches!(self.current().kind, TokenKind::LBrace) {
+            let block = self.parse_block()?;
+            Expr {
+                kind: ExprKind::Block(block.clone()),
+                span: block.span.clone(),
+            }
+        } else {
+            self.parse_expr()?
+        };
+
+        if !self.matches_keyword(Keyword::Else) {
+            self.error_here("`if` expressions require an `else` branch");
+            return None;
+        }
+
+        let else_branch = if matches!(self.current().kind, TokenKind::LBrace) {
+            let block = self.parse_block()?;
+            Expr {
+                kind: ExprKind::Block(block.clone()),
+                span: block.span.clone(),
+            }
+        } else {
+            self.parse_expr()?
+        };
+
+        let end = else_branch.span.range.end;
+        Some(Expr {
+            kind: ExprKind::If {
+                cond: Box::new(cond),
+                then_branch: Box::new(then_branch),
+                else_branch: Box::new(else_branch),
+            },
+            span: Span {
+                range: if_tok.span.range.start..end,
+                file: None,
+            },
+        })
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
         let tok = self.current().clone();
         match tok.kind {
             // Closure expressions: `|x, y| expr` or `|| expr`
             TokenKind::Pipe | TokenKind::OrOr => self.parse_closure_expr(),
+            TokenKind::Keyword(Keyword::If) => self.parse_if_expr(),
             TokenKind::IntLiteral(ref s) => {
                 self.advance();
                 let value = s.parse::<i64>().unwrap_or(0);

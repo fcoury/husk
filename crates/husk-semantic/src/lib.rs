@@ -2184,7 +2184,7 @@ impl<'a> FnContext<'a> {
             }
         }
     }
-    fn check_stmt(&mut self, stmt: &Stmt) {
+    fn check_stmt(&mut self, stmt: &Stmt) -> Option<Type> {
         match &stmt.kind {
             StmtKind::Let {
                 mutable: _,
@@ -2258,6 +2258,7 @@ impl<'a> FnContext<'a> {
                 // (pattern validation happens in bind_pattern_locals)
                 let mut pattern_bindings = HashSet::new();
                 self.bind_pattern_locals(pattern, &final_ty, &mut pattern_bindings);
+                return None;
             }
             StmtKind::Assign { target, op, value } => {
                 // Validate target is assignable (lvalue: ident, field, or index)
@@ -2266,7 +2267,7 @@ impl<'a> FnContext<'a> {
                         message: "invalid assignment target".to_string(),
                         span: target.span.clone(),
                     });
-                    return;
+                    return None;
                 }
 
                 let target_ty = self.check_expr(target);
@@ -2308,9 +2309,14 @@ impl<'a> FnContext<'a> {
                         }
                     }
                 }
+                return None;
             }
             StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
-                let _ = self.check_expr(expr);
+                let ty = self.check_expr(expr);
+                if matches!(stmt.kind, StmtKind::Semi(_)) {
+                    return Some(Type::Primitive(PrimitiveType::Unit));
+                }
+                return Some(ty);
             }
             StmtKind::Return { value } => {
                 let actual_ty = if let Some(expr) = value {
@@ -2327,6 +2333,7 @@ impl<'a> FnContext<'a> {
                         span: stmt.span.clone(),
                     });
                 }
+                return None;
             }
             StmtKind::If {
                 cond,
@@ -2345,6 +2352,7 @@ impl<'a> FnContext<'a> {
                 if let Some(else_stmt) = else_branch {
                     self.check_stmt(else_stmt);
                 }
+                return None;
             }
             StmtKind::While { cond, body } => {
                 let cond_ty = self.check_expr(cond);
@@ -2359,12 +2367,14 @@ impl<'a> FnContext<'a> {
                 self.in_loop = true;
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
+                return None;
             }
             StmtKind::Loop { body } => {
                 let prev_in_loop = self.in_loop;
                 self.in_loop = true;
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
+                return None;
             }
             StmtKind::ForIn {
                 binding,
@@ -2425,6 +2435,7 @@ impl<'a> FnContext<'a> {
                 self.locals = old_locals;
                 self.shadow_counts = old_shadow_counts;
                 self.resolved_names = old_resolved_names;
+                return None;
             }
             StmtKind::Break | StmtKind::Continue => {
                 if !self.in_loop {
@@ -2440,8 +2451,9 @@ impl<'a> FnContext<'a> {
                         span: stmt.span.clone(),
                     });
                 }
+                return None;
             }
-            StmtKind::Block(block) => self.check_block(block),
+            StmtKind::Block(block) => return Some(self.check_block(block)),
             StmtKind::IfLet {
                 pattern,
                 scrutinee,
@@ -2449,6 +2461,7 @@ impl<'a> FnContext<'a> {
                 else_branch,
             } => {
                 self.check_if_let_stmt(pattern, scrutinee, then_branch, else_branch, &stmt.span);
+                return None;
             }
         }
     }
@@ -2490,16 +2503,21 @@ impl<'a> FnContext<'a> {
         }
     }
 
-    fn check_block(&mut self, block: &Block) {
+    fn check_block(&mut self, block: &Block) -> Type {
         let old_locals = self.locals.clone();
         let old_shadow_counts = self.shadow_counts.clone();
         let old_resolved_names = self.resolved_names.clone();
+
+        let mut last_ty: Option<Type> = None;
         for stmt in &block.stmts {
-            self.check_stmt(stmt);
+            last_ty = self.check_stmt(stmt);
         }
+
         self.locals = old_locals;
         self.shadow_counts = old_shadow_counts;
         self.resolved_names = old_resolved_names;
+
+        last_ty.unwrap_or(Type::Primitive(PrimitiveType::Unit))
     }
 
     fn check_expr(&mut self, expr: &Expr) -> Type {
@@ -3400,11 +3418,37 @@ impl<'a> FnContext<'a> {
                     }
                 }
             }
-            ExprKind::Match { scrutinee, arms } => self.check_match_expr(expr, scrutinee, arms),
-            ExprKind::Block(block) => {
-                self.check_block(block);
-                Type::Primitive(PrimitiveType::Unit)
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_ty = self.check_expr(cond);
+                if !matches!(cond_ty, Type::Primitive(PrimitiveType::Bool)) {
+                    self.tcx.errors.push(SemanticError {
+                        message: "if condition must be bool".to_string(),
+                        span: cond.span.clone(),
+                    });
+                }
+
+                let then_ty = self.check_expr(then_branch);
+                let else_ty = self.check_expr(else_branch);
+
+                if !self.types_compatible(&then_ty, &else_ty) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "if/else branches must have the same type, found `{}` and `{}`",
+                            self.format_type(&then_ty),
+                            self.format_type(&else_ty)
+                        ),
+                        span: expr.span.clone(),
+                    });
+                }
+
+                then_ty
             }
+            ExprKind::Match { scrutinee, arms } => self.check_match_expr(expr, scrutinee, arms),
+            ExprKind::Block(block) => self.check_block(block),
             ExprKind::Struct { name, fields } => {
                 // Type-check field expressions and resolve to the struct type.
                 for field in fields {
