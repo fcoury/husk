@@ -1029,6 +1029,42 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
     stmts.iter().any(check_stmt)
 }
 
+/// Wrap a function/method body in try-catch to handle early returns from the `?` operator.
+/// If the body contains any `?` operator usage, wraps it in a try-catch that:
+/// - Catches exceptions
+/// - Checks for `__husk_early_return` property (used by `?` operator)
+/// - Returns the early return value if present, otherwise rethrows
+fn wrap_body_for_try_early_return(body: Vec<JsStmt>) -> Vec<JsStmt> {
+    // Catch block: if (e && e.__husk_early_return !== undefined) return e.__husk_early_return; throw e;
+    let catch_block = vec![
+        JsStmt::If {
+            cond: JsExpr::Binary {
+                op: JsBinaryOp::And,
+                left: Box::new(JsExpr::Ident("__e".to_string())),
+                right: Box::new(JsExpr::Binary {
+                    op: JsBinaryOp::StrictNe,
+                    left: Box::new(JsExpr::Member {
+                        object: Box::new(JsExpr::Ident("__e".to_string())),
+                        property: "__husk_early_return".to_string(),
+                    }),
+                    right: Box::new(JsExpr::Ident("undefined".to_string())),
+                }),
+            },
+            then_block: vec![JsStmt::Return(JsExpr::Member {
+                object: Box::new(JsExpr::Ident("__e".to_string())),
+                property: "__husk_early_return".to_string(),
+            })],
+            else_block: None,
+        },
+        JsStmt::Throw(JsExpr::Ident("__e".to_string())),
+    ];
+    vec![JsStmt::TryCatch {
+        try_block: body,
+        catch_ident: "__e".to_string(),
+        catch_block,
+    }]
+}
+
 fn lower_fn_with_span(
     name: &str,
     params: &[Param],
@@ -1050,34 +1086,7 @@ fn lower_fn_with_span(
 
     // If the function uses ? operator, wrap body in try-catch to handle early returns
     let final_body = if contains_try_expr(body) {
-        // Catch block: if (e && e.__husk_early_return !== undefined) return e.__husk_early_return; throw e;
-        let catch_block = vec![
-            JsStmt::If {
-                cond: JsExpr::Binary {
-                    op: JsBinaryOp::And,
-                    left: Box::new(JsExpr::Ident("__e".to_string())),
-                    right: Box::new(JsExpr::Binary {
-                        op: JsBinaryOp::StrictNe,
-                        left: Box::new(JsExpr::Member {
-                            object: Box::new(JsExpr::Ident("__e".to_string())),
-                            property: "__husk_early_return".to_string(),
-                        }),
-                        right: Box::new(JsExpr::Ident("undefined".to_string())),
-                    }),
-                },
-                then_block: vec![JsStmt::Return(JsExpr::Member {
-                    object: Box::new(JsExpr::Ident("__e".to_string())),
-                    property: "__husk_early_return".to_string(),
-                })],
-                else_block: None,
-            },
-            JsStmt::Throw(JsExpr::Ident("__e".to_string())),
-        ];
-        vec![JsStmt::TryCatch {
-            try_block: js_body,
-            catch_ident: "__e".to_string(),
-            catch_block,
-        }]
+        wrap_body_for_try_early_return(js_body)
     } else {
         js_body
     };
@@ -1201,34 +1210,7 @@ fn lower_impl_method(
 
     // If the method uses ? operator, wrap body in try-catch to handle early returns
     let final_body = if contains_try_expr(&method.body) {
-        // Catch block: if (e && e.__husk_early_return !== undefined) return e.__husk_early_return; throw e;
-        let catch_block = vec![
-            JsStmt::If {
-                cond: JsExpr::Binary {
-                    op: JsBinaryOp::And,
-                    left: Box::new(JsExpr::Ident("__e".to_string())),
-                    right: Box::new(JsExpr::Binary {
-                        op: JsBinaryOp::StrictNe,
-                        left: Box::new(JsExpr::Member {
-                            object: Box::new(JsExpr::Ident("__e".to_string())),
-                            property: "__husk_early_return".to_string(),
-                        }),
-                        right: Box::new(JsExpr::Ident("undefined".to_string())),
-                    }),
-                },
-                then_block: vec![JsStmt::Return(JsExpr::Member {
-                    object: Box::new(JsExpr::Ident("__e".to_string())),
-                    property: "__husk_early_return".to_string(),
-                })],
-                else_block: None,
-            },
-            JsStmt::Throw(JsExpr::Ident("__e".to_string())),
-        ];
-        vec![JsStmt::TryCatch {
-            try_block: js_body,
-            catch_ident: "__e".to_string(),
-            catch_block,
-        }]
+        wrap_body_for_try_early_return(js_body)
     } else {
         js_body
     };
@@ -2637,27 +2619,6 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 .is_some_and(|t| t == "String")
                 || receiver_is_string_literal;
 
-            // Check if this method is an extern "js" method for any type in user code,
-            // OR if the receiver is a known stdlib type (like String, Set, Map).
-            let receiver_is_known_stdlib = receiver_type_from_semantic.as_ref().is_some_and(|t| {
-                t == "String"
-                    || t.starts_with("Set")
-                    || t.starts_with("Map")
-                    || t.starts_with("Range")
-                    || t.starts_with("[") // arrays
-            });
-            let is_extern_method = receiver_is_string
-                || receiver_is_known_stdlib
-                || ctx
-                    .accessors
-                    .extern_methods
-                    .iter()
-                    .any(|(_, m)| m == &base_method_name);
-
-            // Look up #[js_name] override, but only for extern methods or known stdlib types.
-            // User-defined methods should keep their original names even if they
-            // match stdlib method names (e.g., user's MyList.len() stays as .len()).
-            //
             // Extract base type name from receiver type (e.g., "Map<String, i32>" -> "Map")
             // For arrays, type_resolution stores "[i32]" format, which needs to be normalized
             // to "[T]" format to match the keys stored in method_js_names.
@@ -2677,6 +2638,24 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                             t.to_string()
                         }
                     }
+                });
+
+            // Check if this method is an extern "js" method for any type in user code,
+            // OR if the receiver is a known stdlib type (like String, Set, Map).
+            let receiver_is_known_stdlib = receiver_type_from_semantic.as_ref().is_some_and(|t| {
+                t == "String"
+                    || t.starts_with("Set")
+                    || t.starts_with("Map")
+                    || t.starts_with("Range")
+                    || t.starts_with("[") // arrays
+            });
+            let is_extern_method = receiver_is_string
+                || receiver_is_known_stdlib
+                || receiver_base_type.as_ref().map_or(false, |base_type| {
+                    ctx.accessors
+                        .extern_methods
+                        .iter()
+                        .any(|(ty, m)| ty == base_type && m == &base_method_name)
                 });
 
             // NOTE: method_js_names for non-extern user methods are currently recorded
@@ -2731,11 +2710,12 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             });
 
             // Check if this method has #[this] binding - if so, use .call(thisArg, ...)
-            let is_this_binding = ctx
-                .accessors
-                .this_binding_methods
-                .iter()
-                .any(|(_, m)| m == &base_method_name);
+            let is_this_binding = receiver_base_type.as_ref().map_or(false, |base_type| {
+                ctx.accessors
+                    .this_binding_methods
+                    .iter()
+                    .any(|(ty, m)| ty == base_type && m == &base_method_name)
+            });
 
             if is_this_binding && !args.is_empty() {
                 // Generate: receiver.method.call(firstArg, ...restArgs)

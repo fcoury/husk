@@ -2095,8 +2095,8 @@ impl<'a> FnContext<'a> {
                     if !self.types_compatible(expected, &arm_ty) {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
-                                "mismatched types in match arms: expected `{:?}`, found `{:?}`",
-                                expected, arm_ty
+                                "mismatched types in match arms: expected `{}`, found `{}`",
+                                self.format_type(&expected), self.format_type(&arm_ty)
                             ),
                             span: arm.expr.span.clone(),
                         });
@@ -2243,8 +2243,8 @@ impl<'a> FnContext<'a> {
                         if !self.types_compatible(&a, &v) {
                             self.tcx.errors.push(SemanticError {
                                 message: format!(
-                                    "mismatched types in `let`: expected `{:?}`, found `{:?}`",
-                                    a, v
+                                    "mismatched types in `let`: expected `{}`, found `{}`",
+                                    self.format_type(&a), self.format_type(&v)
                                 ),
                                 span: stmt.span.clone(),
                             });
