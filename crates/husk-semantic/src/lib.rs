@@ -284,7 +284,7 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
 
     let mut checker = TypeChecker::new();
     if opts.prelude {
-        let prelude = prelude_file();
+        let prelude = get_prelude_file();
         checker.build_type_env(prelude);
         checker.build_type_env(js_globals_file());
     }
@@ -329,27 +329,16 @@ pub fn analyze_file_without_prelude(file: &File) -> SemanticResult {
 static PRELUDE_SRC: &str = include_str!("stdlib/core.hk");
 static PRELUDE_AST: OnceLock<File> = OnceLock::new();
 
-fn prelude_file() -> &'static File {
-    use std::io::Write;
-    std::io::stderr().flush().ok();
-    PRELUDE_AST.get_or_init(|| {
-        std::io::stderr().flush().ok();
-        let parsed = parse_str(PRELUDE_SRC);
-        std::io::stderr().flush().ok();
-        if !parsed.errors.is_empty() {
-            panic!("failed to parse stdlib prelude: {:?}", parsed.errors);
-        }
-        std::io::stderr().flush().ok();
-        let file = parsed.file.expect("stdlib prelude parse produced no AST");
-        std::io::stderr().flush().ok();
-        file
-    })
-}
-
 /// Returns the stdlib prelude file for use by codegen to collect method
 /// name mappings (e.g., #[js_name] attributes).
 pub fn get_prelude_file() -> &'static File {
-    prelude_file()
+    PRELUDE_AST.get_or_init(|| {
+        let parsed = parse_str(PRELUDE_SRC);
+        if !parsed.errors.is_empty() {
+            panic!("failed to parse stdlib prelude: {:?}", parsed.errors);
+        }
+        parsed.file.expect("stdlib prelude parse produced no AST")
+    })
 }
 
 static JS_GLOBALS_SRC: &str = include_str!("std/js/globals.hk");
@@ -745,13 +734,6 @@ impl TypeChecker {
 
     fn build_type_env(&mut self, file: &File) {
         for (_idx, item) in file.items.iter().enumerate() {
-            match &item.kind {
-                ItemKind::Trait(_trait_def) => {}
-                ItemKind::Impl(impl_block) => {
-                    let _self_ty_name = type_expr_to_name(&impl_block.self_ty);
-                }
-                _ => {}
-            }
             match &item.kind {
                 ItemKind::Struct {
                     name,
@@ -4723,46 +4705,8 @@ impl<'a> FnContext<'a> {
     }
 
     fn format_type(&self, ty: &Type) -> String {
-        match ty {
-            Type::Primitive(p) => match p {
-                PrimitiveType::I32 => "i32".to_string(),
-                PrimitiveType::I64 => "i64".to_string(),
-                PrimitiveType::F64 => "f64".to_string(),
-                PrimitiveType::Bool => "bool".to_string(),
-                PrimitiveType::String => "String".to_string(),
-                PrimitiveType::Unit => "()".to_string(),
-            },
-            Type::Array(inner) => format!("[{}]", self.format_type(inner)),
-            Type::Named { name, args } if args.is_empty() => name.clone(),
-            Type::Named { name, args } => {
-                let args_str = args
-                    .iter()
-                    .map(|a| self.format_type(a))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{}<{}>", name, args_str)
-            }
-            Type::Function { params, ret } => {
-                let params_str = params
-                    .iter()
-                    .map(|p| self.format_type(p))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("fn({}) -> {}", params_str, self.format_type(ret))
-            }
-            Type::Var(id) => format!("?{}", id.0),
-            Type::Tuple(elements) => {
-                let elements_str = elements
-                    .iter()
-                    .map(|e| self.format_type(e))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("({})", elements_str)
-            }
-            Type::ImplTrait { trait_ty } => {
-                format!("impl {}", self.format_type(trait_ty))
-            }
-        }
+        // Delegate to the free function to avoid duplication
+        format_type(ty)
     }
 
     /// Convert a Type to a string name for trait lookup.

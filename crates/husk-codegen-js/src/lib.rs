@@ -968,7 +968,14 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
     fn check_stmt(stmt: &Stmt) -> bool {
         match &stmt.kind {
             StmtKind::Expr(expr) | StmtKind::Semi(expr) => check_expr(expr),
-            StmtKind::Let { value, .. } => value.as_ref().map_or(false, check_expr),
+            StmtKind::Let {
+                value,
+                else_block,
+                ..
+            } => {
+                value.as_ref().map_or(false, check_expr)
+                    || else_block.as_ref().map_or(false, |b| contains_try_expr(&b.stmts))
+            }
             StmtKind::ForIn { iterable, body, .. } => {
                 check_expr(iterable) || contains_try_expr(&body.stmts)
             }
@@ -979,6 +986,16 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
                 else_branch,
             } => {
                 check_expr(cond)
+                    || contains_try_expr(&then_branch.stmts)
+                    || else_branch.as_ref().map_or(false, |b| check_stmt(b))
+            }
+            StmtKind::IfLet {
+                scrutinee,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                check_expr(scrutinee)
                     || contains_try_expr(&then_branch.stmts)
                     || else_branch.as_ref().map_or(false, |b| check_stmt(b))
             }
@@ -4129,26 +4146,52 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             range_expr,
             body,
         } => {
-            // Generate:
-            // for (let binding = range.start;
-            //      binding < (range.inclusive ? range.end + 1 : range.end);
-            //      binding++)
-            indent(indent_level, out);
-            out.push_str("for (let ");
-            out.push_str(binding);
-            out.push_str(" = ");
-            write_expr(range_expr, out);
-            out.push_str(".start; ");
-            out.push_str(binding);
-            out.push_str(" < (");
-            write_expr(range_expr, out);
-            out.push_str(".inclusive ? ");
-            write_expr(range_expr, out);
-            out.push_str(".end + 1 : ");
-            write_expr(range_expr, out);
-            out.push_str(".end); ");
-            out.push_str(binding);
-            out.push_str("++) {\n");
+            // If range_expr is not a simple identifier, bind it to a temporary first
+            // to avoid multiple evaluations (which could have side effects or be expensive).
+            if !is_simple_identifier(range_expr) {
+                let temp_name = format!("__range_{}", binding);
+                indent(indent_level, out);
+                out.push_str("const ");
+                out.push_str(&temp_name);
+                out.push_str(" = ");
+                write_expr(range_expr, out);
+                out.push_str(";\n");
+                // Use the temporary identifier in the for loop
+                indent(indent_level, out);
+                out.push_str("for (let ");
+                out.push_str(binding);
+                out.push_str(" = ");
+                out.push_str(&temp_name);
+                out.push_str(".start; ");
+                out.push_str(binding);
+                out.push_str(" < (");
+                out.push_str(&temp_name);
+                out.push_str(".inclusive ? ");
+                out.push_str(&temp_name);
+                out.push_str(".end + 1 : ");
+                out.push_str(&temp_name);
+                out.push_str(".end); ");
+                out.push_str(binding);
+                out.push_str("++) {\n");
+            } else {
+                // Simple identifier - safe to evaluate multiple times
+                indent(indent_level, out);
+                out.push_str("for (let ");
+                out.push_str(binding);
+                out.push_str(" = ");
+                write_expr(range_expr, out);
+                out.push_str(".start; ");
+                out.push_str(binding);
+                out.push_str(" < (");
+                write_expr(range_expr, out);
+                out.push_str(".inclusive ? ");
+                write_expr(range_expr, out);
+                out.push_str(".end + 1 : ");
+                write_expr(range_expr, out);
+                out.push_str(".end); ");
+                out.push_str(binding);
+                out.push_str("++) {\n");
+            }
             for s in body {
                 write_stmt(s, indent_level + 1, out);
                 out.push('\n');
@@ -4238,6 +4281,11 @@ fn write_destructure_pattern_list(patterns: &[DestructurePattern], out: &mut Str
         write_destructure_pattern(pat, out);
     }
     out.push(']');
+}
+
+/// Check if an expression is a simple identifier (safe to evaluate multiple times).
+fn is_simple_identifier(expr: &JsExpr) -> bool {
+    matches!(expr, JsExpr::Ident(_))
 }
 
 fn write_expr(expr: &JsExpr, out: &mut String) {
