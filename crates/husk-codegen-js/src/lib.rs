@@ -2479,7 +2479,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 .get(&(receiver.span.range.start, receiver.span.range.end));
             let is_iterator_from_type = receiver_type
                 .as_ref()
-                .map(|ty| ty.starts_with("impl Iterator"))
+                .map(|ty| {
+                    // Check for both formats: "impl Iterator<...>" (from format_type) and "Iterator<..." (from type_to_name)
+                    ty.starts_with("impl Iterator") || ty.starts_with("Iterator<")
+                })
                 .unwrap_or(false);
             
             // Also check if receiver is a method call that returns an iterator

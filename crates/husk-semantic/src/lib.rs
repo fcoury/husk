@@ -2575,8 +2575,13 @@ impl<'a> FnContext<'a> {
                             .name_resolution
                             .insert((id.span.range.start, id.span.range.end), resolved.clone());
                     }
-                    // Register hover info for variable usage
+                    // Register type in type_resolution for codegen (needed for iterator method dispatch)
                     let type_str = self.format_type(&ty);
+                    self.tcx.type_resolution.insert(
+                        (id.span.range.start, id.span.range.end),
+                        type_str.clone(),
+                    );
+                    // Register hover info for variable usage
                     self.tcx.hover_info.insert(
                         (id.span.range.start, id.span.range.end),
                         HoverInfo {
