@@ -523,6 +523,10 @@ impl<T> [T] {
 // ============================================================================
 
 // Arrays implement IntoIterator
+// NOTE: This calls the inherent into_iter() method (extern "js" fn into_iter),
+// which should take precedence over this trait method during method resolution.
+// If method resolution ever considers the trait method instead, this would cause
+// infinite recursion. The inherent method maps to __husk_array_into_iter in JS.
 impl<T> IntoIterator<T> for [T] {
     fn into_iter(self) -> impl Iterator<T> {
         self.into_iter()
@@ -530,6 +534,8 @@ impl<T> IntoIterator<T> for [T] {
 }
 
 // String implements IntoIterator (yields String characters)
+// NOTE: Same as above - relies on inherent method resolution precedence.
+// The inherent method maps to __husk_string_into_iter in JS.
 impl IntoIterator<String> for String {
     fn into_iter(self) -> impl Iterator<String> {
         self.into_iter()
@@ -537,6 +543,8 @@ impl IntoIterator<String> for String {
 }
 
 // Range implements IntoIterator (yields i32 values)
+// NOTE: Same as above - relies on inherent method resolution precedence.
+// The inherent method maps to __husk_range_into_iter in JS.
 impl IntoIterator<i32> for Range {
     fn into_iter(self) -> impl Iterator<i32> {
         self.into_iter()

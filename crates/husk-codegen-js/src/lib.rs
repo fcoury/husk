@@ -1167,6 +1167,40 @@ fn lower_impl_method(
         }
     }
 
+    // If the method uses ? operator, wrap body in try-catch to handle early returns
+    let final_body = if contains_try_expr(&method.body) {
+        // Catch block: if (e && e.__husk_early_return !== undefined) return e.__husk_early_return; throw e;
+        let catch_block = vec![
+            JsStmt::If {
+                cond: JsExpr::Binary {
+                    op: JsBinaryOp::And,
+                    left: Box::new(JsExpr::Ident("__e".to_string())),
+                    right: Box::new(JsExpr::Binary {
+                        op: JsBinaryOp::StrictNe,
+                        left: Box::new(JsExpr::Member {
+                            object: Box::new(JsExpr::Ident("__e".to_string())),
+                            property: "__husk_early_return".to_string(),
+                        }),
+                        right: Box::new(JsExpr::Ident("undefined".to_string())),
+                    }),
+                },
+                then_block: vec![JsStmt::Return(JsExpr::Member {
+                    object: Box::new(JsExpr::Ident("__e".to_string())),
+                    property: "__husk_early_return".to_string(),
+                })],
+                else_block: None,
+            },
+            JsStmt::Throw(JsExpr::Ident("__e".to_string())),
+        ];
+        vec![JsStmt::TryCatch {
+            try_block: js_body,
+            catch_ident: "__e".to_string(),
+            catch_block,
+        }]
+    } else {
+        js_body
+    };
+
     // Convert byte offset to line/column if source is provided
     let _source_span = source.map(|src| {
         let (line, column) = offset_to_line_col(src, span.range.start);
@@ -1195,7 +1229,7 @@ fn lower_impl_method(
     // Create the function expression
     let func_expr = JsExpr::Function {
         params: js_params,
-        body: js_body,
+        body: final_body,
     };
 
     // Generate assignment: target = function(...) { ... }
@@ -2193,6 +2227,12 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             type_args: _, // Turbofish types are used for semantic analysis, not codegen
             args,
         } => {
+            // NOTE: Method dispatch relies on string-based type matching from type_resolution
+            // (e.g., "String", "Map<...>", "[T]", "Range"). This is acceptable for the current
+            // implementation but is brittle if type formatting changes (modules, aliases, etc.).
+            // Long-term, consider using structured type tags (canonical type IDs or enum for
+            // known builtins) in TypeResolution for more robust dispatch.
+            //
             // Try to determine receiver type for getter/setter lookup.
             // For now, we use a heuristic: look up by method name across all types.
             // A more robust solution would require type information from semantic analysis.
@@ -2573,6 +2613,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 })
                 .map(String::from);
 
+            // NOTE: method_js_names for non-extern user methods are currently recorded
+            // but only honored when is_extern_method is true. If #[js_name] on pure Husk
+            // methods (non-extern) should take effect in the future, this guard needs to
+            // be relaxed or the PropertyAccessors documentation updated accordingly.
             let js_name_override = if is_extern_method {
                 // Try type-specific lookup first (e.g., String.len -> length, Map.len -> size)
                 if let Some(ref base_type) = receiver_base_type {
@@ -3883,6 +3927,15 @@ fn count_newlines_in_stmt(stmt: &JsStmt) -> u32 {
                 .map(|s| count_newlines_in_stmt(s) + 1)
                 .sum::<u32>()
                 .saturating_sub(1)
+        }
+        JsStmt::ForRange { body, range_expr, .. } => {
+            // ForRange may emit an extra const line if range_expr is not a simple identifier
+            // for (let binding = range.start; ...) { + body + }
+            let extra_line = if !is_simple_identifier(range_expr) { 1 } else { 0 };
+            1 + extra_line + body
+                .iter()
+                .map(|s| count_newlines_in_stmt(s) + 1)
+                .sum::<u32>()
         }
         _ => 0, // single-line statements
     }

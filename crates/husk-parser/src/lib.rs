@@ -1868,6 +1868,7 @@ impl<'src> Parser<'src> {
                     loop {
                         loop_count += 1;
                         if loop_count > 50 {
+                            self.error_here("too many generic type arguments (limit: 50)");
                             break;
                         }
                         match self.parse_type_expr() {
