@@ -1,0 +1,17 @@
+// Basic iterator examples - simplified for testing
+
+fn main() {
+    // Test 1: Basic array iteration
+    let arr = [1, 2, 3];
+    let doubled: [i32] = arr.iter().map(|x| x * 2).collect();
+    println("Doubled: {}", doubled);
+    
+    // Test 2: Filter
+    let evens: [i32] = arr.iter().filter(|x| x % 2 == 0).collect();
+    println("Evens: {}", evens);
+    
+    // Test 3: Take
+    let first_two: [i32] = arr.iter().take(2).collect();
+    println("First two: {}", first_two);
+}
+

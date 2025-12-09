@@ -269,6 +269,9 @@ fn format_type(ty: &Type) -> String {
                 .join(", ");
             format!("({})", elements_str)
         }
+        Type::ImplTrait { trait_ty } => {
+            format!("impl {}", format_type(trait_ty))
+        }
     }
 }
 
@@ -281,7 +284,8 @@ pub fn analyze_file_with_options(file: &File, opts: SemanticOptions) -> Semantic
 
     let mut checker = TypeChecker::new();
     if opts.prelude {
-        checker.build_type_env(prelude_file());
+        let prelude = prelude_file();
+        checker.build_type_env(prelude);
         checker.build_type_env(js_globals_file());
     }
     checker.build_type_env(&filtered_file);
@@ -326,12 +330,19 @@ static PRELUDE_SRC: &str = include_str!("stdlib/core.hk");
 static PRELUDE_AST: OnceLock<File> = OnceLock::new();
 
 fn prelude_file() -> &'static File {
+    use std::io::Write;
+    std::io::stderr().flush().ok();
     PRELUDE_AST.get_or_init(|| {
+        std::io::stderr().flush().ok();
         let parsed = parse_str(PRELUDE_SRC);
+        std::io::stderr().flush().ok();
         if !parsed.errors.is_empty() {
             panic!("failed to parse stdlib prelude: {:?}", parsed.errors);
         }
-        parsed.file.expect("stdlib prelude parse produced no AST")
+        std::io::stderr().flush().ok();
+        let file = parsed.file.expect("stdlib prelude parse produced no AST");
+        std::io::stderr().flush().ok();
+        file
     })
 }
 
@@ -429,6 +440,7 @@ fn type_expr_to_trait_name(ty: &husk_ast::TypeExpr) -> String {
             let type_strs: Vec<String> = types.iter().map(type_expr_to_trait_name).collect();
             format!("({})", type_strs.join(", "))
         }
+        TypeExprKind::ImplTrait { trait_ty } => type_expr_to_trait_name(trait_ty),
     }
 }
 
@@ -641,6 +653,7 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
             let type_strs: Vec<String> = types.iter().map(type_expr_to_name).collect();
             format!("({})", type_strs.join(", "))
         }
+        TypeExprKind::ImplTrait { trait_ty } => type_expr_to_name(trait_ty),
     }
 }
 
@@ -683,6 +696,9 @@ fn substitute_type_param(ty: &Type, param: &str, replacement: &Type) -> Type {
                 .map(|e| substitute_type_param(e, param, replacement))
                 .collect(),
         ),
+        Type::ImplTrait { trait_ty } => Type::ImplTrait {
+            trait_ty: Box::new(substitute_type_param(trait_ty, param, replacement)),
+        },
         Type::Primitive(_) | Type::Var(_) => ty.clone(),
     }
 }
@@ -728,7 +744,14 @@ impl TypeChecker {
     }
 
     fn build_type_env(&mut self, file: &File) {
-        for item in &file.items {
+        for (_idx, item) in file.items.iter().enumerate() {
+            match &item.kind {
+                ItemKind::Trait(_trait_def) => {}
+                ItemKind::Impl(impl_block) => {
+                    let _self_ty_name = type_expr_to_name(&impl_block.self_ty);
+                }
+                _ => {}
+            }
             match &item.kind {
                 ItemKind::Struct {
                     name,
@@ -1218,7 +1241,7 @@ impl TypeChecker {
         // Collect supertrait errors separately to avoid borrow issues
         let mut supertrait_errors: Vec<(String, String, Vec<String>, Span)> = Vec::new();
 
-        for impl_info in &self.env.impls {
+        for (_idx, impl_info) in self.env.impls.iter().enumerate() {
             // Only check trait impls (skip inherent impls)
             let Some(trait_name) = &impl_info.trait_name else {
                 continue;
@@ -1425,14 +1448,22 @@ impl TypeChecker {
     fn resolve_type_expr(&mut self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match &ty.kind {
             TypeExprKind::Named(id) => {
-                self.resolve_named_type(&id.name, &[], ty.span.clone(), generic_params)
+                let result =
+                    self.resolve_named_type(&id.name, &[], ty.span.clone(), generic_params);
+                result
             }
             TypeExprKind::Generic { name, args } => {
                 let resolved_args: Vec<Type> = args
                     .iter()
                     .map(|a| self.resolve_type_expr(a, generic_params))
                     .collect();
-                self.resolve_named_type(&name.name, &resolved_args, ty.span.clone(), generic_params)
+                let result = self.resolve_named_type(
+                    &name.name,
+                    &resolved_args,
+                    ty.span.clone(),
+                    generic_params,
+                );
+                result
             }
             TypeExprKind::Function { params, ret } => {
                 let param_types: Vec<Type> = params
@@ -1455,6 +1486,12 @@ impl TypeChecker {
                     .map(|t| self.resolve_type_expr(t, generic_params))
                     .collect();
                 Type::Tuple(element_types)
+            }
+            TypeExprKind::ImplTrait { trait_ty } => {
+                let resolved_trait_ty = self.resolve_type_expr(trait_ty, generic_params);
+                Type::ImplTrait {
+                    trait_ty: Box::new(resolved_trait_ty),
+                }
             }
         }
     }
@@ -1491,6 +1528,9 @@ impl TypeChecker {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("({})", types_str)
+            }
+            TypeExprKind::ImplTrait { trait_ty } => {
+                format!("impl {}", self.format_type_expr(trait_ty))
             }
         }
     }
@@ -1654,6 +1694,16 @@ impl TypeChecker {
             // Track type alias reference for rename support
             self.add_reference(name, ReferenceKind::TypeAlias, span);
             return self.resolve_type_expr(&alias, generic_params);
+        }
+
+        // Unknown type - but might be a trait name used in impl Trait
+        // For now, allow it as a Named type (used in impl Trait)
+        // This allows Iterator<T> to be used in impl Iterator<T>
+        if name == "Iterator" || self.env.traits.contains_key(name) {
+            return Type::Named {
+                name: name.to_string(),
+                args: args.to_vec(),
+            };
         }
 
         // Unknown type.
@@ -3150,6 +3200,140 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
+                // Handle iterator methods that require closure type inference.
+                // Extract element type from iterator types (impl Iterator<T> or Iterator<T>)
+                let iterator_elem_ty = if let Type::ImplTrait { trait_ty } = &receiver_ty {
+                    // Check if it's impl Iterator<T>
+                    if let Type::Named { name, args } = trait_ty.as_ref() {
+                        if name == "Iterator" && !args.is_empty() {
+                            Some(args[0].clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else if let Type::Named { name, args } = &receiver_ty {
+                    // Check if it's Iterator<T> directly
+                    if name == "Iterator" && !args.is_empty() {
+                        Some(args[0].clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(elem_ty) = iterator_elem_ty {
+                    match method_name.as_str() {
+                        "map" => {
+                            // Closure type: Fn(T) -> U, infer return type from closure
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![elem_ty.clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Unit)), // placeholder
+                                };
+                                let closure_ty = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                if let Type::Function { ret, .. } = closure_ty {
+                                    // Return impl Iterator<U>
+                                    return Type::ImplTrait {
+                                        trait_ty: Box::new(Type::Named {
+                                            name: "Iterator".to_string(),
+                                            args: vec![*ret],
+                                        }),
+                                    };
+                                }
+                            }
+                            return receiver_ty.clone(); // fallback
+                        }
+                        "filter" => {
+                            // Closure type: Fn(&T) -> bool
+                            if let Some(closure_arg) = args.first() {
+                                // For filter, we pass by reference
+                                let expected_closure = Type::Function {
+                                    params: vec![elem_ty.clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            // filter returns impl Iterator<T> (same element type)
+                            return receiver_ty.clone();
+                        }
+                        "collect" => {
+                            // collect() needs type inference from context or turbofish
+                            // For now, default to array - full inference will be handled in check_expr_with_expected
+                            // Default to array of element type
+                            return Type::Array(Box::new(elem_ty.clone()));
+                        }
+                        "for_each" => {
+                            // Closure type: Fn(T) -> ()
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![elem_ty.clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Unit)),
+                                };
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Primitive(PrimitiveType::Unit);
+                        }
+                        "fold" => {
+                            // Closure type: Fn(B, T) -> B
+                            if args.len() >= 2 {
+                                let init_ty = self.check_expr(&args[0]);
+                                if let Some(closure_arg) = args.get(1) {
+                                    let expected_closure = Type::Function {
+                                        params: vec![init_ty.clone(), elem_ty.clone()],
+                                        ret: Box::new(init_ty.clone()),
+                                    };
+                                    let _ = self.check_expr_with_expected(
+                                        closure_arg,
+                                        Some(&expected_closure),
+                                    );
+                                }
+                                return init_ty;
+                            }
+                        }
+                        "enumerate" => {
+                            // enumerate() returns impl Iterator<(i32, T)>
+                            return Type::ImplTrait {
+                                trait_ty: Box::new(Type::Named {
+                                    name: "Iterator".to_string(),
+                                    args: vec![Type::Tuple(vec![
+                                        Type::Primitive(PrimitiveType::I32),
+                                        elem_ty.clone(),
+                                    ])],
+                                }),
+                            };
+                        }
+                        "take" | "skip" => {
+                            // take/skip return impl Iterator<T> (same element type)
+                            if args.len() == 1 {
+                                let _ = self.check_expr(&args[0]); // n: i32
+                            }
+                            return receiver_ty.clone();
+                        }
+                        "find" => {
+                            // Closure type: Fn(&T) -> bool, returns Option<T>
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![elem_ty.clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Named {
+                                name: "Option".to_string(),
+                                args: vec![elem_ty],
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Type-check remaining arguments without expected types
                 for arg in args {
                     let _ = self.check_expr(arg);
@@ -4057,6 +4241,31 @@ impl<'a> FnContext<'a> {
                     return self.check_try_into_method(receiver, type_args, expected, &expr.span);
                 }
 
+                // Handle .collect() on iterators - infer collection type from context or turbofish
+                if method_name == "collect" && args.is_empty() {
+                    let receiver_ty = self.check_expr(receiver);
+                    // Extract element type from iterator
+                    let elem_ty = if let Type::ImplTrait { trait_ty } = &receiver_ty {
+                        if let Type::Named { name, args } = trait_ty.as_ref() {
+                            if name == "Iterator" && !args.is_empty() {
+                                Some(args[0].clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(elem_ty) = elem_ty {
+                        return self.check_collect_method(
+                            receiver, type_args, expected, &expr.span, &elem_ty,
+                        );
+                    }
+                }
+
                 // Fall back to regular check_expr for other method calls
                 self.check_expr(expr)
             }
@@ -4257,6 +4466,55 @@ impl<'a> FnContext<'a> {
                     span: span.clone(),
                 });
                 Type::Primitive(PrimitiveType::Unit)
+            }
+        }
+    }
+
+    /// Handle .collect() method call: iter.collect::<[T]>() -> [T]
+    /// Infers collection type from context or turbofish syntax
+    fn check_collect_method(
+        &mut self,
+        _receiver: &Expr,
+        type_args: &[TypeExpr],
+        expected: Option<&Type>,
+        span: &husk_ast::Span,
+        elem_ty: &Type,
+    ) -> Type {
+        // Resolve collection type from turbofish or expected type
+        let collection_ty = if !type_args.is_empty() {
+            // Turbofish: .collect::<[T]>()
+            Some(self.tcx.resolve_type_expr(&type_args[0], &[]))
+        } else if let Some(expected) = expected {
+            // Infer from let binding or function argument
+            // For arrays, we can infer directly
+            if let Type::Array(_) = expected {
+                Some(expected.clone())
+            } else {
+                // Try to infer array type from expected
+                Some(expected.clone())
+            }
+        } else {
+            None
+        };
+
+        match collection_ty {
+            Some(collection) => {
+                // Record the resolved type for codegen
+                self.tcx.type_resolution.insert(
+                    (span.range.start, span.range.end),
+                    self.format_type(&collection),
+                );
+                collection
+            }
+            None => {
+                // Default to array if no type annotation
+                // This allows iter.collect() to work without explicit type
+                let array_ty = Type::Array(Box::new(elem_ty.clone()));
+                self.tcx.type_resolution.insert(
+                    (span.range.start, span.range.end),
+                    self.format_type(&array_ty),
+                );
+                array_ty
             }
         }
     }
@@ -4501,6 +4759,9 @@ impl<'a> FnContext<'a> {
                     .join(", ");
                 format!("({})", elements_str)
             }
+            Type::ImplTrait { trait_ty } => {
+                format!("impl {}", self.format_type(trait_ty))
+            }
         }
     }
 
@@ -4538,6 +4799,7 @@ impl<'a> FnContext<'a> {
                     elements.iter().map(|e| self.type_to_name(e)).collect();
                 format!("({})", elem_strs.join(", "))
             }
+            Type::ImplTrait { trait_ty } => self.type_to_name(trait_ty),
         }
     }
 

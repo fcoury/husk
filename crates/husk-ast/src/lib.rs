@@ -467,6 +467,11 @@ pub enum TypeExprKind {
     Array(Box<TypeExpr>),
     /// Tuple type: `(T1, T2, T3)`
     Tuple(Vec<TypeExpr>),
+    /// Impl Trait type: `impl Iterator<T>` - used for return types
+    ImplTrait {
+        /// The trait type expression (e.g., `Iterator<i32>`)
+        trait_ty: Box<TypeExpr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -928,6 +933,9 @@ impl SetFilePath for TypeExpr {
                 for ty in types {
                     ty.set_file_path(file.clone());
                 }
+            }
+            TypeExprKind::ImplTrait { trait_ty } => {
+                trait_ty.set_file_path(file);
             }
         }
     }

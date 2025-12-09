@@ -256,6 +256,85 @@ extern "js" {
 }
 
 // ============================================================================
+// Iterator Traits
+// ============================================================================
+
+// Trait for types that can produce a sequence of values.
+//
+// The Iterator trait provides lazy, sequential access to elements. Iterators
+// are lazy - they don't execute until consumed (e.g., by collect(), for_each(),
+// or a for loop).
+//
+// Example:
+//   let iter = [1, 2, 3].iter();
+//   let doubled: Vec<i32> = iter.map(|x| x * 2).collect();
+trait Iterator<T> {
+    /// Advances the iterator and returns the next value.
+    /// Returns `Some(value)` if there is a next value, `None` if the iterator
+    /// is exhausted.
+    fn next(&mut self) -> Option<T>;
+
+    /// Takes a closure and creates an iterator that calls that closure on each element.
+    /// Returns a new iterator that yields the transformed values.
+    #[js_name = "__husk_iterator_map"]
+    extern "js" fn map(self, f: fn(T) -> T) -> impl Iterator<T>;
+
+    /// Creates an iterator that uses a closure to determine if an element should be yielded.
+    /// Returns a new iterator that only yields elements for which the closure returns true.
+    #[js_name = "__husk_iterator_filter"]
+    extern "js" fn filter(self, f: fn(&T) -> bool) -> impl Iterator<T>;
+
+    /// Transforms an iterator into a collection.
+    /// The collection type must be specified via type annotation or turbofish syntax.
+    #[js_name = "__husk_iterator_collect"]
+    extern "js" fn collect(self) -> [T];
+
+    /// Calls a closure on each element of an iterator.
+    /// Consumes the iterator by calling the closure on each element.
+    #[js_name = "__husk_iterator_for_each"]
+    extern "js" fn for_each(self, f: fn(T));
+
+    /// Folds every element into an accumulator by applying an operation.
+    /// Returns the final accumulator value.
+    #[js_name = "__husk_iterator_fold"]
+    extern "js" fn fold(self, init: T, f: fn(T, T) -> T) -> T;
+
+    /// Creates an iterator that yields the current iteration count as well as the value.
+    /// Returns a new iterator that yields (index, value) tuples.
+    #[js_name = "__husk_iterator_enumerate"]
+    extern "js" fn enumerate(self) -> impl Iterator<(i32, T)>;
+
+    /// Creates an iterator that yields the first n elements, or fewer if the iterator ends sooner.
+    #[js_name = "__husk_iterator_take"]
+    extern "js" fn take(self, n: i32) -> impl Iterator<T>;
+
+    /// Creates an iterator that skips the first n elements.
+    #[js_name = "__husk_iterator_skip"]
+    extern "js" fn skip(self, n: i32) -> impl Iterator<T>;
+
+    /// Searches for an element of an iterator that satisfies a predicate.
+    /// Returns the first element for which the closure returns true, or None if no element matches.
+    #[js_name = "__husk_iterator_find"]
+    extern "js" fn find(self, f: fn(&T) -> bool) -> Option<T>;
+}
+
+// Trait for types that can be converted into an iterator.
+//
+// Types implementing IntoIterator can be used in `for` loops and iterator
+// adaptors. The `into_iter()` method consumes the value and returns an iterator.
+//
+// Example:
+//   for item in [1, 2, 3] {
+//       println(item.to_string());
+//   }
+//
+// Note: Arrays, Vec, Range, and String implement IntoIterator.
+// The type parameter T represents the item type that the iterator will yield.
+trait IntoIterator<T> {
+    fn into_iter(self) -> impl Iterator<T>;
+}
+
+// ============================================================================
 // Primitive Type Methods
 // ============================================================================
 //
@@ -323,6 +402,14 @@ impl String {
     /// and `after` is the part after (not including the delimiter).
     #[js_name = "__husk_split_once"]
     extern "js" fn split_once(&self, delimiter: String) -> Option<(String, String)>;
+
+    /// Returns an iterator over the characters of the string.
+    #[js_name = "__husk_string_iter"]
+    extern "js" fn iter(&self) -> impl Iterator<String>;
+
+    /// Consumes the string and returns an iterator over its characters.
+    #[js_name = "__husk_string_into_iter"]
+    extern "js" fn into_iter(self) -> impl Iterator<String>;
 }
 
 // i32 methods
@@ -410,7 +497,42 @@ impl<T> [T] {
 
     /// Adds one or more elements to the beginning of the array.
     extern "js" fn unshift(&mut self, value: T) -> i32;
+
+    /// Returns an iterator over the array elements.
+    /// The iterator yields references to each element.
+    #[js_name = "__husk_array_iter"]
+    extern "js" fn iter(&self) -> impl Iterator<T>;
+
+    /// Consumes the array and returns an iterator over its elements.
+    #[js_name = "__husk_array_into_iter"]
+    extern "js" fn into_iter(self) -> impl Iterator<T>;
 }
+
+// ============================================================================
+// IntoIterator Implementations
+// ============================================================================
+
+// Arrays implement IntoIterator
+// NOTE: Temporarily commented out to debug hang - these call self.into_iter() which might cause resolution issues
+// impl<T> IntoIterator<T> for [T] {
+//     fn into_iter(self) -> impl Iterator<T> {
+//         self.into_iter()
+//     }
+// }
+
+// String implements IntoIterator (yields String characters)
+// impl IntoIterator<String> for String {
+//     fn into_iter(self) -> impl Iterator<String> {
+//         self.into_iter()
+//     }
+// }
+
+// Range implements IntoIterator (yields i32 values)
+// impl IntoIterator<i32> for Range {
+//     fn into_iter(self) -> impl Iterator<i32> {
+//         self.into_iter()
+//     }
+// }
 
 // ============================================================================
 // Range Methods
@@ -432,6 +554,14 @@ impl Range {
     /// For inclusive ranges: empty when start > end
     #[js_name = "__husk_range_is_empty"]
     extern "js" fn is_empty(&self) -> bool;
+
+    /// Returns an iterator over the range values.
+    #[js_name = "__husk_range_iter"]
+    extern "js" fn iter(&self) -> impl Iterator<i32>;
+
+    /// Consumes the range and returns an iterator over its values.
+    #[js_name = "__husk_range_into_iter"]
+    extern "js" fn into_iter(self) -> impl Iterator<i32>;
 }
 
 // ============================================================================

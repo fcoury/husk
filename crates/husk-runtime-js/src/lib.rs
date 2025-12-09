@@ -568,6 +568,216 @@ function __husk_map_values(map) {
     return Array.from(map.values());
 }
 
+// ========== Iterator helpers ==========
+
+// Create iterator from array (yields elements)
+function __husk_array_iter(arr) {
+    var index = 0;
+    var iterator = {
+        next: function() {
+            if (index >= arr.length) {
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: arr[index++] };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Create iterator from array (consumes array, yields elements)
+function __husk_array_into_iter(arr) {
+    return __husk_array_iter(arr);
+}
+
+// Create iterator from string (yields characters as strings)
+function __husk_string_iter(str) {
+    var index = 0;
+    var iterator = {
+        next: function() {
+            if (index >= str.length) {
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: str[index++] };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Create iterator from string (consumes string, yields characters)
+function __husk_string_into_iter(str) {
+    return __husk_string_iter(str);
+}
+
+// Create iterator from range (yields i32 values)
+function __husk_range_iter(range) {
+    var current = range.start;
+    var end = range.inclusive ? range.end + 1 : range.end;
+    var iterator = {
+        next: function() {
+            if (current >= end) {
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: current++ };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Create iterator from range (consumes range, yields i32 values)
+function __husk_range_into_iter(range) {
+    return __husk_range_iter(range);
+}
+
+// Iterator adaptor: map - transforms each element
+function __husk_iterator_map(iter, f) {
+    var iterator = {
+        next: function() {
+            var result = iter.next();
+            if (result.done) {
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: f(result.value) };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator adaptor: filter - only yields elements matching predicate
+function __husk_iterator_filter(iter, f) {
+    var iterator = {
+        next: function() {
+            while (true) {
+                var result = iter.next();
+                if (result.done) {
+                    return { done: true, value: undefined };
+                }
+                if (f(result.value)) {
+                    return { done: false, value: result.value };
+                }
+            }
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator adaptor: enumerate - yields (index, value) tuples
+function __husk_iterator_enumerate(iter) {
+    var index = 0;
+    var iterator = {
+        next: function() {
+            var result = iter.next();
+            if (result.done) {
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: [index++, result.value] };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator adaptor: take - yields first n elements
+function __husk_iterator_take(iter, n) {
+    var count = 0;
+    var iterator = {
+        next: function() {
+            if (count >= n) {
+                return { done: true, value: undefined };
+            }
+            var result = iter.next();
+            if (result.done) {
+                return { done: true, value: undefined };
+            }
+            count++;
+            return { done: false, value: result.value };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator adaptor: skip - skips first n elements
+function __husk_iterator_skip(iter, n) {
+    var skipped = 0;
+    var iterator = {
+        next: function() {
+            while (skipped < n) {
+                var result = iter.next();
+                if (result.done) {
+                    return { done: true, value: undefined };
+                }
+                skipped++;
+            }
+            return iter.next();
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator consumer: collect - consumes iterator into array
+function __husk_iterator_collect(iter) {
+    var result = [];
+    while (true) {
+        var next = iter.next();
+        if (next.done) {
+            break;
+        }
+        result.push(next.value);
+    }
+    return result;
+}
+
+// Iterator consumer: for_each - calls closure on each element
+function __husk_iterator_for_each(iter, f) {
+    while (true) {
+        var result = iter.next();
+        if (result.done) {
+            break;
+        }
+        f(result.value);
+    }
+}
+
+// Iterator consumer: fold - accumulates values using closure
+function __husk_iterator_fold(iter, init, f) {
+    var acc = init;
+    while (true) {
+        var result = iter.next();
+        if (result.done) {
+            break;
+        }
+        acc = f(acc, result.value);
+    }
+    return acc;
+}
+
+// Iterator consumer: find - finds first element matching predicate
+function __husk_iterator_find(iter, f) {
+    while (true) {
+        var result = iter.next();
+        if (result.done) {
+            return { tag: "None" };
+        }
+        if (f(result.value)) {
+            return { tag: "Some", value: result.value };
+        }
+    }
+}
+
 // Run main() and handle ? operator early returns
 // If main returns Err or None, report the error and exit with code 1
 function __husk_run_main(main) {

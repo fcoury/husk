@@ -1,0 +1,71 @@
+// Iterator examples demonstrating iterator usage patterns in Husk
+
+fn main() {
+    // Basic iterator usage: array iteration
+    let arr = [1, 2, 3, 4, 5];
+    
+    // Create iterator and collect into array
+    let doubled: [i32] = arr.iter().map(|x| x * 2).collect();
+    println("Doubled: {}", doubled);
+    
+    // Filter elements
+    let evens: [i32] = arr.iter().filter(|x| x % 2 == 0).collect();
+    println("Evens: {}", evens);
+    
+    // Chain iterator adaptors
+    let result: [i32] = arr.iter()
+        .map(|x| x * 2)
+        .filter(|x| x > 5)
+        .collect();
+    println("Chained: {}", result);
+    
+    // Take first n elements
+    let first_three: [i32] = arr.iter().take(3).collect();
+    println("First three: {}", first_three);
+    
+    // Skip first n elements
+    let after_two: [i32] = arr.iter().skip(2).collect();
+    println("After two: {}", after_two);
+    
+    // Enumerate - add indices
+    let indexed: [(i32, i32)] = arr.iter().enumerate().collect();
+    println("Indexed: {}", indexed);
+    
+    // Find first matching element
+    let found = arr.iter().find(|x| x > 3);
+    match found {
+        Some(value) => println("Found: {}", value),
+        None => println("Not found"),
+    }
+    
+    // For each - consume iterator
+    arr.iter().for_each(|x| println("Item: {}", x));
+    
+    // Fold - accumulate values
+    let sum = arr.iter().fold(0, |acc, x| acc + x);
+    println("Sum: {}", sum);
+    
+    // String iteration
+    let text = "hello";
+    let chars: [String] = text.iter().collect();
+    println("Chars: {}", chars);
+    
+    // Range iteration
+    let range = 1..5;
+    let range_vals: [i32] = range.iter().collect();
+    println("Range values: {}", range_vals);
+    
+    // For-in loop with iterator (automatic into_iter)
+    for item in arr {
+        println("Loop item: {}", item);
+    }
+    
+    // Complex chain example
+    let complex: [i32] = arr.iter()
+        .map(|x| x * 3)
+        .filter(|x| x % 2 == 0)
+        .take(2)
+        .collect();
+    println("Complex: {}", complex);
+}
+

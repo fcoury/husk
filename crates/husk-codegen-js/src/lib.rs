@@ -1112,6 +1112,10 @@ fn type_expr_to_js_name(ty: &TypeExpr) -> String {
             let type_names: Vec<String> = types.iter().map(type_expr_to_js_name).collect();
             format!("[{}]", type_names.join(", "))
         }
+        TypeExprKind::ImplTrait { trait_ty } => {
+            // For impl Trait, use the underlying trait type name
+            type_expr_to_js_name(trait_ty)
+        }
     }
 }
 
@@ -1483,7 +1487,42 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                     }
                 }
 
-                let js_iterable = lower_expr(iterable, ctx);
+                // Check if iterable needs into_iter() call (for collections that implement IntoIterator)
+                let iterable_type = ctx
+                    .type_resolution
+                    .get(&(iterable.span.range.start, iterable.span.range.end));
+
+                let js_iterable = if let Some(ty) = iterable_type {
+                    // If it's a collection type (array, string, range), call into_iter()
+                    // Note: Iterator types don't need into_iter() - they're already iterators
+                    let js_base = lower_expr(iterable, ctx);
+                    if ty.starts_with("[") {
+                        // Array: use __husk_array_into_iter
+                        JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_array_into_iter".to_string())),
+                            args: vec![js_base],
+                        }
+                    } else if ty == "String" {
+                        // String: use __husk_string_into_iter
+                        JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_string_into_iter".to_string())),
+                            args: vec![js_base],
+                        }
+                    } else if ty.starts_with("Range") {
+                        // Range: use __husk_range_into_iter
+                        JsExpr::Call {
+                            callee: Box::new(JsExpr::Ident("__husk_range_into_iter".to_string())),
+                            args: vec![js_base],
+                        }
+                    } else {
+                        // Already an iterator or other iterable - use as-is
+                        js_base
+                    }
+                } else {
+                    // No type info - use as-is (will work if it's already iterable)
+                    lower_expr(iterable, ctx)
+                };
+
                 let js_body: Vec<JsStmt> = body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
                 JsStmt::ForOf {
                     binding: ctx.resolve_name(&binding.name, &binding.span),
@@ -2308,6 +2347,140 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                         };
                     }
                 }
+
+                // Handle iterator methods: iter(), into_iter()
+                // These create iterator objects from collections
+                match method_name.as_str() {
+                    "iter" if args.is_empty() => {
+                        // Check if this is an array, string, or range iterator
+                        if recv_type.starts_with("[") {
+                            // Array iterator: create iterator over array elements
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident("__husk_array_iter".to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        } else if recv_type == "String" {
+                            // String iterator: create iterator over string characters
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident("__husk_string_iter".to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        } else if recv_type.starts_with("Range") {
+                            // Range iterator: create iterator over range values
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident("__husk_range_iter".to_string())),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                    }
+                    "into_iter" if args.is_empty() => {
+                        // Similar to iter() but consumes the collection
+                        if recv_type.starts_with("[") {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(
+                                    "__husk_array_into_iter".to_string(),
+                                )),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        } else if recv_type == "String" {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(
+                                    "__husk_string_into_iter".to_string(),
+                                )),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        } else if recv_type.starts_with("Range") {
+                            return JsExpr::Call {
+                                callee: Box::new(JsExpr::Ident(
+                                    "__husk_range_into_iter".to_string(),
+                                )),
+                                args: vec![lower_expr(receiver, ctx)],
+                            };
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Handle iterator adaptor methods on iterator objects
+            // These methods chain iterators together (lazy evaluation)
+            match method_name.as_str() {
+                "map" if args.len() == 1 => {
+                    // Check if receiver is an iterator (from type resolution or previous iterator call)
+                    // For now, we'll generate the call and let the runtime handle it
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_map".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                "filter" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_filter".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                "collect" if args.is_empty() => {
+                    // collect() consumes the iterator into an array
+                    let js_receiver = lower_expr(receiver, ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_collect".to_string())),
+                        args: vec![js_receiver],
+                    };
+                }
+                "for_each" if args.len() == 1 => {
+                    // for_each() consumes the iterator by calling closure on each element
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_for_each".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                "fold" if args.len() == 2 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_init = lower_expr(&args[0], ctx);
+                    let js_closure = lower_expr(&args[1], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_fold".to_string())),
+                        args: vec![js_receiver, js_init, js_closure],
+                    };
+                }
+                "enumerate" if args.is_empty() => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_enumerate".to_string())),
+                        args: vec![js_receiver],
+                    };
+                }
+                "take" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_n = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_take".to_string())),
+                        args: vec![js_receiver, js_n],
+                    };
+                }
+                "skip" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_n = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_skip".to_string())),
+                        args: vec![js_receiver, js_n],
+                    };
+                }
+                "find" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_find".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                _ => {}
             }
 
             // Handle type conversion methods (.into(), .parse(), .try_into())
@@ -4485,6 +4658,10 @@ fn write_type_expr(ty: &TypeExpr, out: &mut String) {
                 write_type_expr(ty, out);
             }
             out.push(']');
+        }
+        TypeExprKind::ImplTrait { trait_ty } => {
+            // For impl Trait, write the underlying trait type
+            write_type_expr(trait_ty, out);
         }
     }
 }

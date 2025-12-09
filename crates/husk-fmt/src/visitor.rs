@@ -977,6 +977,10 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(")");
             }
+            TypeExprKind::ImplTrait { trait_ty } => {
+                self.write("impl ");
+                self.format_type(trait_ty);
+            }
         }
     }
 
