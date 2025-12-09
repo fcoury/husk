@@ -199,6 +199,10 @@ impl PartialEq for bool {}
 impl PartialEq for String {}
 
 // Generic type PartialEq implementations
+// NOTE: These unconstrained impls make all Option<T> and Result<T, E> comparable
+// regardless of T/E. This is intentional marker-only behavior for the MVP.
+// Future tightening (e.g., adding bounds like impl<T: PartialEq> PartialEq for Option<T>)
+// would be a breaking change and should be clearly documented.
 impl PartialEq for Option {}
 impl PartialEq for Result {}
 

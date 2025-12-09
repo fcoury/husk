@@ -2393,39 +2393,10 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_expr_stmt(&mut self) -> Option<Stmt> {
-        let start = self.current().span.range.start;
+        // parse_expr() already delegates to parse_assignment_expr() which handles
+        // assignments, so assignments are already parsed as ExprKind::Assign by this point.
+        // This function just wraps the expression in a statement.
         let expr = self.parse_expr()?;
-
-        // Check for assignment operators
-        let assign_op = match self.current().kind {
-            TokenKind::Eq => Some(AssignOp::Assign),
-            TokenKind::PlusEq => Some(AssignOp::AddAssign),
-            TokenKind::MinusEq => Some(AssignOp::SubAssign),
-            TokenKind::PercentEq => Some(AssignOp::ModAssign),
-            _ => None,
-        };
-
-        if let Some(op) = assign_op {
-            self.advance(); // consume assignment operator
-            let value = self.parse_expr()?;
-
-            if !self.matches_token(&TokenKind::Semicolon) {
-                self.error_here("expected `;` after assignment");
-            }
-
-            let end = self.previous().span.range.end;
-            return Some(Stmt {
-                kind: StmtKind::Assign {
-                    target: expr,
-                    op,
-                    value,
-                },
-                span: Span {
-                    range: start..end,
-                    file: None,
-                },
-            });
-        }
 
         // Regular expression statement
         let mut span = expr.span.clone();

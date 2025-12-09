@@ -3035,7 +3035,7 @@ impl<'a> FnContext<'a> {
             ExprKind::MethodCall {
                 receiver,
                 method,
-                type_args: _,
+                type_args,
                 args,
             } => {
                 let method_name = &method.name;
@@ -3251,9 +3251,11 @@ impl<'a> FnContext<'a> {
                         }
                         "collect" => {
                             // collect() needs type inference from context or turbofish
-                            // For now, default to array - full inference will be handled in check_expr_with_expected
-                            // Default to array of element type
-                            return Type::Array(Box::new(elem_ty.clone()));
+                            // Delegate to check_collect_method for consistent handling
+                            // Pass None as expected since we're in check_expr (no context)
+                            return self.check_collect_method(
+                                receiver, type_args, None, &expr.span, &elem_ty,
+                            );
                         }
                         "for_each" => {
                             // Closure type: Fn(T) -> ()
@@ -4145,12 +4147,22 @@ impl<'a> FnContext<'a> {
                 // ? operator: for Result<T, E> returns T (early return on Err)
                 //             for Option<T> returns T (early return on None)
 
+                // Reject ? operator inside closures - closures cannot use ? as it would
+                // either incorrectly return from an outer function or manifest as an uncaught
+                // exception. If closure-local early returns are needed, they should be
+                // implemented via explicit control flow.
+                if self.enclosing_fn_name.is_none() {
+                    self.tcx.errors.push(SemanticError {
+                        message: "the `?` operator cannot be used inside closures. Use explicit error handling or control flow instead.".to_string(),
+                        span: expr.span.clone(),
+                    });
+                    return Type::unit();
+                }
+
                 // First, validate that the enclosing function returns Result or Option
-                let is_valid_return = match &self.ret_ty {
-                    Type::Named { name, args } if name == "Result" && args.len() == 2 => true,
-                    Type::Named { name, args } if name == "Option" && args.len() == 1 => true,
-                    _ => false,
-                };
+                let ret_is_result = matches!(&self.ret_ty, Type::Named { name, args } if name == "Result" && args.len() == 2);
+                let ret_is_option = matches!(&self.ret_ty, Type::Named { name, args } if name == "Option" && args.len() == 1);
+                let is_valid_return = ret_is_result || ret_is_option;
 
                 if !is_valid_return {
                     let fn_context = match &self.enclosing_fn_name {
@@ -4168,15 +4180,35 @@ impl<'a> FnContext<'a> {
                     });
                 }
 
-                // Then, validate the expression type
+                // Then, validate the expression type and ensure it matches the return type
                 let inner_ty = self.check_expr(inner);
                 match &inner_ty {
                     Type::Named { name, args } if name == "Result" && args.len() == 2 => {
-                        // Result<T, E> -> T
+                        // Result<T, E> -> T, but only if function also returns Result
+                        if !ret_is_result {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "cannot use `?` on a `Result` value in a function that returns `Option`. \
+                                     Use `?` on `Result` values only in functions that return `Result`",
+                                ),
+                                span: expr.span.clone(),
+                            });
+                            return Type::unit();
+                        }
                         args[0].clone()
                     }
                     Type::Named { name, args } if name == "Option" && args.len() == 1 => {
-                        // Option<T> -> T
+                        // Option<T> -> T, but only if function also returns Option
+                        if !ret_is_option {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "cannot use `?` on an `Option` value in a function that returns `Result`. \
+                                     Use `?` on `Option` values only in functions that return `Option`",
+                                ),
+                                span: expr.span.clone(),
+                            });
+                            return Type::unit();
+                        }
                         args[0].clone()
                     }
                     _ => {
@@ -8871,6 +8903,62 @@ fn main() -> Result<(), String> {
         assert!(
             result.type_errors.is_empty(),
             "main with ? and Result return should work, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_operator_result_in_option_function_errors() {
+        let src = r#"
+fn main() -> Option<i32> {
+    let x: Result<i32, String> = Ok(42);
+    let y = x?;
+    Some(y)
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected error for ? on Result in Option-returning function"
+        );
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on a `Result` value in a function that returns `Option`")),
+            "error message should mention Result/Option mismatch, got: {:?}",
+            result.type_errors
+        );
+    }
+
+    #[test]
+    fn try_operator_option_in_result_function_errors() {
+        let src = r#"
+fn main() -> Result<i32, String> {
+    let x: Option<i32> = Some(42);
+    let y = x?;
+    Ok(y)
+}
+"#;
+        let parsed = parse_str(src);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
+        let file = parsed.file.expect("parser produced no AST");
+        let result = analyze_file(&file);
+        assert!(
+            !result.type_errors.is_empty(),
+            "expected error for ? on Option in Result-returning function"
+        );
+        assert!(
+            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on an `Option` value in a function that returns `Result`")),
+            "error message should mention Option/Result mismatch, got: {:?}",
             result.type_errors
         );
     }

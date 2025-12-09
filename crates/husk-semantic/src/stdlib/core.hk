@@ -199,6 +199,11 @@ impl PartialEq for bool {}
 impl PartialEq for String {}
 
 // Generic type PartialEq implementations
+// NOTE: These unconstrained impls make all Option<T> and Result<T, E> comparable
+// regardless of T/E. This is intentional marker-only behavior for the MVP.
+// Future tightening (e.g., adding bounds like impl<T: PartialEq> PartialEq for Option<T>)
+// would be a breaking change and should be clearly documented.
+// Keep this in sync with stdlib/core.hk.
 impl PartialEq for Option {}
 impl PartialEq for Result {}
 
@@ -629,8 +634,9 @@ impl<K, V> Map<K, V> {
     /// Sets a key-value pair in the map. Returns the map itself for chaining.
     extern "js" fn set(&mut self, key: K, value: V) -> Map<K, V>;
 
-    /// Gets the value associated with a key, or undefined if not found.
-    extern "js" fn get(&self, key: K) -> V;
+    /// Gets the value associated with a key, or None if not found.
+    #[js_name = "__husk_map_get"]
+    extern "js" fn get(&self, key: K) -> Option<V>;
 
     /// Returns true if the map contains the specified key.
     extern "js" fn has(&self, key: K) -> bool;
