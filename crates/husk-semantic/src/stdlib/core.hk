@@ -308,6 +308,12 @@ impl String {
     /// Returns the string converted to lowercase.
     extern "js" fn to_lower_case(&self) -> String;
 
+    /// Returns the string repeated `count` times.
+    ///
+    /// Example:
+    ///   "abc".repeat(3) == "abcabcabc"
+    extern "js" fn repeat(&self, count: i32) -> String;
+
     /// Replaces all occurrences of a pattern with a replacement string.
     extern "js" fn replace(&self, pattern: String, replacement: String) -> String;
 
