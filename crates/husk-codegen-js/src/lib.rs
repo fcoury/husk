@@ -2261,10 +2261,12 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
                 if let Some(recv_type) = receiver_type_from_semantic {
                     // Extract base type name (e.g., "Map<String, i32>" -> "Map")
-                    // For arrays like "[String]", normalize to "T[]" which is how they're registered
-                    let (base_type, lookup_type) = if recv_type.starts_with('[') {
-                        // Array type - normalize to T[] for getter lookup
-                        (recv_type.as_str(), "T[]".to_string())
+                    // For arrays like "[i32]", normalize to "[T]" format to match storage keys
+                    // Storage uses "[T]" (generic form) from normalize_type_name_for_lookup(type_expr_to_js_name(...))
+                    let (base_type, lookup_type) = if recv_type.starts_with('[') && recv_type.ends_with(']') {
+                        // Array type - normalize concrete types like "[i32]" to generic "[T]" format
+                        // This matches how collect_js_name_mappings and collect_accessors_from_file store array keys
+                        (recv_type.as_str(), "[T]".to_string())
                     } else if let Some(idx) = recv_type.find('<') {
                         let base = &recv_type[..idx];
                         (base, base.to_string())
@@ -2296,12 +2298,11 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 // (not for stdlib-like method names like 'len' which could conflict)
                 for ((type_name, m), prop) in &ctx.accessors.getters {
                     // Skip stdlib types in fallback - they should use type-specific lookup
-                    // Arrays use "T[]" as type name, generic types use "Name<T>" etc.
+                    // Arrays use "[T]" as type name (normalized format), generic types use "Name<T>" etc.
                     let is_stdlib = matches!(
                         type_name.as_str(),
                         "String" | "Map" | "Set" | "Range" | "Array"
-                    ) || type_name.starts_with("[")
-                        || type_name.ends_with("[]") // T[] for arrays
+                    ) || type_name.starts_with("[") // Arrays in normalized "[T]" format
                         || type_name.contains('<'); // Generic types like Map<K, V>
                     if is_stdlib {
                         continue;
