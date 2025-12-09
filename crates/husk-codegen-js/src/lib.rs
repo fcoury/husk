@@ -12,7 +12,9 @@ use husk_ast::{
     StructField, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
-use husk_semantic::{get_prelude_file, NameResolution, TypeResolution, VariantCallMap, VariantPatternMap};
+use husk_semantic::{
+    NameResolution, TypeResolution, VariantCallMap, VariantPatternMap, get_prelude_file,
+};
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
@@ -171,8 +173,15 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
 
                             // Methods that should NOT be treated as getters
                             const NON_GETTER_METHODS: &[&str] = &[
-                                "all", "toJsValue", "open", "run", "iterate", "bind", "pluck",
-                                "raw", "columns",
+                                "all",
+                                "toJsValue",
+                                "open",
+                                "run",
+                                "iterate",
+                                "bind",
+                                "pluck",
+                                "raw",
+                                "columns",
                             ];
                             let is_non_getter = NON_GETTER_METHODS.contains(&method_name.as_str());
 
@@ -958,10 +967,12 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             StmtKind::ForIn { iterable, body, .. } => {
                 check_expr(iterable) || contains_try_expr(&body.stmts)
             }
-            StmtKind::While { cond, body } => {
-                check_expr(cond) || contains_try_expr(&body.stmts)
-            }
-            StmtKind::If { cond, then_branch, else_branch } => {
+            StmtKind::While { cond, body } => check_expr(cond) || contains_try_expr(&body.stmts),
+            StmtKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 check_expr(cond)
                     || contains_try_expr(&then_branch.stmts)
                     || else_branch.as_ref().map_or(false, |b| check_stmt(b))
@@ -1275,12 +1286,10 @@ fn is_constructor_return_type(ret_type: Option<&TypeExpr>) -> bool {
                 )
             }
             // Generic types like JsPromise<T>, JsArray<T>, Option<T> don't need `new`
-            TypeExprKind::Generic { name, .. } => {
-                !matches!(
-                    name.name.as_str(),
-                    "JsPromise" | "JsArray" | "Option" | "Result"
-                )
-            }
+            TypeExprKind::Generic { name, .. } => !matches!(
+                name.name.as_str(),
+                "JsPromise" | "JsArray" | "Option" | "Result"
+            ),
             _ => false,
         },
     }
@@ -2150,10 +2159,9 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
                     // Only apply getter lookup for known stdlib types
                     // User-defined types should not have their methods converted to property access
-                    let is_stdlib_type = matches!(
-                        base_type,
-                        "String" | "Map" | "Set" | "Range" | "Array"
-                    ) || recv_type.starts_with("[");
+                    let is_stdlib_type =
+                        matches!(base_type, "String" | "Map" | "Set" | "Range" | "Array")
+                            || recv_type.starts_with("[");
 
                     if is_stdlib_type {
                         if let Some(prop) = ctx
@@ -2338,15 +2346,13 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Check if this method is an extern "js" method for any type in user code,
             // OR if the receiver is a known stdlib type (like String, Set, Map).
-            let receiver_is_known_stdlib = receiver_type_from_semantic
-                .as_ref()
-                .is_some_and(|t| {
-                    t == "String"
-                        || t.starts_with("Set")
-                        || t.starts_with("Map")
-                        || t.starts_with("Range")
-                        || t.starts_with("[") // arrays
-                });
+            let receiver_is_known_stdlib = receiver_type_from_semantic.as_ref().is_some_and(|t| {
+                t == "String"
+                    || t.starts_with("Set")
+                    || t.starts_with("Map")
+                    || t.starts_with("Range")
+                    || t.starts_with("[") // arrays
+            });
             let is_extern_method = receiver_is_string
                 || receiver_is_known_stdlib
                 || ctx
@@ -4513,7 +4519,10 @@ mod tests {
     #[test]
     fn appends_module_exports_for_top_level_functions() {
         // file with two top-level functions: main and helper
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -4602,7 +4611,10 @@ mod tests {
         //     }
         // }
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -4686,7 +4698,10 @@ mod tests {
     fn adds_main_call_for_zero_arg_main_function() {
         // Build a minimal Husk file with:
         // fn main() { }
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -4735,7 +4750,10 @@ mod tests {
         // enum Color { Red, Blue }
         // fn add(a: i32, b: i32) -> i32 { a + b }
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -4861,7 +4879,10 @@ mod tests {
         //   }
         // }
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -4954,7 +4975,10 @@ mod tests {
         // }
         // fn main() { }
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5036,7 +5060,10 @@ mod tests {
 
     #[test]
     fn esm_exports_even_without_imports_when_target_forced() {
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5081,7 +5108,10 @@ mod tests {
     fn generates_cjs_requires_for_extern_mod_declarations() {
         // extern "js" { mod express; } targeting CommonJS.
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5149,7 +5179,10 @@ mod tests {
     #[test]
     fn lowers_format_to_string_concatenation() {
         // Test that format("hello {}!", name) generates string concatenation
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5222,7 +5255,10 @@ mod tests {
     #[test]
     fn lowers_format_with_hex_specifier() {
         // Test that format("{:x}", num) generates __husk_fmt_num call
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5284,7 +5320,10 @@ mod tests {
     #[test]
     fn lowers_format_simple_string_returns_string_directly() {
         // Test that format("hello") generates just the string
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
 
         let format_expr = husk_ast::Expr {
             kind: HuskExprKind::Format {
@@ -5320,7 +5359,10 @@ mod tests {
     #[test]
     fn lowers_loop_to_while_true() {
         // Test that loop { break; } generates while (true) { break; }
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5385,7 +5427,10 @@ mod tests {
     #[test]
     fn lowers_while_with_condition() {
         // Test that while cond { ... } generates while (cond) { ... }
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5454,7 +5499,10 @@ mod tests {
     #[test]
     fn lowers_break_and_continue() {
         // Test that break and continue statements generate proper JS
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
 
         let break_stmt = husk_ast::Stmt {
             kind: husk_ast::StmtKind::Break,
@@ -5492,7 +5540,10 @@ mod tests {
     #[test]
     fn lowers_enum_variant_with_single_arg_to_tagged_object() {
         // Test that Option::Some(x) generates {tag: "Some", value: x}
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5553,7 +5604,10 @@ mod tests {
     #[test]
     fn lowers_enum_variant_with_multiple_args_to_indexed_object() {
         // Test that MyEnum::Pair(a, b) generates {tag: "Pair", "0": a, "1": b}
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5624,7 +5678,10 @@ mod tests {
     #[test]
     fn lowers_unit_enum_variant_to_tagged_object() {
         // Test that Option::None generates {tag: "None"}
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5666,7 +5723,10 @@ mod tests {
     #[test]
     fn lower_match_stmt_with_break() {
         // Test that match with break generates if/else with break
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5767,7 +5827,10 @@ mod tests {
     #[test]
     fn lower_match_stmt_with_continue() {
         // Test that match with continue generates if/else with continue
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5822,7 +5885,10 @@ mod tests {
     #[test]
     fn lower_match_stmt_generates_if_else_chain() {
         // Test that match generates if/else chain, not IIFE with ternary
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5919,7 +5985,10 @@ mod tests {
     fn lowers_imported_unit_variant() {
         // Test: use Option::*; let x = None;
         // Should generate: {tag: "None"}
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -5961,7 +6030,10 @@ mod tests {
     fn lowers_imported_variant_constructor() {
         // Test: use Option::*; let x = Some(42);
         // Should generate: {tag: "Some", value: 42}
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -6095,7 +6167,10 @@ mod tests {
         // Calling: event_target.add_event_listener(element, "click")
         // Should generate: eventTarget.addEventListener.call(element, "click")
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),
@@ -6250,7 +6325,10 @@ mod tests {
             TypeExprKind as HuskTypeExprKind,
         };
 
-        let span = |s: usize, e: usize| HuskSpan { range: s..e, file: None };
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
         let ident = |name: &str, s: usize| HuskIdent {
             name: name.to_string(),
             span: span(s, s + name.len()),

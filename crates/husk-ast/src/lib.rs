@@ -937,7 +937,11 @@ impl SetFilePath for Expr {
                     seg.set_file_path(file.clone());
                 }
             }
-            ExprKind::Call { callee, type_args, args } => {
+            ExprKind::Call {
+                callee,
+                type_args,
+                args,
+            } => {
                 callee.set_file_path(file.clone());
                 for arg in type_args {
                     arg.set_file_path(file.clone());
@@ -950,7 +954,12 @@ impl SetFilePath for Expr {
                 base.set_file_path(file.clone());
                 member.set_file_path(file);
             }
-            ExprKind::MethodCall { receiver, method, type_args, args } => {
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                type_args,
+                args,
+            } => {
                 receiver.set_file_path(file.clone());
                 method.set_file_path(file.clone());
                 for arg in type_args {
@@ -988,7 +997,11 @@ impl SetFilePath for Expr {
                     arg.set_file_path(file.clone());
                 }
             }
-            ExprKind::Closure { params, ret_type, body } => {
+            ExprKind::Closure {
+                params,
+                ret_type,
+                body,
+            } => {
                 for param in params {
                     param.name.set_file_path(file.clone());
                     if let Some(ty) = &mut param.ty {
@@ -1091,7 +1104,13 @@ impl SetFilePath for Stmt {
     fn set_file_path(&mut self, file: Arc<str>) {
         self.span.set_file_path(file.clone());
         match &mut self.kind {
-            StmtKind::Let { pattern, ty, value, else_block, .. } => {
+            StmtKind::Let {
+                pattern,
+                ty,
+                value,
+                else_block,
+                ..
+            } => {
                 pattern.set_file_path(file.clone());
                 if let Some(t) = ty {
                     t.set_file_path(file.clone());
@@ -1113,7 +1132,11 @@ impl SetFilePath for Stmt {
                     e.set_file_path(file);
                 }
             }
-            StmtKind::If { cond, then_branch, else_branch } => {
+            StmtKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 cond.set_file_path(file.clone());
                 then_branch.set_file_path(file.clone());
                 if let Some(else_b) = else_branch {
@@ -1127,14 +1150,23 @@ impl SetFilePath for Stmt {
             StmtKind::Loop { body } => {
                 body.set_file_path(file);
             }
-            StmtKind::ForIn { binding, iterable, body } => {
+            StmtKind::ForIn {
+                binding,
+                iterable,
+                body,
+            } => {
                 binding.set_file_path(file.clone());
                 iterable.set_file_path(file.clone());
                 body.set_file_path(file);
             }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Block(block) => block.set_file_path(file),
-            StmtKind::IfLet { pattern, scrutinee, then_branch, else_branch } => {
+            StmtKind::IfLet {
+                pattern,
+                scrutinee,
+                then_branch,
+                else_branch,
+            } => {
                 pattern.set_file_path(file.clone());
                 scrutinee.set_file_path(file.clone());
                 then_branch.set_file_path(file.clone());
@@ -1154,7 +1186,13 @@ impl SetFilePath for Item {
             attr.name.set_file_path(file.clone());
         }
         match &mut self.kind {
-            ItemKind::Fn { name, type_params, params, ret_type, body } => {
+            ItemKind::Fn {
+                name,
+                type_params,
+                params,
+                ret_type,
+                body,
+            } => {
                 name.set_file_path(file.clone());
                 for tp in type_params {
                     tp.name.set_file_path(file.clone());
@@ -1177,7 +1215,11 @@ impl SetFilePath for Item {
                     stmt.set_file_path(file.clone());
                 }
             }
-            ItemKind::Struct { name, type_params, fields } => {
+            ItemKind::Struct {
+                name,
+                type_params,
+                fields,
+            } => {
                 name.set_file_path(file.clone());
                 for tp in type_params {
                     tp.set_file_path(file.clone());
@@ -1187,7 +1229,11 @@ impl SetFilePath for Item {
                     field.ty.set_file_path(file.clone());
                 }
             }
-            ItemKind::Enum { name, type_params, variants } => {
+            ItemKind::Enum {
+                name,
+                type_params,
+                variants,
+            } => {
                 name.set_file_path(file.clone());
                 for tp in type_params {
                     tp.set_file_path(file.clone());
@@ -1319,7 +1365,11 @@ impl SetFilePath for ExternItem {
             attr.name.set_file_path(file.clone());
         }
         match &mut self.kind {
-            ExternItemKind::Fn { name, params, ret_type } => {
+            ExternItemKind::Fn {
+                name,
+                params,
+                ret_type,
+            } => {
                 name.set_file_path(file.clone());
                 for param in params {
                     for attr in &mut param.attributes {
@@ -1339,13 +1389,19 @@ impl SetFilePath for ExternItem {
                     item.set_file_path(file.clone());
                 }
             }
-            ExternItemKind::Struct { name, type_params, .. } => {
+            ExternItemKind::Struct {
+                name, type_params, ..
+            } => {
                 name.set_file_path(file.clone());
                 for tp in type_params {
                     tp.set_file_path(file.clone());
                 }
             }
-            ExternItemKind::Impl { type_params, self_ty, items } => {
+            ExternItemKind::Impl {
+                type_params,
+                self_ty,
+                items,
+            } => {
                 for tp in type_params {
                     tp.name.set_file_path(file.clone());
                     for bound in &mut tp.bounds {
@@ -1404,7 +1460,11 @@ impl SetFilePath for ModItem {
     fn set_file_path(&mut self, file: Arc<str>) {
         self.span.set_file_path(file.clone());
         match &mut self.kind {
-            ModItemKind::Fn { name, params, ret_type } => {
+            ModItemKind::Fn {
+                name,
+                params,
+                ret_type,
+            } => {
                 name.set_file_path(file.clone());
                 for param in params {
                     for attr in &mut param.attributes {

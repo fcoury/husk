@@ -723,13 +723,11 @@ impl<'a> Codegen<'a> {
                     let parent_names: Vec<String> = i
                         .extends
                         .iter()
-                        .filter_map(|ty| {
-                            match ty {
-                                DtsType::Named { name, .. } => {
-                                    Some(name.split('.').last().unwrap_or(name).to_string())
-                                }
-                                _ => None,
+                        .filter_map(|ty| match ty {
+                            DtsType::Named { name, .. } => {
+                                Some(name.split('.').last().unwrap_or(name).to_string())
                             }
+                            _ => None,
                         })
                         .collect();
                     if !parent_names.is_empty() {
@@ -745,7 +743,8 @@ impl<'a> Codegen<'a> {
 
                 // Collect methods for inheritance flattening (but don't add to impls)
                 // We need to process them to have correct method signatures
-                let type_params: Vec<String> = i.type_params.iter().map(|p| p.name.clone()).collect();
+                let type_params: Vec<String> =
+                    i.type_params.iter().map(|p| p.name.clone()).collect();
                 self.known_generics = type_params.iter().cloned().collect();
                 self.in_struct_context = true;
                 self.current_type_name = Some(i.name.clone());
@@ -758,8 +757,10 @@ impl<'a> Codegen<'a> {
                         let method_type_params: Vec<String> = type_params.clone();
 
                         let old_generics = self.known_generics.clone();
-                        let old_method_params =
-                            std::mem::replace(&mut self.method_type_params, method_only_params.clone());
+                        let old_method_params = std::mem::replace(
+                            &mut self.method_type_params,
+                            method_only_params.clone(),
+                        );
 
                         for tp in &m.type_params {
                             self.known_generics.insert(tp.name.clone());
@@ -779,10 +780,7 @@ impl<'a> Codegen<'a> {
                             if mapped == "()" { None } else { Some(mapped) }
                         });
 
-                        let this_param = m
-                            .this_param
-                            .as_ref()
-                            .map(|tp| self.map_type(tp));
+                        let this_param = m.this_param.as_ref().map(|tp| self.map_type(tp));
 
                         methods.push(GeneratedMethod {
                             name: escape_keyword(&m.name),
@@ -3982,7 +3980,9 @@ mod tests {
         // Should have a callable constructor using module_call attribute
         // The module binding has _mod suffix to avoid collision with the callable function
         assert!(
-            result.code.contains("#[module_call = \"better_sqlite3_mod\"]"),
+            result
+                .code
+                .contains("#[module_call = \"better_sqlite3_mod\"]"),
             "Expected #[module_call = \"better_sqlite3_mod\"] attribute"
         );
         assert!(

@@ -10,10 +10,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 /// Emit a diagnostic to stderr using the given file database.
-fn emit_diagnostic_to_stderr(
-    files: &SimpleFiles<String, String>,
-    diagnostic: &Diagnostic<usize>,
-) {
+fn emit_diagnostic_to_stderr(files: &SimpleFiles<String, String>, diagnostic: &Diagnostic<usize>) {
     let writer = StandardStream::stderr(ColorChoice::Auto);
     let config = term::Config::default();
     let _ = term::emit(&mut writer.lock(), &config, files, diagnostic);
@@ -78,7 +75,10 @@ impl MultiFileSourceDb {
     /// Returns the default file ID if the span has no file path or the file is not found.
     fn file_id_for_span(&self, span: &Span) -> usize {
         if let Some(file_path) = span.file_path() {
-            self.file_ids.get(file_path).copied().unwrap_or(self.default_file_id)
+            self.file_ids
+                .get(file_path)
+                .copied()
+                .unwrap_or(self.default_file_id)
         } else {
             self.default_file_id
         }

@@ -562,10 +562,7 @@ pub fn generate_union_code(strategy: &UnionStrategy, union_name: Option<&str>) -
             let name = union_name.unwrap_or("StringUnion");
             let pascal_names: Vec<_> = variants.iter().map(|v| string_to_pascal_case(v)).collect();
             let unique_names = deduplicate_variant_names(pascal_names);
-            let variant_defs: Vec<_> = unique_names
-                .iter()
-                .map(|v| format!("    {},", v))
-                .collect();
+            let variant_defs: Vec<_> = unique_names.iter().map(|v| format!("    {},", v)).collect();
             format!("enum {} {{\n{}\n}}", name, variant_defs.join("\n"))
         }
 
@@ -588,7 +585,9 @@ pub fn generate_union_code(strategy: &UnionStrategy, union_name: Option<&str>) -
             let variant_defs: Vec<_> = variants
                 .iter()
                 .zip(unique_names.iter())
-                .map(|(v, unique_name)| format!("    {}({}),", unique_name, type_to_husk_string(&v.ty)))
+                .map(|(v, unique_name)| {
+                    format!("    {}({}),", unique_name, type_to_husk_string(&v.ty))
+                })
                 .collect();
             format!("enum {} {{\n{}\n}}", name, variant_defs.join("\n"))
         }
@@ -773,10 +772,7 @@ mod tests {
         );
 
         // Empty list
-        assert_eq!(
-            deduplicate_variant_names(vec![]),
-            Vec::<String>::new()
-        );
+        assert_eq!(deduplicate_variant_names(vec![]), Vec::<String>::new());
     }
 
     #[test]

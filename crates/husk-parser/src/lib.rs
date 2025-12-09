@@ -6,8 +6,9 @@ use husk_ast::{
     AssignOp, Attribute, BinaryOp, Block, CfgPredicate, ClosureParam, EnumVariant,
     EnumVariantFields, Expr, ExprKind, ExternProperty, File, FormatPlaceholder, FormatSegment,
     FormatSpec, FormatString, Ident, ImplBlock, ImplItem, ImplItemKind, ImplMethod, Item, ItemKind,
-    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt, StmtKind,
-    StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind, TypeParam,
+    Literal, LiteralKind, MatchArm, Param, Pattern, PatternKind, SelfReceiver, Span, Stmt,
+    StmtKind, StructField, TraitDef, TraitItem, TraitItemKind, TraitMethod, TypeExpr, TypeExprKind,
+    TypeParam,
 };
 use husk_lexer::{Keyword, Lexer, Token, TokenKind};
 
@@ -140,7 +141,8 @@ impl<'src> Parser<'src> {
 
     fn ast_span_from(&self, span: &husk_lexer::Span) -> Span {
         Span {
-            range: span.range.clone(), file: None
+            range: span.range.clone(),
+            file: None,
         }
     }
 
@@ -247,7 +249,8 @@ impl<'src> Parser<'src> {
         // Update span to start from visibility keyword if present
         if visibility == husk_ast::Visibility::Public {
             item.span = Span {
-                range: item_start..item.span.range.end, file: None
+                range: item_start..item.span.range.end,
+                file: None,
             };
         }
 
@@ -278,7 +281,8 @@ impl<'src> Parser<'src> {
 
         let body_block = self.parse_block()?;
         let span = Span {
-            range: fn_tok.span.range.start..body_block.span.range.end, file: None
+            range: fn_tok.span.range.start..body_block.span.range.end,
+            file: None,
         };
 
         Some(Item {
@@ -324,7 +328,8 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: struct_tok.span.range.start..end, file: None
+            range: struct_tok.span.range.start..end,
+            file: None,
         };
 
         Some(Item {
@@ -403,7 +408,8 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: enum_tok.span.range.start..end, file: None
+            range: enum_tok.span.range.start..end,
+            file: None,
         };
 
         Some(Item {
@@ -432,7 +438,8 @@ impl<'src> Parser<'src> {
         }
         let end = self.previous().span.range.end;
         let span = Span {
-            range: type_tok.span.range.start..end, file: None
+            range: type_tok.span.range.start..end,
+            file: None,
         };
         Some(Item {
             attributes: Vec::new(),
@@ -486,7 +493,8 @@ impl<'src> Parser<'src> {
                             Ident {
                                 name: binding_name,
                                 span: Span {
-                                    range: tok.span.range.clone(), file: None
+                                    range: tok.span.range.clone(),
+                                    file: None,
                                 },
                             },
                         )
@@ -551,7 +559,8 @@ impl<'src> Parser<'src> {
                         }
 
                         let fn_span = Span {
-                            range: fn_name.span.range.start..self.previous().span.range.end, file: None
+                            range: fn_name.span.range.start..self.previous().span.range.end,
+                            file: None,
                         };
                         nested.push(husk_ast::ModItem {
                             kind: husk_ast::ModItemKind::Fn {
@@ -572,7 +581,8 @@ impl<'src> Parser<'src> {
                 };
 
                 let span = Span {
-                    range: mod_start..self.previous().span.range.end, file: None
+                    range: mod_start..self.previous().span.range.end,
+                    file: None,
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -624,7 +634,8 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: struct_start..self.previous().span.range.end, file: None
+                    range: struct_start..self.previous().span.range.end,
+                    file: None,
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -666,7 +677,8 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: static_start..self.previous().span.range.end, file: None
+                    range: static_start..self.previous().span.range.end,
+                    file: None,
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -708,7 +720,8 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: const_start..self.previous().span.range.end, file: None
+                    range: const_start..self.previous().span.range.end,
+                    file: None,
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -756,7 +769,8 @@ impl<'src> Parser<'src> {
                 }
 
                 let span = Span {
-                    range: impl_start..self.previous().span.range.end, file: None
+                    range: impl_start..self.previous().span.range.end,
+                    file: None,
                 };
                 items.push(husk_ast::ExternItem {
                     attributes: item_attributes,
@@ -805,7 +819,8 @@ impl<'src> Parser<'src> {
             }
 
             let span = Span {
-                range: fn_start..self.previous().span.range.end, file: None
+                range: fn_start..self.previous().span.range.end,
+                file: None,
             };
             items.push(husk_ast::ExternItem {
                 attributes: item_attributes,
@@ -820,7 +835,8 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: extern_tok.span.range.start..end, file: None
+            range: extern_tok.span.range.start..end,
+            file: None,
         };
 
         Some(Item {
@@ -862,7 +878,8 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: trait_tok.span.range.start..end, file: None
+            range: trait_tok.span.range.start..end,
+            file: None,
         };
 
         Some(Item {
@@ -925,7 +942,8 @@ impl<'src> Parser<'src> {
                 default_body,
             }),
             span: Span {
-                range: fn_start..end, file: None
+                range: fn_start..end,
+                file: None,
             },
         })
     }
@@ -971,7 +989,8 @@ impl<'src> Parser<'src> {
 
         let end = self.previous().span.range.end;
         let span = Span {
-            range: impl_tok.span.range.start..end, file: None
+            range: impl_tok.span.range.start..end,
+            file: None,
         };
 
         Some(Item {
@@ -1015,7 +1034,8 @@ impl<'src> Parser<'src> {
                 (Some(pred), None)
             } else if name.name == "should_panic" {
                 // Parse optional expected = "message"
-                let val = if matches!(&self.current().kind, TokenKind::Ident(s) if s == "expected") {
+                let val = if matches!(&self.current().kind, TokenKind::Ident(s) if s == "expected")
+                {
                     self.advance(); // consume `expected`
                     if !self.matches_token(&TokenKind::Eq) {
                         self.error_here("expected `=` after `expected`");
@@ -1075,7 +1095,10 @@ impl<'src> Parser<'src> {
             name,
             value,
             cfg_predicate,
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -1249,7 +1272,8 @@ impl<'src> Parser<'src> {
                     is_extern: true,
                 }),
                 span: Span {
-                    range: item_start..end, file: None
+                    range: item_start..end,
+                    file: None,
                 },
             })
         } else {
@@ -1267,7 +1291,8 @@ impl<'src> Parser<'src> {
                     is_extern: false,
                 }),
                 span: Span {
-                    range: item_start..end, file: None
+                    range: item_start..end,
+                    file: None,
                 },
             })
         }
@@ -1306,9 +1331,15 @@ impl<'src> Parser<'src> {
                 attributes,
                 name,
                 ty,
-                span: Span { range: start..end, file: None },
+                span: Span {
+                    range: start..end,
+                    file: None,
+                },
             }),
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -1361,7 +1392,8 @@ impl<'src> Parser<'src> {
                 is_extern: true,
             }),
             span: Span {
-                range: item_start..end, file: None
+                range: item_start..end,
+                file: None,
             },
         })
     }
@@ -1432,7 +1464,11 @@ impl<'src> Parser<'src> {
                 Some(t) => t,
                 None => break,
             };
-            params.push(Param { attributes, name, ty });
+            params.push(Param {
+                attributes,
+                name,
+                ty,
+            });
 
             if self.matches_token(&TokenKind::RParen) {
                 break;
@@ -1545,7 +1581,11 @@ impl<'src> Parser<'src> {
                 Some(t) => t,
                 None => break,
             };
-            params.push(Param { attributes, name, ty });
+            params.push(Param {
+                attributes,
+                name,
+                ty,
+            });
 
             if self.matches_token(&TokenKind::RParen) {
                 break;
@@ -1601,7 +1641,10 @@ impl<'src> Parser<'src> {
                         params,
                         ret: Box::new(ret),
                     },
-                    span: Span { range: start..end, file: None },
+                    span: Span {
+                        range: start..end,
+                        file: None,
+                    },
                 })
             }
             // Unit type `()` or tuple type `(T1, T2, ...)`
@@ -1616,9 +1659,15 @@ impl<'src> Parser<'src> {
                     return Some(TypeExpr {
                         kind: TypeExprKind::Named(Ident {
                             name: "()".to_string(),
-                            span: Span { range: start..end, file: None },
+                            span: Span {
+                                range: start..end,
+                                file: None,
+                            },
                         }),
-                        span: Span { range: start..end, file: None },
+                        span: Span {
+                            range: start..end,
+                            file: None,
+                        },
                     });
                 }
 
@@ -1656,7 +1705,10 @@ impl<'src> Parser<'src> {
 
                 Some(TypeExpr {
                     kind: TypeExprKind::Tuple(types),
-                    span: Span { range: start..end, file: None },
+                    span: Span {
+                        range: start..end,
+                        file: None,
+                    },
                 })
             }
             // Array type: `[ElementType]`
@@ -1675,7 +1727,10 @@ impl<'src> Parser<'src> {
 
                 Some(TypeExpr {
                     kind: TypeExprKind::Array(Box::new(elem_type)),
-                    span: Span { range: start..end, file: None },
+                    span: Span {
+                        range: start..end,
+                        file: None,
+                    },
                 })
             }
             // Self type (capital S) - used in trait definitions
@@ -1711,7 +1766,8 @@ impl<'src> Parser<'src> {
                         }
                     }
                     let span = Span {
-                        range: ident.span.range.start..self.previous().span.range.end, file: None
+                        range: ident.span.range.start..self.previous().span.range.end,
+                        file: None,
                     };
                     Some(TypeExpr {
                         kind: TypeExprKind::Generic { name: ident, args },
@@ -1792,7 +1848,10 @@ impl<'src> Parser<'src> {
         let end = self.previous().span.range.end;
         Some(Block {
             stmts,
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -1815,7 +1874,8 @@ impl<'src> Parser<'src> {
                 husk_ast::UseKind::Variants(variants)
             } else {
                 // Could be single variant or continuing path - parse as identifier
-                if let Some(variant) = self.parse_ident("expected identifier, `*`, or `{` after `::`")
+                if let Some(variant) =
+                    self.parse_ident("expected identifier, `*`, or `{` after `::`")
                 {
                     husk_ast::UseKind::Variants(vec![variant])
                 } else {
@@ -1836,7 +1896,8 @@ impl<'src> Parser<'src> {
             visibility: husk_ast::Visibility::Private,
             kind: ItemKind::Use { path, kind },
             span: Span {
-                range: use_tok.span.range.start..end, file: None
+                range: use_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -1874,11 +1935,10 @@ impl<'src> Parser<'src> {
 
                         // Otherwise, continue parsing as a normal path segment.
                         self.advance(); // consume `::`
-                        let seg =
-                            match self.parse_ident("expected identifier after `::` in path") {
-                                Some(id) => id,
-                                None => break,
-                            };
+                        let seg = match self.parse_ident("expected identifier after `::` in path") {
+                            Some(id) => id,
+                            None => break,
+                        };
                         path.push(seg);
                     }
                     _ => break,
@@ -1990,7 +2050,8 @@ impl<'src> Parser<'src> {
                 else_block,
             },
             span: Span {
-                range: let_tok.span.range.start..end, file: None
+                range: let_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2009,7 +2070,8 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Return { value },
             span: Span {
-                range: ret_tok.span.range.start..end, file: None
+                range: ret_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2057,7 +2119,8 @@ impl<'src> Parser<'src> {
                 else_branch,
             },
             span: Span {
-                range: if_tok.span.range.start..end, file: None
+                range: if_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2099,7 +2162,8 @@ impl<'src> Parser<'src> {
                 else_branch,
             },
             span: Span {
-                range: if_tok.span.range.start..end, file: None
+                range: if_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2118,7 +2182,8 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::While { cond, body },
             span: Span {
-                range: while_tok.span.range.start..end, file: None
+                range: while_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2134,7 +2199,8 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Loop { body },
             span: Span {
-                range: loop_tok.span.range.start..end, file: None
+                range: loop_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2164,7 +2230,8 @@ impl<'src> Parser<'src> {
                 body,
             },
             span: Span {
-                range: for_tok.span.range.start..end, file: None
+                range: for_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2178,7 +2245,8 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Break,
             span: Span {
-                range: tok.span.range.start..end, file: None
+                range: tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2192,7 +2260,8 @@ impl<'src> Parser<'src> {
         Some(Stmt {
             kind: StmtKind::Continue,
             span: Span {
-                range: tok.span.range.start..end, file: None
+                range: tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -2225,7 +2294,10 @@ impl<'src> Parser<'src> {
                     op,
                     value,
                 },
-                span: Span { range: start..end, file: None },
+                span: Span {
+                    range: start..end,
+                    file: None,
+                },
             });
         }
 
@@ -2265,7 +2337,8 @@ impl<'src> Parser<'src> {
             // Right-associative: parse the right side as another assignment
             let value = self.parse_assignment_expr()?;
             let span = Span {
-                range: expr.span.range.start..value.span.range.end, file: None
+                range: expr.span.range.start..value.span.range.end,
+                file: None,
             };
             Some(Expr {
                 kind: ExprKind::Assign {
@@ -2287,7 +2360,8 @@ impl<'src> Parser<'src> {
                 let op_span = self.previous().span.clone();
                 let right = self.parse_logical_and()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2311,7 +2385,8 @@ impl<'src> Parser<'src> {
             if self.matches_token(&TokenKind::AndAnd) {
                 let right = self.parse_equality()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2334,7 +2409,8 @@ impl<'src> Parser<'src> {
             if self.matches_token(&TokenKind::EqEq) {
                 let right = self.parse_range()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2347,7 +2423,8 @@ impl<'src> Parser<'src> {
             } else if self.matches_token(&TokenKind::BangEq) {
                 let right = self.parse_range()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2370,7 +2447,8 @@ impl<'src> Parser<'src> {
         if self.matches_token(&TokenKind::DotDot) {
             let end = self.parse_comparison()?;
             let span = Span {
-                range: expr.span.range.start..end.span.range.end, file: None
+                range: expr.span.range.start..end.span.range.end,
+                file: None,
             };
             return Some(Expr {
                 kind: ExprKind::Range {
@@ -2383,7 +2461,8 @@ impl<'src> Parser<'src> {
         } else if self.matches_token(&TokenKind::DotDotEq) {
             let end = self.parse_comparison()?;
             let span = Span {
-                range: expr.span.range.start..end.span.range.end, file: None
+                range: expr.span.range.start..end.span.range.end,
+                file: None,
             };
             return Some(Expr {
                 kind: ExprKind::Range {
@@ -2416,7 +2495,8 @@ impl<'src> Parser<'src> {
             if let Some(op) = op {
                 let right = self.parse_additive()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2443,7 +2523,8 @@ impl<'src> Parser<'src> {
             if self.matches_keyword(Keyword::As) {
                 let target_ty = self.parse_type_expr()?;
                 let span = Span {
-                    range: expr.span.range.start..target_ty.span.range.end, file: None
+                    range: expr.span.range.start..target_ty.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Cast {
@@ -2474,7 +2555,8 @@ impl<'src> Parser<'src> {
             if let Some(op) = op {
                 let right = self.parse_multiplicative()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2507,7 +2589,8 @@ impl<'src> Parser<'src> {
             if let Some(op) = op {
                 let right = self.parse_cast()?;
                 let span = Span {
-                    range: expr.span.range.start..right.span.range.end, file: None
+                    range: expr.span.range.start..right.span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Binary {
@@ -2529,7 +2612,8 @@ impl<'src> Parser<'src> {
             let op_tok = self.previous().clone();
             let expr = self.parse_unary()?;
             let span = Span {
-                range: op_tok.span.range.start..expr.span.range.end, file: None
+                range: op_tok.span.range.start..expr.span.range.end,
+                file: None,
             };
             return Some(Expr {
                 kind: ExprKind::Unary {
@@ -2543,7 +2627,8 @@ impl<'src> Parser<'src> {
             let op_tok = self.previous().clone();
             let expr = self.parse_unary()?;
             let span = Span {
-                range: op_tok.span.range.start..expr.span.range.end, file: None
+                range: op_tok.span.range.start..expr.span.range.end,
+                file: None,
             };
             return Some(Expr {
                 kind: ExprKind::Unary {
@@ -2583,7 +2668,8 @@ impl<'src> Parser<'src> {
                 // Regular function call (no turbofish in this path since we already matched LParen)
                 let args = self.parse_argument_list();
                 let span = Span {
-                    range: expr.span.range.start..self.previous().span.range.end, file: None
+                    range: expr.span.range.start..self.previous().span.range.end,
+                    file: None,
                 };
                 expr = Expr {
                     kind: ExprKind::Call {
@@ -2603,12 +2689,16 @@ impl<'src> Parser<'src> {
                     let index = match s.parse::<usize>() {
                         Ok(idx) => idx,
                         Err(_) => {
-                            self.error_at_token(&name_tok, "tuple field index must be a valid non-negative integer");
+                            self.error_at_token(
+                                &name_tok,
+                                "tuple field index must be a valid non-negative integer",
+                            );
                             break;
                         }
                     };
                     let span = Span {
-                        range: expr.span.range.start..name_tok.span.range.end, file: None
+                        range: expr.span.range.start..name_tok.span.range.end,
+                        file: None,
                     };
                     expr = Expr {
                         kind: ExprKind::TupleField {
@@ -2625,11 +2715,14 @@ impl<'src> Parser<'src> {
                 if let TokenKind::FloatLiteral(ref s) = name_tok.kind {
                     // Check if this looks like chained tuple access (e.g., "0.0", "0.1", "1.2")
                     if let Some((first, rest)) = s.split_once('.') {
-                        if let (Ok(idx1), Ok(idx2)) = (first.parse::<usize>(), rest.parse::<usize>()) {
+                        if let (Ok(idx1), Ok(idx2)) =
+                            (first.parse::<usize>(), rest.parse::<usize>())
+                        {
                             self.advance();
                             // First tuple access
                             let mid_span = Span {
-                                range: expr.span.range.start..name_tok.span.range.end, file: None
+                                range: expr.span.range.start..name_tok.span.range.end,
+                                file: None,
                             };
                             let first_access = Expr {
                                 kind: ExprKind::TupleField {
@@ -2676,7 +2769,8 @@ impl<'src> Parser<'src> {
                     // Method call: expr.ident(args...) or expr.ident::<T>(args...)
                     let args = self.parse_argument_list();
                     let span = Span {
-                        range: expr.span.range.start..self.previous().span.range.end, file: None
+                        range: expr.span.range.start..self.previous().span.range.end,
+                        file: None,
                     };
                     expr = Expr {
                         kind: ExprKind::MethodCall {
@@ -2694,7 +2788,8 @@ impl<'src> Parser<'src> {
                 } else {
                     // Field access: expr.ident
                     let span = Span {
-                        range: expr.span.range.start..ident.span.range.end, file: None
+                        range: expr.span.range.start..ident.span.range.end,
+                        file: None,
                     };
                     expr = Expr {
                         kind: ExprKind::Field {
@@ -2711,22 +2806,25 @@ impl<'src> Parser<'src> {
                 // Check for slice syntax starting with `..` (no start bound)
                 if self.matches_token(&TokenKind::DotDot) {
                     // Slice with no start: arr[..end] or arr[..]
-                    let (end_expr, inclusive) = if matches!(self.current().kind, TokenKind::RBracket) {
-                        // arr[..] - full slice
-                        (None, false)
-                    } else {
-                        // arr[..end]
-                        (Some(Box::new(self.parse_comparison()?)), false)
-                    };
+                    let (end_expr, inclusive) =
+                        if matches!(self.current().kind, TokenKind::RBracket) {
+                            // arr[..] - full slice
+                            (None, false)
+                        } else {
+                            // arr[..end]
+                            (Some(Box::new(self.parse_comparison()?)), false)
+                        };
                     if !self.matches_token(&TokenKind::RBracket) {
                         self.error_here("expected `]` after slice expression");
                         return None;
                     }
                     let span = Span {
-                        range: expr.span.range.start..self.previous().span.range.end, file: None
+                        range: expr.span.range.start..self.previous().span.range.end,
+                        file: None,
                     };
                     let range_span = Span {
-                        range: bracket_start..self.previous().span.range.end, file: None
+                        range: bracket_start..self.previous().span.range.end,
+                        file: None,
                     };
                     expr = Expr {
                         kind: ExprKind::Index {
@@ -2750,10 +2848,12 @@ impl<'src> Parser<'src> {
                         return None;
                     }
                     let span = Span {
-                        range: expr.span.range.start..self.previous().span.range.end, file: None
+                        range: expr.span.range.start..self.previous().span.range.end,
+                        file: None,
                     };
                     let range_span = Span {
-                        range: bracket_start..self.previous().span.range.end, file: None
+                        range: bracket_start..self.previous().span.range.end,
+                        file: None,
                     };
                     expr = Expr {
                         kind: ExprKind::Index {
@@ -2788,10 +2888,12 @@ impl<'src> Parser<'src> {
                             return None;
                         }
                         let span = Span {
-                            range: expr.span.range.start..self.previous().span.range.end, file: None
+                            range: expr.span.range.start..self.previous().span.range.end,
+                            file: None,
                         };
                         let range_span = Span {
-                            range: first_expr.span.range.start..self.previous().span.range.end, file: None
+                            range: first_expr.span.range.start..self.previous().span.range.end,
+                            file: None,
                         };
                         expr = Expr {
                             kind: ExprKind::Index {
@@ -2815,10 +2917,12 @@ impl<'src> Parser<'src> {
                             return None;
                         }
                         let span = Span {
-                            range: expr.span.range.start..self.previous().span.range.end, file: None
+                            range: expr.span.range.start..self.previous().span.range.end,
+                            file: None,
                         };
                         let range_span = Span {
-                            range: first_expr.span.range.start..self.previous().span.range.end, file: None
+                            range: first_expr.span.range.start..self.previous().span.range.end,
+                            file: None,
                         };
                         expr = Expr {
                             kind: ExprKind::Index {
@@ -2841,7 +2945,8 @@ impl<'src> Parser<'src> {
                             return None;
                         }
                         let span = Span {
-                            range: expr.span.range.start..self.previous().span.range.end, file: None
+                            range: expr.span.range.start..self.previous().span.range.end,
+                            file: None,
                         };
                         expr = Expr {
                             kind: ExprKind::Index {
@@ -2970,7 +3075,10 @@ impl<'src> Parser<'src> {
                 args,
                 newline,
             },
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -3025,7 +3133,10 @@ impl<'src> Parser<'src> {
                 format: parsed_format,
                 args,
             },
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -3068,7 +3179,8 @@ impl<'src> Parser<'src> {
                 }
 
                 let placeholder_span = Span {
-                    range: span.range.start + placeholder_start..span.range.start + char_offset, file: None
+                    range: span.range.start + placeholder_start..span.range.start + char_offset,
+                    file: None,
                 };
                 let placeholder = self.parse_placeholder(&placeholder_content, &placeholder_span);
                 segments.push(FormatSegment::Placeholder(placeholder));
@@ -3321,8 +3433,7 @@ impl<'src> Parser<'src> {
             ) {
                 // Handle break/continue in match arms by wrapping in a block
                 let stmt_tok = self.current().clone();
-                let is_break =
-                    matches!(self.current().kind, TokenKind::Keyword(Keyword::Break));
+                let is_break = matches!(self.current().kind, TokenKind::Keyword(Keyword::Break));
                 self.advance(); // consume break or continue
                 let stmt = if is_break {
                     Stmt {
@@ -3363,7 +3474,8 @@ impl<'src> Parser<'src> {
                 arms,
             },
             span: Span {
-                range: match_tok.span.range.start..end, file: None
+                range: match_tok.span.range.start..end,
+                file: None,
             },
         })
     }
@@ -3381,7 +3493,10 @@ impl<'src> Parser<'src> {
                     let end = self.previous().span.range.end;
                     return Some(Pattern {
                         kind: PatternKind::Tuple { fields: Vec::new() },
-                        span: Span { range: start..end, file: None },
+                        span: Span {
+                            range: start..end,
+                            file: None,
+                        },
                     });
                 }
 
@@ -3419,7 +3534,10 @@ impl<'src> Parser<'src> {
 
                 return Some(Pattern {
                     kind: PatternKind::Tuple { fields },
-                    span: Span { range: start..end, file: None },
+                    span: Span {
+                        range: start..end,
+                        file: None,
+                    },
                 });
             }
             TokenKind::Ident(name) => {
@@ -3521,7 +3639,10 @@ impl<'src> Parser<'src> {
                 ret_type,
                 body: Box::new(body),
             },
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -3650,7 +3771,10 @@ impl<'src> Parser<'src> {
                         .unwrap_or(tok.span.range.end);
                     Some(Expr {
                         kind: ExprKind::Path { segments: path },
-                        span: Span { range: start..end, file: None },
+                        span: Span {
+                            range: start..end,
+                            file: None,
+                        },
                     })
                 }
             }
@@ -3662,8 +3786,13 @@ impl<'src> Parser<'src> {
                 if self.matches_token(&TokenKind::RParen) {
                     let end = self.previous().span.range.end;
                     return Some(Expr {
-                        kind: ExprKind::Tuple { elements: Vec::new() },
-                        span: Span { range: start..end, file: None },
+                        kind: ExprKind::Tuple {
+                            elements: Vec::new(),
+                        },
+                        span: Span {
+                            range: start..end,
+                            file: None,
+                        },
                     });
                 }
 
@@ -3685,8 +3814,13 @@ impl<'src> Parser<'src> {
                 if self.matches_token(&TokenKind::RParen) {
                     let end = self.previous().span.range.end;
                     return Some(Expr {
-                        kind: ExprKind::Tuple { elements: vec![first_expr] },
-                        span: Span { range: start..end, file: None },
+                        kind: ExprKind::Tuple {
+                            elements: vec![first_expr],
+                        },
+                        span: Span {
+                            range: start..end,
+                            file: None,
+                        },
                     });
                 }
 
@@ -3712,7 +3846,10 @@ impl<'src> Parser<'src> {
                 let end = self.previous().span.range.end;
                 Some(Expr {
                     kind: ExprKind::Tuple { elements },
-                    span: Span { range: start..end, file: None },
+                    span: Span {
+                        range: start..end,
+                        file: None,
+                    },
                 })
             }
             TokenKind::LBracket => self.parse_array_expr(),
@@ -3900,7 +4037,10 @@ impl<'src> Parser<'src> {
 
         Some(Expr {
             kind: ExprKind::Array { elements },
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 
@@ -3948,7 +4088,10 @@ impl<'src> Parser<'src> {
 
         Some(Expr {
             kind: ExprKind::Struct { name, fields },
-            span: Span { range: start..end, file: None },
+            span: Span {
+                range: start..end,
+                file: None,
+            },
         })
     }
 }
@@ -4154,7 +4297,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 assert!(
                     matches!(val.kind, ExprKind::Format { .. }),
                     "expected Format expression, got {:?}",
@@ -4175,13 +4321,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 1);
                     // Check that we have a placeholder segment
-                    let has_placeholder = format.segments.iter().any(|s| {
-                        matches!(s, husk_ast::FormatSegment::Placeholder(_))
-                    });
+                    let has_placeholder = format
+                        .segments
+                        .iter()
+                        .any(|s| matches!(s, husk_ast::FormatSegment::Placeholder(_)));
                     assert!(has_placeholder, "expected at least one placeholder");
                 } else {
                     panic!("expected Format expression");
@@ -4201,7 +4351,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { args, .. } = &val.kind {
                     assert_eq!(args.len(), 3, "expected 3 arguments");
                 } else {
@@ -4222,17 +4375,24 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 2);
                     // Check format specifiers
-                    let placeholders: Vec<_> = format.segments.iter().filter_map(|s| {
-                        if let husk_ast::FormatSegment::Placeholder(ph) = s {
-                            Some(ph)
-                        } else {
-                            None
-                        }
-                    }).collect();
+                    let placeholders: Vec<_> = format
+                        .segments
+                        .iter()
+                        .filter_map(|s| {
+                            if let husk_ast::FormatSegment::Placeholder(ph) = s {
+                                Some(ph)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
                     assert_eq!(placeholders.len(), 2);
                     assert_eq!(placeholders[0].spec.ty, Some('x'));
                     assert_eq!(placeholders[1].spec.ty, Some('?'));
@@ -4317,7 +4477,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // Should have synthesized 1 implicit arg for `x`
                     assert_eq!(args.len(), 1, "expected 1 synthesized arg");
@@ -4360,7 +4523,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // Should have synthesized 3 implicit args
                     assert_eq!(args.len(), 3, "expected 3 synthesized args");
@@ -4410,10 +4576,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // Should have synthesized 1 arg for `x` (not 2)
-                    assert_eq!(args.len(), 1, "expected 1 synthesized arg for repeated {{x}}");
+                    assert_eq!(
+                        args.len(),
+                        1,
+                        "expected 1 synthesized arg for repeated {{x}}"
+                    );
                     // Both placeholders should point to position 0
                     let placeholders: Vec<_> = format
                         .segments
@@ -4447,7 +4620,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 1);
                     let placeholders: Vec<_> = format
@@ -4526,10 +4702,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // 2 explicit args (a, b) + 2 synthesized (x, y) = 4 total
-                    assert_eq!(args.len(), 4, "expected 4 args (2 explicit + 2 synthesized)");
+                    assert_eq!(
+                        args.len(),
+                        4,
+                        "expected 4 args (2 explicit + 2 synthesized)"
+                    );
                     // Check synthesized args are at the end
                     if let ExprKind::Ident(ident) = &args[2].kind {
                         assert_eq!(ident.name, "x");
@@ -4579,10 +4762,17 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     // 2 explicit args (a, b) + 1 synthesized (x) = 3 total
-                    assert_eq!(args.len(), 3, "expected 3 args (2 explicit + 1 synthesized)");
+                    assert_eq!(
+                        args.len(),
+                        3,
+                        "expected 3 args (2 explicit + 1 synthesized)"
+                    );
                     // Verify synthesized arg is at the end and is 'x'
                     if let ExprKind::Ident(ident) = &args[2].kind {
                         assert_eq!(ident.name, "x");
@@ -4626,7 +4816,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Format { format, args } = &val.kind {
                     assert_eq!(args.len(), 3);
                     // Verify args are a, b, c at positions 0, 1, 2
@@ -4674,7 +4867,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
                     // Check inner expression is 42
                     if let ExprKind::Literal(lit) = &expr.kind {
@@ -4706,9 +4902,16 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Outer cast: (true as i32) as f64
-                if let ExprKind::Cast { expr: outer_expr, target_ty: outer_ty } = &val.kind {
+                if let ExprKind::Cast {
+                    expr: outer_expr,
+                    target_ty: outer_ty,
+                } = &val.kind
+                {
                     // Check outer target is f64
                     if let husk_ast::TypeExprKind::Named(ident) = &outer_ty.kind {
                         assert_eq!(ident.name, "f64");
@@ -4716,7 +4919,11 @@ mod tests {
                         panic!("expected outer type 'f64'");
                     }
                     // Inner cast: true as i32
-                    if let ExprKind::Cast { expr: inner_expr, target_ty: inner_ty } = &outer_expr.kind {
+                    if let ExprKind::Cast {
+                        expr: inner_expr,
+                        target_ty: inner_ty,
+                    } = &outer_expr.kind
+                    {
                         // Check inner target is i32
                         if let husk_ast::TypeExprKind::Named(ident) = &inner_ty.kind {
                             assert_eq!(ident.name, "i32");
@@ -4751,7 +4958,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Binary(Add, 2, Cast(3, f64))
                 if let ExprKind::Binary { op, left, right } = &val.kind {
                     assert!(matches!(op, husk_ast::BinaryOp::Add));
@@ -4795,7 +5005,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Binary(Lt, x, Cast(y, i32))
                 if let ExprKind::Binary { op, left, right } = &val.kind {
                     assert!(matches!(op, husk_ast::BinaryOp::Lt));
@@ -4839,7 +5052,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Binary(Mul, 2, Cast(3, f64))
                 if let ExprKind::Binary { op, left, right } = &val.kind {
                     assert!(matches!(op, husk_ast::BinaryOp::Mul));
@@ -4883,7 +5099,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Cast(Unary(Neg, 1), f64)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
                     if let ExprKind::Unary { op, expr: inner } = &expr.kind {
@@ -4920,10 +5139,18 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Cast(Call(foo, []), i32)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
-                    if let ExprKind::Call { callee, type_args: _, args } = &expr.kind {
+                    if let ExprKind::Call {
+                        callee,
+                        type_args: _,
+                        args,
+                    } = &expr.kind
+                    {
                         if let ExprKind::Ident(ident) = &callee.kind {
                             assert_eq!(ident.name, "foo");
                         } else {
@@ -4957,7 +5184,10 @@ mod tests {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Should be: Cast(Index(arr, 0), f64)
                 if let ExprKind::Cast { expr, target_ty } = &val.kind {
                     if let ExprKind::Index { base: arr, index } = &expr.kind {
@@ -5109,7 +5339,10 @@ fn test(opt: Option<i32>) {
                             assert_eq!(block.stmts.len(), 1);
                             assert!(matches!(block.stmts[0].kind, StmtKind::Break));
                         } else {
-                            panic!("expected Block expression for break arm, got {:?}", arms[1].expr.kind);
+                            panic!(
+                                "expected Block expression for break arm, got {:?}",
+                                arms[1].expr.kind
+                            );
                         }
                     } else {
                         panic!("expected Match expression");
@@ -5172,7 +5405,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::MethodCall {
                     receiver,
                     method,
@@ -5218,7 +5454,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let husk_ast::StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let husk_ast::StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::MethodCall { type_args, .. } = &val.kind {
                     assert_eq!(type_args.len(), 3);
                     let names: Vec<_> = type_args
@@ -5320,7 +5559,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::Tuple { elements } = &val.kind {
                     assert_eq!(elements.len(), 3);
                 } else {
@@ -5341,7 +5583,10 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 if let ExprKind::TupleField { index, .. } = &val.kind {
                     assert_eq!(*index, 0);
                 } else {
@@ -5363,12 +5608,22 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { value: Some(val), .. } = &body[0].kind {
+            if let StmtKind::Let {
+                value: Some(val), ..
+            } = &body[0].kind
+            {
                 // Outer should be TupleField with index 0
-                if let ExprKind::TupleField { base, index: outer_idx } = &val.kind {
+                if let ExprKind::TupleField {
+                    base,
+                    index: outer_idx,
+                } = &val.kind
+                {
                     assert_eq!(*outer_idx, 0);
                     // Inner should also be TupleField with index 0
-                    if let ExprKind::TupleField { index: inner_idx, .. } = &base.kind {
+                    if let ExprKind::TupleField {
+                        index: inner_idx, ..
+                    } = &base.kind
+                    {
                         assert_eq!(*inner_idx, 0);
                     } else {
                         panic!("expected inner TupleField, got {:?}", base.kind);
@@ -5440,7 +5695,10 @@ fn test() {
                 if let husk_ast::PatternKind::Binding(ident) = &pattern.kind {
                     assert_eq!(ident.name, "x");
                 } else {
-                    panic!("expected Binding pattern for grouping, got {:?}", pattern.kind);
+                    panic!(
+                        "expected Binding pattern for grouping, got {:?}",
+                        pattern.kind
+                    );
                 }
             } else {
                 panic!("expected Let statement");
@@ -5460,7 +5718,11 @@ fn test() {
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
             if let StmtKind::Let { pattern, .. } = &body[0].kind {
                 if let husk_ast::PatternKind::Tuple { fields } = &pattern.kind {
-                    assert_eq!(fields.len(), 1, "single-element tuple pattern should have 1 field");
+                    assert_eq!(
+                        fields.len(),
+                        1,
+                        "single-element tuple pattern should have 1 field"
+                    );
                 } else {
                     panic!("expected Tuple pattern for (x,), got {:?}", pattern.kind);
                 }
@@ -5479,8 +5741,17 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::IfLet { pattern, then_branch, else_branch, .. } = &body[0].kind {
-                assert!(matches!(pattern.kind, husk_ast::PatternKind::EnumTuple { .. }));
+            if let StmtKind::IfLet {
+                pattern,
+                then_branch,
+                else_branch,
+                ..
+            } = &body[0].kind
+            {
+                assert!(matches!(
+                    pattern.kind,
+                    husk_ast::PatternKind::EnumTuple { .. }
+                ));
                 assert_eq!(then_branch.stmts.len(), 1);
                 assert!(else_branch.is_none());
             } else {
@@ -5518,8 +5789,10 @@ fn test() {
             if let StmtKind::IfLet { else_branch, .. } = &body[0].kind {
                 // else branch should contain another IfLet
                 let else_stmt = else_branch.as_ref().expect("expected else branch");
-                assert!(matches!(else_stmt.kind, StmtKind::IfLet { .. }),
-                    "expected nested IfLet in else branch");
+                assert!(
+                    matches!(else_stmt.kind, StmtKind::IfLet { .. }),
+                    "expected nested IfLet in else branch"
+                );
             } else {
                 panic!("expected IfLet statement");
             }
@@ -5535,8 +5808,16 @@ fn test() {
         assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
         let file = result.file.unwrap();
         if let ItemKind::Fn { body, .. } = &file.items[0].kind {
-            if let StmtKind::Let { pattern, else_block, .. } = &body[0].kind {
-                assert!(matches!(pattern.kind, husk_ast::PatternKind::EnumTuple { .. }));
+            if let StmtKind::Let {
+                pattern,
+                else_block,
+                ..
+            } = &body[0].kind
+            {
+                assert!(matches!(
+                    pattern.kind,
+                    husk_ast::PatternKind::EnumTuple { .. }
+                ));
                 assert!(else_block.is_some(), "expected else block in let-else");
             } else {
                 panic!("expected Let statement with else_block");
@@ -5578,9 +5859,15 @@ fn test() {
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
             assert_eq!(items.len(), 3);
-            assert!(matches!(&items[0].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "API_URL"));
-            assert!(matches!(&items[1].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "MAX_RETRIES"));
-            assert!(matches!(&items[2].kind, husk_ast::ExternItemKind::Fn { name, .. } if name.name == "fetch_data"));
+            assert!(
+                matches!(&items[0].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "API_URL")
+            );
+            assert!(
+                matches!(&items[1].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "MAX_RETRIES")
+            );
+            assert!(
+                matches!(&items[2].kind, husk_ast::ExternItemKind::Fn { name, .. } if name.name == "fetch_data")
+            );
         } else {
             panic!("expected ExternBlock");
         }
@@ -5597,8 +5884,12 @@ fn test() {
         let file = result.file.unwrap();
         if let ItemKind::ExternBlock { items, .. } = &file.items[0].kind {
             assert_eq!(items.len(), 2);
-            assert!(matches!(&items[0].kind, husk_ast::ExternItemKind::Static { name, .. } if name.name == "__dirname"));
-            assert!(matches!(&items[1].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "VERSION"));
+            assert!(
+                matches!(&items[0].kind, husk_ast::ExternItemKind::Static { name, .. } if name.name == "__dirname")
+            );
+            assert!(
+                matches!(&items[1].kind, husk_ast::ExternItemKind::Const { name, .. } if name.name == "VERSION")
+            );
         } else {
             panic!("expected ExternBlock");
         }
