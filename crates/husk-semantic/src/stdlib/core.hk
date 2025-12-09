@@ -276,6 +276,11 @@ trait Iterator<T> {
 
     /// Takes a closure and creates an iterator that calls that closure on each element.
     /// Returns a new iterator that yields the transformed values.
+    ///
+    /// NOTE: Currently, map is type-preserving (f: fn(T) -> T) due to limitations in
+    /// generic method syntax. Once method-level type parameters are supported (e.g.,
+    /// fn map<U>(self, f: fn(T) -> U) -> impl Iterator<U>), this signature will be
+    /// updated to allow transforming to different types.
     #[js_name = "__husk_iterator_map"]
     extern "js" fn map(self, f: fn(T) -> T) -> impl Iterator<T>;
 
@@ -296,6 +301,11 @@ trait Iterator<T> {
 
     /// Folds every element into an accumulator by applying an operation.
     /// Returns the final accumulator value.
+    ///
+    /// NOTE: Currently, fold constrains the accumulator type to match the element type T
+    /// due to limitations in generic method syntax. Once method-level type parameters
+    /// are supported (e.g., fn fold<B>(self, init: B, f: fn(B, T) -> B) -> B), this
+    /// signature will be updated to allow independent accumulator types.
     #[js_name = "__husk_iterator_fold"]
     extern "js" fn fold(self, init: T, f: fn(T, T) -> T) -> T;
 
@@ -499,7 +509,7 @@ impl<T> [T] {
     extern "js" fn unshift(&mut self, value: T) -> i32;
 
     /// Returns an iterator over the array elements.
-    /// The iterator yields references to each element.
+    /// The iterator yields owned values of type T for each element.
     #[js_name = "__husk_array_iter"]
     extern "js" fn iter(&self) -> impl Iterator<T>;
 
@@ -513,26 +523,25 @@ impl<T> [T] {
 // ============================================================================
 
 // Arrays implement IntoIterator
-// NOTE: Temporarily commented out to debug hang - these call self.into_iter() which might cause resolution issues
-// impl<T> IntoIterator<T> for [T] {
-//     fn into_iter(self) -> impl Iterator<T> {
-//         self.into_iter()
-//     }
-// }
+impl<T> IntoIterator<T> for [T] {
+    fn into_iter(self) -> impl Iterator<T> {
+        self.into_iter()
+    }
+}
 
 // String implements IntoIterator (yields String characters)
-// impl IntoIterator<String> for String {
-//     fn into_iter(self) -> impl Iterator<String> {
-//         self.into_iter()
-//     }
-// }
+impl IntoIterator<String> for String {
+    fn into_iter(self) -> impl Iterator<String> {
+        self.into_iter()
+    }
+}
 
 // Range implements IntoIterator (yields i32 values)
-// impl IntoIterator<i32> for Range {
-//     fn into_iter(self) -> impl Iterator<i32> {
-//         self.into_iter()
-//     }
-// }
+impl IntoIterator<i32> for Range {
+    fn into_iter(self) -> impl Iterator<i32> {
+        self.into_iter()
+    }
+}
 
 // ============================================================================
 // Range Methods

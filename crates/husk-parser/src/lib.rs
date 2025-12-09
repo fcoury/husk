@@ -870,12 +870,7 @@ impl<'src> Parser<'src> {
         }
 
         let mut items = Vec::new();
-        let mut method_count = 0;
         while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
-            method_count += 1;
-            if method_count > 100 {
-                break;
-            }
             let pos_before = self.pos;
             if let Some(item) = self.parse_trait_method() {
                 items.push(item);

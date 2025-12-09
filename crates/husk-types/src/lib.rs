@@ -87,6 +87,12 @@ impl Type {
     pub fn tuple(elements: Vec<Type>) -> Self {
         Type::Tuple(elements)
     }
+
+    pub fn impl_trait(trait_ty: Type) -> Self {
+        Type::ImplTrait {
+            trait_ty: Box::new(trait_ty),
+        }
+    }
 }
 
 #[cfg(test)]

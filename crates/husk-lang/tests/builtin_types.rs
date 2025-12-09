@@ -431,9 +431,10 @@ fn main() {
 }
 "#;
     let js = compile_to_js(source);
+    // If-expressions should generate a ternary operator pattern
     assert!(
-        js.contains("? (function()") || js.contains("1 < 2 ?"),
-        "expected ternary/IIFE in JS output, got:\n{}",
+        js.contains("1 < 2 ?") || js.contains("(1 < 2) ?"),
+        "expected ternary operator in JS output, got:\n{}",
         js
     );
 }
