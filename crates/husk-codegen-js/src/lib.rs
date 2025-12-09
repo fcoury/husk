@@ -2826,29 +2826,19 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             inclusive,
         } => {
             // Range expressions can be used standalone (e.g., stored in arrays).
-            // Generate an object with start and end properties.
+            // Generate an object with explicit inclusivity so we don't mutate the end bound.
             let start_js = match start {
                 Some(s) => lower_expr(s, ctx),
                 None => JsExpr::Number(0),
             };
             let end_js = match end {
-                Some(e) => {
-                    if *inclusive {
-                        // For inclusive ranges (..=), add 1 to end
-                        JsExpr::Binary {
-                            left: Box::new(lower_expr(e, ctx)),
-                            op: JsBinaryOp::Add,
-                            right: Box::new(JsExpr::Number(1)),
-                        }
-                    } else {
-                        lower_expr(e, ctx)
-                    }
-                }
+                Some(e) => lower_expr(e, ctx),
                 None => JsExpr::Ident("Infinity".to_string()),
             };
             JsExpr::Object(vec![
                 ("start".to_string(), start_js),
                 ("end".to_string(), end_js),
+                ("inclusive".to_string(), JsExpr::Bool(*inclusive)),
             ])
         }
         ExprKind::Assign { target, op, value } => {
@@ -3952,8 +3942,10 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             range_expr,
             body,
         } => {
-            // Generate: for (let binding = range_expr.start; binding < range_expr.end; binding++)
-            // Note: Range objects use exclusive end (inclusive ranges have end+1 applied at compile time)
+            // Generate:
+            // for (let binding = range.start;
+            //      binding < (range.inclusive ? range.end + 1 : range.end);
+            //      binding++)
             indent(indent_level, out);
             out.push_str("for (let ");
             out.push_str(binding);
@@ -3961,9 +3953,13 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             write_expr(range_expr, out);
             out.push_str(".start; ");
             out.push_str(binding);
-            out.push_str(" < ");
+            out.push_str(" < (");
             write_expr(range_expr, out);
-            out.push_str(".end; ");
+            out.push_str(".inclusive ? ");
+            write_expr(range_expr, out);
+            out.push_str(".end + 1 : ");
+            write_expr(range_expr, out);
+            out.push_str(".end); ");
             out.push_str(binding);
             out.push_str("++) {\n");
             for s in body {

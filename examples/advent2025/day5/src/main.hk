@@ -22,14 +22,41 @@ fn part_two() {
         ranges.push(parts[0]..=parts[1]);
     }
 
-    // we need to condense overlapping ranges
+    // contains the list of combined ranges
+    // combined ranges after merging overlaps
+    let new_ranges: [Range] = [];
+    // contains the list of ranges that were handled already, either because
+    // it's on new_ranges or it was combined
+    // track ranges already processed so we don't merge twice
+    let handled_list = Set::new();
+
     for range in ranges {
-        println("{}", draw(range));
+        if handled_list.has(range) {
+            continue;
+        }
+
+        let handled = false;
+        for cmp_range in ranges {
+            if overlap(range, cmp_range) {
+                new_ranges.push(combine(range, cmp_range));
+                handled_list.add(cmp_range);
+
+                handled = true;
+            }
+        }
+
+        if !handled {
+            new_ranges.push(range);
+        }
+
+        handled_list.add(range);
     }
 
+    println("new ranges: {:?}", new_ranges);
+
     let total_numbers = 0;
-    for range in ranges {
-        total_numbers += range.end - range.start + 1;
+    for range in new_ranges {
+        total_numbers += range_len(range);
     }
 
     println("total: {total_numbers}");
@@ -37,63 +64,46 @@ fn part_two() {
 
 fn draw(r: Range<i32>) -> String {
     let prefix = " ".repeat(r.start);
-    let size = " ".repeat(r.end - r.start);
+    let size = " ".repeat(range_len(r));
     format("{prefix}[{size}]")
 }
 
+fn end_exclusive(r: Range<i32>) -> i32 {
+    if r.inclusive { r.end + 1 } else { r.end }
+}
+
+fn range_len(r: Range<i32>) -> i32 {
+    end_exclusive(r) - r.start
+}
+
+fn combine(a: Range<i32>, b: Range<i32>) -> Range<i32> {
+    let start = Math.min(a.start, b.start);
+
+    let a_end_excl = end_exclusive(a);
+    let b_end_excl = end_exclusive(b);
+
+    // Pick the boundary that extends farthest to the right and preserve its inclusivity
+    // pick the boundary that extends farthest to the right and preserve its inclusivity
+    let mut end = a.end;
+    let mut inclusive = a.inclusive;
+    if b_end_excl > a_end_excl {
+        end = b.end;
+        inclusive = b.inclusive;
+    }
+
+    if inclusive {
+        start..=end
+    } else {
+        start..end
+    }
+}
+
 fn overlap(a: Range<i32>, b: Range<i32>) -> bool {
-    println("a = {}", draw(a));
-    println("b = {}", draw(b));
-    print("{a:?} => {b:?}: ");
+    let a_end = end_exclusive(a);
+    let b_end = end_exclusive(b);
 
-    // a before b
-    if a.end < b.start {
-        println("no overlap");
-        return false;
-    }
-
-    // a after b
-    if a.start > b.end {
-        println("no overlap");
-        return false;
-    }
-
-    // if a starts before b
-    if a.start < b.start {
-        // a.end >= b.end
-        // ....|....1..
-        // [          ]
-        //    [      ]
-
-        // b.start <= a.end
-        // ....|....1..
-        // [      ]
-        //    [      ]
-
-        if a.end >= b.end || b.start <= a.end {
-            println("overlap");
-        } else {
-            println("no overlap");
-        }
-
-        // it overlaps if the end of a is after the end of b
-        return a.end >= b.end || b.start <= a.end;
-    }
-
-    // if a starts after b
-    if a.start >= b.start {
-        if a.start <= b.end || a.end >= b.end {
-            println("overlap");
-        } else {
-            println("no overlap");
-        }
-
-        // it overlaps if the ends of a is before the end of b
-        return a.start <= b.end || a.end >= b.end;
-    }
-
-    println("no overlap");
-    false
+    // Half-open interval overlap test: [a.start, a_end) intersects [b.start, b_end)
+    a.start < b_end && b.start < a_end
 }
 
 #[cfg(test)]
@@ -127,7 +137,7 @@ fn test_overlap() {
     assert_msg(overlap(range7, range3), "end of 7 = start of 3, 7 left of 3");
     assert_msg(overlap(range8, range7), "7 contains 8");
     assert_msg(!overlap(range6, range3), "before");
-    assert_msg(!overlap(range8, range3), "after");
+    assert_msg(overlap(range8, range3), "after");
 }
 
 // -------------------------------------------------
@@ -156,4 +166,3 @@ fn part_one() {
 
     println("{count}");
 }
-

@@ -2889,13 +2889,20 @@ impl<'a> FnContext<'a> {
 
                 // Handle Range.start and Range.end fields
                 if let Type::Named { name, args } = &base_ty {
-                    if name == "Range" && (member.name == "start" || member.name == "end") {
-                        // Range<T> has start and end fields of type T
-                        let elem_ty = args
-                            .first()
-                            .cloned()
-                            .unwrap_or(Type::Primitive(PrimitiveType::I32));
-                        let type_str = self.format_type(&elem_ty);
+                    if name == "Range"
+                        && (member.name == "start"
+                            || member.name == "end"
+                            || member.name == "inclusive")
+                    {
+                        // Range<T> has start/end fields of type T and an inclusive flag
+                        let field_ty = if member.name == "inclusive" {
+                            Type::Primitive(PrimitiveType::Bool)
+                        } else {
+                            args.first()
+                                .cloned()
+                                .unwrap_or(Type::Primitive(PrimitiveType::I32))
+                        };
+                        let type_str = self.format_type(&field_ty);
                         self.tcx.hover_info.insert(
                             (member.span.range.start, member.span.range.end),
                             HoverInfo {
@@ -2904,7 +2911,7 @@ impl<'a> FnContext<'a> {
                                 definition_span: None,
                             },
                         );
-                        return elem_ty;
+                        return field_ty;
                     }
                 }
 

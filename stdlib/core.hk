@@ -416,9 +416,9 @@ impl<T> [T] {
 // Range Methods
 // ============================================================================
 //
-// Methods on Range type. Ranges are represented at runtime as {start, end}
-// objects. For inclusive ranges (..=), the end is already adjusted to end+1
-// at compile time, so the same runtime helpers work for both.
+// Methods on Range type. Ranges are represented at runtime as {start, end, inclusive}
+// objects. The `inclusive` flag determines whether `end` is treated as inclusive
+// or exclusive when calculating lengths and membership.
 
 impl Range {
     /// Returns true if the range contains the given value.

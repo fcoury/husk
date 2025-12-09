@@ -531,18 +531,19 @@ function __husk_tuple_to_array(tuple) {
     return { tag: "Ok", value: tuple.slice() };
 }
 
-// Range helper: check if range contains a value
-// Works for both exclusive (start..end) and inclusive (start..=end) ranges
-// because inclusive ranges have end+1 applied at compile time
-function __husk_range_contains(range, item) {
-    return item >= range.start && item < range.end;
+// Range helpers: work for both exclusive (start..end) and inclusive (start..=end) ranges
+function __husk_range_end_exclusive(range) {
+    return range.inclusive ? range.end + 1 : range.end;
 }
 
-// Range helper: check if range is empty
-// Works for both exclusive (start..end) and inclusive (start..=end) ranges
-// because inclusive ranges have end+1 applied at compile time
+function __husk_range_contains(range, item) {
+    const endExclusive = __husk_range_end_exclusive(range);
+    return item >= range.start && item < endExclusive;
+}
+
 function __husk_range_is_empty(range) {
-    return range.start >= range.end;
+    const endExclusive = __husk_range_end_exclusive(range);
+    return range.start >= endExclusive;
 }
 
 // Set helpers
