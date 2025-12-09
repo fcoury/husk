@@ -148,4 +148,16 @@ mod tests {
             _ => panic!("expected tuple type"),
         }
     }
+
+    #[test]
+    fn impl_trait_type() {
+        let inner = Type::named("Iterator", vec![Type::i32()]);
+        let t = Type::impl_trait(inner.clone());
+        match t {
+            Type::ImplTrait { trait_ty } => {
+                assert_eq!(*trait_ty, inner);
+            }
+            _ => panic!("expected impl trait type"),
+        }
+    }
 }

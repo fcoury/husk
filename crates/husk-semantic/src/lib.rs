@@ -1552,6 +1552,12 @@ impl TypeChecker {
             return t;
         }
 
+        // NOTE: Range, Set, and Map are reserved built-in type names.
+        // These special-case handlers bypass struct/enum lookup, effectively
+        // reserving these identifiers as built-ins. If user code is ever allowed
+        // to define its own Range/Set/Map, this logic should be gated on stdlib
+        // presence or these should be clearly documented as reserved names.
+        //
         // Range<T> is a built-in generic type for range expressions
         if name == "Range" {
             // Range expects exactly 1 type argument (the element type)
