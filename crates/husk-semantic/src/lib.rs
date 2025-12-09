@@ -4193,8 +4193,9 @@ impl<'a> FnContext<'a> {
                         if !ret_is_result {
                             self.tcx.errors.push(SemanticError {
                                 message: format!(
-                                    "cannot use `?` on a `Result` value in a function that returns `Option`. \
+                                    "cannot use `?` on a `Result` value in a function that returns `{}`. \
                                      Use `?` on `Result` values only in functions that return `Result`",
+                                    self.format_type(&self.ret_ty)
                                 ),
                                 span: expr.span.clone(),
                             });
@@ -4207,8 +4208,9 @@ impl<'a> FnContext<'a> {
                         if !ret_is_option {
                             self.tcx.errors.push(SemanticError {
                                 message: format!(
-                                    "cannot use `?` on an `Option` value in a function that returns `Result`. \
+                                    "cannot use `?` on an `Option` value in a function that returns `{}`. \
                                      Use `?` on `Option` values only in functions that return `Option`",
+                                    self.format_type(&self.ret_ty)
                                 ),
                                 span: expr.span.clone(),
                             });
@@ -8934,7 +8936,7 @@ fn main() -> Option<i32> {
             "expected error for ? on Result in Option-returning function"
         );
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on a `Result` value in a function that returns `Option`")),
+            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on a `Result` value in a function that returns") && e.message.contains("Option<i32>")),
             "error message should mention Result/Option mismatch, got: {:?}",
             result.type_errors
         );
@@ -8962,7 +8964,7 @@ fn main() -> Result<i32, String> {
             "expected error for ? on Option in Result-returning function"
         );
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on an `Option` value in a function that returns `Result`")),
+            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on an `Option` value in a function that returns") && e.message.contains("Result<i32, String>")),
             "error message should mention Option/Result mismatch, got: {:?}",
             result.type_errors
         );
