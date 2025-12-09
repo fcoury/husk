@@ -19,6 +19,19 @@ use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Normalize type name for lookup to match format used by type_resolution.
+/// Converts array types from "T[]" format (from type_expr_to_js_name) to "[T]" format
+/// (used by format_type in type_resolution).
+fn normalize_type_name_for_lookup(type_name: &str) -> String {
+    // Convert "T[]" to "[T]" format to match type_resolution
+    if type_name.ends_with("[]") {
+        let elem_type = &type_name[..type_name.len() - 2];
+        format!("[{}]", elem_type)
+    } else {
+        type_name.to_string()
+    }
+}
+
 /// Convert snake_case to camelCase.
 /// Examples:
 /// - "status_code" -> "statusCode"
@@ -83,13 +96,15 @@ fn collect_js_name_mappings(file: &File, accessors: &mut PropertyAccessors) {
     for item in &file.items {
         if let ItemKind::Impl(impl_block) = &item.kind {
             let type_name = type_expr_to_js_name(&impl_block.self_ty);
+            // Normalize array types from "T[]" to "[T]" format to match type_resolution
+            let normalized_type_name = normalize_type_name_for_lookup(&type_name);
             for impl_item in &impl_block.items {
                 if let ImplItemKind::Method(method) = &impl_item.kind {
                     // Collect #[js_name] overrides for method name mapping
                     if let Some(js_name) = method.js_name() {
                         let method_name = &method.name.name;
                         accessors.method_js_names.insert(
-                            (type_name.clone(), method_name.clone()),
+                            (normalized_type_name.clone(), method_name.clone()),
                             js_name.to_string(),
                         );
 
@@ -101,7 +116,7 @@ fn collect_js_name_mappings(file: &File, accessors: &mut PropertyAccessors) {
                             && method.ret_type.is_some()
                         {
                             accessors.getters.insert(
-                                (type_name.clone(), method_name.clone()),
+                                (normalized_type_name.clone(), method_name.clone()),
                                 js_name.to_string(),
                             );
                         }
@@ -121,6 +136,8 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
     for item in &file.items {
         if let ItemKind::Impl(impl_block) = &item.kind {
             let type_name = type_expr_to_js_name(&impl_block.self_ty);
+            // Normalize array types from "T[]" to "[T]" format to match type_resolution
+            let normalized_type_name = normalize_type_name_for_lookup(&type_name);
             for impl_item in &impl_block.items {
                 match &impl_item.kind {
                     // Handle explicit extern properties with #[getter]/#[setter]
@@ -135,12 +152,12 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                         if prop.has_getter() {
                             accessors
                                 .getters
-                                .insert((type_name.clone(), prop_name.clone()), js_name.clone());
+                                .insert((normalized_type_name.clone(), prop_name.clone()), js_name.clone());
                         }
                         if prop.has_setter() {
                             accessors
                                 .setters
-                                .insert((type_name.clone(), prop_name.clone()), js_name);
+                                .insert((normalized_type_name.clone(), prop_name.clone()), js_name);
                         }
                     }
                     // Handle extern methods for #[js_name] and getter/setter heuristics
@@ -150,7 +167,7 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                         // Collect #[js_name] overrides for method name mapping
                         if let Some(js_name) = method.js_name() {
                             accessors.method_js_names.insert(
-                                (type_name.clone(), method_name.clone()),
+                                (normalized_type_name.clone(), method_name.clone()),
                                 js_name.to_string(),
                             );
                         }
@@ -160,14 +177,14 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                             let base_name = strip_variadic_suffix(method_name);
                             accessors
                                 .extern_methods
-                                .insert((type_name.clone(), base_name.clone()));
+                                .insert((normalized_type_name.clone(), base_name.clone()));
 
                             // Check if the first parameter has #[this] attribute
                             if let Some(first_param) = method.params.first() {
                                 if first_param.attributes.iter().any(|a| a.name.name == "this") {
                                     accessors
                                         .this_binding_methods
-                                        .insert((type_name.clone(), base_name.clone()));
+                                        .insert((normalized_type_name.clone(), base_name.clone()));
                                 }
                             }
 
@@ -191,7 +208,7 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                                 && !is_non_getter
                             {
                                 accessors.getters.insert(
-                                    (type_name.clone(), method_name.clone()),
+                                    (normalized_type_name.clone(), method_name.clone()),
                                     method_name.clone(),
                                 );
                             }
@@ -204,7 +221,7 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                                     method_name.strip_prefix("set_").unwrap().to_string();
                                 accessors
                                     .setters
-                                    .insert((type_name.clone(), method_name.clone()), prop_name);
+                                    .insert((normalized_type_name.clone(), method_name.clone()), prop_name);
                             }
                         }
                     }
