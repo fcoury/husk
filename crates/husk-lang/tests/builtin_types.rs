@@ -92,7 +92,7 @@ fn map_methods_type_check() {
 fn main() {
     let scores: Map<String, i32> = Map::new();
     scores.set("Alice", 100);
-    let alice: i32 = scores.get("Alice");
+    let alice: Option<i32> = scores.get("Alice");
     let has: bool = scores.has("Alice");
     let deleted: bool = scores.delete("Alice");
     scores.clear();
