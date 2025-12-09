@@ -2477,10 +2477,22 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             let receiver_type = ctx
                 .type_resolution
                 .get(&(receiver.span.range.start, receiver.span.range.end));
-            let is_iterator = receiver_type
+            let is_iterator_from_type = receiver_type
                 .as_ref()
                 .map(|ty| ty.starts_with("impl Iterator"))
                 .unwrap_or(false);
+            
+            // Also check if receiver is a method call that returns an iterator
+            // (e.g., arr.iter(), arr.iter().map(...), etc.)
+            let is_iterator_from_method_call = if let ExprKind::MethodCall { method, .. } = &receiver.kind {
+                let method_name = &method.name;
+                // Methods that return iterators: iter, into_iter, map, filter, enumerate, take, skip
+                matches!(method_name.as_str(), "iter" | "into_iter" | "map" | "filter" | "enumerate" | "take" | "skip")
+            } else {
+                false
+            };
+            
+            let is_iterator = is_iterator_from_type || is_iterator_from_method_call;
 
             if is_iterator {
                 match method_name.as_str() {
