@@ -2651,12 +2651,21 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             });
             let is_extern_method = receiver_is_string
                 || receiver_is_known_stdlib
-                || receiver_base_type.as_ref().map_or(false, |base_type| {
-                    ctx.accessors
-                        .extern_methods
-                        .iter()
-                        .any(|(ty, m)| ty == base_type && m == &base_method_name)
-                });
+                || receiver_base_type.as_ref().map_or_else(
+                    || {
+                        // Fallback: check by method name only when receiver type is unknown
+                        ctx.accessors
+                            .extern_methods
+                            .iter()
+                            .any(|(_, m)| m == &base_method_name)
+                    },
+                    |base_type| {
+                        ctx.accessors
+                            .extern_methods
+                            .iter()
+                            .any(|(ty, m)| ty == base_type && m == &base_method_name)
+                    },
+                );
 
             // NOTE: method_js_names for non-extern user methods are currently recorded
             // but only honored when is_extern_method is true. If #[js_name] on pure Husk
@@ -2710,12 +2719,22 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             });
 
             // Check if this method has #[this] binding - if so, use .call(thisArg, ...)
-            let is_this_binding = receiver_base_type.as_ref().map_or(false, |base_type| {
-                ctx.accessors
-                    .this_binding_methods
-                    .iter()
-                    .any(|(ty, m)| ty == base_type && m == &base_method_name)
-            });
+            // Use type-aware check when receiver type is known, fall back to name-only for untyped cases
+            let is_this_binding = receiver_base_type.as_ref().map_or_else(
+                || {
+                    // Fallback: check by method name only when receiver type is unknown
+                    ctx.accessors
+                        .this_binding_methods
+                        .iter()
+                        .any(|(_, m)| m == &base_method_name)
+                },
+                |base_type| {
+                    ctx.accessors
+                        .this_binding_methods
+                        .iter()
+                        .any(|(ty, m)| ty == base_type && m == &base_method_name)
+                },
+            );
 
             if is_this_binding && !args.is_empty() {
                 // Generate: receiver.method.call(firstArg, ...restArgs)
