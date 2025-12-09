@@ -3,9 +3,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use husk_ast::{ExternItemKind, File, Ident, Item, ItemKind, SetFilePath, TypeExpr, TypeExprKind, Visibility};
-use std::sync::Arc;
+use husk_ast::{
+    ExternItemKind, File, Ident, Item, ItemKind, SetFilePath, TypeExpr, TypeExprKind, Visibility,
+};
 use husk_parser::parse_str;
+use std::sync::Arc;
 
 /// Trait for providing file content during module loading.
 /// This allows the LSP to provide in-memory content for unsaved files.
@@ -138,11 +140,14 @@ fn dfs_load<P: ContentProvider>(
         )?;
     }
 
-    modules.insert(module_path.clone(), Module {
-        file: file.clone(),
-        file_path: path.display().to_string().into(),
-        source: src.clone(),
-    });
+    modules.insert(
+        module_path.clone(),
+        Module {
+            file: file.clone(),
+            file_path: path.display().to_string().into(),
+            source: src.clone(),
+        },
+    );
     order.push(module_path.clone());
     visiting.remove(&module_path);
     Ok(())
@@ -505,7 +510,10 @@ fn filter_extern_block(
         span: ext_items
             .first()
             .map(|e| e.span.clone())
-            .unwrap_or_else(|| husk_ast::Span { range: 0..0, file: None }),
+            .unwrap_or_else(|| husk_ast::Span {
+                range: 0..0,
+                file: None,
+            }),
         visibility: husk_ast::Visibility::Public,
         attributes: Vec::new(),
         kind: husk_ast::ItemKind::ExternBlock {

@@ -1,3 +1,10 @@
+extern "js" {
+    mod global Math {
+        fn max(x: i32, y: i32) -> i32;
+        fn min(x: i32, y: i32) -> i32;
+    }
+}
+
 fn main() {
     part_two()
 }
@@ -15,12 +22,115 @@ fn part_two() {
         ranges.push(parts[0]..=parts[1]);
     }
 
+    // we need to condense overlapping ranges
     for range in ranges {
-        for id in range {
-            println("{id}");
-        }
+        println("{}", draw(range));
     }
+
+    let total_numbers = 0;
+    for range in ranges {
+        total_numbers += range.end - range.start + 1;
+    }
+
+    println("total: {total_numbers}");
 }
+
+fn draw(r: Range<i32>) -> String {
+    let prefix = " ".repeat(r.start);
+    let size = " ".repeat(r.end - r.start);
+    format("{prefix}[{size}]")
+}
+
+fn overlap(a: Range<i32>, b: Range<i32>) -> bool {
+    println("a = {}", draw(a));
+    println("b = {}", draw(b));
+    print("{a:?} => {b:?}: ");
+
+    // a before b
+    if a.end < b.start {
+        println("no overlap");
+        return false;
+    }
+
+    // a after b
+    if a.start > b.end {
+        println("no overlap");
+        return false;
+    }
+
+    // if a starts before b
+    if a.start < b.start {
+        // a.end >= b.end
+        // ....|....1..
+        // [          ]
+        //    [      ]
+
+        // b.start <= a.end
+        // ....|....1..
+        // [      ]
+        //    [      ]
+
+        if a.end >= b.end || b.start <= a.end {
+            println("overlap");
+        } else {
+            println("no overlap");
+        }
+
+        // it overlaps if the end of a is after the end of b
+        return a.end >= b.end || b.start <= a.end;
+    }
+
+    // if a starts after b
+    if a.start >= b.start {
+        if a.start <= b.end || a.end >= b.end {
+            println("overlap");
+        } else {
+            println("no overlap");
+        }
+
+        // it overlaps if the ends of a is before the end of b
+        return a.start <= b.end || a.end >= b.end;
+    }
+
+    println("no overlap");
+    false
+}
+
+#[cfg(test)]
+#[test]
+fn test_overlap() {
+    //     ....|....1....|....2....|....3....|....4....|....5
+    // 1:    [ ] 
+    // 2:           [   ]
+    // 3:                 [   ]
+    // 4:             [     ]
+    // 5:                     [     ]
+    // 6:                      [    ]
+    // 7:          [      ]
+    // 8:          [     ]      
+    //
+    let range1 = 3..=5;
+    let range2 = 10..=14;
+    let range3 = 16..=20;
+    let range4 = 12..=18;
+    let range5 = 21..=27;
+    let range6 = 22..=27;
+    let range7 = 10..=16;
+    let range8 = 10..=15;
+
+    assert_msg(!overlap(range1, range2), "1 before 2");
+    assert_msg(!overlap(range2, range3), "2 before 3");
+    assert_msg(overlap(range3, range4), "start of 3 < end of 4");
+    assert_msg(overlap(range2, range4), "start of 5 < end of 2");
+    assert_msg(overlap(range3, range5), "end of 3 = start of 5, 3 left of 5");
+    assert_msg(overlap(range6, range5), "5 contains 6");
+    assert_msg(overlap(range7, range3), "end of 7 = start of 3, 7 left of 3");
+    assert_msg(overlap(range8, range7), "7 contains 8");
+    assert_msg(!overlap(range6, range3), "before");
+    assert_msg(!overlap(range8, range3), "after");
+}
+
+// -------------------------------------------------
 
 fn part_one() {
     let data = include_str("input.txt").trim();

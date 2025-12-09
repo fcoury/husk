@@ -245,16 +245,28 @@ fn format_type(ty: &Type) -> String {
         Type::Array(inner) => format!("[{}]", format_type(inner)),
         Type::Named { name, args } if args.is_empty() => name.clone(),
         Type::Named { name, args } => {
-            let args_str = args.iter().map(|a| format_type(a)).collect::<Vec<_>>().join(", ");
+            let args_str = args
+                .iter()
+                .map(|a| format_type(a))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("{}<{}>", name, args_str)
         }
         Type::Function { params, ret } => {
-            let params_str = params.iter().map(|p| format_type(p)).collect::<Vec<_>>().join(", ");
+            let params_str = params
+                .iter()
+                .map(|p| format_type(p))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("fn({}) -> {}", params_str, format_type(ret))
         }
         Type::Var(id) => format!("?{}", id.0),
         Type::Tuple(elements) => {
-            let elements_str = elements.iter().map(|e| format_type(e)).collect::<Vec<_>>().join(", ");
+            let elements_str = elements
+                .iter()
+                .map(|e| format_type(e))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("({})", elements_str)
         }
     }
@@ -1301,12 +1313,7 @@ impl TypeChecker {
         // Validate main() return type - must implement Termination trait
         // Currently only () and Result<T, E> are allowed
         for item in &file.items {
-            if let ItemKind::Fn {
-                name,
-                ret_type,
-                ..
-            } = &item.kind
-            {
+            if let ItemKind::Fn { name, ret_type, .. } = &item.kind {
                 if name.name == "main" {
                     let return_type = ret_type
                         .as_ref()
@@ -2711,7 +2718,10 @@ impl<'a> FnContext<'a> {
                     Type::Function { params, ret } => (params, *ret),
                     other => {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("cannot call non-function type `{}`", self.format_type(&other)),
+                            message: format!(
+                                "cannot call non-function type `{}`",
+                                self.format_type(&other)
+                            ),
                             span: expr.span.clone(),
                         });
                         return Type::Primitive(PrimitiveType::Unit);
@@ -3014,8 +3024,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return Type::Primitive(PrimitiveType::Bool);
                         }
@@ -3026,8 +3036,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return receiver_ty.clone();
                         }
@@ -3040,8 +3050,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::Unit)), // placeholder
                                 };
-                                let closure_ty =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let closure_ty = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                                 if let Type::Function { ret, .. } = closure_ty {
                                     return Type::Array(ret);
                                 }
@@ -3055,8 +3065,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone(), (**elem_ty).clone()],
                                     ret: Box::new((**elem_ty).clone()),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return (**elem_ty).clone();
                         }
@@ -3067,8 +3077,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::Unit)),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return Type::Primitive(PrimitiveType::Unit);
                         }
@@ -3079,8 +3089,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return Type::Named {
                                 name: "Option".to_string(),
@@ -3094,8 +3104,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return Type::Primitive(PrimitiveType::I32);
                         }
@@ -3106,8 +3116,8 @@ impl<'a> FnContext<'a> {
                                     params: vec![(**elem_ty).clone(), (**elem_ty).clone()],
                                     ret: Box::new(Type::Primitive(PrimitiveType::I32)),
                                 };
-                                let _ =
-                                    self.check_expr_with_expected(closure_arg, Some(&expected_closure));
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
                             }
                             return receiver_ty.clone();
                         }
@@ -3196,9 +3206,7 @@ impl<'a> FnContext<'a> {
                 // For generic types like Set<i32> or Map<String, i32>, generate the generic form
                 // so we can match impl<T> Set<T> { ... } or impl<K, V> Map<K, V> { ... } blocks
                 let generic_type_name = match &receiver_ty {
-                    Type::Named { name, args } if args.len() == 1 => {
-                        Some(format!("{}<T>", name))
-                    }
+                    Type::Named { name, args } if args.len() == 1 => Some(format!("{}<T>", name)),
                     Type::Named { name, args } if args.len() == 2 => {
                         Some(format!("{}<K, V>", name))
                     }
@@ -3652,7 +3660,10 @@ impl<'a> FnContext<'a> {
                         },
                         _ => {
                             self.tcx.errors.push(SemanticError {
-                                message: format!("cannot slice type `{}`", self.format_type(&base_ty)),
+                                message: format!(
+                                    "cannot slice type `{}`",
+                                    self.format_type(&base_ty)
+                                ),
                                 span: base.span.clone(),
                             });
                             Type::unit()
@@ -3667,7 +3678,10 @@ impl<'a> FnContext<'a> {
                         || matches!(&index_ty, Type::Named { name, .. } if name == "number");
                     if !is_valid_index {
                         self.tcx.errors.push(SemanticError {
-                            message: format!("array index must be integer, found `{}`", self.format_type(&index_ty)),
+                            message: format!(
+                                "array index must be integer, found `{}`",
+                                self.format_type(&index_ty)
+                            ),
                             span: index.span.clone(),
                         });
                     }
@@ -3686,7 +3700,10 @@ impl<'a> FnContext<'a> {
                         },
                         _ => {
                             self.tcx.errors.push(SemanticError {
-                                message: format!("cannot index into type `{}`", self.format_type(&base_ty)),
+                                message: format!(
+                                    "cannot index into type `{}`",
+                                    self.format_type(&base_ty)
+                                ),
                                 span: base.span.clone(),
                             });
                             Type::unit()
@@ -5301,7 +5318,10 @@ mod tests {
                         ret_type: None,
                         body: Vec::new(),
                     },
-                    span: Span { range: 0..3, file: None },
+                    span: Span {
+                        range: 0..3,
+                        file: None,
+                    },
                 },
                 Item {
                     attributes: Vec::new(),
@@ -5311,7 +5331,10 @@ mod tests {
                         type_params: Vec::new(),
                         fields: Vec::new(),
                     },
-                    span: Span { range: 10..13, file: None },
+                    span: Span {
+                        range: 10..13,
+                        file: None,
+                    },
                 },
             ],
         };
@@ -5337,7 +5360,10 @@ mod tests {
                         ret_type: None,
                         body: Vec::new(),
                     },
-                    span: Span { range: 0..3, file: None },
+                    span: Span {
+                        range: 0..3,
+                        file: None,
+                    },
                 },
                 Item {
                     attributes: Vec::new(),
@@ -5347,7 +5373,10 @@ mod tests {
                         type_params: Vec::new(),
                         fields: Vec::new(),
                     },
-                    span: Span { range: 10..13, file: None },
+                    span: Span {
+                        range: 10..13,
+                        file: None,
+                    },
                 },
             ],
         };
@@ -5376,9 +5405,15 @@ mod tests {
         let one_lit = Expr {
             kind: ExprKind::Literal(Literal {
                 kind: LiteralKind::Int(1),
-                span: Span { range: 30..31, file: None },
+                span: Span {
+                    range: 30..31,
+                    file: None,
+                },
             }),
-            span: Span { range: 30..31, file: None },
+            span: Span {
+                range: 30..31,
+                file: None,
+            },
         };
         let let_stmt = Stmt {
             kind: StmtKind::Let {
@@ -5391,7 +5426,10 @@ mod tests {
                 value: Some(one_lit),
                 else_block: None,
             },
-            span: Span { range: 20..32, file: None },
+            span: Span {
+                range: 20..32,
+                file: None,
+            },
         };
         let ret_expr = Expr {
             kind: ExprKind::Ident(x_ident.clone()),
@@ -5401,7 +5439,10 @@ mod tests {
             kind: StmtKind::Return {
                 value: Some(ret_expr),
             },
-            span: Span { range: 40..45, file: None },
+            span: Span {
+                range: 40..45,
+                file: None,
+            },
         };
 
         let file = File {
@@ -5415,7 +5456,10 @@ mod tests {
                     ret_type: Some(type_ident("i32", 10)),
                     body: vec![let_stmt, ret_stmt],
                 },
-                span: Span { range: 0..50, file: None },
+                span: Span {
+                    range: 0..50,
+                    file: None,
+                },
             }],
         };
 
@@ -5441,9 +5485,15 @@ mod tests {
         let string_lit = Expr {
             kind: ExprKind::Literal(Literal {
                 kind: LiteralKind::String("oops".to_string()),
-                span: Span { range: 25..31, file: None },
+                span: Span {
+                    range: 25..31,
+                    file: None,
+                },
             }),
-            span: Span { range: 25..31, file: None },
+            span: Span {
+                range: 25..31,
+                file: None,
+            },
         };
         let let_stmt = Stmt {
             kind: StmtKind::Let {
@@ -5456,7 +5506,10 @@ mod tests {
                 value: Some(string_lit),
                 else_block: None,
             },
-            span: Span { range: 15..32, file: None },
+            span: Span {
+                range: 15..32,
+                file: None,
+            },
         };
         let file = File {
             items: vec![Item {
@@ -5469,7 +5522,10 @@ mod tests {
                     ret_type: None,
                     body: vec![let_stmt],
                 },
-                span: Span { range: 0..40, file: None },
+                span: Span {
+                    range: 0..40,
+                    file: None,
+                },
             }],
         };
 
@@ -5506,20 +5562,29 @@ mod tests {
                     },
                 ],
             },
-            span: Span { range: 0..30, file: None },
+            span: Span {
+                range: 0..30,
+                file: None,
+            },
         };
 
         let path_expr = Expr {
             kind: ExprKind::Path {
                 segments: vec![color_ident.clone(), ident("Red", 40)],
             },
-            span: Span { range: 30..45, file: None },
+            span: Span {
+                range: 30..45,
+                file: None,
+            },
         };
         let ret_stmt = Stmt {
             kind: StmtKind::Return {
                 value: Some(path_expr),
             },
-            span: Span { range: 30..50, file: None },
+            span: Span {
+                range: 30..50,
+                file: None,
+            },
         };
         let fn_item = Item {
             attributes: Vec::new(),
@@ -5531,7 +5596,10 @@ mod tests {
                 ret_type: Some(type_ident("Color", 35)),
                 body: vec![ret_stmt],
             },
-            span: Span { range: 30..60, file: None },
+            span: Span {
+                range: 30..60,
+                file: None,
+            },
         };
 
         let file = File {
@@ -5573,7 +5641,10 @@ mod tests {
                     },
                 ],
             },
-            span: Span { range: 0..30, file: None },
+            span: Span {
+                range: 0..30,
+                file: None,
+            },
         };
 
         let c_ident = ident("c", 40);
@@ -5590,22 +5661,34 @@ mod tests {
             kind: PatternKind::EnumUnit {
                 path: vec![color_ident.clone(), ident("Red", 60)],
             },
-            span: Span { range: 50..63, file: None },
+            span: Span {
+                range: 50..63,
+                file: None,
+            },
         };
         let pat_blue = Pattern {
             kind: PatternKind::EnumUnit {
                 path: vec![color_ident.clone(), ident("Blue", 70)],
             },
-            span: Span { range: 64..78, file: None },
+            span: Span {
+                range: 64..78,
+                file: None,
+            },
         };
         let arm_red = MatchArm {
             pattern: pat_red,
             expr: Expr {
                 kind: ExprKind::Literal(Literal {
                     kind: LiteralKind::Int(1),
-                    span: Span { range: 80..81, file: None },
+                    span: Span {
+                        range: 80..81,
+                        file: None,
+                    },
                 }),
-                span: Span { range: 80..81, file: None },
+                span: Span {
+                    range: 80..81,
+                    file: None,
+                },
             },
         };
         let arm_blue = MatchArm {
@@ -5613,9 +5696,15 @@ mod tests {
             expr: Expr {
                 kind: ExprKind::Literal(Literal {
                     kind: LiteralKind::Int(2),
-                    span: Span { range: 90..91, file: None },
+                    span: Span {
+                        range: 90..91,
+                        file: None,
+                    },
                 }),
-                span: Span { range: 90..91, file: None },
+                span: Span {
+                    range: 90..91,
+                    file: None,
+                },
             },
         };
         let match_expr = Expr {
@@ -5623,13 +5712,19 @@ mod tests {
                 scrutinee: Box::new(scrutinee),
                 arms: vec![arm_red, arm_blue],
             },
-            span: Span { range: 50..100, file: None },
+            span: Span {
+                range: 50..100,
+                file: None,
+            },
         };
         let ret_stmt = Stmt {
             kind: StmtKind::Return {
                 value: Some(match_expr),
             },
-            span: Span { range: 50..105, file: None },
+            span: Span {
+                range: 50..105,
+                file: None,
+            },
         };
         let fn_item = Item {
             attributes: Vec::new(),
@@ -5641,7 +5736,10 @@ mod tests {
                 ret_type: Some(type_ident("i32", 45)),
                 body: vec![ret_stmt],
             },
-            span: Span { range: 40..110, file: None },
+            span: Span {
+                range: 40..110,
+                file: None,
+            },
         };
 
         let file = File {
@@ -5682,7 +5780,10 @@ mod tests {
                     },
                 ],
             },
-            span: Span { range: 0..30, file: None },
+            span: Span {
+                range: 0..30,
+                file: None,
+            },
         };
 
         let c_ident = ident("c", 40);
@@ -5699,16 +5800,25 @@ mod tests {
             kind: PatternKind::EnumUnit {
                 path: vec![color_ident.clone(), ident("Red", 60)],
             },
-            span: Span { range: 50..63, file: None },
+            span: Span {
+                range: 50..63,
+                file: None,
+            },
         };
         let arm_red = MatchArm {
             pattern: pat_red,
             expr: Expr {
                 kind: ExprKind::Literal(Literal {
                     kind: LiteralKind::Int(1),
-                    span: Span { range: 80..81, file: None },
+                    span: Span {
+                        range: 80..81,
+                        file: None,
+                    },
                 }),
-                span: Span { range: 80..81, file: None },
+                span: Span {
+                    range: 80..81,
+                    file: None,
+                },
             },
         };
         let match_expr = Expr {
@@ -5716,13 +5826,19 @@ mod tests {
                 scrutinee: Box::new(scrutinee),
                 arms: vec![arm_red],
             },
-            span: Span { range: 50..100, file: None },
+            span: Span {
+                range: 50..100,
+                file: None,
+            },
         };
         let ret_stmt = Stmt {
             kind: StmtKind::Return {
                 value: Some(match_expr),
             },
-            span: Span { range: 50..105, file: None },
+            span: Span {
+                range: 50..105,
+                file: None,
+            },
         };
         let fn_item = Item {
             attributes: Vec::new(),
@@ -5734,7 +5850,10 @@ mod tests {
                 ret_type: Some(type_ident("i32", 45)),
                 body: vec![ret_stmt],
             },
-            span: Span { range: 40..110, file: None },
+            span: Span {
+                range: 40..110,
+                file: None,
+            },
         };
 
         let file = File {
@@ -5769,7 +5888,10 @@ mod tests {
                 items: Vec::new(),
                 is_global: false,
             },
-            span: Span { range: 0..15, file: None },
+            span: Span {
+                range: 0..15,
+                file: None,
+            },
         };
         let extern_block = Item {
             attributes: Vec::new(),
@@ -5778,7 +5900,10 @@ mod tests {
                 abi: "js".to_string(),
                 items: vec![extern_item],
             },
-            span: Span { range: 0..20, file: None },
+            span: Span {
+                range: 0..20,
+                file: None,
+            },
         };
 
         // let app = express();
@@ -5791,7 +5916,10 @@ mod tests {
                 type_args: vec![],
                 args: vec![],
             },
-            span: Span { range: 30..40, file: None },
+            span: Span {
+                range: 30..40,
+                file: None,
+            },
         };
         let let_app = Stmt {
             kind: StmtKind::Let {
@@ -5801,7 +5929,10 @@ mod tests {
                 value: Some(call_0_args),
                 else_block: None,
             },
-            span: Span { range: 25..45, file: None },
+            span: Span {
+                range: 25..45,
+                file: None,
+            },
         };
 
         // let app2 = express(42);
@@ -5815,12 +5946,21 @@ mod tests {
                 args: vec![Expr {
                     kind: ExprKind::Literal(Literal {
                         kind: LiteralKind::Int(42),
-                        span: Span { range: 60..62, file: None },
+                        span: Span {
+                            range: 60..62,
+                            file: None,
+                        },
                     }),
-                    span: Span { range: 60..62, file: None },
+                    span: Span {
+                        range: 60..62,
+                        file: None,
+                    },
                 }],
             },
-            span: Span { range: 50..65, file: None },
+            span: Span {
+                range: 50..65,
+                file: None,
+            },
         };
         let let_app2 = Stmt {
             kind: StmtKind::Let {
@@ -5830,7 +5970,10 @@ mod tests {
                 value: Some(call_1_arg),
                 else_block: None,
             },
-            span: Span { range: 45..70, file: None },
+            span: Span {
+                range: 45..70,
+                file: None,
+            },
         };
 
         // let app3 = express(1, 2, 3);
@@ -5845,27 +5988,48 @@ mod tests {
                     Expr {
                         kind: ExprKind::Literal(Literal {
                             kind: LiteralKind::Int(1),
-                            span: Span { range: 80..81, file: None },
+                            span: Span {
+                                range: 80..81,
+                                file: None,
+                            },
                         }),
-                        span: Span { range: 80..81, file: None },
+                        span: Span {
+                            range: 80..81,
+                            file: None,
+                        },
                     },
                     Expr {
                         kind: ExprKind::Literal(Literal {
                             kind: LiteralKind::Int(2),
-                            span: Span { range: 83..84, file: None },
+                            span: Span {
+                                range: 83..84,
+                                file: None,
+                            },
                         }),
-                        span: Span { range: 83..84, file: None },
+                        span: Span {
+                            range: 83..84,
+                            file: None,
+                        },
                     },
                     Expr {
                         kind: ExprKind::Literal(Literal {
                             kind: LiteralKind::Int(3),
-                            span: Span { range: 86..87, file: None },
+                            span: Span {
+                                range: 86..87,
+                                file: None,
+                            },
                         }),
-                        span: Span { range: 86..87, file: None },
+                        span: Span {
+                            range: 86..87,
+                            file: None,
+                        },
                     },
                 ],
             },
-            span: Span { range: 75..90, file: None },
+            span: Span {
+                range: 75..90,
+                file: None,
+            },
         };
         let let_app3 = Stmt {
             kind: StmtKind::Let {
@@ -5875,7 +6039,10 @@ mod tests {
                 value: Some(call_3_args),
                 else_block: None,
             },
-            span: Span { range: 70..95, file: None },
+            span: Span {
+                range: 70..95,
+                file: None,
+            },
         };
 
         let fn_item = Item {
@@ -5888,7 +6055,10 @@ mod tests {
                 ret_type: None,
                 body: vec![let_app, let_app2, let_app3],
             },
-            span: Span { range: 100..150, file: None },
+            span: Span {
+                range: 100..150,
+                file: None,
+            },
         };
 
         let file = File {
@@ -8216,7 +8386,11 @@ fn main() {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -8242,7 +8416,11 @@ fn main() -> Result<(), String> {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(
@@ -8262,7 +8440,11 @@ fn get_value() -> Option<i32> {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
         assert!(

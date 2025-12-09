@@ -14,7 +14,7 @@ mod config;
 mod diagnostic;
 mod load;
 use config::HuskConfig;
-use diagnostic::{SourceDb, report_load_error, multi_file_db_from_graph};
+use diagnostic::{SourceDb, multi_file_db_from_graph, report_load_error};
 use husk_parser::parse_str;
 use husk_semantic::{SemanticOptions, analyze_file_with_options};
 
