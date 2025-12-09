@@ -963,7 +963,9 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             ExprKind::Match { scrutinee, arms } => {
                 check_expr(scrutinee) || arms.iter().any(|arm| check_expr(&arm.expr))
             }
-            ExprKind::Closure { body, .. } => check_expr(body),
+            // Closures handle their own ? operators independently - don't recurse into closure bodies
+            // A ? inside a closure should not cause the enclosing function to be wrapped in try-catch
+            ExprKind::Closure { .. } => false,
             ExprKind::Array { elements } | ExprKind::Tuple { elements } => {
                 elements.iter().any(check_expr)
             }
