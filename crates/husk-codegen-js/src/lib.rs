@@ -1016,6 +1016,9 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
                     || contains_try_expr(&then_branch.stmts)
                     || else_branch.as_ref().map_or(false, |b| check_stmt(b))
             }
+            StmtKind::Assign { target, value, .. } => {
+                check_expr(target) || check_expr(value)
+            }
             StmtKind::Return { value } => value.as_ref().map_or(false, check_expr),
             StmtKind::Block(block) => contains_try_expr(&block.stmts),
             StmtKind::Loop { body } => contains_try_expr(&body.stmts),
