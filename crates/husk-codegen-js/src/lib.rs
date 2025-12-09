@@ -1108,6 +1108,18 @@ fn lower_struct_constructor(name: &str, fields: &[StructField]) -> JsStmt {
 }
 
 /// Extract a JavaScript-usable type name from a TypeExpr.
+/// Convert a TypeExpr to a JavaScript-compatible type name string.
+///
+/// This function produces unambiguous type names for use in codegen:
+/// - Generic types use only their base name (not parameters), e.g., `Map<K, V>` -> `"Map"`
+/// - Arrays format as `T[]`, e.g., `[String]` -> `"String[]"`
+/// - Tuples format as `[T1, T2]`, e.g., `(i32, String)` -> `"[i32, String]"`
+/// - Function types format as `((params) => ret)`
+/// - ImplTrait uses the underlying trait type name
+///
+/// This formatting contract is relied upon by codegen for type-based dispatch
+/// (e.g., checking if a type starts with "Range" or "Map"). Changes to this
+/// function may break type string matching in codegen.
 fn type_expr_to_js_name(ty: &TypeExpr) -> String {
     match &ty.kind {
         TypeExprKind::Named(ident) => ident.name.clone(),
@@ -2461,7 +2473,17 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
             // Handle iterator adaptor methods on iterator objects
             // These methods chain iterators together (lazy evaluation)
-            match method_name.as_str() {
+            // Only dispatch to iterator helpers if receiver is actually an Iterator type
+            let receiver_type = ctx
+                .type_resolution
+                .get(&(receiver.span.range.start, receiver.span.range.end));
+            let is_iterator = receiver_type
+                .as_ref()
+                .map(|ty| ty.starts_with("impl Iterator"))
+                .unwrap_or(false);
+
+            if is_iterator {
+                match method_name.as_str() {
                 "map" if args.len() == 1 => {
                     // Check if receiver is an iterator (from type resolution or previous iterator call)
                     // For now, we'll generate the call and let the runtime handle it
@@ -2538,6 +2560,7 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     };
                 }
                 _ => {}
+                }
             }
 
             // Handle type conversion methods (.into(), .parse(), .try_into())

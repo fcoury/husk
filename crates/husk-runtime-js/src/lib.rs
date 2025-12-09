@@ -560,6 +560,14 @@ function __husk_map_new() {
     return new Map();
 }
 
+function __husk_map_get(map, key) {
+    const value = map.get(key);
+    if (value === undefined && !map.has(key)) {
+        return { tag: "None" };
+    }
+    return { tag: "Some", value };
+}
+
 function __husk_map_keys(map) {
     return Array.from(map.keys());
 }
@@ -854,6 +862,7 @@ mod tests {
     fn preamble_contains_map_helpers() {
         let src = std_preamble_js();
         assert!(src.contains("function __husk_map_new("));
+        assert!(src.contains("function __husk_map_get("));
         assert!(src.contains("function __husk_map_keys("));
         assert!(src.contains("function __husk_map_values("));
     }
