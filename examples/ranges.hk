@@ -1,0 +1,7 @@
+fn main() {
+    let non_inclusive = 1..10;
+    let inclusive = 1..=10;
+    println("{:?}", non_inclusive);
+    println("{:?}", inclusive);
+}
+

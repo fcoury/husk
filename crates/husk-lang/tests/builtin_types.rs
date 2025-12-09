@@ -376,6 +376,38 @@ fn main() {
     assert_type_checks(source);
 }
 
+#[test]
+fn inclusive_flag_type_checks() {
+    let source = r#"
+fn main() {
+    let r = 1..=10;
+    let closed: bool = r.inclusive;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn range_object_includes_inclusive_flag_in_js() {
+    let source = r#"
+fn main() {
+    let a = 1..5;
+    let b = 1..=5;
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("inclusive: false"),
+        "exclusive range should emit inclusive: false. Got:\n{}",
+        js
+    );
+    assert!(
+        js.contains("inclusive: true"),
+        "inclusive range should emit inclusive: true. Got:\n{}",
+        js
+    );
+}
+
 // =============================================================================
 // Type-specific getter lookup (regression tests)
 // =============================================================================
