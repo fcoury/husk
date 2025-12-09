@@ -409,6 +409,36 @@ fn main() {
 }
 
 // =============================================================================
+// If expressions
+// =============================================================================
+
+#[test]
+fn if_expression_type_checks() {
+    let source = r#"
+fn main() {
+    let x: i32 = if true { 1 } else { 2 };
+    let y: String = if false { "a" } else { "b" };
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn if_expression_codegen_uses_ternary() {
+    let source = r#"
+fn main() {
+    let x = if 1 < 2 { 10 } else { 20 };
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("? (function()") || js.contains("1 < 2 ?"),
+        "expected ternary/IIFE in JS output, got:\n{}",
+        js
+    );
+}
+
+// =============================================================================
 // Type-specific getter lookup (regression tests)
 // =============================================================================
 

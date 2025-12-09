@@ -1398,6 +1398,31 @@ impl<'a> Formatter<'a> {
                 self.write(" ");
                 self.format_expr(right);
             }
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.write("if ");
+                self.format_expr(cond);
+                self.write(" {");
+                self.newline();
+                self.indent += 1;
+                self.write_indent();
+                self.format_expr(then_branch);
+                self.newline();
+                self.indent -= 1;
+                self.write_indent();
+                self.write("} else {");
+                self.newline();
+                self.indent += 1;
+                self.write_indent();
+                self.format_expr(else_branch);
+                self.newline();
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+            }
             ExprKind::Match { scrutinee, arms } => {
                 self.write("match ");
                 self.format_expr(scrutinee);
