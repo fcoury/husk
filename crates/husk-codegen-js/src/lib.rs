@@ -2659,17 +2659,25 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // match stdlib method names (e.g., user's MyList.len() stays as .len()).
             //
             // Extract base type name from receiver type (e.g., "Map<String, i32>" -> "Map")
+            // For arrays, type_resolution stores "[i32]" format, which needs to be normalized
+            // to "[T]" format to match the keys stored in method_js_names.
             let receiver_base_type = receiver_type_from_semantic
                 .as_ref()
                 .map(|t| {
-                    // Strip generic args: "Map<K, V>" -> "Map", "Set<T>" -> "Set"
-                    if let Some(idx) = t.find('<') {
-                        &t[..idx]
+                    // For arrays, normalize "[i32]" -> "[T]" to match stored keys
+                    if t.starts_with('[') && t.ends_with(']') {
+                        // Normalize concrete array types like "[i32]" to generic "[T]" format
+                        // This matches how collect_js_name_mappings stores array method overrides
+                        "[T]".to_string()
                     } else {
-                        t.as_str()
+                        // Strip generic args: "Map<K, V>" -> "Map", "Set<T>" -> "Set"
+                        if let Some(idx) = t.find('<') {
+                            t[..idx].to_string()
+                        } else {
+                            t.to_string()
+                        }
                     }
-                })
-                .map(String::from);
+                });
 
             // NOTE: method_js_names for non-extern user methods are currently recorded
             // but only honored when is_extern_method is true. If #[js_name] on pure Husk

@@ -3306,7 +3306,19 @@ impl<'a> FnContext<'a> {
                         "take" | "skip" => {
                             // take/skip return impl Iterator<T> (same element type)
                             if args.len() == 1 {
-                                let _ = self.check_expr(&args[0]); // n: i32
+                                let count_ty = self.check_expr(&args[0]);
+                                // Verify count is integer (i32 or number for JS interop)
+                                let is_valid_count = matches!(count_ty, Type::Primitive(PrimitiveType::I32))
+                                    || matches!(&count_ty, Type::Named { name, .. } if name == "number");
+                                if !is_valid_count {
+                                    self.tcx.errors.push(SemanticError {
+                                        message: format!(
+                                            "take/skip count must be an integer, found `{}`",
+                                            self.format_type(&count_ty)
+                                        ),
+                                        span: args[0].span.clone(),
+                                    });
+                                }
                             }
                             return receiver_ty.clone();
                         }
