@@ -428,4 +428,32 @@ pub struct User {
             result
         );
     }
+
+    #[test]
+    fn test_nested_if_in_closure_no_extra_braces() {
+        // Regression test: nested if/else in closure should not add extra braces
+        let source = r#"fn main() {
+    arr.sort(|a, b| if a < b {
+        -1
+    } else {
+        if a > b {
+            1
+        } else {
+            0
+        }
+    });
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        // Should NOT have double braces like "{ { -1 } }" or "{\n        {\n"
+        assert!(
+            !result.contains("{\n        {"),
+            "Formatter should not add extra braces around if branches. Got:\n{}",
+            result
+        );
+        assert!(
+            !result.contains("{ {"),
+            "Formatter should not add extra braces around if branches. Got:\n{}",
+            result
+        );
+    }
 }

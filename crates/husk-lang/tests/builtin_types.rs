@@ -486,3 +486,328 @@ fn main() {
         js
     );
 }
+
+// =============================================================================
+// i64/BigInt Tests (Regression tests for large integer support)
+// =============================================================================
+
+#[test]
+fn large_integer_literal_types_as_i64() {
+    // Regression test: Integer literals outside i32 range should be typed as i64
+    let source = r#"
+fn main() {
+    let big: i64 = 68170613195522;
+    let also_big: i64 = 9999999999999;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn large_integer_literal_generates_bigint() {
+    // Regression test: Large integers should generate BigInt in JS
+    let source = r#"
+fn main() {
+    let big = 68170613195522;
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("68170613195522n"),
+        "Expected large integer to generate BigInt literal (with 'n' suffix). Got:\n{}",
+        js
+    );
+}
+
+#[test]
+fn small_integer_does_not_generate_bigint() {
+    // Regression test: Small integers should remain as regular JS numbers
+    let source = r#"
+fn main() {
+    let small = 42;
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("42") && !js.contains("42n"),
+        "Expected small integer to remain as regular number (no 'n' suffix). Got:\n{}",
+        js
+    );
+}
+
+#[test]
+fn negative_large_integer_generates_bigint() {
+    // Regression test: Large negative integers should also generate BigInt
+    // Note: We need to use subtraction since unary - only works with i32
+    let source = r#"
+fn main() {
+    let big_neg: i64 = (0 as i64) - 68170613195522;
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("68170613195522n"),
+        "Expected large integer in subtraction to generate BigInt literal. Got:\n{}",
+        js
+    );
+}
+
+#[test]
+fn i64_range_type_checks() {
+    // Regression test: Range with i64 bounds should produce Range<i64>
+    let source = r#"
+fn main() {
+    let r: Range<i64> = 68170613195522..=69237165933781;
+    let start: i64 = r.start;
+    let end: i64 = r.end;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn i64_range_generates_bigint_bounds() {
+    // Regression test: Range with large integers should generate BigInt bounds
+    let source = r#"
+fn main() {
+    let r = 68170613195522..=69237165933781;
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("68170613195522n"),
+        "Expected range start to be BigInt. Got:\n{}",
+        js
+    );
+    assert!(
+        js.contains("69237165933781n"),
+        "Expected range end to be BigInt. Got:\n{}",
+        js
+    );
+}
+
+#[test]
+fn i64_range_equality_type_checks() {
+    // Regression test: Range<i64> should support PartialEq
+    let source = r#"
+fn main() {
+    let r1: Range<i64> = 68170613195522..=69237165933781;
+    let r2: Range<i64> = 68170613195522..=69237165933781;
+    let eq: bool = r1 == r2;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn parse_long_type_checks() {
+    // Regression test: parse_long should return i64
+    let source = r#"
+fn main() {
+    let n: i64 = parse_long("12345678901234");
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn parse_long_generates_bigint_call() {
+    // Regression test: parse_long should generate BigInt() call in JS
+    let source = r#"
+fn main() {
+    let n = parse_long("12345678901234");
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        js.contains("BigInt("),
+        "Expected parse_long to generate BigInt() call. Got:\n{}",
+        js
+    );
+}
+
+#[test]
+fn i32_range_still_works() {
+    // Ensure i32 ranges still work correctly
+    let source = r#"
+fn main() {
+    let r: Range<i32> = 1..=10;
+    let start: i32 = r.start;
+    let end: i32 = r.end;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn i32_range_does_not_generate_bigint() {
+    // Ensure small range values don't generate BigInt
+    let source = r#"
+fn main() {
+    let r = 1..=10;
+}
+"#;
+    let js = compile_to_js(source);
+    assert!(
+        !js.contains("1n") && !js.contains("10n"),
+        "Expected i32 range to not generate BigInt. Got:\n{}",
+        js
+    );
+}
+
+#[test]
+fn mixed_i64_arithmetic_type_checks() {
+    // Regression test: i64 arithmetic should type check
+    // Note: Small literals like 1000 are i32, so we need to cast them
+    let source = r#"
+fn main() {
+    let a: i64 = 68170613195522;
+    let b: i64 = 1000 as i64;
+    let sum: i64 = a + b;
+    let diff: i64 = a - b;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn i64_comparison_type_checks() {
+    // Regression test: i64 comparisons should type check
+    let source = r#"
+fn main() {
+    let a: i64 = 68170613195522;
+    let b: i64 = 69237165933781;
+    let lt: bool = a < b;
+    let gt: bool = a > b;
+    let eq: bool = a == b;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn i64_cast_type_checks() {
+    // Regression test: Casting to i64 should work
+    let source = r#"
+fn main() {
+    let small: i32 = 42;
+    let big: i64 = small as i64;
+    let one: i64 = 1 as i64;
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn range_i64_in_function_param_type_checks() {
+    // Regression test: Functions accepting Range<i64> should type check
+    let source = r#"
+fn process_range(r: Range<i64>) -> i64 {
+    r.end - r.start
+}
+
+fn main() {
+    let r = 68170613195522..=69237165933781;
+    let len = process_range(r);
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn range_i64_array_type_checks() {
+    // Regression test: Arrays of Range<i64> should type check
+    let source = r#"
+fn main() {
+    let ranges: [Range<i64>] = [];
+    ranges.push(68170613195522..=69237165933781);
+    ranges.push(100000000000..=200000000000);
+}
+"#;
+    assert_type_checks(source);
+}
+
+// =============================================================================
+// Nested If Expression Tests (Regression tests for if/else in closures/blocks)
+// =============================================================================
+
+#[test]
+fn nested_if_in_closure_type_checks() {
+    // Regression test: Nested if/else in closure body should type check correctly
+    let source = r#"
+fn main() {
+    let arr = [3, 1, 2];
+    arr.sort(|a, b| if a < b {
+        -1
+    } else {
+        if a > b {
+            1
+        } else {
+            0
+        }
+    });
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn nested_if_in_block_type_checks() {
+    // Regression test: Nested if/else as last statement in block should return its type
+    let source = r#"
+fn test(x: i32) -> i32 {
+    if x > 0 {
+        1
+    } else {
+        if x < 0 {
+            -1
+        } else {
+            0
+        }
+    }
+}
+
+fn main() {
+    let result = test(5);
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn if_else_chain_in_closure_type_checks() {
+    // Regression test: Multiple else-if chains should type check in closures
+    let source = r#"
+fn main() {
+    let compare = |a: i32, b: i32| if a < b {
+        -1
+    } else {
+        if a > b {
+            1
+        } else {
+            0
+        }
+    };
+    let result: i32 = compare(1, 2);
+}
+"#;
+    assert_type_checks(source);
+}
+
+#[test]
+fn nested_if_generates_correct_js() {
+    // Regression test: Nested if should generate proper ternary operators
+    let source = r#"
+fn main() {
+    let arr = [3, 1, 2];
+    arr.sort(|a, b| if a < b { -1 } else { if a > b { 1 } else { 0 } });
+}
+"#;
+    let js = compile_to_js(source);
+    // Should contain ternary operators for both if expressions
+    assert!(
+        js.contains("?") && js.contains(":"),
+        "Expected nested ternary operators in JS output. Got:\n{}",
+        js
+    );
+}

@@ -205,6 +205,7 @@ impl PartialEq for String {}
 // would be a breaking change and should be clearly documented.
 impl PartialEq for Option {}
 impl PartialEq for Result {}
+impl PartialEq for Range {}
 
 // ============================================================================
 // Primitive Eq implementations (not f64 due to NaN != NaN)
@@ -214,6 +215,7 @@ impl Eq for i32 {}
 impl Eq for i64 {}
 impl Eq for bool {}
 impl Eq for String {}
+impl Eq for Range {}
 
 // Built-in functions for console output.
 // These are translated to console.log/console.error in JavaScript.

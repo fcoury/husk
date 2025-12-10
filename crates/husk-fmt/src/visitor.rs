@@ -1412,17 +1412,29 @@ impl<'a> Formatter<'a> {
                 self.write(" {");
                 self.newline();
                 self.indent += 1;
-                self.write_indent();
-                self.format_expr(then_branch);
-                self.newline();
+                // If the branch is a Block, emit its contents directly to avoid double braces
+                if let ExprKind::Block(block) = &then_branch.kind {
+                    self.format_stmts(&block.stmts);
+                    self.emit_block_end_trivia(block.span.range.end);
+                } else {
+                    self.write_indent();
+                    self.format_expr(then_branch);
+                    self.newline();
+                }
                 self.indent -= 1;
                 self.write_indent();
                 self.write("} else {");
                 self.newline();
                 self.indent += 1;
-                self.write_indent();
-                self.format_expr(else_branch);
-                self.newline();
+                // If the branch is a Block, emit its contents directly to avoid double braces
+                if let ExprKind::Block(block) = &else_branch.kind {
+                    self.format_stmts(&block.stmts);
+                    self.emit_block_end_trivia(block.span.range.end);
+                } else {
+                    self.write_indent();
+                    self.format_expr(else_branch);
+                    self.newline();
+                }
                 self.indent -= 1;
                 self.write_indent();
                 self.write("}");

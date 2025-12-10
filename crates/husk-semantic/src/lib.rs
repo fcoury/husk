@@ -2386,9 +2386,16 @@ impl<'a> FnContext<'a> {
                     });
                 }
 
-                self.check_block(then_branch);
+                let then_ty = self.check_block(then_branch);
                 if let Some(else_stmt) = else_branch {
-                    self.check_stmt(else_stmt);
+                    let else_ty = self.check_stmt(else_stmt);
+                    // If both branches have matching types, return that type
+                    // This allows if/else statements to be used as expressions in blocks
+                    if let Some(else_ty) = else_ty {
+                        if self.types_compatible(&then_ty, &else_ty) {
+                            return Some(then_ty);
+                        }
+                    }
                 }
                 return None;
             }
@@ -2561,7 +2568,14 @@ impl<'a> FnContext<'a> {
     fn check_expr(&mut self, expr: &Expr) -> Type {
         match &expr.kind {
             ExprKind::Literal(lit) => match lit.kind {
-                LiteralKind::Int(_) => Type::Primitive(PrimitiveType::I32),
+                LiteralKind::Int(n) => {
+                    // Use i64 for values outside i32 range
+                    if n > i32::MAX as i64 || n < i32::MIN as i64 {
+                        Type::Primitive(PrimitiveType::I64)
+                    } else {
+                        Type::Primitive(PrimitiveType::I32)
+                    }
+                }
                 LiteralKind::Float(_) => Type::Primitive(PrimitiveType::F64),
                 LiteralKind::Bool(_) => Type::Primitive(PrimitiveType::Bool),
                 LiteralKind::String(_) => Type::Primitive(PrimitiveType::String),
@@ -2721,6 +2735,13 @@ impl<'a> FnContext<'a> {
                                 Type::Primitive(PrimitiveType::I32),
                             ],
                             ret: Box::new(Type::Primitive(PrimitiveType::I32)),
+                        };
+                    }
+                    "parse_long" => {
+                        // parse_long(s: String) -> i64
+                        return Type::Function {
+                            params: vec![Type::Primitive(PrimitiveType::String)],
+                            ret: Box::new(Type::Primitive(PrimitiveType::I64)),
                         };
                     }
                     "assert" => {
@@ -3958,13 +3979,24 @@ impl<'a> FnContext<'a> {
                 end,
                 inclusive: _,
             } => {
+                // Infer element type from bounds, defaulting to i32
+                let mut elem_ty = Type::Primitive(PrimitiveType::I32);
+
                 // Verify start is integer if present
                 if let Some(start_expr) = start {
                     let start_ty = self.check_expr(start_expr);
-                    if !matches!(start_ty, Type::Primitive(PrimitiveType::I32)) {
+                    if matches!(
+                        start_ty,
+                        Type::Primitive(PrimitiveType::I32 | PrimitiveType::I64)
+                    ) {
+                        // Use i64 if either bound is i64
+                        if matches!(start_ty, Type::Primitive(PrimitiveType::I64)) {
+                            elem_ty = Type::Primitive(PrimitiveType::I64);
+                        }
+                    } else {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
-                                "range start must be i32, found {}",
+                                "range start must be an integer (i32 or i64), found {}",
                                 self.format_type(&start_ty)
                             ),
                             span: start_expr.span.clone(),
@@ -3975,10 +4007,18 @@ impl<'a> FnContext<'a> {
                 // Verify end is integer if present
                 if let Some(end_expr) = end {
                     let end_ty = self.check_expr(end_expr);
-                    if !matches!(end_ty, Type::Primitive(PrimitiveType::I32)) {
+                    if matches!(
+                        end_ty,
+                        Type::Primitive(PrimitiveType::I32 | PrimitiveType::I64)
+                    ) {
+                        // Use i64 if either bound is i64
+                        if matches!(end_ty, Type::Primitive(PrimitiveType::I64)) {
+                            elem_ty = Type::Primitive(PrimitiveType::I64);
+                        }
+                    } else {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
-                                "range end must be i32, found {}",
+                                "range end must be an integer (i32 or i64), found {}",
                                 self.format_type(&end_ty)
                             ),
                             span: end_expr.span.clone(),
@@ -3986,10 +4026,10 @@ impl<'a> FnContext<'a> {
                     }
                 }
 
-                // Range type - acts like an iterable of i32
+                // Range type - acts like an iterable of the element type
                 Type::Named {
                     name: "Range".to_string(),
-                    args: vec![Type::Primitive(PrimitiveType::I32)],
+                    args: vec![elem_ty],
                 }
             }
             ExprKind::Assign {

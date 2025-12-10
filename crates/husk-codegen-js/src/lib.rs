@@ -2189,7 +2189,14 @@ fn lower_conversion_method(
 fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
     match &expr.kind {
         ExprKind::Literal(lit) => match &lit.kind {
-            LiteralKind::Int(n) => JsExpr::Number(*n),
+            LiteralKind::Int(n) => {
+                // Use BigInt for values outside i32 range
+                if *n > i32::MAX as i64 || *n < i32::MIN as i64 {
+                    JsExpr::BigInt(*n)
+                } else {
+                    JsExpr::Number(*n)
+                }
+            }
             LiteralKind::Float(f) => JsExpr::Float(*f),
             LiteralKind::Bool(b) => JsExpr::Bool(*b),
             LiteralKind::String(s) => JsExpr::String(s.clone()),
@@ -2819,8 +2826,8 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     };
                 }
 
-                // Handle parseLong -> BigInt (for i64)
-                if id.name == "parseLong" {
+                // Handle parseLong/parse_long -> BigInt (for i64)
+                if id.name == "parseLong" || id.name == "parse_long" {
                     return JsExpr::Call {
                         callee: Box::new(JsExpr::Ident("BigInt".to_string())),
                         args: args.iter().map(|a| lower_expr(a, ctx)).collect(),

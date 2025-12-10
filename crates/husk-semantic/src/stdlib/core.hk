@@ -206,6 +206,7 @@ impl PartialEq for String {}
 // Keep this in sync with stdlib/core.hk.
 impl PartialEq for Option {}
 impl PartialEq for Result {}
+impl PartialEq for Range {}
 
 // ============================================================================
 // Primitive Eq implementations (not f64 due to NaN != NaN)
