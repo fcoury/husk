@@ -3358,6 +3358,56 @@ impl<'a> FnContext<'a> {
                                 args: vec![elem_ty],
                             };
                         }
+                        "count" => {
+                            // count() consumes iterator and returns i32
+                            return Type::Primitive(PrimitiveType::I32);
+                        }
+                        "all" | "any" => {
+                            // Closure type: Fn(&T) -> bool, returns bool
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![elem_ty.clone()],
+                                    ret: Box::new(Type::Primitive(PrimitiveType::Bool)),
+                                };
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return Type::Primitive(PrimitiveType::Bool);
+                        }
+                        "filter_map" => {
+                            // Closure type: Fn(T) -> Option<T>, returns impl Iterator<T>
+                            if let Some(closure_arg) = args.first() {
+                                let expected_closure = Type::Function {
+                                    params: vec![elem_ty.clone()],
+                                    ret: Box::new(Type::Named {
+                                        name: "Option".to_string(),
+                                        args: vec![elem_ty.clone()],
+                                    }),
+                                };
+                                let _ = self
+                                    .check_expr_with_expected(closure_arg, Some(&expected_closure));
+                            }
+                            return receiver_ty.clone();
+                        }
+                        "zip" => {
+                            // Takes another iterator of same type, returns impl Iterator<(T, T)>
+                            if let Some(other_iter) = args.first() {
+                                let _ = self.check_expr(other_iter);
+                            }
+                            return Type::ImplTrait {
+                                trait_ty: Box::new(Type::Named {
+                                    name: "Iterator".to_string(),
+                                    args: vec![Type::Tuple(vec![elem_ty.clone(), elem_ty])],
+                                }),
+                            };
+                        }
+                        "chain" => {
+                            // Takes another iterator of same type, returns impl Iterator<T>
+                            if let Some(other_iter) = args.first() {
+                                let _ = self.check_expr(other_iter);
+                            }
+                            return receiver_ty.clone();
+                        }
                         _ => {}
                     }
                 }

@@ -786,6 +786,127 @@ function __husk_iterator_find(iter, f) {
     }
 }
 
+// Iterator adaptor: zip - combines two iterators into pairs
+function __husk_iterator_zip(iter1, iter2) {
+    var done = false;
+    var iterator = {
+        next: function() {
+            if (done) {
+                return { done: true, value: undefined };
+            }
+            var result1 = iter1.next();
+            if (result1.done) {
+                // Release references for GC
+                done = true;
+                iter1 = null;
+                iter2 = null;
+                return { done: true, value: undefined };
+            }
+            var result2 = iter2.next();
+            if (result2.done) {
+                // Release references for GC
+                done = true;
+                iter1 = null;
+                iter2 = null;
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: [result1.value, result2.value] };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator adaptor: chain - concatenates two iterators
+function __husk_iterator_chain(iter1, iter2) {
+    var firstExhausted = false;
+    var iterator = {
+        next: function() {
+            if (!firstExhausted) {
+                var result1 = iter1.next();
+                if (!result1.done) {
+                    return { done: false, value: result1.value };
+                }
+                // First iterator exhausted - release reference for GC
+                firstExhausted = true;
+                iter1 = null;
+            }
+            var result2 = iter2.next();
+            if (result2.done) {
+                return { done: true, value: undefined };
+            }
+            return { done: false, value: result2.value };
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator adaptor: filter_map - filters and maps in one pass
+// The closure f returns Option<U>, so we check for Some tag and unwrap the value
+function __husk_iterator_filter_map(iter, f) {
+    var iterator = {
+        next: function() {
+            while (true) {
+                var result = iter.next();
+                if (result.done) {
+                    return { done: true, value: undefined };
+                }
+                var mapped = f(result.value);
+                // Check for Option::Some and unwrap the value
+                if (mapped && mapped.tag === "Some") {
+                    return { done: false, value: mapped.value };
+                }
+                // Option::None - continue to next iteration
+            }
+        }
+    };
+    // Make it iterable for for...of loops
+    iterator[Symbol.iterator] = function() { return this; };
+    return iterator;
+}
+
+// Iterator consumer: count - counts number of elements
+function __husk_iterator_count(iter) {
+    var count = 0;
+    while (true) {
+        var result = iter.next();
+        if (result.done) {
+            break;
+        }
+        count++;
+    }
+    return count;
+}
+
+// Iterator consumer: all - checks if all elements satisfy predicate
+function __husk_iterator_all(iter, f) {
+    while (true) {
+        var result = iter.next();
+        if (result.done) {
+            return true;
+        }
+        if (!f(result.value)) {
+            return false;
+        }
+    }
+}
+
+// Iterator consumer: any - checks if any element satisfies predicate
+function __husk_iterator_any(iter, f) {
+    while (true) {
+        var result = iter.next();
+        if (result.done) {
+            return false;
+        }
+        if (f(result.value)) {
+            return true;
+        }
+    }
+}
+
 // Run main() and handle ? operator early returns
 // If main returns Err or None, report the error and exit with code 1
 function __husk_run_main(main) {

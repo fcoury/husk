@@ -332,6 +332,40 @@ trait Iterator<T> {
     /// Returns the first element for which the closure returns true, or None if no element matches.
     #[js_name = "__husk_iterator_find"]
     extern "js" fn find(self, f: fn(&T) -> bool) -> Option<T>;
+
+    /// Counts the number of elements in the iterator.
+    #[js_name = "__husk_iterator_count"]
+    extern "js" fn count(self) -> i32;
+
+    /// Checks if all elements satisfy a predicate.
+    #[js_name = "__husk_iterator_all"]
+    extern "js" fn all(self, f: fn(&T) -> bool) -> bool;
+
+    /// Checks if any element satisfies a predicate.
+    #[js_name = "__husk_iterator_any"]
+    extern "js" fn any(self, f: fn(&T) -> bool) -> bool;
+
+    /// Filters and maps elements in a single pass.
+    /// Takes a closure that returns an Option, filtering out None values and mapping Some values.
+    /// NOTE: Currently requires the mapping function to return Option<T> (same type) due to
+    /// limitations in generic method syntax.
+    #[js_name = "__husk_iterator_filter_map"]
+    extern "js" fn filter_map(self, f: fn(T) -> Option<T>) -> impl Iterator<T>;
+
+    /// Combines two iterators of the same type into pairs.
+    /// Returns a new iterator that yields tuples of elements from both iterators.
+    /// The iteration stops when the shorter of the two iterators is exhausted.
+    /// NOTE: Currently requires both iterators to have the same element type due to
+    /// limitations in generic method syntax.
+    #[js_name = "__husk_iterator_zip"]
+    extern "js" fn zip(self, other: impl Iterator<T>) -> impl Iterator<(T, T)>;
+
+    /// Creates an iterator that chains together two iterators of the same type.
+    /// Returns a new iterator that yields all elements from the first iterator,
+    /// followed by all elements from the second iterator.
+    /// Both iterators must yield elements of type T.
+    #[js_name = "__husk_iterator_chain"]
+    extern "js" fn chain(self, other: impl Iterator<T>) -> impl Iterator<T>;
 }
 
 // Trait for types that can be converted into an iterator.

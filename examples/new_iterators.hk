@@ -1,0 +1,33 @@
+// Examples demonstrating new iterator methods in Husk
+
+fn main() {
+    // Test data
+    let arr1 = [1, 2, 3];
+    let arr2 = [10, 20, 30];
+
+    // zip - combines two iterators of the same type into pairs
+    let zipped: [(i32, i32)] = arr1.iter().zip(arr2.iter()).collect();
+    println("Zipped: {:?}", zipped);
+
+    // chain - concatenates two iterators
+    let chained: [i32] = arr1.iter().chain(arr2.iter()).collect();
+    println("Chained: {:?}", chained);
+
+    // filter_map - filters and maps in one pass (must return same type)
+    let filtered_mapped: [i32] = arr1.iter()
+        .filter_map(|x: i32| if x % 2 == 0 { Some(x * 2) } else { None })
+        .collect();
+    println("Filtered mapped (evens doubled): {:?}", filtered_mapped);
+
+    // count - counts number of elements
+    let count = arr1.iter().count();
+    println("Count: {}", count);
+
+    // all - checks if all elements satisfy predicate
+    let all_positive = arr1.iter().all(|x: i32| x > 0);
+    println("All positive: {}", all_positive);
+
+    // any - checks if any element satisfies predicate
+    let any_even = arr1.iter().any(|x: i32| x % 2 == 0);
+    println("Any even: {}", any_even);
+}

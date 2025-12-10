@@ -2501,8 +2501,8 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // (e.g., arr.iter(), arr.iter().map(...), etc.)
             let is_iterator_from_method_call = if let ExprKind::MethodCall { method, .. } = &receiver.kind {
                 let method_name = &method.name;
-                // Methods that return iterators: iter, into_iter, map, filter, enumerate, take, skip
-                matches!(method_name.as_str(), "iter" | "into_iter" | "map" | "filter" | "enumerate" | "take" | "skip")
+                // Methods that return iterators: iter, into_iter, map, filter, enumerate, take, skip, zip, chain, filter_map
+                matches!(method_name.as_str(), "iter" | "into_iter" | "map" | "filter" | "enumerate" | "take" | "skip" | "zip" | "chain" | "filter_map")
             } else {
                 false
             };
@@ -2584,6 +2584,53 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     return JsExpr::Call {
                         callee: Box::new(JsExpr::Ident("__husk_iterator_find".to_string())),
                         args: vec![js_receiver, js_closure],
+                    };
+                }
+                "count" if args.is_empty() => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_count".to_string())),
+                        args: vec![js_receiver],
+                    };
+                }
+                "all" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_all".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                "any" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_any".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                "filter_map" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_closure = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_filter_map".to_string())),
+                        args: vec![js_receiver, js_closure],
+                    };
+                }
+                "zip" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_other = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_zip".to_string())),
+                        args: vec![js_receiver, js_other],
+                    };
+                }
+                "chain" if args.len() == 1 => {
+                    let js_receiver = lower_expr(receiver, ctx);
+                    let js_other = lower_expr(&args[0], ctx);
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_iterator_chain".to_string())),
+                        args: vec![js_receiver, js_other],
                     };
                 }
                 _ => {}
