@@ -906,13 +906,13 @@ impl<'src> Parser<'src> {
     /// Parse a method inside a trait: `fn method(&self) -> RetType;` or with default body
     fn parse_trait_method(&mut self) -> Option<TraitItem> {
         // First, parse any attributes
-        let _attributes = self.parse_attributes();
+        let attributes = self.parse_attributes();
 
         // Capture start position for span (before extern or fn keyword)
         let item_start = self.current().span.range.start;
 
         // Check for extern "js" before fn (same as impl methods)
-        if self.matches_keyword(Keyword::Extern) {
+        let is_extern = if self.matches_keyword(Keyword::Extern) {
             // Expect "js" string literal
             if let TokenKind::StringLiteral(ref s) = self.current().kind {
                 if s != "js" {
@@ -923,7 +923,10 @@ impl<'src> Parser<'src> {
                 self.error_here("expected string literal ABI after `extern`");
                 return None;
             }
-        }
+            true
+        } else {
+            false
+        };
 
         if !self.matches_keyword(Keyword::Fn) {
             self.error_here("expected `fn` inside trait");
@@ -970,11 +973,13 @@ impl<'src> Parser<'src> {
         let end = self.previous().span.range.end;
         Some(TraitItem {
             kind: TraitItemKind::Method(TraitMethod {
+                attributes,
                 name,
                 receiver,
                 params,
                 ret_type,
                 default_body,
+                is_extern,
             }),
             span: Span {
                 range: item_start..end,

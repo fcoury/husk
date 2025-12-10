@@ -14,6 +14,7 @@ use husk_ast::{
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::{
     NameResolution, TypeResolution, VariantCallMap, VariantPatternMap, get_prelude_file,
+    get_stdlib_index,
 };
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
@@ -2499,141 +2500,31 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             
             // Also check if receiver is a method call that returns an iterator
             // (e.g., arr.iter(), arr.iter().map(...), etc.)
+            let stdlib_index = get_stdlib_index();
             let is_iterator_from_method_call = if let ExprKind::MethodCall { method, .. } = &receiver.kind {
-                let method_name = &method.name;
-                // Methods that return iterators: iter, into_iter, map, filter, enumerate, take, skip, zip, chain, filter_map
-                matches!(method_name.as_str(), "iter" | "into_iter" | "map" | "filter" | "enumerate" | "take" | "skip" | "zip" | "chain" | "filter_map")
+                let recv_method_name = &method.name;
+                // Use StdlibIndex to check if method returns an iterator
+                stdlib_index.returns_iterator("Iterator", recv_method_name)
+                    || matches!(recv_method_name.as_str(), "iter" | "into_iter")
             } else {
                 false
             };
             
             let is_iterator = is_iterator_from_type || is_iterator_from_method_call;
 
+            // Use StdlibIndex to look up iterator method JS names
             if is_iterator {
-                match method_name.as_str() {
-                "map" if args.len() == 1 => {
-                    // Check if receiver is an iterator (from type resolution or previous iterator call)
-                    // For now, we'll generate the call and let the runtime handle it
+                if let Some(js_name) = stdlib_index.get_js_name("Iterator", method_name) {
+                    // All iterator methods follow: js_name(receiver, ...args)
                     let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
+                    let mut js_args = vec![js_receiver];
+                    for arg in args {
+                        js_args.push(lower_expr(arg, ctx));
+                    }
                     return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_map".to_string())),
-                        args: vec![js_receiver, js_closure],
+                        callee: Box::new(JsExpr::Ident(js_name.to_string())),
+                        args: js_args,
                     };
-                }
-                "filter" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_filter".to_string())),
-                        args: vec![js_receiver, js_closure],
-                    };
-                }
-                "collect" if args.is_empty() => {
-                    // collect() consumes the iterator into an array
-                    let js_receiver = lower_expr(receiver, ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_collect".to_string())),
-                        args: vec![js_receiver],
-                    };
-                }
-                "for_each" if args.len() == 1 => {
-                    // for_each() consumes the iterator by calling closure on each element
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_for_each".to_string())),
-                        args: vec![js_receiver, js_closure],
-                    };
-                }
-                "fold" if args.len() == 2 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_init = lower_expr(&args[0], ctx);
-                    let js_closure = lower_expr(&args[1], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_fold".to_string())),
-                        args: vec![js_receiver, js_init, js_closure],
-                    };
-                }
-                "enumerate" if args.is_empty() => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_enumerate".to_string())),
-                        args: vec![js_receiver],
-                    };
-                }
-                "take" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_n = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_take".to_string())),
-                        args: vec![js_receiver, js_n],
-                    };
-                }
-                "skip" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_n = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_skip".to_string())),
-                        args: vec![js_receiver, js_n],
-                    };
-                }
-                "find" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_find".to_string())),
-                        args: vec![js_receiver, js_closure],
-                    };
-                }
-                "count" if args.is_empty() => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_count".to_string())),
-                        args: vec![js_receiver],
-                    };
-                }
-                "all" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_all".to_string())),
-                        args: vec![js_receiver, js_closure],
-                    };
-                }
-                "any" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_any".to_string())),
-                        args: vec![js_receiver, js_closure],
-                    };
-                }
-                "filter_map" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_closure = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_filter_map".to_string())),
-                        args: vec![js_receiver, js_closure],
-                    };
-                }
-                "zip" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_other = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_zip".to_string())),
-                        args: vec![js_receiver, js_other],
-                    };
-                }
-                "chain" if args.len() == 1 => {
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let js_other = lower_expr(&args[0], ctx);
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident("__husk_iterator_chain".to_string())),
-                        args: vec![js_receiver, js_other],
-                    };
-                }
-                _ => {}
                 }
             }
 

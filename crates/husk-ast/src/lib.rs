@@ -586,12 +586,26 @@ pub enum TraitItemKind {
 /// A method in a trait definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitMethod {
+    /// Attributes on this method (e.g., #[js_name = "..."])
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub receiver: Option<SelfReceiver>,
     pub params: Vec<Param>,
     pub ret_type: Option<TypeExpr>,
     /// Default implementation body (None = required method)
     pub default_body: Option<Vec<Stmt>>,
+    /// If true, this is an `extern "js" fn` declaration (no body, direct JS call)
+    pub is_extern: bool,
+}
+
+impl TraitMethod {
+    /// Returns the JS name if specified via #[js_name = "..."], otherwise None.
+    pub fn js_name(&self) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|a| a.name.name == "js_name")
+            .and_then(|a| a.value.as_deref())
+    }
 }
 
 /// The self receiver in a method: `self`, `&self`, or `&mut self`
