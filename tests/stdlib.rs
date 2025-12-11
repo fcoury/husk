@@ -6,9 +6,14 @@ use husk_semantic::analyze_file;
 
 #[test]
 fn stdlib_core_parses_and_typechecks() {
-    // `CARGO_MANIFEST_DIR` points to the workspace root for this test crate.
+    // The stdlib lives inside the husk-semantic crate
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = root.join("stdlib").join("core.hk");
+    let path = root
+        .join("crates")
+        .join("husk-semantic")
+        .join("src")
+        .join("stdlib")
+        .join("core.hk");
 
     let src = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));

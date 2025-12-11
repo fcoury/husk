@@ -6,9 +6,6 @@ license.workspace = true
 repository.workspace = true
 description = "Semantic analysis for the Husk programming language"
 
-# Include build-generated stdlib file that is gitignored
-include = ["/src", "/build.rs", "Cargo.toml"]
-
 [dependencies]
 husk-ast.workspace = true
 husk-types.workspace = true
