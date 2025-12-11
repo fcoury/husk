@@ -254,6 +254,8 @@ struct CodegenContext<'a> {
     accessors: &'a PropertyAccessors,
     /// Path to the current source file being compiled (for include_str, etc.)
     source_path: Option<&'a Path>,
+    /// Source code content (for computing line/column in source maps)
+    source_content: Option<&'a str>,
     /// Name resolution map from semantic analysis for variable shadowing.
     /// Maps (span_start, span_end) -> resolved_name (e.g., "x", "x$1", "x$2")
     name_resolution: &'a NameResolution,
@@ -277,6 +279,7 @@ impl<'a> CodegenContext<'a> {
         Self {
             accessors,
             source_path: None,
+            source_content: None,
             name_resolution,
             type_resolution,
             variant_calls,
@@ -295,11 +298,21 @@ impl<'a> CodegenContext<'a> {
         Self {
             accessors,
             source_path: Some(source_path),
+            source_content: None,
             name_resolution,
             type_resolution,
             variant_calls,
             variant_patterns,
         }
+    }
+
+    /// Compute a SourceSpan from a Husk AST Span.
+    /// Returns None if source content is not available.
+    fn span_to_source_span(&self, span: &Span) -> Option<SourceSpan> {
+        self.source_content.map(|src| {
+            let (line, column) = offset_to_line_col(src, span.range.start);
+            SourceSpan { line, column }
+        })
     }
 
     /// Get the resolved name for a variable at the given span.
@@ -372,7 +385,7 @@ pub struct JsModule {
 }
 
 /// Source span for mapping back to Husk source.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SourceSpan {
     /// Source line (0-indexed)
     pub line: u32,
@@ -431,33 +444,47 @@ pub enum JsStmt {
         source_span: Option<SourceSpan>,
     },
     /// `return expr;`
-    Return(JsExpr),
+    Return {
+        expr: JsExpr,
+        source_span: Option<SourceSpan>,
+    },
     /// `let name = expr;`
-    Let { name: String, init: Option<JsExpr> },
+    Let {
+        name: String,
+        init: Option<JsExpr>,
+        source_span: Option<SourceSpan>,
+    },
     /// `let [pattern, ...] = expr;` (array destructuring, supports nesting)
     LetDestructure {
         pattern: Vec<DestructurePattern>,
         init: Option<JsExpr>,
+        source_span: Option<SourceSpan>,
     },
     /// Expression statement: `expr;`
-    Expr(JsExpr),
+    Expr {
+        expr: JsExpr,
+        source_span: Option<SourceSpan>,
+    },
     /// `try { ... } catch (e) { ... }`
     TryCatch {
         try_block: Vec<JsStmt>,
         catch_ident: String,
         catch_block: Vec<JsStmt>,
+        source_span: Option<SourceSpan>,
     },
     /// `if (cond) { ... } else { ... }`
     If {
         cond: JsExpr,
         then_block: Vec<JsStmt>,
         else_block: Option<Vec<JsStmt>>,
+        source_span: Option<SourceSpan>,
     },
     /// `for (const binding of iterable) { body }`
     ForOf {
         binding: String,
         iterable: JsExpr,
         body: Vec<JsStmt>,
+        source_span: Option<SourceSpan>,
     },
     /// C-style for loop: `for (let binding = start; binding < end; binding++)`
     For {
@@ -466,32 +493,45 @@ pub enum JsStmt {
         end: JsExpr,
         inclusive: bool,
         body: Vec<JsStmt>,
+        source_span: Option<SourceSpan>,
     },
     /// For loop over a range object: `for (let binding = range.start; binding < range.end; binding++)`
     ForRange {
         binding: String,
         range_expr: JsExpr,
         body: Vec<JsStmt>,
+        source_span: Option<SourceSpan>,
     },
     /// Assignment statement: `target = value`, `target += value`, etc.
     Assign {
         target: JsExpr,
         op: JsAssignOp,
         value: JsExpr,
+        source_span: Option<SourceSpan>,
     },
     /// `while (cond) { body }`
-    While { cond: JsExpr, body: Vec<JsStmt> },
+    While {
+        cond: JsExpr,
+        body: Vec<JsStmt>,
+        source_span: Option<SourceSpan>,
+    },
     /// `break;`
-    Break,
+    Break { source_span: Option<SourceSpan> },
     /// `continue;`
-    Continue,
+    Continue { source_span: Option<SourceSpan> },
     /// A bare block: `{ stmts }`
-    Block(Vec<JsStmt>),
+    Block {
+        stmts: Vec<JsStmt>,
+        source_span: Option<SourceSpan>,
+    },
     /// Multiple statements emitted at the same level (no block wrapper).
     /// Used for let-else to emit the check and bindings without creating a scope.
     Sequence(Vec<JsStmt>),
     /// `throw expr;`
-    Throw(JsExpr),
+    Throw {
+        expr: JsExpr,
+        source_span: Option<SourceSpan>,
+    },
 }
 
 /// Assignment operators in JS.
@@ -706,7 +746,7 @@ pub fn lower_file_to_js_with_source(
     collect_accessors_from_file(file, &mut accessors);
 
     // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
-    let ctx = match source_path {
+    let mut ctx = match source_path {
         Some(path) => CodegenContext::with_source_path(
             &accessors,
             path,
@@ -723,6 +763,8 @@ pub fn lower_file_to_js_with_source(
             variant_patterns,
         ),
     };
+    // Set source content for source map span generation
+    ctx.source_content = source;
 
     // First pass: collect module imports
     for item in &file.items {
@@ -903,10 +945,13 @@ pub fn lower_file_to_js_with_source(
     if has_main_entry && call_main {
         // Wrap main() call to check for ? operator early returns (Err/None)
         // This ensures errors are reported rather than silently swallowed
-        body.push(JsStmt::Expr(JsExpr::Call {
-            callee: Box::new(JsExpr::Ident("__husk_run_main".to_string())),
-            args: vec![JsExpr::Ident("main".to_string())],
-        }));
+        body.push(JsStmt::Expr {
+            expr: JsExpr::Call {
+                callee: Box::new(JsExpr::Ident("__husk_run_main".to_string())),
+                args: vec![JsExpr::Ident("main".to_string())],
+            },
+            source_span: None,
+        });
     }
 
     // Choose export style based on whether we have imports (ESM) or not (CommonJS)
@@ -928,7 +973,10 @@ pub fn lower_file_to_js_with_source(
                     op: JsAssignOp::Assign,
                     right: Box::new(exports_obj),
                 };
-                body.push(JsStmt::Expr(assign));
+                body.push(JsStmt::Expr {
+                    expr: assign,
+                    source_span: None,
+                });
             }
         }
     }
@@ -1053,18 +1101,26 @@ fn wrap_body_for_try_early_return(body: Vec<JsStmt>) -> Vec<JsStmt> {
                     right: Box::new(JsExpr::Ident("undefined".to_string())),
                 }),
             },
-            then_block: vec![JsStmt::Return(JsExpr::Member {
-                object: Box::new(JsExpr::Ident("__e".to_string())),
-                property: "__husk_early_return".to_string(),
-            })],
+            then_block: vec![JsStmt::Return {
+                expr: JsExpr::Member {
+                    object: Box::new(JsExpr::Ident("__e".to_string())),
+                    property: "__husk_early_return".to_string(),
+                },
+                source_span: None,
+            }],
             else_block: None,
+            source_span: None,
         },
-        JsStmt::Throw(JsExpr::Ident("__e".to_string())),
+        JsStmt::Throw {
+            expr: JsExpr::Ident("__e".to_string()),
+            source_span: None,
+        },
     ];
     vec![JsStmt::TryCatch {
         try_block: body,
         catch_ident: "__e".to_string(),
         catch_block,
+        source_span: None,
     }]
 }
 
@@ -1121,14 +1177,17 @@ fn lower_struct_constructor(name: &str, fields: &[StructField]) -> JsStmt {
     let mut body_stmts = Vec::new();
     for field in fields {
         let field_name = field.name.name.clone();
-        body_stmts.push(JsStmt::Expr(JsExpr::Assignment {
-            left: Box::new(JsExpr::Member {
-                object: Box::new(JsExpr::Ident("this".to_string())),
-                property: field_name.clone(),
-            }),
-            op: JsAssignOp::Assign,
-            right: Box::new(JsExpr::Ident(field_name)),
-        }));
+        body_stmts.push(JsStmt::Expr {
+            expr: JsExpr::Assignment {
+                left: Box::new(JsExpr::Member {
+                    object: Box::new(JsExpr::Ident("this".to_string())),
+                    property: field_name.clone(),
+                }),
+                op: JsAssignOp::Assign,
+                right: Box::new(JsExpr::Ident(field_name)),
+            },
+            source_span: None,
+        });
     }
 
     JsStmt::Function {
@@ -1250,18 +1309,26 @@ fn lower_impl_method(
     };
 
     // Generate assignment: target = function(...) { ... }
-    JsStmt::Expr(JsExpr::Assignment {
-        left: Box::new(target),
-        op: JsAssignOp::Assign,
-        right: Box::new(func_expr),
-    })
+    JsStmt::Expr {
+        expr: JsExpr::Assignment {
+            left: Box::new(target),
+            op: JsAssignOp::Assign,
+            right: Box::new(func_expr),
+        },
+        source_span: None,
+    }
 }
 
 fn lower_tail_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
+    let source_span = ctx.span_to_source_span(&stmt.span);
+
     match &stmt.kind {
         // Treat a trailing expression statement as an implicit `return expr;`,
         // to mirror Rust-style expression-bodied functions.
-        StmtKind::Expr(expr) => JsStmt::Return(lower_expr(expr, ctx)),
+        StmtKind::Expr(expr) => JsStmt::Return {
+            expr: lower_expr(expr, ctx),
+            source_span,
+        },
         // For if statements in tail position, wrap branch results in returns.
         StmtKind::If {
             cond,
@@ -1304,6 +1371,7 @@ fn lower_tail_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 cond: js_cond,
                 then_block,
                 else_block,
+                source_span,
             }
         }
         _ => lower_stmt(stmt, ctx),
@@ -1425,28 +1493,43 @@ fn lower_extern_body(
                 callee: Box::new(JsExpr::Ident("Ok".to_string())),
                 args: vec![call],
             };
-            let try_block = vec![JsStmt::Return(ok_call)];
+            let try_block = vec![JsStmt::Return {
+                expr: ok_call,
+                source_span: None,
+            }];
 
             let err_call = JsExpr::Call {
                 callee: Box::new(JsExpr::Ident("Err".to_string())),
                 args: vec![JsExpr::Ident("e".to_string())],
             };
-            let catch_block = vec![JsStmt::Return(err_call)];
+            let catch_block = vec![JsStmt::Return {
+                expr: err_call,
+                source_span: None,
+            }];
 
             vec![JsStmt::TryCatch {
                 try_block,
                 catch_ident: "e".to_string(),
                 catch_block,
+                source_span: None,
             }]
         } else {
-            vec![JsStmt::Return(call)]
+            vec![JsStmt::Return {
+                expr: call,
+                source_span: None,
+            }]
         }
     } else {
-        vec![JsStmt::Expr(call)]
+        vec![JsStmt::Expr {
+            expr: call,
+            source_span: None,
+        }]
     }
 }
 
 fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
+    let source_span = ctx.span_to_source_span(&stmt.span);
+
     match &stmt.kind {
         StmtKind::Let {
             mutable: _,
@@ -1454,15 +1537,18 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             ty: _,
             value,
             else_block,
-        } => lower_let_pattern(pattern, value.as_ref(), else_block.as_ref(), ctx),
+        } => lower_let_pattern(pattern, value.as_ref(), else_block.as_ref(), source_span, ctx),
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
             // Special case: match expressions in statement position should be lowered
             // to if/else statements, not ternary expressions. This allows break/continue
             // to work properly in match arms.
             if let ExprKind::Match { scrutinee, arms } = &expr.kind {
-                return lower_match_stmt(scrutinee, arms, ctx);
+                return lower_match_stmt(scrutinee, arms, source_span, ctx);
             }
-            JsStmt::Expr(lower_expr(expr, ctx))
+            JsStmt::Expr {
+                expr: lower_expr(expr, ctx),
+                source_span,
+            }
         }
         StmtKind::Return { value } => {
             let expr = value
@@ -1470,7 +1556,10 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 .map(|e| lower_expr(e, ctx))
                 // Represent `return;` as `return undefined;` for now.
                 .unwrap_or_else(|| JsExpr::Ident("undefined".to_string()));
-            JsStmt::Return(expr)
+            JsStmt::Return {
+                expr,
+                source_span,
+            }
         }
         StmtKind::Block(block) => {
             // Flatten block into a single function body-like statement sequence.
@@ -1480,7 +1569,10 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             if let Some(last) = block.stmts.last() {
                 lower_stmt(last, ctx)
             } else {
-                JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
+                JsStmt::Expr {
+                    expr: JsExpr::Ident("undefined".to_string()),
+                    source_span,
+                }
             }
         }
         StmtKind::If {
@@ -1508,6 +1600,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 cond: js_cond,
                 then_block,
                 else_block,
+                source_span,
             }
         }
         StmtKind::ForIn {
@@ -1532,6 +1625,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                     end: js_end,
                     inclusive: *inclusive,
                     body: js_body,
+                    source_span,
                 }
             } else {
                 // Check if iterable is a Range type variable (from semantic analysis)
@@ -1551,6 +1645,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                             binding: ctx.resolve_name(&binding.name, &binding.span),
                             range_expr: js_iterable,
                             body: js_body,
+                            source_span,
                         };
                     }
                 }
@@ -1596,6 +1691,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                     binding: ctx.resolve_name(&binding.name, &binding.span),
                     iterable: js_iterable,
                     body: js_body,
+                    source_span,
                 }
             }
         }
@@ -1605,6 +1701,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             JsStmt::While {
                 cond: js_cond,
                 body: js_body,
+                source_span,
             }
         }
         StmtKind::Loop { body } => {
@@ -1613,10 +1710,11 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             JsStmt::While {
                 cond: JsExpr::Bool(true),
                 body: js_body,
+                source_span,
             }
         }
-        StmtKind::Break => JsStmt::Break,
-        StmtKind::Continue => JsStmt::Continue,
+        StmtKind::Break => JsStmt::Break { source_span },
+        StmtKind::Continue => JsStmt::Continue { source_span },
         StmtKind::Assign { target, op, value } => {
             let js_op = match op {
                 husk_ast::AssignOp::Assign => JsAssignOp::Assign,
@@ -1628,6 +1726,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 target: lower_expr(target, ctx),
                 op: js_op,
                 value: lower_expr(value, ctx),
+                source_span,
             }
         }
         StmtKind::IfLet {
@@ -1635,7 +1734,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             scrutinee,
             then_branch,
             else_branch,
-        } => lower_if_let_stmt(pattern, scrutinee, then_branch, else_branch, ctx),
+        } => lower_if_let_stmt(pattern, scrutinee, then_branch, else_branch, source_span, ctx),
     }
 }
 
@@ -1663,6 +1762,7 @@ fn lower_let_pattern(
     pattern: &Pattern,
     value: Option<&Expr>,
     else_block: Option<&Block>,
+    source_span: Option<SourceSpan>,
     ctx: &CodegenContext,
 ) -> JsStmt {
     match &pattern.kind {
@@ -1672,13 +1772,14 @@ fn lower_let_pattern(
             if let Some((_, variant_name)) = ctx.variant_patterns.get(&span_key) {
                 // This is a variant pattern - needs tag check
                 if let Some(blk) = else_block {
-                    return lower_let_refutable_binding(name, variant_name, value, blk, ctx);
+                    return lower_let_refutable_binding(name, variant_name, value, blk, source_span, ctx);
                 }
             }
             // Simple identifier: let x = expr;
             JsStmt::Let {
                 name: ctx.resolve_name(&name.name, &name.span),
                 init: value.map(|e| lower_expr(e, ctx)),
+                source_span,
             }
         }
         PatternKind::Tuple { fields } => {
@@ -1692,20 +1793,27 @@ fn lower_let_pattern(
             JsStmt::LetDestructure {
                 pattern: elements,
                 init: value.map(|e| lower_expr(e, ctx)),
+                source_span,
             }
         }
         PatternKind::Wildcard => {
             // let _ = expr; - just evaluate the expression for side effects
             if let Some(e) = value {
-                JsStmt::Expr(lower_expr(e, ctx))
+                JsStmt::Expr {
+                    expr: lower_expr(e, ctx),
+                    source_span,
+                }
             } else {
-                JsStmt::Expr(JsExpr::Ident("undefined".to_string()))
+                JsStmt::Expr {
+                    expr: JsExpr::Ident("undefined".to_string()),
+                    source_span,
+                }
             }
         }
         PatternKind::EnumUnit { path } | PatternKind::EnumTuple { path, .. } => {
             // Refutable pattern: needs else block
             if let Some(blk) = else_block {
-                lower_let_refutable(pattern, path, value, blk, ctx)
+                lower_let_refutable(pattern, path, value, blk, source_span, ctx)
             } else {
                 // Graceful fallback - semantic should catch this
                 emit_unreachable_error()
@@ -1714,7 +1822,7 @@ fn lower_let_pattern(
         PatternKind::EnumStruct { path, fields } => {
             // Refutable struct pattern: needs else block
             if let Some(blk) = else_block {
-                lower_let_refutable_struct(path, fields, value, blk, ctx)
+                lower_let_refutable_struct(path, fields, value, blk, source_span, ctx)
             } else {
                 emit_unreachable_error()
             }
@@ -1724,9 +1832,12 @@ fn lower_let_pattern(
 
 /// Emit a visible error marker when codegen encounters an unreachable state.
 fn emit_unreachable_error() -> JsStmt {
-    JsStmt::Expr(JsExpr::Raw(
-        "/* SEMANTIC ERROR: unreachable - missing else block */ undefined".to_string(),
-    ))
+    JsStmt::Expr {
+        expr: JsExpr::Raw(
+            "/* SEMANTIC ERROR: unreachable - missing else block */ undefined".to_string(),
+        ),
+        source_span: None,
+    }
 }
 
 /// Lower a refutable binding pattern (imported variant like `None`, `Err`)
@@ -1735,13 +1846,17 @@ fn lower_let_refutable_binding(
     variant_name: &str,
     value: Option<&Expr>,
     else_block: &Block,
+    source_span: Option<SourceSpan>,
     ctx: &CodegenContext,
 ) -> JsStmt {
     let expr = match value {
         Some(e) => e,
         None => {
             // Should not happen - semantic should catch
-            return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+            return JsStmt::Expr {
+                expr: JsExpr::Ident("undefined".to_string()),
+                source_span,
+            };
         }
     };
     let value_js = lower_expr(expr, ctx);
@@ -1771,11 +1886,13 @@ fn lower_let_refutable_binding(
         JsStmt::Let {
             name: temp_name,
             init: Some(value_js),
+            source_span,
         },
         JsStmt::If {
             cond: condition,
             then_block: else_stmts,
             else_block: None,
+            source_span: None, // Generated code - no specific source location
         },
     ])
 }
@@ -1786,12 +1903,16 @@ fn lower_let_refutable(
     path: &[Ident],
     value: Option<&Expr>,
     else_block: &Block,
+    source_span: Option<SourceSpan>,
     ctx: &CodegenContext,
 ) -> JsStmt {
     let expr = match value {
         Some(e) => e,
         None => {
-            return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+            return JsStmt::Expr {
+                expr: JsExpr::Ident("undefined".to_string()),
+                source_span,
+            };
         }
     };
     let value_js = lower_expr(expr, ctx);
@@ -1823,15 +1944,18 @@ fn lower_let_refutable(
         JsStmt::Let {
             name: temp_name,
             init: Some(value_js),
+            source_span,
         },
         JsStmt::If {
             cond: condition,
             then_block: else_stmts,
             else_block: None,
+            source_span: None, // Generated code
         },
     ];
     stmts.extend(bindings.into_iter().map(|(name, accessor)| JsStmt::Let {
         name,
+        source_span: None, // Generated bindings
         init: Some(accessor),
     }));
 
@@ -1845,12 +1969,16 @@ fn lower_let_refutable_struct(
     fields: &[(Ident, Pattern)],
     value: Option<&Expr>,
     else_block: &Block,
+    source_span: Option<SourceSpan>,
     ctx: &CodegenContext,
 ) -> JsStmt {
     let expr = match value {
         Some(e) => e,
         None => {
-            return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+            return JsStmt::Expr {
+                expr: JsExpr::Ident("undefined".to_string()),
+                source_span,
+            };
         }
     };
     let value_js = lower_expr(expr, ctx);
@@ -1882,16 +2010,19 @@ fn lower_let_refutable_struct(
         JsStmt::Let {
             name: temp_name,
             init: Some(value_js),
+            source_span,
         },
         JsStmt::If {
             cond: condition,
             then_block: else_stmts,
             else_block: None,
+            source_span: None, // Generated code
         },
     ];
     stmts.extend(bindings.into_iter().map(|(name, accessor)| JsStmt::Let {
         name,
         init: Some(accessor),
+        source_span: None, // Generated bindings
     }));
 
     // Use Sequence to emit statements at same level (no block scope)
@@ -1977,6 +2108,7 @@ fn lower_if_let_stmt(
     scrutinee: &Expr,
     then_branch: &Block,
     else_branch: &Option<Box<Stmt>>,
+    source_span: Option<SourceSpan>,
     ctx: &CodegenContext,
 ) -> JsStmt {
     let scrutinee_js = lower_expr(scrutinee, ctx);
@@ -1993,6 +2125,7 @@ fn lower_if_let_stmt(
         .map(|(name, accessor)| JsStmt::Let {
             name,
             init: Some(accessor),
+            source_span: None, // Generated bindings
         })
         .collect();
     then_stmts.extend(then_branch.stmts.iter().map(|s| lower_stmt(s, ctx)));
@@ -2003,17 +2136,22 @@ fn lower_if_let_stmt(
         _ => vec![lower_stmt(else_stmt, ctx)],
     });
 
-    JsStmt::Block(vec![
-        JsStmt::Let {
-            name: temp_name,
-            init: Some(scrutinee_js),
-        },
-        JsStmt::If {
-            cond: condition,
-            then_block: then_stmts,
-            else_block,
-        },
-    ])
+    JsStmt::Block {
+        stmts: vec![
+            JsStmt::Let {
+                name: temp_name,
+                init: Some(scrutinee_js),
+                source_span: None, // Generated code
+            },
+            JsStmt::If {
+                cond: condition,
+                then_block: then_stmts,
+                else_block,
+                source_span, // Use original source span for the if statement
+            },
+        ],
+        source_span, // Use original source span for the block
+    }
 }
 
 /// Pattern test for if-let - generates the condition to check if pattern matches
@@ -2959,7 +3097,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Wrap the last statement in a return if it's an expression.
             if let Some(last) = body.pop() {
                 match last {
-                    JsStmt::Expr(expr) => body.push(JsStmt::Return(expr)),
+                    JsStmt::Expr { expr, source_span } => body.push(JsStmt::Return {
+                        expr,
+                        source_span,
+                    }),
                     other => body.push(other),
                 }
             }
@@ -3018,7 +3159,10 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                 }
                 _ => {
                     // For expression bodies, wrap in a return statement
-                    vec![JsStmt::Return(lower_expr(body, ctx))]
+                    vec![JsStmt::Return {
+                        expr: lower_expr(body, ctx),
+                        source_span: None,
+                    }]
                 }
             };
 
@@ -3594,9 +3738,13 @@ fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                 body.push(JsStmt::Let {
                     name,
                     init: Some(accessor),
+                    source_span: None,
                 });
             }
-            body.push(JsStmt::Return(lower_expr(&arm.expr, ctx)));
+            body.push(JsStmt::Return {
+                expr: lower_expr(&arm.expr, ctx),
+                source_span: None,
+            });
             JsExpr::Iife { body }
         }
     }
@@ -3629,7 +3777,12 @@ fn lower_match_expr(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
 
 /// Lower a match expression to if/else statements (for use in statement position).
 /// This allows break/continue in match arms to work correctly.
-fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &CodegenContext) -> JsStmt {
+fn lower_match_stmt(
+    scrutinee: &Expr,
+    arms: &[husk_ast::MatchArm],
+    source_span: Option<SourceSpan>,
+    ctx: &CodegenContext,
+) -> JsStmt {
     use husk_ast::PatternKind;
 
     let scrutinee_js = lower_expr(scrutinee, ctx);
@@ -3698,6 +3851,7 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
             stmts.push(JsStmt::Let {
                 name,
                 init: Some(accessor),
+                source_span: None, // Generated bindings
             });
         }
 
@@ -3709,7 +3863,10 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                 }
             }
             _ => {
-                stmts.push(JsStmt::Expr(lower_expr(&arm.expr, ctx)));
+                stmts.push(JsStmt::Expr {
+                    expr: lower_expr(&arm.expr, ctx),
+                    source_span: None, // Expression in match arm
+                });
             }
         }
 
@@ -3717,7 +3874,10 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
     }
 
     if arms.is_empty() {
-        return JsStmt::Expr(JsExpr::Ident("undefined".to_string()));
+        return JsStmt::Expr {
+            expr: JsExpr::Ident("undefined".to_string()),
+            source_span,
+        };
     }
 
     // Build nested if/else chain from arms
@@ -3732,6 +3892,7 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                 cond: test,
                 then_block: body,
                 else_block,
+                source_span, // Use original match statement span
             });
         } else {
             // Catch-all arm - just use its body as the innermost else
@@ -3744,12 +3905,16 @@ fn lower_match_stmt(scrutinee: &Expr, arms: &[husk_ast::MatchArm], ctx: &Codegen
                     cond: JsExpr::Bool(true),
                     then_block: body,
                     else_block: None,
+                    source_span: None, // Generated fallback
                 });
             }
         }
     }
 
-    result.unwrap_or_else(|| JsStmt::Expr(JsExpr::Ident("undefined".to_string())))
+    result.unwrap_or_else(|| JsStmt::Expr {
+        expr: JsExpr::Ident("undefined".to_string()),
+        source_span,
+    })
 }
 
 impl JsModule {
@@ -3814,11 +3979,7 @@ impl JsModule {
         let source_id = builder.add_source(source_file);
         builder.set_source_contents(source_id, Some(source_content));
 
-        // Count preamble lines
-        let preamble = std_preamble_js();
-        let preamble_lines = preamble.lines().count() as u32;
-
-        // First, output all import/require statements at the top
+        // First, output all import/require statements at the top (no mappings needed)
         let mut has_imports = false;
         for stmt in &self.body {
             if is_import_stmt(stmt) {
@@ -3827,48 +3988,38 @@ impl JsModule {
                 has_imports = true;
             }
         }
-        let import_lines = if has_imports {
-            out.lines().count() as u32 + 1 // +1 for blank line
-        } else {
-            0
-        };
         if has_imports {
             out.push('\n');
         }
 
-        // Then output the preamble
+        // Then output the preamble (no mappings needed for stdlib)
+        let preamble = std_preamble_js();
         out.push_str(preamble);
         if !out.ends_with('\n') {
             out.push('\n');
         }
         out.push('\n');
 
-        // Track line number as we output code
-        let mut current_line = import_lines + preamble_lines + 1; // +1 for blank line after preamble
+        // Count current line/column position after imports and preamble
+        let mut current_line = 0u32;
+        let mut current_column = 0u32;
+        for ch in out.chars() {
+            if ch == '\n' {
+                current_line += 1;
+                current_column = 0;
+            } else {
+                current_column += 1;
+            }
+        }
 
-        // Finally output the rest of the code (excluding imports/requires)
+        // Create output context for tracking positions while writing code with mappings
+        let mut ctx = OutputContext::new(&mut out, &mut builder, source_file, current_line, current_column);
+
+        // Output the rest of the code (excluding imports/requires) with source mappings
         for stmt in &self.body {
             if !is_import_stmt(stmt) {
-                // Add source mapping for functions
-                if let JsStmt::Function {
-                    name,
-                    source_span: Some(span),
-                    ..
-                } = stmt
-                {
-                    builder.add(
-                        current_line,
-                        0,
-                        span.line,
-                        span.column,
-                        Some(source_file),
-                        Some(name.as_str()),
-                        false,
-                    );
-                }
-                write_stmt(stmt, 0, &mut out);
-                out.push('\n');
-                current_line += count_newlines_in_stmt(stmt) + 1;
+                write_stmt_with_mapping(stmt, 0, &mut ctx);
+                ctx.write("\n");
             }
         }
 
@@ -3880,77 +4031,6 @@ impl JsModule {
         let sm_json = String::from_utf8(sm_out).expect("source map is utf8");
 
         (out, sm_json)
-    }
-}
-
-/// Count newlines in a statement (for line tracking in source maps)
-fn count_newlines_in_stmt(stmt: &JsStmt) -> u32 {
-    match stmt {
-        JsStmt::Function { body, .. } => {
-            // function header + body lines + closing brace
-            1 + body
-                .iter()
-                .map(|s| count_newlines_in_stmt(s) + 1)
-                .sum::<u32>()
-        }
-        JsStmt::TryCatch {
-            try_block,
-            catch_block,
-            ..
-        } => {
-            // try { + try body + } catch { + catch body + }
-            2 + try_block
-                .iter()
-                .map(|s| count_newlines_in_stmt(s) + 1)
-                .sum::<u32>()
-                + catch_block
-                    .iter()
-                    .map(|s| count_newlines_in_stmt(s) + 1)
-                    .sum::<u32>()
-        }
-        JsStmt::If {
-            then_block,
-            else_block,
-            ..
-        } => {
-            // if { + then body + } else { + else body + }
-            let then_lines = then_block
-                .iter()
-                .map(|s| count_newlines_in_stmt(s) + 1)
-                .sum::<u32>();
-            let else_lines = else_block.as_ref().map_or(0, |eb| {
-                1 + eb
-                    .iter()
-                    .map(|s| count_newlines_in_stmt(s) + 1)
-                    .sum::<u32>()
-            });
-            1 + then_lines + else_lines
-        }
-        JsStmt::Block(stmts) => {
-            // { + body lines + }
-            1 + stmts
-                .iter()
-                .map(|s| count_newlines_in_stmt(s) + 1)
-                .sum::<u32>()
-        }
-        JsStmt::Sequence(stmts) => {
-            // Statements at same level, each followed by newline except last
-            stmts
-                .iter()
-                .map(|s| count_newlines_in_stmt(s) + 1)
-                .sum::<u32>()
-                .saturating_sub(1)
-        }
-        JsStmt::ForRange { body, range_expr, .. } => {
-            // ForRange may emit an extra const line if range_expr is not a simple identifier
-            // for (let binding = range.start; ...) { + body + }
-            let extra_line = if !is_simple_identifier(range_expr) { 1 } else { 0 };
-            1 + extra_line + body
-                .iter()
-                .map(|s| count_newlines_in_stmt(s) + 1)
-                .sum::<u32>()
-        }
-        _ => 0, // single-line statements
     }
 }
 
@@ -3969,6 +4049,471 @@ fn is_import_stmt(stmt: &JsStmt) -> bool {
             | JsStmt::Require { .. }
             | JsStmt::NamedRequire { .. }
     )
+}
+
+/// Context for tracking output position during source map generation.
+/// This tracks line/column as we write output to enable accurate source mappings.
+struct OutputContext<'a> {
+    output: &'a mut String,
+    current_line: u32,
+    current_column: u32,
+    builder: &'a mut SourceMapBuilder,
+    source_file: &'a str,
+}
+
+impl<'a> OutputContext<'a> {
+    fn new(
+        output: &'a mut String,
+        builder: &'a mut SourceMapBuilder,
+        source_file: &'a str,
+        start_line: u32,
+        start_column: u32,
+    ) -> Self {
+        Self {
+            output,
+            current_line: start_line,
+            current_column: start_column,
+            builder,
+            source_file,
+        }
+    }
+
+    /// Write a string to output, tracking line/column position.
+    fn write(&mut self, s: &str) {
+        for ch in s.chars() {
+            if ch == '\n' {
+                self.current_line += 1;
+                self.current_column = 0;
+            } else {
+                self.current_column += 1;
+            }
+            self.output.push(ch);
+        }
+    }
+
+    /// Add a source mapping at the current output position.
+    fn add_mapping(&mut self, span: &SourceSpan, name: Option<&str>) {
+        self.builder.add(
+            self.current_line,
+            self.current_column,
+            span.line,
+            span.column,
+            Some(self.source_file),
+            name,
+            false,
+        );
+    }
+
+    /// Write indentation at the current position.
+    fn write_indent(&mut self, level: usize) {
+        for _ in 0..level {
+            self.write("    ");
+        }
+    }
+}
+
+/// Extract the source span from any JsStmt variant.
+fn get_stmt_source_span(stmt: &JsStmt) -> Option<&SourceSpan> {
+    match stmt {
+        JsStmt::Function { source_span, .. }
+        | JsStmt::Return { source_span, .. }
+        | JsStmt::Let { source_span, .. }
+        | JsStmt::LetDestructure { source_span, .. }
+        | JsStmt::Expr { source_span, .. }
+        | JsStmt::TryCatch { source_span, .. }
+        | JsStmt::If { source_span, .. }
+        | JsStmt::ForOf { source_span, .. }
+        | JsStmt::For { source_span, .. }
+        | JsStmt::ForRange { source_span, .. }
+        | JsStmt::Assign { source_span, .. }
+        | JsStmt::While { source_span, .. }
+        | JsStmt::Break { source_span }
+        | JsStmt::Continue { source_span }
+        | JsStmt::Block { source_span, .. }
+        | JsStmt::Throw { source_span, .. } => source_span.as_ref(),
+        // Import/export statements and Sequence don't have source spans
+        JsStmt::Import { .. }
+        | JsStmt::NamedImport { .. }
+        | JsStmt::Require { .. }
+        | JsStmt::NamedRequire { .. }
+        | JsStmt::ExportNamed { .. }
+        | JsStmt::Sequence(_) => None,
+    }
+}
+
+/// Write a statement with source map tracking.
+/// This writes the statement while tracking line/column and adding source mappings.
+fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputContext) {
+    // Add source mapping before writing the statement
+    if let Some(span) = get_stmt_source_span(stmt) {
+        // For function declarations, include the function name
+        let name = match stmt {
+            JsStmt::Function { name, .. } => Some(name.as_str()),
+            _ => None,
+        };
+        ctx.add_mapping(span, name);
+    }
+
+    match stmt {
+        JsStmt::Import { name, source } => {
+            ctx.write_indent(indent_level);
+            ctx.write("import ");
+            ctx.write(name);
+            ctx.write(" from \"");
+            ctx.write(&source.replace('"', "\\\""));
+            ctx.write("\";");
+        }
+        JsStmt::NamedImport { names, source } => {
+            let safe_name = source.replace('-', "_").replace('@', "").replace('/', "_");
+            let star_name = format!("__{}", safe_name);
+            let pkg_name = format!("_{}", safe_name);
+
+            ctx.write_indent(indent_level);
+            ctx.write("import * as ");
+            ctx.write(&star_name);
+            ctx.write(" from \"");
+            ctx.write(&source.replace('"', "\\\""));
+            ctx.write("\";\n");
+
+            ctx.write_indent(indent_level);
+            ctx.write("const ");
+            ctx.write(&pkg_name);
+            ctx.write(" = ");
+            ctx.write(&star_name);
+            ctx.write(".default || ");
+            ctx.write(&star_name);
+            ctx.write(";\n");
+
+            ctx.write_indent(indent_level);
+            ctx.write("const { ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    ctx.write(", ");
+                }
+                ctx.write(name);
+            }
+            ctx.write(" } = ");
+            ctx.write(&pkg_name);
+            ctx.write(";");
+        }
+        JsStmt::Require { name, source } => {
+            ctx.write_indent(indent_level);
+            ctx.write("const ");
+            ctx.write(name);
+            ctx.write(" = require(\"");
+            ctx.write(&source.replace('"', "\\\""));
+            ctx.write("\");");
+        }
+        JsStmt::NamedRequire { names, source } => {
+            ctx.write_indent(indent_level);
+            ctx.write("const { ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    ctx.write(", ");
+                }
+                ctx.write(name);
+            }
+            ctx.write(" } = require(\"");
+            ctx.write(&source.replace('"', "\\\""));
+            ctx.write("\");");
+        }
+        JsStmt::ExportNamed { names } => {
+            ctx.write_indent(indent_level);
+            ctx.write("export { ");
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    ctx.write(", ");
+                }
+                ctx.write(name);
+            }
+            ctx.write(" };");
+        }
+        JsStmt::Function {
+            name, params, body, ..
+        } => {
+            ctx.write_indent(indent_level);
+            ctx.write("function ");
+            ctx.write(name);
+            ctx.write("(");
+            for (i, p) in params.iter().enumerate() {
+                if i > 0 {
+                    ctx.write(", ");
+                }
+                ctx.write(p);
+            }
+            ctx.write(") {\n");
+            for s in body {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::Return { expr, .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("return ");
+            write_expr_to_ctx(expr, ctx);
+            ctx.write(";");
+        }
+        JsStmt::Let { name, init, .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("let ");
+            ctx.write(name);
+            if let Some(expr) = init {
+                ctx.write(" = ");
+                write_expr_to_ctx(expr, ctx);
+            }
+            ctx.write(";");
+        }
+        JsStmt::LetDestructure { pattern, init, .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("let ");
+            write_destructure_pattern_list_to_ctx(pattern, ctx);
+            if let Some(expr) = init {
+                ctx.write(" = ");
+                write_expr_to_ctx(expr, ctx);
+            }
+            ctx.write(";");
+        }
+        JsStmt::Expr { expr, .. } => {
+            ctx.write_indent(indent_level);
+            write_expr_to_ctx(expr, ctx);
+            ctx.write(";");
+        }
+        JsStmt::TryCatch {
+            try_block,
+            catch_ident,
+            catch_block,
+            ..
+        } => {
+            ctx.write_indent(indent_level);
+            ctx.write("try {\n");
+            for s in try_block {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("} catch (");
+            ctx.write(catch_ident);
+            ctx.write(") {\n");
+            for s in catch_block {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            ctx.write_indent(indent_level);
+            ctx.write("if (");
+            write_expr_to_ctx(cond, ctx);
+            ctx.write(") {\n");
+            for s in then_block {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+            if let Some(else_stmts) = else_block {
+                // Check if the else block contains a single If statement (else if)
+                if else_stmts.len() == 1 {
+                    if let JsStmt::If { .. } = &else_stmts[0] {
+                        ctx.write(" else ");
+                        // Write without indent since it's an else-if chain
+                        write_stmt_with_mapping(&else_stmts[0], 0, ctx);
+                        return;
+                    }
+                }
+                ctx.write(" else {\n");
+                for s in else_stmts {
+                    write_stmt_with_mapping(s, indent_level + 1, ctx);
+                    ctx.write("\n");
+                }
+                ctx.write_indent(indent_level);
+                ctx.write("}");
+            }
+        }
+        JsStmt::ForOf {
+            binding,
+            iterable,
+            body,
+            ..
+        } => {
+            ctx.write_indent(indent_level);
+            ctx.write("for (const ");
+            ctx.write(binding);
+            ctx.write(" of ");
+            write_expr_to_ctx(iterable, ctx);
+            ctx.write(") {\n");
+            for s in body {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::For {
+            binding,
+            start,
+            end,
+            inclusive,
+            body,
+            ..
+        } => {
+            ctx.write_indent(indent_level);
+            ctx.write("for (let ");
+            ctx.write(binding);
+            ctx.write(" = ");
+            write_expr_to_ctx(start, ctx);
+            ctx.write("; ");
+            ctx.write(binding);
+            if *inclusive {
+                ctx.write(" <= ");
+            } else {
+                ctx.write(" < ");
+            }
+            write_expr_to_ctx(end, ctx);
+            ctx.write("; ");
+            ctx.write(binding);
+            ctx.write("++) {\n");
+            for s in body {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::ForRange {
+            binding,
+            range_expr,
+            body,
+            ..
+        } => {
+            if !is_simple_identifier(range_expr) {
+                let temp_name = format!("__range_{}", binding);
+                ctx.write_indent(indent_level);
+                ctx.write("const ");
+                ctx.write(&temp_name);
+                ctx.write(" = ");
+                write_expr_to_ctx(range_expr, ctx);
+                ctx.write(";\n");
+                ctx.write_indent(indent_level);
+                ctx.write("for (let ");
+                ctx.write(binding);
+                ctx.write(" = ");
+                ctx.write(&temp_name);
+                ctx.write(".start; ");
+                ctx.write(binding);
+                ctx.write(" < (");
+                ctx.write(&temp_name);
+                ctx.write(".inclusive ? ");
+                ctx.write(&temp_name);
+                ctx.write(".end + 1 : ");
+                ctx.write(&temp_name);
+                ctx.write(".end); ");
+                ctx.write(binding);
+                ctx.write("++) {\n");
+            } else {
+                ctx.write_indent(indent_level);
+                ctx.write("for (let ");
+                ctx.write(binding);
+                ctx.write(" = ");
+                write_expr_to_ctx(range_expr, ctx);
+                ctx.write(".start; ");
+                ctx.write(binding);
+                ctx.write(" < (");
+                write_expr_to_ctx(range_expr, ctx);
+                ctx.write(".inclusive ? ");
+                write_expr_to_ctx(range_expr, ctx);
+                ctx.write(".end + 1 : ");
+                write_expr_to_ctx(range_expr, ctx);
+                ctx.write(".end); ");
+                ctx.write(binding);
+                ctx.write("++) {\n");
+            }
+            for s in body {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::Assign { target, op, value, .. } => {
+            ctx.write_indent(indent_level);
+            write_expr_to_ctx(target, ctx);
+            ctx.write(match op {
+                JsAssignOp::Assign => " = ",
+                JsAssignOp::AddAssign => " += ",
+                JsAssignOp::SubAssign => " -= ",
+                JsAssignOp::ModAssign => " %= ",
+            });
+            write_expr_to_ctx(value, ctx);
+            ctx.write(";");
+        }
+        JsStmt::While { cond, body, .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("while (");
+            write_expr_to_ctx(cond, ctx);
+            ctx.write(") {\n");
+            for s in body {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::Break { .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("break;");
+        }
+        JsStmt::Continue { .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("continue;");
+        }
+        JsStmt::Block { stmts, .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("{\n");
+            for s in stmts {
+                write_stmt_with_mapping(s, indent_level + 1, ctx);
+                ctx.write("\n");
+            }
+            ctx.write_indent(indent_level);
+            ctx.write("}");
+        }
+        JsStmt::Sequence(stmts) => {
+            for (i, s) in stmts.iter().enumerate() {
+                if i > 0 {
+                    ctx.write("\n");
+                }
+                write_stmt_with_mapping(s, indent_level, ctx);
+            }
+        }
+        JsStmt::Throw { expr, .. } => {
+            ctx.write_indent(indent_level);
+            ctx.write("throw ");
+            write_expr_to_ctx(expr, ctx);
+            ctx.write(";");
+        }
+    }
+}
+
+/// Write expression to an OutputContext (for source map tracking).
+fn write_expr_to_ctx(expr: &JsExpr, ctx: &mut OutputContext) {
+    let mut out = String::new();
+    write_expr(expr, &mut out);
+    ctx.write(&out);
+}
+
+/// Write destructure pattern list to an OutputContext.
+fn write_destructure_pattern_list_to_ctx(patterns: &[DestructurePattern], ctx: &mut OutputContext) {
+    let mut out = String::new();
+    write_destructure_pattern_list(patterns, &mut out);
+    ctx.write(&out);
 }
 
 fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
@@ -4071,13 +4616,13 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
-        JsStmt::Return(expr) => {
+        JsStmt::Return { expr, .. } => {
             indent(indent_level, out);
             out.push_str("return ");
-            write_expr(expr, out);
+            write_expr(&expr, out);
             out.push(';');
         }
-        JsStmt::Let { name, init } => {
+        JsStmt::Let { name, init, .. } => {
             indent(indent_level, out);
             out.push_str("let ");
             out.push_str(name);
@@ -4087,7 +4632,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             }
             out.push(';');
         }
-        JsStmt::LetDestructure { pattern, init } => {
+        JsStmt::LetDestructure { pattern, init, .. } => {
             indent(indent_level, out);
             out.push_str("let ");
             write_destructure_pattern_list(pattern, out);
@@ -4097,15 +4642,16 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             }
             out.push(';');
         }
-        JsStmt::Expr(expr) => {
+        JsStmt::Expr { expr, .. } => {
             indent(indent_level, out);
-            write_expr(expr, out);
+            write_expr(&expr, out);
             out.push(';');
         }
         JsStmt::TryCatch {
             try_block,
             catch_ident,
             catch_block,
+            ..
         } => {
             indent(indent_level, out);
             out.push_str("try {\n");
@@ -4128,6 +4674,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             cond,
             then_block,
             else_block,
+            ..
         } => {
             indent(indent_level, out);
             out.push_str("if (");
@@ -4163,6 +4710,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             binding,
             iterable,
             body,
+            ..
         } => {
             indent(indent_level, out);
             out.push_str("for (const ");
@@ -4183,6 +4731,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             end,
             inclusive,
             body,
+            ..
         } => {
             indent(indent_level, out);
             out.push_str("for (let ");
@@ -4211,6 +4760,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             binding,
             range_expr,
             body,
+            ..
         } => {
             // If range_expr is not a simple identifier, bind it to a temporary first
             // to avoid multiple evaluations (which could have side effects or be expensive).
@@ -4265,7 +4815,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
-        JsStmt::Assign { target, op, value } => {
+        JsStmt::Assign { target, op, value, .. } => {
             indent(indent_level, out);
             write_expr(target, out);
             out.push_str(match op {
@@ -4277,7 +4827,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             write_expr(value, out);
             out.push(';');
         }
-        JsStmt::While { cond, body } => {
+        JsStmt::While { cond, body, .. } => {
             indent(indent_level, out);
             out.push_str("while (");
             write_expr(cond, out);
@@ -4289,15 +4839,15 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
-        JsStmt::Break => {
+        JsStmt::Break { .. } => {
             indent(indent_level, out);
             out.push_str("break;");
         }
-        JsStmt::Continue => {
+        JsStmt::Continue { .. } => {
             indent(indent_level, out);
             out.push_str("continue;");
         }
-        JsStmt::Block(stmts) => {
+        JsStmt::Block { stmts, .. } => {
             indent(indent_level, out);
             out.push_str("{\n");
             for s in stmts {
@@ -4317,10 +4867,10 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
                 write_stmt(s, indent_level, out);
             }
         }
-        JsStmt::Throw(expr) => {
+        JsStmt::Throw { expr, .. } => {
             indent(indent_level, out);
             out.push_str("throw ");
-            write_expr(expr, out);
+            write_expr(&expr, out);
             out.push(';');
         }
     }
@@ -4504,7 +5054,7 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
 
             // If body is a single return statement, emit concise form
             if body.len() == 1 {
-                if let JsStmt::Return(expr) = &body[0] {
+                if let JsStmt::Return { expr, .. } = &body[0] {
                     write_expr(expr, out);
                     return;
                 }
@@ -4804,8 +5354,12 @@ mod tests {
                             left: Box::new(JsExpr::Ident("a".into())),
                             right: Box::new(JsExpr::Ident("b".into())),
                         }),
+                        source_span: None,
                     },
-                    JsStmt::Return(JsExpr::Ident("x".into())),
+                    JsStmt::Return {
+                        expr: JsExpr::Ident("x".into()),
+                        source_span: None,
+                    },
                 ],
                 source_span: None,
             }],
@@ -5831,9 +6385,9 @@ mod tests {
         let js_break = lower_stmt(&break_stmt, &ctx);
         let js_continue = lower_stmt(&continue_stmt, &ctx);
 
-        assert!(matches!(js_break, JsStmt::Break), "expected JsStmt::Break");
+        assert!(matches!(js_break, JsStmt::Break { .. }), "expected JsStmt::Break");
         assert!(
-            matches!(js_continue, JsStmt::Continue),
+            matches!(js_continue, JsStmt::Continue { .. }),
             "expected JsStmt::Continue"
         );
     }
@@ -6091,13 +6645,14 @@ mod tests {
             &empty_variant_patterns,
         );
 
-        let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], &ctx);
+        let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], None, &ctx);
 
         // Should generate: if (x.tag == "Some") { let v = x.value; break; } else if (x.tag == "None") { }
         if let JsStmt::If {
             cond,
             then_block,
             else_block,
+            ..
         } = js_stmt
         {
             // Check the condition is x.tag == "Some"
@@ -6116,7 +6671,7 @@ mod tests {
             // Check the then block has let v = x.value; break;
             assert_eq!(then_block.len(), 2, "expected 2 statements (let + break)");
             assert!(matches!(&then_block[0], JsStmt::Let { name, .. } if name == "v"));
-            assert!(matches!(&then_block[1], JsStmt::Break));
+            assert!(matches!(&then_block[1], JsStmt::Break { .. }));
 
             // Check there is an else block
             assert!(else_block.is_some());
@@ -6173,11 +6728,11 @@ mod tests {
             &empty_variant_patterns,
         );
 
-        let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], &ctx);
+        let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], None, &ctx);
 
         // Wildcard match should just be the body statements
         assert!(
-            matches!(&js_stmt, JsStmt::Continue),
+            matches!(&js_stmt, JsStmt::Continue { .. }),
             "expected Continue, got {:?}",
             js_stmt
         );
@@ -6246,18 +6801,19 @@ mod tests {
             &empty_variant_patterns,
         );
 
-        let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], &ctx);
+        let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], None, &ctx);
 
         // Should generate if/else chain
         if let JsStmt::If {
             cond: _,
             then_block,
             else_block,
+            ..
         } = js_stmt
         {
             // First arm body should be an expression 1
             assert_eq!(then_block.len(), 1);
-            if let JsStmt::Expr(JsExpr::Number(n)) = &then_block[0] {
+            if let JsStmt::Expr { expr: JsExpr::Number(n), .. } = &then_block[0] {
                 assert_eq!(*n, 1);
             } else {
                 panic!("expected Expr(Number(1)), got {:?}", then_block[0]);
@@ -6269,7 +6825,7 @@ mod tests {
             assert_eq!(else_stmts.len(), 1);
             if let JsStmt::If { then_block, .. } = &else_stmts[0] {
                 assert_eq!(then_block.len(), 1);
-                if let JsStmt::Expr(JsExpr::Number(n)) = &then_block[0] {
+                if let JsStmt::Expr { expr: JsExpr::Number(n), .. } = &then_block[0] {
                     assert_eq!(*n, 2);
                 } else {
                     panic!("expected Expr(Number(2)), got {:?}", then_block[0]);
@@ -6406,6 +6962,7 @@ mod tests {
         let stmt = JsStmt::LetDestructure {
             pattern,
             init: Some(JsExpr::Ident("expr".to_string())),
+            source_span: None,
         };
 
         let mut out = String::new();
@@ -6430,6 +6987,7 @@ mod tests {
         let stmt = JsStmt::LetDestructure {
             pattern,
             init: Some(JsExpr::Ident("expr".to_string())),
+            source_span: None,
         };
 
         let mut out = String::new();
@@ -6448,6 +7006,7 @@ mod tests {
         let stmt = JsStmt::LetDestructure {
             pattern,
             init: Some(JsExpr::Ident("expr".to_string())),
+            source_span: None,
         };
 
         let mut out = String::new();
