@@ -4,6 +4,18 @@
 
 Add support for defining test functions inside a module annotated with `#[cfg(test)]`, following Rust's idiomatic test pattern:
 
+### Key Design Decisions
+
+1. **Module Flattening**: Inline modules are flattened to JavaScript top-level (not nested JS objects)
+2. **Automatic Name Prefixing**: All items in modules get prefixed with sanitized module path (e.g., `test__helper`)
+3. **Collision Detection**: Build-time validation ensures no name collisions after prefixing
+4. **Recursive Cfg Filtering**: Cfg predicates evaluated at each nesting level independently
+5. **MVP Scoping**: Cross-module calls (`other_mod::func()`) deferred; only same-module and top-level calls supported initially
+
+These decisions prioritize correctness and simplicity for the MVP, with a clear path to full module system in future iterations.
+
+### Example
+
 ```rust
 #[cfg(test)]
 mod test {
@@ -74,6 +86,48 @@ pub enum ItemKind {
 }
 ```
 
+**Critical: Audit all subsystems for non-exhaustive ItemKind matches**
+
+Adding a new variant to `ItemKind` requires updating every location that matches on it. The following subsystems MUST be audited and updated:
+
+1. **husk-semantic/src/lib.rs**:
+   - `Resolver::collect()` - Add `Mod` case to register module as a symbol if needed
+   - `TypeChecker::build_type_env()` - Add `Mod` case to recursively process nested items
+   - `TypeChecker::check_file()` - Add `Mod` case to recursively check nested items  
+   - Symbol registration - Register module scope and track which items it exports
+   - Cfg filtering - Already covered in Phase 2.1, but ensure recursion is complete
+   
+2. **husk-lang/src/load.rs**:
+   - Any import resolution logic - Ensure inline modules are recognized
+   - Module filtering/assembly - Apply cfg predicates to inline modules
+   - Dependency tracking - If modules can have external deps in future
+   
+3. **husk-fmt/src/visitor.rs**:
+   - The Rust compiler will catch missing patterns in exhaustive matches
+   - Add `ItemKind::Mod` case with proper indentation and brace formatting
+   - Preserve trivia (comments) around module declarations
+   
+4. **husk-lsp/src/**:
+   - Document symbols - Include module items in symbol tree (fold/outline view)
+   - Symbol navigation - "Go to definition" should work across module boundaries
+   - Hover info - Show module name and contained symbols
+   - Range/location mapping - Ensure spans include full module body
+   
+5. **husk-codegen-js/src/lib.rs**:
+   - `lower_file_to_module()` or equivalent - Add `Mod` case for flattening (Phase 3)
+   - Ensure correct behavior for both ESM and CJS targets
+   - Handle any special cases for main/lib mode
+   
+6. **husk-parser/src/lib.rs**:
+   - Already covered in Phase 1.2
+   - Ensure synchronization/error recovery handles modules
+   
+**Verification checklist**:
+- [ ] Run `cargo check` and fix any non-exhaustive match errors
+- [ ] Search codebase for `ItemKind::` to find all match sites
+- [ ] Add unit tests for each subsystem's module handling
+- [ ] Add integration test that exercises all code paths
+
 **Add helper methods to `Item`:**
 
 ```rust
@@ -104,6 +158,34 @@ impl Item {
 **Update `SetFilePath` trait implementation:**
 
 Add case for `Mod` in the `SetFilePath` implementation for `Item` to recursively set file paths on nested module items.
+
+In `husk-ast/src/lib.rs`, locate the `impl SetFilePath for Item` block (around line 1100-1200) and add the `Mod` case:
+
+```rust
+impl SetFilePath for Item {
+    fn set_file_path(&mut self, file: Arc<str>) {
+        self.span.set_file_path(file.clone());
+        for attr in &mut self.attributes {
+            attr.span.set_file_path(file.clone());
+            attr.name.set_file_path(file.clone());
+        }
+        match &mut self.kind {
+            // ... existing cases for Fn, Struct, Enum, etc ...
+            
+            ItemKind::Mod { name, items } => {
+                name.set_file_path(file.clone());
+                for item in items {
+                    item.set_file_path(file.clone());
+                }
+            }
+            
+            // ... rest of existing cases ...
+        }
+    }
+}
+```
+
+This ensures that when loading multi-file projects, all nested module items correctly track their source file for error reporting.
 
 #### 1.2. Extend Parser (`husk-parser/src/lib.rs`)
 
@@ -335,7 +417,43 @@ mod outer {
 }
 ```
 
-#### 2.2. Update Test Discovery (`husk-lang/src/main.rs`)
+#### 2.2. Update Name Resolution for Module-Scoped Calls
+
+When flattening modules during codegen, function calls need to be rewritten to use prefixed names. This requires updating the name resolution in semantic analysis:
+
+**In `husk-semantic/src/lib.rs`:**
+
+```rust
+/// Context for tracking module scope during name resolution
+struct NameResolutionContext {
+    /// Current module path (e.g., ["outer", "inner"])
+    module_path: Vec<String>,
+    /// Map of (original_name, module_path) -> prefixed_name
+    name_mapping: HashMap<(String, Vec<String>), String>,
+}
+
+impl NameResolutionContext {
+    /// Generate prefixed name for a function in current module
+    fn prefixed_name(&self, name: &str) -> String {
+        if self.module_path.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}__{}",self.module_path.join("__"), name)
+        }
+    }
+}
+```
+
+During type checking, when processing function calls inside modules:
+1. Track the current module path
+2. When a function is defined, register its prefixed name
+3. When a function is called, resolve it to the prefixed name if in same module
+
+This ensures calls like `helper()` inside `mod test` get rewritten to `test__helper()` in the generated JS.
+
+**Note**: Full implementation of qualified paths like `other_module::function()` can be deferred to future work. For the MVP, functions can only call other functions within the same module or at top level.
+
+#### 2.3. Update Test Discovery (`husk-lang/src/main.rs`)
 
 **Make `discover_tests` recursive:**
 
@@ -432,47 +550,170 @@ mod outer {
 
 #### 3.1. Update JS Codegen (`husk-codegen-js/src/lib.rs`)
 
-**Handle Mod items by flattening them:**
+**Handle Mod items by flattening with automatic name prefixing:**
 
-In the codegen, when encountering a `Mod` item, we have two approaches:
+We flatten module items to JavaScript top-level, using **automatic prefixing** to guarantee no name collisions.
 
-**Option A: Flatten all module items to top level**
+**Name Collision Strategy (CANONICAL APPROACH):**
+
+All functions and items inside modules are prefixed with a sanitized module path when flattened to JavaScript:
+
+- Module path `foo::bar::baz` → sanitized to `foo__bar__baz__`
+- Function `helper` in `test::utils` → JS name `test__utils__helper`
+- Top-level functions (no module) → no prefix, keep original name
+
+**Implementation:**
 
 ```rust
 // In lower_file_to_module or similar function:
-fn lower_items(items: &[Item], module: &mut JsModule, /* ... */) {
+
+/// Track module path during recursive lowering
+struct CodegenContext {
+    module_path: Vec<String>,
+    // ... other context ...
+}
+
+fn lower_items(
+    items: &[Item], 
+    module: &mut JsModule,
+    context: &mut CodegenContext,
+    /* ... */
+) {
     for item in items {
         match &item.kind {
-            ItemKind::Mod { items: nested_items, .. } => {
-                // Recursively lower nested items as if they were at top level
-                lower_items(nested_items, module, /* ... */);
+            ItemKind::Mod { name, items: nested_items } => {
+                // Push module name onto path
+                context.module_path.push(name.name.clone());
+                
+                // Recursively lower nested items with updated path
+                lower_items(nested_items, module, context, /* ... */);
+                
+                // Pop module name after processing
+                context.module_path.pop();
             }
-            ItemKind::Fn { .. } => {
-                // lower function
+            ItemKind::Fn { name, .. } => {
+                // Generate prefixed name if inside a module
+                let js_name = if context.module_path.is_empty() {
+                    name.name.clone()
+                } else {
+                    format!(
+                        "{}__{}",
+                        context.module_path.join("__"),
+                        name.name
+                    )
+                };
+                
+                // Lower function with prefixed name
+                lower_function(item, js_name, module, context, /* ... */);
             }
-            // ... other item kinds ...
+            // ... other item kinds (struct, enum, etc.) get similar treatment ...
         }
     }
 }
+
+/// Sanitize module path component (replace invalid JS identifier chars)
+fn sanitize_identifier(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .collect()
+}
 ```
 
-**Option B: Generate JavaScript module/namespace (more complex, maybe future work)**
+**Uniqueness validation:**
 
-For now, Option A (flattening) is simpler and sufficient for test modules.
+Add a runtime check during codegen to catch any remaining collisions and fail the build:
 
-**Note about name collisions:**
+```rust
+fn validate_no_collisions(module: &JsModule) -> Result<(), CodegenError> {
+    let mut seen_names = HashSet::new();
+    for item in &module.items {
+        let name = item.name();
+        if !seen_names.insert(name.to_string()) {
+            return Err(CodegenError::NameCollision {
+                name: name.to_string(),
+                message: format!(
+                    "Name collision after flattening modules: '{}' appears multiple times. \
+                     This should not happen with automatic prefixing - please report as a bug.",
+                    name
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+```
 
-When flattening, we need to ensure no name collisions. For test functions, this is typically not an issue since:
-1. Test functions are usually uniquely named
-2. Helper functions in test modules are only used within tests
-3. We could optionally prefix names with module path to avoid collisions
+**Example transformations:**
+
+```rust
+// Input Husk:
+#[cfg(test)]
+mod tests {
+    fn helper() -> i32 { 42 }
+    
+    #[test]
+    fn test_something() {
+        assert(helper() == 42);
+    }
+}
+
+// Output JS (CJS):
+function tests__helper() {
+    return 42;
+}
+
+function tests__test_something() {
+    const __husk_assert_1 = (tests__helper() === 42);
+    if (!__husk_assert_1) throw new Error("Husk assertion failed");
+}
+```
+
+```rust
+// Input Husk with nested modules:
+mod outer {
+    mod inner {
+        fn utility() { }
+    }
+    
+    fn use_utility() {
+        inner::utility();
+    }
+}
+
+// Output JS:
+function outer__inner__utility() { }
+
+function outer__use_utility() {
+    outer__inner__utility();
+}
+```
+
+**Scope analysis note (optional future optimization):**
+
+Helper functions used only within a module could be exempted from prefixing if we implement proper scope analysis. For now, we prefix everything for simplicity and correctness. An allowlist approach could be:
+
+```rust
+struct ScopeAnalysis {
+    // Functions only called within their own module
+    internal_only: HashSet<String>,
+}
+
+// Then in codegen:
+if context.module_path.is_empty() || scope.internal_only.contains(&name.name) {
+    // No prefix for top-level or internal-only functions
+} else {
+    // Apply prefix
+}
+```
+
+This optimization can be added later without breaking changes.
 
 **Add tests:**
 
 ```rust
 #[cfg(test)]
 #[test]
-fn codegen_flattens_module_items() {
+fn codegen_flattens_module_items_with_prefixing() {
     let src = r#"
 mod test {
     fn helper() -> i32 { 42 }
@@ -484,10 +725,109 @@ mod test {
     let file = parsed.file.unwrap();
     let js = lower_file_to_js(&file, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
     
-    // Both functions should be at top level in JS
+    // Both functions should be at top level in JS with module prefix
     let src = js.to_source();
-    assert!(src.contains("function helper()"));
-    assert!(src.contains("function use_helper()"));
+    assert!(src.contains("function test__helper()"));
+    assert!(src.contains("function test__use_helper()"));
+    // Calls should also use prefixed names
+    assert!(src.contains("test__helper()"));
+}
+
+#[cfg(test)]
+#[test]
+fn codegen_top_level_functions_not_prefixed() {
+    let src = r#"
+fn top_level() -> i32 { 42 }
+
+mod test {
+    fn in_module() -> i32 { 10 }
+}
+"#;
+    let parsed = parse_str(src);
+    let file = parsed.file.unwrap();
+    let js = lower_file_to_js(&file, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
+    
+    let src = js.to_source();
+    // Top-level function has no prefix
+    assert!(src.contains("function top_level()"));
+    // Module function has prefix
+    assert!(src.contains("function test__in_module()"));
+}
+
+#[cfg(test)]
+#[test]
+fn codegen_nested_modules_use_full_path_prefix() {
+    let src = r#"
+mod outer {
+    mod inner {
+        fn deeply_nested() { }
+    }
+}
+"#;
+    let parsed = parse_str(src);
+    let file = parsed.file.unwrap();
+    let js = lower_file_to_js(&file, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
+    
+    let src = js.to_source();
+    assert!(src.contains("function outer__inner__deeply_nested()"));
+}
+
+#[cfg(test)]
+#[test]
+fn codegen_detects_name_collisions() {
+    // This should not happen with proper prefixing, but test the validation
+    let src = r#"
+fn test__helper() { }  // Manually uses prefixed name
+
+mod test {
+    fn helper() { }  // Will become test__helper
+}
+"#;
+    let parsed = parse_str(src);
+    let file = parsed.file.unwrap();
+    
+    // This should either:
+    // 1. Error during codegen due to collision detection, OR
+    // 2. Succeed but emit warning about suspicious naming
+    let result = std::panic::catch_unwind(|| {
+        lower_file_to_js(&file, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default())
+    });
+    
+    // For now, just document this edge case - we may want to add validation
+    // that prevents users from using names with double underscores
+}
+
+#[cfg(test)]
+#[test]
+fn codegen_test_module_with_cfg() {
+    let src = r#"
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_something() {
+        assert(true);
+    }
+}
+"#;
+    let parsed = parse_str(src);
+    let file = parsed.file.unwrap();
+    
+    // With test flag - module should be included
+    let mut flags = HashSet::new();
+    flags.insert("test".to_string());
+    let filtered = filter_items_by_cfg(&file, &flags);
+    let js = lower_file_to_js(&filtered, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
+    
+    let src = js.to_source();
+    assert!(src.contains("function tests__test_something()"));
+    
+    // Without test flag - module should be excluded
+    let flags = HashSet::new();
+    let filtered = filter_items_by_cfg(&file, &flags);
+    let js = lower_file_to_js(&filtered, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
+    
+    let src = js.to_source();
+    assert!(!src.contains("test_something"));
 }
 ```
 
@@ -613,14 +953,18 @@ huskc build examples/test_modules/main.hk
 
 ## Implementation Order
 
-1. **AST Extension** - Add `Mod` variant to `ItemKind`
-2. **Parser** - Add module parsing support with tests
-3. **Cfg Filtering** - Make recursive with tests
-4. **Test Discovery** - Make recursive with tests  
-5. **Codegen** - Flatten module items with tests
-6. **Formatter** - Add module formatting with tests
-7. **Integration Tests** - End-to-end example
-8. **Documentation** - Update syntax.md and examples
+1. **AST Extension** - Add `Mod` variant to `ItemKind`, update `SetFilePath` implementation
+2. **Audit all ItemKind matches** - Search codebase for all pattern matches, add `Mod` cases
+3. **Parser** - Add module parsing support with comprehensive tests
+4. **Cfg Filtering** - Make recursive with tests for nested modules
+5. **Name Resolution** - Track module context for function name prefixing
+6. **Test Discovery** - Make recursive with tests, output full module path  
+7. **Codegen** - Implement flattening with automatic name prefixing
+8. **Codegen Validation** - Add collision detection and build-time checks
+9. **Formatter** - Add module formatting with tests
+10. **LSP Updates** - Add module symbols to document outline/navigation
+11. **Integration Tests** - End-to-end examples with assertions on prefixed names
+12. **Documentation** - Update syntax.md, add module examples
 
 ## Notes on `use super::*`
 
@@ -636,11 +980,13 @@ This change is **backward compatible**:
 ## Edge Cases to Handle
 
 1. **Empty modules**: `mod test {}` should parse but generate no code
-2. **Nested modules**: `mod outer { mod inner { } }` should work recursively
-3. **Mixed cfg**: Module with `#[cfg(test)]` containing items with `#[cfg(debug)]`
+2. **Nested modules**: `mod outer { mod inner { } }` should work recursively with full path prefixes
+3. **Mixed cfg**: Module with `#[cfg(test)]` containing items with `#[cfg(debug)]` - both predicates evaluated independently
 4. **Non-test modules**: Regular modules (without cfg) should also work for code organization
-5. **Name collisions**: When flattening, ensure unique names or document limitations
+5. **Name collisions**: Prevented by automatic prefixing; manual use of `__` in names may still cause issues (document)
 6. **Module visibility**: For now, module items inherit parent visibility rules
+7. **User-defined prefixed names**: Names like `test__helper` at top level may collide with generated names (add lint warning)
+8. **Cross-module calls**: For MVP, only same-module and top-level calls work; `other_mod::func()` deferred to future
 
 ## Future Enhancements
 
@@ -654,21 +1000,39 @@ This change is **backward compatible**:
 
 - [ ] Can parse `mod name { items }` syntax
 - [ ] Can apply `#[cfg(test)]` to modules
+- [ ] All ItemKind match sites updated (verified with `cargo check`)
+- [ ] SetFilePath recursively updates nested module items
+- [ ] Cfg filtering works recursively for nested modules
 - [ ] Test functions inside modules are discovered by `huskc test`
 - [ ] Test modules are excluded from `huskc build`
 - [ ] Test output shows module path (e.g., `test::test_one`)
-- [ ] Formatter handles module syntax
+- [ ] Generated JS uses prefixed names (e.g., `test__helper`)
+- [ ] Function calls within modules resolve to prefixed names
+- [ ] Collision detection catches duplicate names at build time
+- [ ] Formatter handles module syntax with proper indentation
+- [ ] LSP includes modules in document symbols/outline
 - [ ] All existing tests pass
-- [ ] New integration tests pass
-- [ ] Documentation updated
+- [ ] New unit tests pass for parser, semantic, codegen
+- [ ] Integration tests verify prefixed output
+- [ ] Documentation updated with module examples
 
 ## Estimated Effort
 
-- AST & Parser: 2-3 hours
-- Semantic Analysis: 2-3 hours  
-- Codegen: 1-2 hours
-- Formatter: 1 hour
-- Testing & Integration: 2-3 hours
-- Documentation: 1 hour
+- AST Extension & SetFilePath: 1 hour
+- Audit & Update All ItemKind Matches: 2-3 hours
+- Parser Implementation: 2-3 hours
+- Semantic Analysis (cfg + name resolution): 3-4 hours  
+- Codegen (flattening + prefixing + validation): 3-4 hours
+- Formatter: 1-2 hours
+- LSP Updates: 1-2 hours
+- Unit Tests (parser, semantic, codegen): 3-4 hours
+- Integration Tests: 2-3 hours
+- Documentation: 1-2 hours
 
-**Total: ~10-13 hours** for complete implementation with tests and documentation.
+**Total: ~20-28 hours** for complete implementation with comprehensive tests, validation, and documentation.
+
+Note: This is higher than initial estimate due to:
+- Comprehensive subsystem audit requirements
+- Name prefixing and collision detection implementation
+- Additional test coverage for all edge cases
+- LSP integration work
