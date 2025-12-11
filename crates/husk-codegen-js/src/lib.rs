@@ -13,8 +13,8 @@ use husk_ast::{
 };
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::{
-    NameResolution, TypeResolution, VariantCallMap, VariantPatternMap, get_prelude_file,
-    get_stdlib_index,
+    NameResolution, StdlibIndex, TypeResolution, VariantCallMap, VariantPatternMap,
+    get_prelude_file, get_stdlib_index,
 };
 use sourcemap::SourceMapBuilder;
 use std::collections::HashMap;
@@ -248,14 +248,15 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
 /// - Type resolution for conversion methods (.into(), .parse(), .try_into())
 /// - Variant call map for imported enum variant constructor calls
 /// - Variant pattern map for imported enum variant patterns in match
+/// - Stdlib index for iterator method lookups
 #[derive(Debug, Clone)]
 struct CodegenContext<'a> {
     /// Property accessors for extern types
     accessors: &'a PropertyAccessors,
     /// Path to the current source file being compiled (for include_str, etc.)
     source_path: Option<&'a Path>,
-    /// Source code content (for computing line/column in source maps)
-    source_content: Option<&'a str>,
+    /// Precomputed line index for O(log N) source map lookups
+    line_index: Option<LineIndex>,
     /// Name resolution map from semantic analysis for variable shadowing.
     /// Maps (span_start, span_end) -> resolved_name (e.g., "x", "x$1", "x$2")
     name_resolution: &'a NameResolution,
@@ -266,6 +267,8 @@ struct CodegenContext<'a> {
     variant_calls: &'a VariantCallMap,
     /// Maps pattern spans to (enum_name, variant_name) for imported variant patterns in match.
     variant_patterns: &'a VariantPatternMap,
+    /// Stdlib index for looking up iterator method JS names and return types.
+    stdlib_index: &'a StdlibIndex,
 }
 
 impl<'a> CodegenContext<'a> {
@@ -275,15 +278,17 @@ impl<'a> CodegenContext<'a> {
         type_resolution: &'a TypeResolution,
         variant_calls: &'a VariantCallMap,
         variant_patterns: &'a VariantPatternMap,
+        stdlib_index: &'a StdlibIndex,
     ) -> Self {
         Self {
             accessors,
             source_path: None,
-            source_content: None,
+            line_index: None,
             name_resolution,
             type_resolution,
             variant_calls,
             variant_patterns,
+            stdlib_index,
         }
     }
 
@@ -294,23 +299,25 @@ impl<'a> CodegenContext<'a> {
         type_resolution: &'a TypeResolution,
         variant_calls: &'a VariantCallMap,
         variant_patterns: &'a VariantPatternMap,
+        stdlib_index: &'a StdlibIndex,
     ) -> Self {
         Self {
             accessors,
             source_path: Some(source_path),
-            source_content: None,
+            line_index: None,
             name_resolution,
             type_resolution,
             variant_calls,
             variant_patterns,
+            stdlib_index,
         }
     }
 
     /// Compute a SourceSpan from a Husk AST Span.
-    /// Returns None if source content is not available.
+    /// Returns None if line index is not available. O(log N) via binary search.
     fn span_to_source_span(&self, span: &Span) -> Option<SourceSpan> {
-        self.source_content.map(|src| {
-            let (line, column) = offset_to_line_col(src, span.range.start);
+        self.line_index.as_ref().map(|idx| {
+            let (line, column) = idx.offset_to_line_col(span.range.start);
             SourceSpan { line, column }
         })
     }
@@ -394,6 +401,7 @@ pub struct SourceSpan {
 }
 
 /// Compute line and column (0-indexed) from a byte offset in source text.
+/// Note: This is O(N) - for repeated lookups, use LineIndex instead.
 pub fn offset_to_line_col(source: &str, offset: usize) -> (u32, u32) {
     let mut line = 0u32;
     let mut col = 0u32;
@@ -409,6 +417,39 @@ pub fn offset_to_line_col(source: &str, offset: usize) -> (u32, u32) {
         }
     }
     (line, col)
+}
+
+/// Precomputed line-start offsets for O(log N) offset-to-line-column lookups.
+/// Build once per source file, then use `offset_to_line_col` for each span.
+#[derive(Debug, Clone)]
+pub struct LineIndex {
+    /// Byte offset of the start of each line (line 0 starts at offset 0).
+    line_starts: Vec<usize>,
+}
+
+impl LineIndex {
+    /// Build a LineIndex from source text. O(N) in source length.
+    pub fn new(source: &str) -> Self {
+        let mut line_starts = vec![0];
+        for (i, ch) in source.char_indices() {
+            if ch == '\n' {
+                line_starts.push(i + 1);
+            }
+        }
+        Self { line_starts }
+    }
+
+    /// Convert a byte offset to (line, column), both 0-indexed. O(log N).
+    pub fn offset_to_line_col(&self, offset: usize) -> (u32, u32) {
+        // Binary search for the line containing this offset
+        let line = match self.line_starts.binary_search(&offset) {
+            Ok(exact) => exact,           // Offset is exactly at a line start
+            Err(insert) => insert.saturating_sub(1), // Offset is within line (insert - 1)
+        };
+        let line_start = self.line_starts[line];
+        let column = offset.saturating_sub(line_start);
+        (line as u32, column as u32)
+    }
 }
 
 /// Pattern element for array destructuring (supports nesting).
@@ -745,6 +786,9 @@ pub fn lower_file_to_js_with_source(
     collect_js_name_mappings(get_prelude_file(), &mut accessors);
     collect_accessors_from_file(file, &mut accessors);
 
+    // Get stdlib index once for all lowering operations
+    let stdlib_index = get_stdlib_index();
+
     // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
     let mut ctx = match source_path {
         Some(path) => CodegenContext::with_source_path(
@@ -754,6 +798,7 @@ pub fn lower_file_to_js_with_source(
             type_resolution,
             variant_calls,
             variant_patterns,
+            stdlib_index,
         ),
         None => CodegenContext::new(
             &accessors,
@@ -761,10 +806,11 @@ pub fn lower_file_to_js_with_source(
             type_resolution,
             variant_calls,
             variant_patterns,
+            stdlib_index,
         ),
     };
-    // Set source content for source map span generation
-    ctx.source_content = source;
+    // Build line index for O(log N) source map span lookups
+    ctx.line_index = source.map(LineIndex::new);
 
     // First pass: collect module imports
     for item in &file.items {
@@ -2638,21 +2684,20 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             
             // Also check if receiver is a method call that returns an iterator
             // (e.g., arr.iter(), arr.iter().map(...), etc.)
-            let stdlib_index = get_stdlib_index();
             let is_iterator_from_method_call = if let ExprKind::MethodCall { method, .. } = &receiver.kind {
                 let recv_method_name = &method.name;
                 // Use StdlibIndex to check if method returns an iterator
-                stdlib_index.returns_iterator("Iterator", recv_method_name)
+                ctx.stdlib_index.returns_iterator("Iterator", recv_method_name)
                     || matches!(recv_method_name.as_str(), "iter" | "into_iter")
             } else {
                 false
             };
-            
+
             let is_iterator = is_iterator_from_type || is_iterator_from_method_call;
 
             // Use StdlibIndex to look up iterator method JS names
             if is_iterator {
-                if let Some(js_name) = stdlib_index.get_js_name("Iterator", method_name) {
+                if let Some(js_name) = ctx.stdlib_index.get_js_name("Iterator", method_name) {
                     // All iterator methods follow: js_name(receiver, ...args)
                     let js_receiver = lower_expr(receiver, ctx);
                     let mut js_args = vec![js_receiver];
@@ -5536,6 +5581,7 @@ mod tests {
                 &empty_type_resolution,
                 &empty_variant_calls,
                 &empty_variant_patterns,
+            get_stdlib_index(),
             ),
         );
         let mut out = String::new();
@@ -6078,6 +6124,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
@@ -6154,6 +6201,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
@@ -6202,6 +6250,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
         let js_expr = lower_expr(&format_expr, &ctx);
         let mut js_str = String::new();
@@ -6380,6 +6429,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_break = lower_stmt(&break_stmt, &ctx);
@@ -6440,6 +6490,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_expr = lower_expr(&call_expr, &ctx);
@@ -6512,6 +6563,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_expr = lower_expr(&call_expr, &ctx);
@@ -6561,6 +6613,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_expr = lower_expr(&path_expr, &ctx);
@@ -6643,6 +6696,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[some_arm, none_arm], None, &ctx);
@@ -6726,6 +6780,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[wildcard_arm], None, &ctx);
@@ -6799,6 +6854,7 @@ mod tests {
             &empty_type_resolution,
             &empty_variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_stmt = lower_match_stmt(&scrutinee, &[red_arm, blue_arm], None, &ctx);
@@ -6870,6 +6926,7 @@ mod tests {
             &empty_type_resolution,
             &variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_expr = lower_expr(&none_expr, &ctx);
@@ -6934,6 +6991,7 @@ mod tests {
             &empty_type_resolution,
             &variant_calls,
             &empty_variant_patterns,
+            get_stdlib_index(),
         );
 
         let js_expr = lower_expr(&call_expr, &ctx);
@@ -7307,6 +7365,94 @@ mod tests {
             !src.contains("tag"),
             "Expected no 'tag' field for untagged enum but found one in:\n{}",
             src
+        );
+    }
+
+    #[test]
+    fn test_line_index_offset_to_line_col() {
+        let source = "line 0\nline 1\nline 2\n";
+        let idx = LineIndex::new(source);
+
+        // Start of file
+        assert_eq!(idx.offset_to_line_col(0), (0, 0));
+
+        // Middle of line 0
+        assert_eq!(idx.offset_to_line_col(3), (0, 3));
+
+        // Start of line 1 (after first \n at offset 6)
+        assert_eq!(idx.offset_to_line_col(7), (1, 0));
+
+        // Middle of line 1
+        assert_eq!(idx.offset_to_line_col(10), (1, 3));
+
+        // Start of line 2 (after second \n at offset 13)
+        assert_eq!(idx.offset_to_line_col(14), (2, 0));
+    }
+
+    #[test]
+    fn test_sourcemap_has_statement_level_mappings() {
+        // Create a simple module with a function containing multiple statements
+        let module = JsModule {
+            body: vec![JsStmt::Function {
+                name: "test".to_string(),
+                params: vec![],
+                body: vec![
+                    JsStmt::Let {
+                        name: "x".to_string(),
+                        init: Some(JsExpr::Number(1)),
+                        source_span: Some(SourceSpan { line: 1, column: 4 }),
+                    },
+                    JsStmt::Let {
+                        name: "y".to_string(),
+                        init: Some(JsExpr::Number(2)),
+                        source_span: Some(SourceSpan { line: 2, column: 4 }),
+                    },
+                    JsStmt::Return {
+                        expr: JsExpr::Binary {
+                            op: JsBinaryOp::Add,
+                            left: Box::new(JsExpr::Ident("x".into())),
+                            right: Box::new(JsExpr::Ident("y".into())),
+                        },
+                        source_span: Some(SourceSpan { line: 3, column: 4 }),
+                    },
+                ],
+                source_span: Some(SourceSpan { line: 0, column: 0 }),
+            }],
+        };
+
+        // Generate source and source map
+        let source_content = "fn test() {\n    let x = 1;\n    let y = 2;\n    return x + y;\n}\n";
+        let (js_source, sm_json) = module.to_source_with_sourcemap("test.hk", source_content);
+
+        // Verify the JS source looks correct
+        assert!(js_source.contains("function test()"));
+        assert!(js_source.contains("let x = 1;"));
+        assert!(js_source.contains("let y = 2;"));
+        assert!(js_source.contains("return x + y;"));
+
+        // Parse the source map JSON and verify it has mappings
+        let sm: serde_json::Value = serde_json::from_str(&sm_json).expect("valid JSON");
+
+        // Check source map structure
+        assert_eq!(sm["version"], 3);
+        assert_eq!(sm["sources"][0], "test.hk");
+
+        // The mappings field should not be empty (would be all semicolons with no data)
+        let mappings = sm["mappings"].as_str().expect("mappings is string");
+        // After the preamble lines (all semicolons), there should be actual mapping data
+        // containing VLQ-encoded segments (letters A-Za-z0-9+/)
+        let has_actual_mappings = mappings.chars().any(|c| c.is_alphabetic());
+        assert!(
+            has_actual_mappings,
+            "Source map should contain statement-level mappings, got: {}",
+            &mappings[..mappings.len().min(200)]
+        );
+
+        // Verify the "names" array contains our function name
+        let names = sm["names"].as_array().expect("names is array");
+        assert!(
+            names.iter().any(|n| n == "test"),
+            "Source map names should include 'test'"
         );
     }
 }
