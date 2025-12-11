@@ -4189,7 +4189,15 @@ fn get_stmt_source_span(stmt: &JsStmt) -> Option<&SourceSpan> {
 /// Write a statement with source map tracking.
 /// This writes the statement while tracking line/column and adding source mappings.
 fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputContext) {
-    // Add source mapping before writing the statement
+    // For most statements, write indent first, then add mapping at the actual code position
+    // This ensures the column in the source map points to the statement, not the leading spaces
+    let needs_indent = !matches!(stmt, JsStmt::Sequence(_));
+
+    if needs_indent {
+        ctx.write_indent(indent_level);
+    }
+
+    // Add source mapping AFTER indentation so column is correct
     if let Some(span) = get_stmt_source_span(stmt) {
         // For function declarations, include the function name
         let name = match stmt {
@@ -4201,7 +4209,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
 
     match stmt {
         JsStmt::Import { name, source } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("import ");
             ctx.write(name);
             ctx.write(" from \"");
@@ -4213,7 +4221,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             let star_name = format!("__{}", safe_name);
             let pkg_name = format!("_{}", safe_name);
 
-            ctx.write_indent(indent_level);
+            // First line indent already written at top
             ctx.write("import * as ");
             ctx.write(&star_name);
             ctx.write(" from \"");
@@ -4242,7 +4250,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write(";");
         }
         JsStmt::Require { name, source } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("const ");
             ctx.write(name);
             ctx.write(" = require(\"");
@@ -4250,7 +4258,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write("\");");
         }
         JsStmt::NamedRequire { names, source } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("const { ");
             for (i, name) in names.iter().enumerate() {
                 if i > 0 {
@@ -4263,7 +4271,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write("\");");
         }
         JsStmt::ExportNamed { names } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("export { ");
             for (i, name) in names.iter().enumerate() {
                 if i > 0 {
@@ -4276,7 +4284,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
         JsStmt::Function {
             name, params, body, ..
         } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("function ");
             ctx.write(name);
             ctx.write("(");
@@ -4295,13 +4303,13 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write("}");
         }
         JsStmt::Return { expr, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("return ");
             write_expr_to_ctx(expr, ctx);
             ctx.write(";");
         }
         JsStmt::Let { name, init, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("let ");
             ctx.write(name);
             if let Some(expr) = init {
@@ -4311,7 +4319,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write(";");
         }
         JsStmt::LetDestructure { pattern, init, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("let ");
             write_destructure_pattern_list_to_ctx(pattern, ctx);
             if let Some(expr) = init {
@@ -4321,7 +4329,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write(";");
         }
         JsStmt::Expr { expr, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             write_expr_to_ctx(expr, ctx);
             ctx.write(";");
         }
@@ -4331,7 +4339,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             catch_block,
             ..
         } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("try {\n");
             for s in try_block {
                 write_stmt_with_mapping(s, indent_level + 1, ctx);
@@ -4354,7 +4362,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             else_block,
             ..
         } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("if (");
             write_expr_to_ctx(cond, ctx);
             ctx.write(") {\n");
@@ -4389,7 +4397,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             body,
             ..
         } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("for (const ");
             ctx.write(binding);
             ctx.write(" of ");
@@ -4410,7 +4418,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             body,
             ..
         } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("for (let ");
             ctx.write(binding);
             ctx.write(" = ");
@@ -4440,8 +4448,8 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ..
         } => {
             if !is_simple_identifier(range_expr) {
+                // Indent already written above for first line
                 let temp_name = format!("__range_{}", binding);
-                ctx.write_indent(indent_level);
                 ctx.write("const ");
                 ctx.write(&temp_name);
                 ctx.write(" = ");
@@ -4464,7 +4472,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
                 ctx.write(binding);
                 ctx.write("++) {\n");
             } else {
-                ctx.write_indent(indent_level);
+                // Indent already written above
                 ctx.write("for (let ");
                 ctx.write(binding);
                 ctx.write(" = ");
@@ -4489,7 +4497,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write("}");
         }
         JsStmt::Assign { target, op, value, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             write_expr_to_ctx(target, ctx);
             ctx.write(match op {
                 JsAssignOp::Assign => " = ",
@@ -4501,7 +4509,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write(";");
         }
         JsStmt::While { cond, body, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("while (");
             write_expr_to_ctx(cond, ctx);
             ctx.write(") {\n");
@@ -4513,15 +4521,15 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write("}");
         }
         JsStmt::Break { .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("break;");
         }
         JsStmt::Continue { .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("continue;");
         }
         JsStmt::Block { stmts, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("{\n");
             for s in stmts {
                 write_stmt_with_mapping(s, indent_level + 1, ctx);
@@ -4539,7 +4547,7 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             }
         }
         JsStmt::Throw { expr, .. } => {
-            ctx.write_indent(indent_level);
+            // Indent already written above
             ctx.write("throw ");
             write_expr_to_ctx(expr, ctx);
             ctx.write(";");
