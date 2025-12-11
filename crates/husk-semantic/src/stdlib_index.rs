@@ -344,7 +344,7 @@ mod tests {
     use husk_parser::parse_str;
 
     fn parse_stdlib() -> StdlibIndex {
-        let source = include_str!("../../../stdlib/core.hk");
+        let source = include_str!("stdlib/core.hk");
         let parsed = parse_str(source);
         assert!(
             parsed.errors.is_empty(),

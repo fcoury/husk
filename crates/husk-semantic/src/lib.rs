@@ -331,7 +331,7 @@ pub fn analyze_file_without_prelude(file: &File) -> SemanticResult {
     )
 }
 
-static PRELUDE_SRC: &str = include_str!("../../../stdlib/core.hk");
+static PRELUDE_SRC: &str = include_str!("stdlib/core.hk");
 static PRELUDE_AST: OnceLock<File> = OnceLock::new();
 static STDLIB_INDEX: OnceLock<StdlibIndex> = OnceLock::new();
 
