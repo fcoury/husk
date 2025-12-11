@@ -1,8 +1,10 @@
-# Plan: Support `#[cfg(test)] mod test { ... }` with Multiple Tests
+# Plan: Support Inline Modules (`mod name { ... }`)
 
 ## Overview
 
-Add support for defining test functions inside a module annotated with `#[cfg(test)]`, following Rust's idiomatic test pattern:
+Add support for inline module declarations (`mod name { items }`), enabling hierarchical code organization and conditional compilation. This is a general language feature that enables various use cases, including organizing tests, grouping related functionality, and applying cfg attributes to multiple items at once.
+
+**Primary use case - Test modules:**
 
 ```rust
 #[cfg(test)]
@@ -17,7 +19,7 @@ mod test {
 }
 ```
 
-This is more ergonomic than the current requirement of annotating each test function individually:
+This is more ergonomic than annotating each test function individually:
 
 ```rust
 #[cfg(test)]
@@ -27,6 +29,33 @@ fn test_one() { ... }
 #[cfg(test)]
 #[test]
 fn test_two() { ... }
+```
+
+**Additional use cases:**
+
+```rust
+// Code organization
+mod helpers {
+    fn internal_helper() -> i32 { 42 }
+    fn another_helper() -> String { "hello".to_string() }
+}
+
+// Platform-specific code
+#[cfg(target_os = "windows")]
+mod windows_impl {
+    fn platform_specific() { /* ... */ }
+}
+
+#[cfg(target_os = "linux")]
+mod linux_impl {
+    fn platform_specific() { /* ... */ }
+}
+
+// Feature-gated code
+#[cfg(feature = "advanced")]
+mod advanced_features {
+    fn advanced_fn() { /* ... */ }
+}
 ```
 
 ## Current Implementation Analysis
@@ -66,7 +95,10 @@ pub enum ItemKind {
     // ... existing variants ...
     
     /// Inline module: `mod name { items }`
-    /// Used for organizing code and cfg-conditional compilation
+    /// General-purpose feature for:
+    /// - Hierarchical code organization
+    /// - Grouping items for cfg attributes (#[cfg(test)], #[cfg(feature = "...")])
+    /// - Namespace management (future: proper scoping with use/pub)
     Mod {
         name: Ident,
         items: Vec<Item>,
@@ -155,7 +187,7 @@ fn parse_mod_item(&mut self, attributes: Vec<Attribute>, visibility: Visibility)
 #[cfg(test)]
 #[test]
 fn parse_empty_module() {
-    let src = "mod test {}";
+    let src = "mod helpers {}";
     let result = parse_str(src);
     assert!(result.errors.is_empty());
     let file = result.file.unwrap();
@@ -167,7 +199,7 @@ fn parse_empty_module() {
 #[test]
 fn parse_module_with_functions() {
     let src = r#"
-mod test {
+mod utils {
     fn helper() -> i32 { 42 }
     fn another() { }
 }
@@ -206,6 +238,23 @@ mod test {
     assert_eq!(mod_items.len(), 2);
     assert!(mod_items[0].is_test());
     assert!(mod_items[1].is_test());
+}
+
+#[cfg(test)]
+#[test]
+fn parse_cfg_feature_module() {
+    let src = r#"
+#[cfg(feature = "advanced")]
+mod advanced {
+    fn advanced_feature() { }
+}
+"#;
+    let result = parse_str(src);
+    assert!(result.errors.is_empty());
+    let file = result.file.unwrap();
+    assert_eq!(file.items.len(), 1);
+    assert!(file.items[0].is_mod());
+    assert!(file.items[0].cfg_predicate().is_some());
 }
 ```
 
@@ -310,17 +359,20 @@ fn main() { }
 #[test]
 fn filter_nested_cfg_in_module() {
     let src = r#"
-mod outer {
+mod utils {
     fn always_included() { }
     
     #[cfg(test)]
     fn test_only() { }
+    
+    #[cfg(feature = "advanced")]
+    fn feature_only() { }
 }
 "#;
     let parsed = parse_str(src);
     let file = parsed.file.unwrap();
     
-    // Without test flag
+    // Without any flags
     let flags = HashSet::new();
     let filtered = filter_items_by_cfg(&file, &flags);
     let mod_items = filtered.items[0].mod_items().unwrap();
@@ -331,7 +383,40 @@ mod outer {
     flags.insert("test".to_string());
     let filtered = filter_items_by_cfg(&file, &flags);
     let mod_items = filtered.items[0].mod_items().unwrap();
-    assert_eq!(mod_items.len(), 2); // both functions
+    assert_eq!(mod_items.len(), 2); // always_included + test_only
+    
+    // With feature flag
+    let mut flags = HashSet::new();
+    flags.insert("feature_advanced".to_string());
+    let filtered = filter_items_by_cfg(&file, &flags);
+    let mod_items = filtered.items[0].mod_items().unwrap();
+    assert_eq!(mod_items.len(), 2); // always_included + feature_only
+}
+
+#[cfg(test)]
+#[test]
+fn filter_cfg_on_module_itself() {
+    let src = r#"
+fn main() { }
+
+#[cfg(feature = "extra")]
+mod extra {
+    fn extra_fn() { }
+}
+"#;
+    let parsed = parse_str(src);
+    let file = parsed.file.unwrap();
+    
+    // Without feature flag - module should be excluded
+    let flags = HashSet::new();
+    let filtered = filter_items_by_cfg(&file, &flags);
+    assert_eq!(filtered.items.len(), 1); // only main
+    
+    // With feature flag - module should be included
+    let mut flags = HashSet::new();
+    flags.insert("feature_extra".to_string());
+    let filtered = filter_items_by_cfg(&file, &flags);
+    assert_eq!(filtered.items.len(), 2); // main + extra module
 }
 ```
 
@@ -436,7 +521,7 @@ mod outer {
 
 In the codegen, when encountering a `Mod` item, we have two approaches:
 
-**Option A: Flatten all module items to top level**
+**Option A: Flatten all module items to top level (initial implementation)**
 
 ```rust
 // In lower_file_to_module or similar function:
@@ -445,6 +530,10 @@ fn lower_items(items: &[Item], module: &mut JsModule, /* ... */) {
         match &item.kind {
             ItemKind::Mod { items: nested_items, .. } => {
                 // Recursively lower nested items as if they were at top level
+                // This works well for:
+                // - Test modules (tests are discovered and run independently)
+                // - Helper function modules (all functions become top-level)
+                // - Cfg-gated code modules (included/excluded as a unit)
                 lower_items(nested_items, module, /* ... */);
             }
             ItemKind::Fn { .. } => {
@@ -456,16 +545,26 @@ fn lower_items(items: &[Item], module: &mut JsModule, /* ... */) {
 }
 ```
 
-**Option B: Generate JavaScript module/namespace (more complex, maybe future work)**
+**Option B: Generate JavaScript module/namespace (future enhancement)**
 
-For now, Option A (flattening) is simpler and sufficient for test modules.
+For proper module scoping with namespaces:
+
+```javascript
+// mod utils { fn helper() { } }
+// could generate:
+const utils = {
+    helper: function() { }
+};
+```
+
+For now, Option A (flattening) is simpler and sufficient for most use cases including tests.
 
 **Note about name collisions:**
 
-When flattening, we need to ensure no name collisions. For test functions, this is typically not an issue since:
-1. Test functions are usually uniquely named
-2. Helper functions in test modules are only used within tests
-3. We could optionally prefix names with module path to avoid collisions
+When flattening, we need to be aware of potential name collisions:
+1. **Test modules**: Usually not an issue since test names are unique and helpers are only used within tests
+2. **Organization modules**: Could cause collisions if multiple modules define the same function name
+3. **Future solution**: Prefix names with module path (e.g., `utils_helper`, `test_helper`) or implement proper namespacing (Option B)
 
 **Add tests:**
 
@@ -474,7 +573,7 @@ When flattening, we need to ensure no name collisions. For test functions, this 
 #[test]
 fn codegen_flattens_module_items() {
     let src = r#"
-mod test {
+mod helpers {
     fn helper() -> i32 { 42 }
     
     fn use_helper() -> i32 { helper() }
@@ -488,6 +587,38 @@ mod test {
     let src = js.to_source();
     assert!(src.contains("function helper()"));
     assert!(src.contains("function use_helper()"));
+}
+
+#[cfg(test)]
+#[test]
+fn codegen_flattens_cfg_module() {
+    let src = r#"
+#[cfg(feature = "extra")]
+mod extra {
+    fn extra_fn() -> i32 { 100 }
+}
+
+fn main() -> i32 { 0 }
+"#;
+    let parsed = parse_str(src);
+    let file = parsed.file.unwrap();
+    
+    // Without feature flag - module excluded
+    let flags = HashSet::new();
+    let filtered = filter_items_by_cfg(&file, &flags);
+    let js = lower_file_to_js(&filtered, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
+    let src = js.to_source();
+    assert!(!src.contains("extra_fn"));
+    assert!(src.contains("function main()"));
+    
+    // With feature flag - module included and flattened
+    let mut flags = HashSet::new();
+    flags.insert("feature_extra".to_string());
+    let filtered = filter_items_by_cfg(&file, &flags);
+    let js = lower_file_to_js(&filtered, false, JsTarget::Cjs, &Default::default(), &Default::default(), &Default::default(), &Default::default());
+    let src = js.to_source();
+    assert!(src.contains("function extra_fn()"));
+    assert!(src.contains("function main()"));
 }
 ```
 
@@ -528,8 +659,22 @@ fn format_item(item: &Item, indent: usize) -> String {
 #[cfg(test)]
 #[test]
 fn format_module() {
-    let src = "mod test{fn foo(){}}";
-    let expected = r#"mod test {
+    let src = "mod helpers{fn foo(){}}";
+    let expected = r#"mod helpers {
+    fn foo() {}
+}
+"#;
+    let formatted = format_str(src);
+    assert_eq!(formatted, expected);
+}
+
+#[cfg(test)]
+#[test]
+fn format_cfg_module() {
+    let src = "#[cfg(test)]mod test{#[test]fn foo(){}}";
+    let expected = r#"#[cfg(test)]
+mod test {
+    #[test]
     fn foo() {}
 }
 "#;
@@ -551,7 +696,7 @@ For now, since we're flattening modules during codegen, LSP support can treat mo
 
 Create comprehensive end-to-end tests in `examples/` or test suite:
 
-**Example: `examples/test_modules/main.hk`:**
+**Example 1: Test modules (`examples/test_modules/main.hk`):**
 
 ```rust
 fn add(a: i32, b: i32) -> i32 {
@@ -600,15 +745,83 @@ fn main() {
 }
 ```
 
+**Example 2: Organizational modules (`examples/modules/main.hk`):**
+
+```rust
+mod math {
+    fn square(x: i32) -> i32 {
+        x * x
+    }
+    
+    fn cube(x: i32) -> i32 {
+        x * x * x
+    }
+}
+
+mod string_utils {
+    fn repeat(s: String, n: i32) -> String {
+        // implementation
+    }
+}
+
+fn main() {
+    println("square(5) = {}", square(5));
+    println("cube(3) = {}", cube(3));
+}
+```
+
+**Example 3: Conditional compilation (`examples/cfg_modules/main.hk`):**
+
+```rust
+fn core_function() -> i32 {
+    42
+}
+
+#[cfg(feature = "extra")]
+mod extra_features {
+    fn extra_fn() -> i32 {
+        100
+    }
+}
+
+#[cfg(debug_assertions)]
+mod debug_helpers {
+    fn debug_fn() {
+        println("Debug mode");
+    }
+}
+
+fn main() {
+    println("core: {}", core_function());
+    
+    #[cfg(feature = "extra")]
+    println("extra: {}", extra_fn());
+    
+    #[cfg(debug_assertions)]
+    debug_fn();
+}
+```
+
 **Run and verify:**
 
 ```bash
+# Test modules example
 huskc test examples/test_modules/main.hk
 # Should run: tests::test_add, tests::test_multiply, tests::test_another
 # Should ignore: tests::test_ignored
 
 huskc build examples/test_modules/main.hk
 # Should only include add, multiply, main (no test modules)
+
+# Organizational modules example
+huskc build examples/modules/main.hk
+# Should flatten all module functions to top level
+
+# Conditional compilation example
+huskc build examples/cfg_modules/main.hk
+# Normal build: core_function, main
+huskc build examples/cfg_modules/main.hk --features extra
+# With feature: core_function, extra_fn, main
 ```
 
 ## Implementation Order
@@ -635,12 +848,14 @@ This change is **backward compatible**:
 
 ## Edge Cases to Handle
 
-1. **Empty modules**: `mod test {}` should parse but generate no code
+1. **Empty modules**: `mod helpers {}` should parse but generate no code
 2. **Nested modules**: `mod outer { mod inner { } }` should work recursively
 3. **Mixed cfg**: Module with `#[cfg(test)]` containing items with `#[cfg(debug)]`
-4. **Non-test modules**: Regular modules (without cfg) should also work for code organization
-5. **Name collisions**: When flattening, ensure unique names or document limitations
-6. **Module visibility**: For now, module items inherit parent visibility rules
+4. **Multiple cfg attributes**: `#[cfg(test)] #[cfg(feature = "...")] mod name { }`
+5. **Name collisions**: When flattening, functions with same names from different modules will collide (document as current limitation)
+6. **Module visibility**: For now, all items flattened to top level inherit their individual visibility
+7. **Use statements**: `use super::*` is recognized syntactically but scoping is deferred to future work
+8. **Non-test modules**: Regular modules (without cfg) should work for organizing any code, not just tests
 
 ## Future Enhancements
 
@@ -652,15 +867,19 @@ This change is **backward compatible**:
 
 ## Success Criteria
 
-- [ ] Can parse `mod name { items }` syntax
-- [ ] Can apply `#[cfg(test)]` to modules
-- [ ] Test functions inside modules are discovered by `huskc test`
-- [ ] Test modules are excluded from `huskc build`
+- [ ] Can parse `mod name { items }` syntax (general-purpose, not test-specific)
+- [ ] Can apply any `#[cfg(...)]` attribute to modules (test, feature, debug, etc.)
+- [ ] Cfg filtering works recursively on module contents
+- [ ] Test functions inside `#[cfg(test)]` modules are discovered by `huskc test`
+- [ ] Test modules are excluded from `huskc build` (cfg filtering)
+- [ ] Non-test modules work for general code organization
+- [ ] Feature-gated modules work with `#[cfg(feature = "...")]`
 - [ ] Test output shows module path (e.g., `test::test_one`)
 - [ ] Formatter handles module syntax
+- [ ] Codegen flattens module items to top level (documented limitation)
 - [ ] All existing tests pass
-- [ ] New integration tests pass
-- [ ] Documentation updated
+- [ ] New integration tests pass for multiple use cases
+- [ ] Documentation updated with general module usage, not just tests
 
 ## Estimated Effort
 
