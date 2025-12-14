@@ -7,21 +7,21 @@ repository.workspace = true
 description = "The Husk programming language compiler"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+codespan-reporting = "0.11"
+husk-ast.workspace = true
+husk-codegen-js.workspace = true
+husk-dts-parser.workspace = true
+husk-fmt.workspace = true
 husk-lexer.workspace = true
 husk-parser.workspace = true
 husk-semantic.workspace = true
-husk-codegen-js.workspace = true
-husk-ast.workspace = true
-husk-dts-parser.workspace = true
-husk-fmt.workspace = true
-clap = { version = "4", features = ["derive"] }
-thiserror = "1"
-toml = "0.8"
-serde = { version = "1", features = ["derive"] }
-toml_edit = "0.22"
-codespan-reporting = "0.11"
 notify = "6"
 notify-debouncer-mini = "0.4"
+serde = { version = "1", features = ["derive"] }
+thiserror = { workspace = true } #unified
+toml = "0.8"
+toml_edit = "0.22"
 
 [[bin]]
 name = "huskc"
@@ -29,4 +29,4 @@ path = "src/main.rs"
 
 [dev-dependencies]
 glob = "0.3"
-tempfile = "3"
+tempfile = { workspace = true } #unified

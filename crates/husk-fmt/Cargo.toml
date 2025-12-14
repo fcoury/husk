@@ -10,4 +10,4 @@ description = "Code formatter for the Husk programming language"
 husk-ast.workspace = true
 husk-lexer.workspace = true
 husk-parser.workspace = true
-thiserror = "1.0"
+thiserror = { workspace = true } #unified

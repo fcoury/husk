@@ -11,17 +11,17 @@ name = "husk-lsp"
 path = "src/main.rs"
 
 [dependencies]
-tower-lsp = "0.20"
-tokio = { version = "1", features = ["full"] }
-serde_json = "1.0"
 dashmap = "6"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+husk-ast.workspace = true
+husk-lang = { path = "../husk-lang" }
 
 # Reuse existing Husk crates
 husk-lexer.workspace = true
 husk-parser.workspace = true
 husk-semantic.workspace = true
-husk-ast.workspace = true
 husk-types.workspace = true
-husk-lang = { path = "../husk-lang" }
+serde_json = { workspace = true } #unified
+tokio = { version = "1", features = ["full"] }
+tower-lsp = "0.20"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
