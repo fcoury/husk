@@ -1018,6 +1018,12 @@ impl TypeChecker {
                                     self.env.modules.insert(binding.name.clone(), def);
                                 } else {
                                     // Mod block with functions - create module with its functions.
+                                    // Check for #[default] on mod or on any function
+                                    let mod_is_default = ext.is_default();
+                                    let fn_has_default =
+                                        mod_items.iter().any(|mi| mi.is_default());
+                                    let has_default = mod_is_default || fn_has_default;
+
                                     let mut functions = HashMap::new();
                                     for mod_item in mod_items {
                                         // ModItemKind has only Fn variant (MVP scope)
@@ -1031,7 +1037,14 @@ impl TypeChecker {
                                             params: params.clone(),
                                             ret_type: ret_type.clone(),
                                         };
-                                        functions.insert(name.name.clone(), def);
+                                        functions.insert(name.name.clone(), def.clone());
+
+                                        // When #[default] is present (on mod or functions),
+                                        // codegen creates wrapper functions that allow direct calls.
+                                        // Register these functions in the env so semantic analysis passes.
+                                        if has_default {
+                                            self.env.functions.insert(name.name.clone(), def);
+                                        }
                                     }
                                     let module_def = ModuleDef {
                                         name: binding.name.clone(),

@@ -839,8 +839,15 @@ pub enum ExternItemKind {
 /// Items that may appear inside a `mod` block within an extern block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModItem {
+    pub attributes: Vec<Attribute>,
     pub kind: ModItemKind,
     pub span: Span,
+}
+
+impl ModItem {
+    pub fn is_default(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "default")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -861,6 +868,13 @@ pub struct ExternItem {
 }
 
 impl ExternItem {
+    /// Returns true if this extern item has a #[default] attribute.
+    /// When on a `mod` declaration, indicates the module uses default import
+    /// and all functions are methods on the default export.
+    pub fn is_default(&self) -> bool {
+        self.attributes.iter().any(|a| a.name.name == "default")
+    }
+
     /// Returns the JS name if specified via #[js_name = "..."], otherwise None.
     pub fn js_name(&self) -> Option<&str> {
         self.attributes.iter().find_map(|attr| {

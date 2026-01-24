@@ -8,8 +8,8 @@
 
 use husk_ast::{
     Block, EnumVariantFields, Expr, ExprKind, ExternItemKind, File, FormatSegment, FormatSpec,
-    Ident, ImplItemKind, ItemKind, LiteralKind, Param, Pattern, PatternKind, Span, Stmt, StmtKind,
-    StructField, TypeExpr, TypeExprKind, TypeParam,
+    Ident, ImplItemKind, ItemKind, LiteralKind, ModItemKind, Param, Pattern, PatternKind, Span,
+    Stmt, StmtKind, StructField, TypeExpr, TypeExprKind, TypeParam,
 };
 use husk_runtime_js::std_preamble_js;
 use husk_semantic::{
@@ -84,6 +84,27 @@ struct PropertyAccessors {
     untagged_enums: std::collections::HashSet<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct MethodCallInfo {
+    binding: String,
+    params: Vec<Param>,
+}
+
+/// Tracks which extern functions come from which module imports.
+/// Used to generate direct calls to imported functions instead of globalThis.
+#[derive(Debug, Clone, Default)]
+struct ModuleFunctions {
+    /// Maps function name -> module binding name for named imports.
+    /// e.g., "nanoid" -> "nanoid" (from `mod nanoid { fn nanoid() -> String; }`)
+    /// These functions are called directly: `nanoid()`
+    direct_calls: HashMap<String, MethodCallInfo>,
+
+    /// Maps function name -> module binding name for default imports.
+    /// e.g., "isEmail" -> "validator" (from `mod validator { fn isEmail(...); }`)
+    /// These functions are called as methods: `validator.isEmail()`
+    method_calls: HashMap<String, MethodCallInfo>,
+}
+
 /// Collect only #[js_name] method name mappings from a file.
 ///
 /// This function only extracts #[js_name] overrides which are type-keyed and safe
@@ -151,9 +172,10 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                             .unwrap_or_else(|| snake_to_camel(prop_name));
 
                         if prop.has_getter() {
-                            accessors
-                                .getters
-                                .insert((normalized_type_name.clone(), prop_name.clone()), js_name.clone());
+                            accessors.getters.insert(
+                                (normalized_type_name.clone(), prop_name.clone()),
+                                js_name.clone(),
+                            );
                         }
                         if prop.has_setter() {
                             accessors
@@ -220,9 +242,10 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                             {
                                 let prop_name =
                                     method_name.strip_prefix("set_").unwrap().to_string();
-                                accessors
-                                    .setters
-                                    .insert((normalized_type_name.clone(), method_name.clone()), prop_name);
+                                accessors.setters.insert(
+                                    (normalized_type_name.clone(), method_name.clone()),
+                                    prop_name,
+                                );
                             }
                         }
                     }
@@ -443,7 +466,7 @@ impl LineIndex {
     pub fn offset_to_line_col(&self, offset: usize) -> (u32, u32) {
         // Binary search for the line containing this offset
         let line = match self.line_starts.binary_search(&offset) {
-            Ok(exact) => exact,           // Offset is exactly at a line start
+            Ok(exact) => exact,                      // Offset is exactly at a line start
             Err(insert) => insert.saturating_sub(1), // Offset is within line (insert - 1)
         };
         let line_start = self.line_starts[line];
@@ -762,6 +785,7 @@ pub fn lower_file_to_js_with_source(
     let mut body = Vec::new();
     let mut has_main_entry = false;
     let mut fn_names: Vec<String> = Vec::new();
+    let mut module_functions = ModuleFunctions::default();
 
     // Collect extern struct names - these are opaque JS types
     let mut extern_structs: HashSet<String> = HashSet::new();
@@ -842,30 +866,101 @@ pub fn lower_file_to_js_with_source(
                                 }),
                             }
                         } else {
-                            // Named imports: import { fn1, fn2 } from "package";
-                            let names: Vec<String> = mod_items
-                                .iter()
-                                .filter_map(|mi| match &mi.kind {
-                                    husk_ast::ModItemKind::Fn { name, .. } => {
-                                        Some(name.name.clone())
+                            // Check for #[default] on mod or on any function
+                            let mod_is_default = ext.is_default();
+                            let fn_has_default = mod_items.iter().any(|mi| mi.is_default());
+                            let has_default = mod_is_default || fn_has_default;
+
+                            if has_default {
+                                // Default export pattern (like express)
+                                for mi in mod_items {
+                                    let ModItemKind::Fn { name, params, .. } = &mi.kind;
+                                    let method_call = MethodCallInfo {
+                                        binding: binding.name.clone(),
+                                        params: params.clone(),
+                                    };
+
+                                    if mi.is_default() {
+                                        module_functions
+                                            .direct_calls
+                                            .insert(name.name.clone(), method_call);
+                                    } else {
+                                        module_functions
+                                            .method_calls
+                                            .insert(name.name.clone(), method_call);
                                     }
-                                })
-                                .collect();
-                            match target {
-                                JsTarget::Esm => imports.push(JsStmt::NamedImport {
-                                    names,
-                                    source: package.clone(),
-                                }),
-                                JsTarget::Cjs => imports.push(JsStmt::NamedRequire {
-                                    names,
-                                    source: package.clone(),
-                                }),
+                                }
+                                // Generate default import
+                                match target {
+                                    JsTarget::Esm => imports.push(JsStmt::Import {
+                                        name: binding.name.clone(),
+                                        source: package.clone(),
+                                    }),
+                                    JsTarget::Cjs => imports.push(JsStmt::Require {
+                                        name: binding.name.clone(),
+                                        source: package.clone(),
+                                    }),
+                                }
+                            } else {
+                                // Named export pattern (like nanoid)
+                                let names: Vec<String> = mod_items
+                                    .iter()
+                                    .filter_map(|mi| match &mi.kind {
+                                        ModItemKind::Fn { name, params, .. } => {
+                                            let method_call = MethodCallInfo {
+                                                binding: name.name.clone(), // For named imports, binding = function name
+                                                params: params.clone(),
+                                            };
+
+                                            module_functions
+                                                .direct_calls
+                                                .insert(name.name.clone(), method_call);
+                                            Some(name.name.clone())
+                                        }
+                                    })
+                                    .collect();
+                                match target {
+                                    JsTarget::Esm => imports.push(JsStmt::NamedImport {
+                                        names,
+                                        source: package.clone(),
+                                    }),
+                                    JsTarget::Cjs => imports.push(JsStmt::NamedRequire {
+                                        names,
+                                        source: package.clone(),
+                                    }),
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    // Generate wrapper functions for method_calls (e.g., json() -> express.json())
+    for (fn_name, info) in &module_functions.method_calls {
+        // Extract parameter names from Param structs
+        let param_names: Vec<String> = info.params.iter().map(|p| p.name.name.clone()).collect();
+
+        // Create args for the call: each param name becomes an identifier
+        let args: Vec<JsExpr> = param_names.iter().map(|p| JsExpr::Ident(p.clone())).collect();
+
+        let call = JsExpr::Call {
+            callee: Box::new(JsExpr::Member {
+                object: Box::new(JsExpr::Ident(info.binding.clone())),
+                property: fn_name.clone(),
+            }),
+            args,
+        };
+        body.push(JsStmt::Function {
+            name: fn_name.clone(),
+            params: param_names,
+            body: vec![JsStmt::Return {
+                expr: call,
+                source_span: None,
+            }],
+            source_span: None,
+        });
     }
 
     // Second pass: generate constructor functions for structs (needed for prototype methods)
@@ -1083,12 +1178,12 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
         match &stmt.kind {
             StmtKind::Expr(expr) | StmtKind::Semi(expr) => check_expr(expr),
             StmtKind::Let {
-                value,
-                else_block,
-                ..
+                value, else_block, ..
             } => {
                 value.as_ref().map_or(false, check_expr)
-                    || else_block.as_ref().map_or(false, |b| contains_try_expr(&b.stmts))
+                    || else_block
+                        .as_ref()
+                        .map_or(false, |b| contains_try_expr(&b.stmts))
             }
             StmtKind::ForIn { iterable, body, .. } => {
                 check_expr(iterable) || contains_try_expr(&body.stmts)
@@ -1113,9 +1208,7 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
                     || contains_try_expr(&then_branch.stmts)
                     || else_branch.as_ref().map_or(false, |b| check_stmt(b))
             }
-            StmtKind::Assign { target, value, .. } => {
-                check_expr(target) || check_expr(value)
-            }
+            StmtKind::Assign { target, value, .. } => check_expr(target) || check_expr(value),
             StmtKind::Return { value } => value.as_ref().map_or(false, check_expr),
             StmtKind::Block(block) => contains_try_expr(&block.stmts),
             StmtKind::Loop { body } => contains_try_expr(&body.stmts),
@@ -1583,7 +1676,13 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             ty: _,
             value,
             else_block,
-        } => lower_let_pattern(pattern, value.as_ref(), else_block.as_ref(), source_span, ctx),
+        } => lower_let_pattern(
+            pattern,
+            value.as_ref(),
+            else_block.as_ref(),
+            source_span,
+            ctx,
+        ),
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
             // Special case: match expressions in statement position should be lowered
             // to if/else statements, not ternary expressions. This allows break/continue
@@ -1602,10 +1701,7 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                 .map(|e| lower_expr(e, ctx))
                 // Represent `return;` as `return undefined;` for now.
                 .unwrap_or_else(|| JsExpr::Ident("undefined".to_string()));
-            JsStmt::Return {
-                expr,
-                source_span,
-            }
+            JsStmt::Return { expr, source_span }
         }
         StmtKind::Block(block) => {
             // Flatten block into a single function body-like statement sequence.
@@ -1780,7 +1876,14 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
             scrutinee,
             then_branch,
             else_branch,
-        } => lower_if_let_stmt(pattern, scrutinee, then_branch, else_branch, source_span, ctx),
+        } => lower_if_let_stmt(
+            pattern,
+            scrutinee,
+            then_branch,
+            else_branch,
+            source_span,
+            ctx,
+        ),
     }
 }
 
@@ -1818,7 +1921,14 @@ fn lower_let_pattern(
             if let Some((_, variant_name)) = ctx.variant_patterns.get(&span_key) {
                 // This is a variant pattern - needs tag check
                 if let Some(blk) = else_block {
-                    return lower_let_refutable_binding(name, variant_name, value, blk, source_span, ctx);
+                    return lower_let_refutable_binding(
+                        name,
+                        variant_name,
+                        value,
+                        blk,
+                        source_span,
+                        ctx,
+                    );
                 }
             }
             // Simple identifier: let x = expr;
@@ -2457,16 +2567,17 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     // Extract base type name (e.g., "Map<String, i32>" -> "Map")
                     // For arrays like "[i32]", normalize to "[T]" format to match storage keys
                     // Storage uses "[T]" (generic form) from normalize_type_name_for_lookup(type_expr_to_js_name(...))
-                    let (base_type, lookup_type) = if recv_type.starts_with('[') && recv_type.ends_with(']') {
-                        // Array type - normalize concrete types like "[i32]" to generic "[T]" format
-                        // This matches how collect_js_name_mappings and collect_accessors_from_file store array keys
-                        (recv_type.as_str(), "[T]".to_string())
-                    } else if let Some(idx) = recv_type.find('<') {
-                        let base = &recv_type[..idx];
-                        (base, base.to_string())
-                    } else {
-                        (recv_type.as_str(), recv_type.clone())
-                    };
+                    let (base_type, lookup_type) =
+                        if recv_type.starts_with('[') && recv_type.ends_with(']') {
+                            // Array type - normalize concrete types like "[i32]" to generic "[T]" format
+                            // This matches how collect_js_name_mappings and collect_accessors_from_file store array keys
+                            (recv_type.as_str(), "[T]".to_string())
+                        } else if let Some(idx) = recv_type.find('<') {
+                            let base = &recv_type[..idx];
+                            (base, base.to_string())
+                        } else {
+                            (recv_type.as_str(), recv_type.clone())
+                        };
 
                     // Only apply getter lookup for known stdlib types
                     // User-defined types should not have their methods converted to property access
@@ -2681,17 +2792,19 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                     ty.starts_with("impl Iterator") || ty.starts_with("Iterator<")
                 })
                 .unwrap_or(false);
-            
+
             // Also check if receiver is a method call that returns an iterator
             // (e.g., arr.iter(), arr.iter().map(...), etc.)
-            let is_iterator_from_method_call = if let ExprKind::MethodCall { method, .. } = &receiver.kind {
-                let recv_method_name = &method.name;
-                // Use StdlibIndex to check if method returns an iterator
-                ctx.stdlib_index.returns_iterator("Iterator", recv_method_name)
-                    || matches!(recv_method_name.as_str(), "iter" | "into_iter")
-            } else {
-                false
-            };
+            let is_iterator_from_method_call =
+                if let ExprKind::MethodCall { method, .. } = &receiver.kind {
+                    let recv_method_name = &method.name;
+                    // Use StdlibIndex to check if method returns an iterator
+                    ctx.stdlib_index
+                        .returns_iterator("Iterator", recv_method_name)
+                        || matches!(recv_method_name.as_str(), "iter" | "into_iter")
+                } else {
+                    false
+                };
 
             let is_iterator = is_iterator_from_type || is_iterator_from_method_call;
 
@@ -2753,23 +2866,21 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Extract base type name from receiver type (e.g., "Map<String, i32>" -> "Map")
             // For arrays, type_resolution stores "[i32]" format, which needs to be normalized
             // to "[T]" format to match the keys stored in method_js_names.
-            let receiver_base_type = receiver_type_from_semantic
-                .as_ref()
-                .map(|t| {
-                    // For arrays, normalize "[i32]" -> "[T]" to match stored keys
-                    if t.starts_with('[') && t.ends_with(']') {
-                        // Normalize concrete array types like "[i32]" to generic "[T]" format
-                        // This matches how collect_js_name_mappings stores array method overrides
-                        "[T]".to_string()
+            let receiver_base_type = receiver_type_from_semantic.as_ref().map(|t| {
+                // For arrays, normalize "[i32]" -> "[T]" to match stored keys
+                if t.starts_with('[') && t.ends_with(']') {
+                    // Normalize concrete array types like "[i32]" to generic "[T]" format
+                    // This matches how collect_js_name_mappings stores array method overrides
+                    "[T]".to_string()
+                } else {
+                    // Strip generic args: "Map<K, V>" -> "Map", "Set<T>" -> "Set"
+                    if let Some(idx) = t.find('<') {
+                        t[..idx].to_string()
                     } else {
-                        // Strip generic args: "Map<K, V>" -> "Map", "Set<T>" -> "Set"
-                        if let Some(idx) = t.find('<') {
-                            t[..idx].to_string()
-                        } else {
-                            t.to_string()
-                        }
+                        t.to_string()
                     }
-                });
+                }
+            });
 
             // Check if this method is an extern "js" method for any type in user code,
             // OR if the receiver is a known stdlib type (like String, Set, Map).
@@ -3142,10 +3253,9 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // Wrap the last statement in a return if it's an expression.
             if let Some(last) = body.pop() {
                 match last {
-                    JsStmt::Expr { expr, source_span } => body.push(JsStmt::Return {
-                        expr,
-                        source_span,
-                    }),
+                    JsStmt::Expr { expr, source_span } => {
+                        body.push(JsStmt::Return { expr, source_span })
+                    }
                     other => body.push(other),
                 }
             }
@@ -4058,7 +4168,13 @@ impl JsModule {
         }
 
         // Create output context for tracking positions while writing code with mappings
-        let mut ctx = OutputContext::new(&mut out, &mut builder, source_file, current_line, current_column);
+        let mut ctx = OutputContext::new(
+            &mut out,
+            &mut builder,
+            source_file,
+            current_line,
+            current_column,
+        );
 
         // Output the rest of the code (excluding imports/requires) with source mappings
         for stmt in &self.body {
@@ -4496,7 +4612,9 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write_indent(indent_level);
             ctx.write("}");
         }
-        JsStmt::Assign { target, op, value, .. } => {
+        JsStmt::Assign {
+            target, op, value, ..
+        } => {
             // Indent already written above
             write_expr_to_ctx(target, ctx);
             ctx.write(match op {
@@ -4868,7 +4986,9 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             indent(indent_level, out);
             out.push('}');
         }
-        JsStmt::Assign { target, op, value, .. } => {
+        JsStmt::Assign {
+            target, op, value, ..
+        } => {
             indent(indent_level, out);
             write_expr(target, out);
             out.push_str(match op {
@@ -5589,7 +5709,7 @@ mod tests {
                 &empty_type_resolution,
                 &empty_variant_calls,
                 &empty_variant_patterns,
-            get_stdlib_index(),
+                get_stdlib_index(),
             ),
         );
         let mut out = String::new();
@@ -6443,7 +6563,10 @@ mod tests {
         let js_break = lower_stmt(&break_stmt, &ctx);
         let js_continue = lower_stmt(&continue_stmt, &ctx);
 
-        assert!(matches!(js_break, JsStmt::Break { .. }), "expected JsStmt::Break");
+        assert!(
+            matches!(js_break, JsStmt::Break { .. }),
+            "expected JsStmt::Break"
+        );
         assert!(
             matches!(js_continue, JsStmt::Continue { .. }),
             "expected JsStmt::Continue"
@@ -6877,7 +7000,11 @@ mod tests {
         {
             // First arm body should be an expression 1
             assert_eq!(then_block.len(), 1);
-            if let JsStmt::Expr { expr: JsExpr::Number(n), .. } = &then_block[0] {
+            if let JsStmt::Expr {
+                expr: JsExpr::Number(n),
+                ..
+            } = &then_block[0]
+            {
                 assert_eq!(*n, 1);
             } else {
                 panic!("expected Expr(Number(1)), got {:?}", then_block[0]);
@@ -6889,7 +7016,11 @@ mod tests {
             assert_eq!(else_stmts.len(), 1);
             if let JsStmt::If { then_block, .. } = &else_stmts[0] {
                 assert_eq!(then_block.len(), 1);
-                if let JsStmt::Expr { expr: JsExpr::Number(n), .. } = &then_block[0] {
+                if let JsStmt::Expr {
+                    expr: JsExpr::Number(n),
+                    ..
+                } = &then_block[0]
+                {
                     assert_eq!(*n, 2);
                 } else {
                     panic!("expected Expr(Number(2)), got {:?}", then_block[0]);
@@ -7461,6 +7592,352 @@ mod tests {
         assert!(
             names.iter().any(|n| n == "test"),
             "Source map names should include 'test'"
+        );
+    }
+
+    #[test]
+    fn generates_default_imports_for_mod_with_default_attributes() {
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // #[default] fn express() - called directly as express()
+        let express_fn = husk_ast::ModItem {
+            attributes: vec![husk_ast::Attribute {
+                name: ident("default", 0),
+                value: None,
+                cfg_predicate: None,
+                span: span(0, 7),
+            }],
+            kind: husk_ast::ModItemKind::Fn {
+                name: ident("express", 10),
+                params: Vec::new(),
+                ret_type: None,
+            },
+            span: span(10, 30),
+        };
+
+        // fn json() - called as express.json()
+        let json_fn = husk_ast::ModItem {
+            attributes: Vec::new(),
+            kind: husk_ast::ModItemKind::Fn {
+                name: ident("json", 40),
+                params: Vec::new(),
+                ret_type: None,
+            },
+            span: span(40, 50),
+        };
+
+        let express_mod = husk_ast::ExternItem {
+            attributes: Vec::new(),
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "express".to_string(),
+                binding: ident("express", 0),
+                items: vec![express_fn, json_fn],
+                is_global: false,
+            },
+            span: span(0, 60),
+        };
+
+        let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 70),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(70, 80),
+        };
+
+        let file = husk_ast::File {
+            items: vec![
+                husk_ast::Item {
+                    attributes: Vec::new(),
+                    visibility: husk_ast::Visibility::Private,
+                    kind: husk_ast::ItemKind::ExternBlock {
+                        abi: "js".to_string(),
+                        items: vec![express_mod],
+                    },
+                    span: span(0, 65),
+                },
+                main_fn,
+            ],
+        };
+
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Esm,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let src = module.to_source();
+
+        // Should generate default import (not named import) because #[default] is present
+        assert!(
+            src.contains("import express from \"express\";"),
+            "Expected default import, got:\n{}",
+            src
+        );
+        // Should NOT have named import
+        assert!(
+            !src.contains("import { "),
+            "Should not have named imports, got:\n{}",
+            src
+        );
+        // Should generate wrapper for json() that calls express.json()
+        assert!(
+            src.contains("function json()") && src.contains("express.json()"),
+            "Expected wrapper function for json() calling express.json(), got:\n{}",
+            src
+        );
+        // Should NOT generate wrapper for express() - it's called directly
+        assert!(
+            !src.contains("function express()"),
+            "Should not have wrapper for express(), got:\n{}",
+            src
+        );
+    }
+
+    #[test]
+    fn generates_default_import_for_mod_with_default_attribute_on_mod() {
+        // Test #[default] on the mod itself (not on functions)
+        // This pattern is for packages like validator/picocolors where the
+        // default export has methods but isn't callable itself.
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // fn isEmail(s: String) -> bool - method on default export
+        let is_email_fn = husk_ast::ModItem {
+            attributes: Vec::new(), // No #[default] on function
+            kind: husk_ast::ModItemKind::Fn {
+                name: ident("isEmail", 10),
+                params: vec![husk_ast::Param {
+                    attributes: Vec::new(),
+                    name: ident("s", 20),
+                    ty: HuskTypeExpr {
+                        kind: HuskTypeExprKind::Named(ident("String", 22)),
+                        span: span(22, 28),
+                    },
+                }],
+                ret_type: Some(HuskTypeExpr {
+                    kind: HuskTypeExprKind::Named(ident("bool", 35)),
+                    span: span(35, 39),
+                }),
+            },
+            span: span(10, 45),
+        };
+
+        // fn isAlpha(s: String) -> bool - another method on default export
+        let is_alpha_fn = husk_ast::ModItem {
+            attributes: Vec::new(), // No #[default] on function
+            kind: husk_ast::ModItemKind::Fn {
+                name: ident("isAlpha", 50),
+                params: vec![husk_ast::Param {
+                    attributes: Vec::new(),
+                    name: ident("s", 60),
+                    ty: HuskTypeExpr {
+                        kind: HuskTypeExprKind::Named(ident("String", 62)),
+                        span: span(62, 68),
+                    },
+                }],
+                ret_type: Some(HuskTypeExpr {
+                    kind: HuskTypeExprKind::Named(ident("bool", 75)),
+                    span: span(75, 79),
+                }),
+            },
+            span: span(50, 85),
+        };
+
+        // #[default] on the mod, not on functions
+        let validator_mod = husk_ast::ExternItem {
+            attributes: vec![husk_ast::Attribute {
+                name: ident("default", 0),
+                value: None,
+                cfg_predicate: None,
+                span: span(0, 7),
+            }],
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "validator".to_string(),
+                binding: ident("validator", 0),
+                items: vec![is_email_fn, is_alpha_fn],
+                is_global: false,
+            },
+            span: span(0, 100),
+        };
+
+        let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 110),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(110, 120),
+        };
+
+        let file = husk_ast::File {
+            items: vec![
+                husk_ast::Item {
+                    attributes: Vec::new(),
+                    visibility: husk_ast::Visibility::Private,
+                    kind: husk_ast::ItemKind::ExternBlock {
+                        abi: "js".to_string(),
+                        items: vec![validator_mod],
+                    },
+                    span: span(0, 105),
+                },
+                main_fn,
+            ],
+        };
+
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Esm,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let src = module.to_source();
+
+        // Should generate default import
+        assert!(
+            src.contains("import validator from \"validator\";"),
+            "Expected default import, got:\n{}",
+            src
+        );
+
+        // Should NOT have named import
+        assert!(
+            !src.contains("import { "),
+            "Should not have named imports, got:\n{}",
+            src
+        );
+
+        // Should generate wrapper functions for both isEmail and isAlpha
+        // that call validator.isEmail() and validator.isAlpha()
+        assert!(
+            src.contains("function isEmail(s)") && src.contains("validator.isEmail(s)"),
+            "Expected wrapper function for isEmail() calling validator.isEmail(s), got:\n{}",
+            src
+        );
+        assert!(
+            src.contains("function isAlpha(s)") && src.contains("validator.isAlpha(s)"),
+            "Expected wrapper function for isAlpha() calling validator.isAlpha(s), got:\n{}",
+            src
+        );
+    }
+
+    #[test]
+    fn generates_named_imports_for_mod_without_default_attribute() {
+        let span = |s: usize, e: usize| HuskSpan {
+            range: s..e,
+            file: None,
+        };
+        let ident = |name: &str, s: usize| HuskIdent {
+            name: name.to_string(),
+            span: span(s, s + name.len()),
+        };
+
+        // fn nanoid() - no #[default], should be named import
+        let nanoid_fn = husk_ast::ModItem {
+            attributes: Vec::new(),
+            kind: husk_ast::ModItemKind::Fn {
+                name: ident("nanoid", 10),
+                params: Vec::new(),
+                ret_type: None,
+            },
+            span: span(10, 30),
+        };
+
+        let nanoid_mod = husk_ast::ExternItem {
+            attributes: Vec::new(),
+            kind: husk_ast::ExternItemKind::Mod {
+                package: "nanoid".to_string(),
+                binding: ident("nanoid", 0),
+                items: vec![nanoid_fn],
+                is_global: false,
+            },
+            span: span(0, 40),
+        };
+
+        let main_fn = husk_ast::Item {
+            attributes: Vec::new(),
+            visibility: husk_ast::Visibility::Private,
+            kind: husk_ast::ItemKind::Fn {
+                name: ident("main", 50),
+                type_params: Vec::new(),
+                params: Vec::new(),
+                ret_type: None,
+                body: Vec::new(),
+            },
+            span: span(50, 60),
+        };
+
+        let file = husk_ast::File {
+            items: vec![
+                husk_ast::Item {
+                    attributes: Vec::new(),
+                    visibility: husk_ast::Visibility::Private,
+                    kind: husk_ast::ItemKind::ExternBlock {
+                        abi: "js".to_string(),
+                        items: vec![nanoid_mod],
+                    },
+                    span: span(0, 45),
+                },
+                main_fn,
+            ],
+        };
+
+        let module = lower_file_to_js(
+            &file,
+            true,
+            JsTarget::Esm,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let src = module.to_source();
+
+        // Should generate named import pattern (universal ESM/CJS compatible)
+        // The pattern is: import * as __pkg from "pkg"; const _pkg = __pkg.default || __pkg; const { fn } = _pkg;
+        assert!(
+            src.contains("import * as __nanoid from \"nanoid\";"),
+            "Expected namespace import, got:\n{}",
+            src
+        );
+        assert!(
+            src.contains("const { nanoid } = _nanoid;"),
+            "Expected destructured named import, got:\n{}",
+            src
+        );
+        // Should NOT have simple default import (that's for #[default] pattern)
+        assert!(
+            !src.contains("import nanoid from \"nanoid\";"),
+            "Should not have default import, got:\n{}",
+            src
         );
     }
 }

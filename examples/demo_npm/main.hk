@@ -12,20 +12,23 @@ use crate::types::User;
 use crate::types::ValidationError;
 
 // Import npm packages using mod blocks
-// This generates proper ES imports: import { nanoid } from "nanoid";
+// - nanoid: Named export - uses `import { nanoid } from "nanoid";`
+// - validator/picocolors: Default export with methods - uses `import validator from "validator";`
 extern "js" {
     mod nanoid {
-        fn nanoid() -> String;
+        fn nanoid() -> String;  // Named export - no #[default]
     }
 
+    #[default]
     mod validator {
-        fn isEmail(s: String) -> bool;
+        fn isEmail(s: String) -> bool;  // Method on default export
         fn isAlpha(s: String) -> bool;
         fn isLength(s: String, min: i32, max: i32) -> bool;
     }
 
+    #[default]
     mod picocolors {
-        fn green(s: String) -> String;
+        fn green(s: String) -> String;  // Method on default export
         fn red(s: String) -> String;
         fn blue(s: String) -> String;
         fn gray(s: String) -> String;

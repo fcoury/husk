@@ -527,6 +527,8 @@ impl<'src> Parser<'src> {
                 let mod_items = if self.matches_token(&TokenKind::LBrace) {
                     let mut nested = Vec::new();
                     while !self.is_at_end() && !self.matches_token(&TokenKind::RBrace) {
+                        let attributes = self.parse_attributes();
+
                         if !self.matches_keyword(Keyword::Fn) {
                             self.error_here("expected `fn` inside mod block");
                             self.synchronize_item();
@@ -565,6 +567,7 @@ impl<'src> Parser<'src> {
                             file: None,
                         };
                         nested.push(husk_ast::ModItem {
+                            attributes,
                             kind: husk_ast::ModItemKind::Fn {
                                 name: fn_name,
                                 params: fn_params,
@@ -4399,6 +4402,86 @@ mod tests {
         } else {
             panic!("expected ExternBlock");
         }
+    }
+
+    #[test]
+    fn parse_mod_declaration_with_default() {
+        let src = r#"
+            extern "js" { 
+                mod express { 
+                    #[default]
+                    fn main() -> JsValue;
+                } 
+            }
+        "#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let ItemKind::ExternBlock { items, .. } = &result.file.unwrap().items[0].kind else {
+            panic!("expected ExternBlock");
+        };
+        let husk_ast::ExternItemKind::Mod {
+            package,
+            binding,
+            items: mod_items,
+            ..
+        } = &items[0].kind
+        else {
+            panic!("expected Mod item");
+        };
+
+        let item = &mod_items[0];
+        assert_eq!(item.attributes[0].name.name, "default");
+        assert_eq!(package, "express");
+        assert_eq!(binding.name, "express");
+    }
+
+    #[test]
+    fn parse_mod_declaration_with_default_on_mod() {
+        // Test #[default] on the mod itself (not on functions)
+        // This indicates the module uses default import, all functions are methods
+        let src = r#"
+            extern "js" {
+                #[default]
+                mod validator {
+                    fn isEmail(s: String) -> bool;
+                }
+            }
+        "#;
+        let result = parse_str(src);
+        assert!(result.errors.is_empty(), "errors: {:?}", result.errors);
+        let ItemKind::ExternBlock { items, .. } = &result.file.unwrap().items[0].kind else {
+            panic!("expected ExternBlock");
+        };
+
+        // Check that the extern item (mod) has the #[default] attribute
+        let extern_item = &items[0];
+        assert_eq!(
+            extern_item.attributes.len(),
+            1,
+            "extern item should have 1 attribute"
+        );
+        assert_eq!(extern_item.attributes[0].name.name, "default");
+
+        let husk_ast::ExternItemKind::Mod {
+            package,
+            binding,
+            items: mod_items,
+            ..
+        } = &extern_item.kind
+        else {
+            panic!("expected Mod item");
+        };
+
+        assert_eq!(package, "validator");
+        assert_eq!(binding.name, "validator");
+        assert_eq!(mod_items.len(), 1);
+
+        // The function should NOT have any attributes
+        let fn_item = &mod_items[0];
+        assert!(
+            fn_item.attributes.is_empty(),
+            "function should have no attributes"
+        );
     }
 
     #[test]
