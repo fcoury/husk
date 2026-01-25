@@ -2914,33 +2914,22 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             // methods (non-extern) should take effect in the future, this guard needs to
             // be relaxed or the PropertyAccessors documentation updated accordingly.
             let js_name_override = if is_extern_method {
-                // Try type-specific lookup first (e.g., String.len -> length, Map.len -> size)
+                // Try type-specific lookup (e.g., String.len -> length, Map.len -> size)
+                // Do NOT fall back to any-type lookup when receiver type is known,
+                // as that would incorrectly apply stdlib overrides to user types
+                // (e.g., JsValue.get would incorrectly become Map's __husk_map_get)
                 if let Some(ref base_type) = receiver_base_type {
                     ctx.accessors
                         .method_js_names
                         .get(&(base_type.clone(), base_method_name.clone()))
                         .cloned()
-                        .or_else(|| {
-                            // Fall back to any-type lookup for backwards compatibility
-                            ctx.accessors
-                                .method_js_names
-                                .iter()
-                                .find(|((_, m), _)| m == &base_method_name)
-                                .map(|(_, js_name)| js_name.clone())
-                        })
                 } else if receiver_is_string {
                     ctx.accessors
                         .method_js_names
                         .get(&("String".to_string(), base_method_name.clone()))
                         .cloned()
-                        .or_else(|| {
-                            ctx.accessors
-                                .method_js_names
-                                .iter()
-                                .find(|((_, m), _)| m == &base_method_name)
-                                .map(|(_, js_name)| js_name.clone())
-                        })
                 } else {
+                    // Only use any-type lookup when receiver type is completely unknown
                     ctx.accessors
                         .method_js_names
                         .iter()
