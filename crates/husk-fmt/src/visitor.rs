@@ -526,6 +526,16 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_extern_item(&mut self, item: &ExternItem) {
+        // Emit leading trivia for the first attribute if present,
+        // since the item span starts AFTER attributes
+        if let Some(first_attr) = item.attributes.first() {
+            self.emit_leading_trivia(&first_attr.span);
+        }
+        // Format attributes (e.g., #[default])
+        for attr in &item.attributes {
+            self.format_attribute(attr);
+        }
+
         match &item.kind {
             ExternItemKind::Fn {
                 name,
@@ -657,6 +667,16 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_mod_item(&mut self, item: &ModItem) {
+        // Emit leading trivia for the first attribute if present,
+        // since the item span starts AFTER attributes
+        if let Some(first_attr) = item.attributes.first() {
+            self.emit_leading_trivia(&first_attr.span);
+        }
+        // Format attributes (e.g., #[default])
+        for attr in &item.attributes {
+            self.format_attribute(attr);
+        }
+
         match &item.kind {
             ModItemKind::Fn {
                 name,
@@ -872,6 +892,15 @@ impl<'a> Formatter<'a> {
     fn format_impl_item(&mut self, item: &ImplItem, span_end: usize) {
         match &item.kind {
             ImplItemKind::Method(method) => {
+                // Format attributes (e.g., #[js_name = "use"])
+                // Emit leading trivia for the first attribute if present,
+                // since the item span starts AFTER attributes
+                if let Some(first_attr) = method.attributes.first() {
+                    self.emit_leading_trivia(&first_attr.span);
+                }
+                for attr in &method.attributes {
+                    self.format_attribute(attr);
+                }
                 self.write_indent();
                 if method.is_extern {
                     self.write("extern \"js\" ");
@@ -917,6 +946,11 @@ impl<'a> Formatter<'a> {
                 self.newline();
             }
             ImplItemKind::Property(prop) => {
+                // Emit leading trivia for the first attribute if present,
+                // since the item span starts AFTER attributes
+                if let Some(first_attr) = prop.attributes.first() {
+                    self.emit_leading_trivia(&first_attr.span);
+                }
                 for attr in &prop.attributes {
                     self.format_attribute(attr);
                 }

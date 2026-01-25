@@ -456,4 +456,148 @@ pub struct User {
             result
         );
     }
+
+    #[test]
+    fn test_impl_method_attributes_preserved() {
+        // Regression test: #[js_name] attributes on impl methods must be preserved
+        let source = r#"impl JsValue {
+    #[js_name = "use"]
+    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains(r#"#[js_name = "use"]"#),
+            "Impl method attributes should be preserved. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_extern_item_default_attribute_preserved() {
+        // Regression test: #[default] attributes on extern items must be preserved
+        let source = r#"extern "js" {
+    #[default]
+    mod express {
+        fn express() -> JsValue;
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("#[default]"),
+            "Extern item #[default] attribute should be preserved. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_mod_item_default_attribute_preserved() {
+        // Regression test: #[default] attributes on mod items must be preserved
+        let source = r#"extern "js" {
+    mod express {
+        #[default]
+        fn express() -> JsValue;
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("#[default]"),
+            "Mod item #[default] attribute should be preserved. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_impl_block_comments_preserved() {
+        // Regression test: comments between impl items must be preserved
+        let source = r#"impl JsValue {
+    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
+    extern "js" fn listen(self, port: f64) -> JsValue;
+
+    // Response methods
+
+    extern "js" fn res_json(self, body: JsValue) -> JsValue;
+    extern "js" fn send(self, body: String) -> JsValue;
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        // The comment should be on its own line with a blank line before it
+        assert!(
+            result.contains("\n\n    // Response methods\n"),
+            "Comments between impl items should be preserved with surrounding blank lines. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_impl_block_comments_with_attributes_preserved() {
+        // Regression test: comments before attributed impl items must be preserved
+        let source = r#"impl JsValue {
+    #[js_name = "use"]
+    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
+    extern "js" fn listen(self, port: f64) -> JsValue;
+
+    // Response methods
+
+    #[js_name = "json"]
+    extern "js" fn res_json(self, body: JsValue) -> JsValue;
+    extern "js" fn send(self, body: String) -> JsValue;
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("// Response methods"),
+            "Comments between impl items should be preserved. Got:\n{}",
+            result
+        );
+        // Verify comment comes before the attribute
+        let comment_pos = result.find("// Response methods").unwrap_or(0);
+        let attr_pos = result.find(r#"#[js_name = "json"]"#).unwrap_or(0);
+        assert!(
+            comment_pos < attr_pos,
+            "Comment should appear before the #[js_name] attribute. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_extern_block_comments_with_attributes_preserved() {
+        // Regression test: comments before attributed extern items must be preserved
+        let source = r#"extern "js" {
+    mod nanoid {
+        fn nanoid() -> String;
+    }
+
+    // Validation library
+
+    #[default]
+    mod validator {
+        fn isEmail(s: String) -> bool;
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("// Validation library"),
+            "Comments between extern items should be preserved. Got:\n{}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_mod_block_comments_with_attributes_preserved() {
+        // Regression test: comments before attributed mod items must be preserved
+        let source = r#"extern "js" {
+    mod mymodule {
+        fn regular() -> JsValue;
+
+        // Default export function
+
+        #[default]
+        fn default_fn() -> JsValue;
+    }
+}"#;
+        let result = format_str(source, &FormatConfig::default()).unwrap();
+        assert!(
+            result.contains("// Default export function"),
+            "Comments between mod items should be preserved. Got:\n{}",
+            result
+        );
+    }
 }
