@@ -1,23 +1,64 @@
 // Express.js + SQLite Todo API in Husk
 //
 // This example demonstrates:
-// - Cross-module imports of extern blocks and impl blocks
-// - First-class property declarations with #[getter] attribute
-// - Natural property access: req.body, req.params, result.changes
+// - npm package integration with extern "js" blocks
 // - JsValue null checking: jsvalue_isNull() for checking missing values
 // - JsObject construction: JsObject_new().setString()
-// - npm package integration with extern "js" blocks
+// - Default module imports with #[default] attribute
 
-// Import Express.js bindings
-use crate::express::Express;
-use crate::express::Request;
-use crate::express::Response;
-use crate::express::json;
+// External bindings for Express.js
+extern "js" {
+    #[default]
+    mod express {
+        #[default]
+        fn express() -> JsValue;
+        fn json() -> JsValue;
+    }
+}
 
-// Import better-sqlite3 bindings
-use crate::database::Database;
-use crate::database::Statement;
-use crate::database::RunResult;
+// External bindings for better-sqlite3
+extern "js" {
+    #[default]
+    mod "better-sqlite3" as better_sqlite3 {
+        #[default]
+        fn better_sqlite3(filename: String) -> JsValue;
+    }
+}
+
+// JsValue methods for Express app, response, and SQLite
+impl JsValue {
+    // Express app methods
+    extern "js" fn get(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    extern "js" fn post(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    extern "js" fn put(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    extern "js" fn delete(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    #[js_name = "use"]
+    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
+    extern "js" fn listen(self, port: f64, callback: fn() -> ()) -> JsValue;
+
+    // Response methods
+
+    #[js_name = "json"]
+    extern "js" fn res_json(self, body: JsValue) -> JsValue;
+    extern "js" fn send(self, body: String) -> JsValue;
+    extern "js" fn status(self, code: f64) -> JsValue;
+
+    // SQLite Database methods
+    extern "js" fn exec(self, sql: String) -> JsValue;
+    extern "js" fn prepare(self, sql: String) -> JsValue;
+
+    // SQLite Statement methods
+    extern "js" fn all(self) -> JsValue;
+    #[js_name = "run"]
+    extern "js" fn run1(self, p1: f64) -> JsValue;
+    #[js_name = "run"]
+    extern "js" fn run2(self, p1: String, p2: f64) -> JsValue;
+    #[js_name = "run"]
+    extern "js" fn run3(self, p1: String, p2: f64, p3: f64) -> JsValue;
+    #[js_name = "get"]
+    extern "js" fn get1(self, p1: f64) -> JsValue;
+}
+
 // Helper to extract string from JsValue, returns empty string if not found
 fn get_string_or_empty(obj: JsValue, key: String) -> String {
     let val = jsvalue_get(obj, key);
@@ -32,19 +73,19 @@ fn get_string_or_empty(obj: JsValue, key: String) -> String {
 fn get_bool_as_number(obj: JsValue, key: String) -> f64 {
     let val = jsvalue_get(obj, key);
     if jsvalue_isNull(val) {
-        0
+        0.0
     } else {
         if jsvalue_toBool(val) {
-            1
+            1.0
         } else {
-            0
+            0.0
         }
     }
 }
 
 fn main() {
     // Initialize database
-    let db = better_sqlite3("todos.db", None);
+    let db = better_sqlite3("todos.db");
     db.exec("CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0)");
 
     // Prepare statements
@@ -61,7 +102,7 @@ fn main() {
     // GET /todos - List all todos
     app.get("/todos", |req: JsValue, res: JsValue| {
         let todos = select_all_stmt.all();
-        res.json(todos);
+        res.res_json(todos);
     });
 
     // GET /todos/:id - Get single todo
@@ -70,15 +111,15 @@ fn main() {
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400).json(err);
+            res.status(400.0).res_json(err);
         } else {
             let id = parseFloat(id_str);
-            let todo = select_one_stmt.get(id);
+            let todo = select_one_stmt.get1(id);
             if jsvalue_isNull(todo) {
                 let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                res.status(404).json(err);
+                res.status(404.0).res_json(err);
             } else {
-                res.json(todo);
+                res.res_json(todo);
             }
         }
     });
@@ -89,12 +130,12 @@ fn main() {
         let title = get_string_or_empty(body, "title");
         if title == "" {
             let err = JsObject_new().setString("error", "Title is required").toJsValue();
-            res.status(400).json(err);
+            res.status(400.0).res_json(err);
         } else {
-            let result = insert_stmt.run2(title, 0);
+            let result = insert_stmt.run2(title, 0.0);
             let id = jsvalue_get(result, "lastInsertRowid");
-            let response = JsObject_new().setJsValue("id", id).toJsValue();
-            res.status(201).json(response);
+            let response = JsObject_new().set("id", id).toJsValue();
+            res.status(201.0).res_json(response);
         }
     });
 
@@ -105,23 +146,23 @@ fn main() {
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400).json(err);
+            res.status(400.0).res_json(err);
         } else {
             let id = parseFloat(id_str);
             let title = get_string_or_empty(body, "title");
             if title == "" {
                 let err = JsObject_new().setString("error", "Title is required").toJsValue();
-                res.status(400).json(err);
+                res.status(400.0).res_json(err);
             } else {
                 let completed_int = get_bool_as_number(body, "completed");
                 let result = update_stmt.run3(title, completed_int, id);
                 let changes = jsvalue_toNumber(jsvalue_get(result, "changes"));
                 if changes > 0.0 {
                     let response = JsObject_new().setNumber("id", id).toJsValue();
-                    res.json(response);
+                    res.res_json(response);
                 } else {
                     let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                    res.status(404).json(err);
+                    res.status(404.0).res_json(err);
                 }
             }
         }
@@ -133,22 +174,22 @@ fn main() {
         let id_str = get_string_or_empty(params, "id");
         if id_str == "" {
             let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400).json(err);
+            res.status(400.0).res_json(err);
         } else {
             let id = parseFloat(id_str);
             let result = delete_stmt.run1(id);
             let changes = jsvalue_toNumber(jsvalue_get(result, "changes"));
             if changes > 0.0 {
-                res.status(204).send("");
+                res.status(204.0).send("");
             } else {
                 let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                res.status(404).json(err);
+                res.status(404.0).res_json(err);
             }
         }
     });
 
     // Start server
-    app.listen(3000, || {
+    app.listen(3000.0, || {
         println("Server running at http://localhost:3000");
     });
 }

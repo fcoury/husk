@@ -1,260 +1,37 @@
-// Auto-generated from .d.ts file
-// Some types may be simplified - see warnings below
+// Simplified Express.js bindings for Husk
+// Uses JsValue for most types since extern struct typing has limitations
 
 extern "js" {
-    // Hybrid module: function + namespace merged
-    mod "express" as express_js;
+    #[default]
+    mod express {
+        // Main entry point - creates Express app
+        fn express() -> JsValue;
 
-    // e is the callable entry point
-    #[module_call = "express_js"]
-    fn express() -> JsValue;
-
-    struct Application;
-    struct CookieOptions;
-    struct Errback;
-    struct ErrorRequestHandler<P, ResBody, ReqBody, ReqQuery, Locals>;
-    struct Express;
-    struct Handler;
-    struct IRoute;
-    struct IRouter;
-    struct IRouterHandler<T>;
-    struct IRouterMatcher<T>;
-    struct Locals;
-    struct MediaType;
-    struct NextFunction;
-    struct Request<P, ResBody, ReqBody, ReqQuery, Locals>;
-    struct RequestHandler<P, ResBody, ReqBody, ReqQuery, Locals>;
-    struct RequestParamHandler;
-    struct Response<ResBody, Locals>;
-    struct Router;
-    struct RouterOptions;
-    struct Send;
-
-    // variable
-    #[ns = "express_js"]
-    fn application() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn json() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn raw() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn request() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn response() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn static_() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn text() -> JsValue;
-    // variable
-    #[ns = "express_js"]
-    fn urlencoded() -> JsValue;
+        // Middleware
+        fn json() -> JsValue;
+        fn urlencoded() -> JsValue;
+        fn static_(path: String) -> JsValue;
+    }
 }
 
-impl Application {
-    extern "js" fn enable(self, setting: String) -> Application;
-    extern "js" fn disabled(self, setting: String) -> bool;
-    // merged from 2 overloads
-    extern "js" fn render(self, name: String, options: Option<JsValue>, callback: Option<fn(JsValue, String) -> ()>);
-    extern "js" fn defaultConfiguration(self);
-    extern "js" fn init(self);
-    extern "js" fn enabled(self, setting: String) -> bool;
-    extern "js" fn disable(self, setting: String) -> Application;
-    // merged from 6 overloads
-    extern "js" fn listen(self, port: f64, hostname: Option<String>, backlog: Option<f64>, callback: Option<fn(JsValue) -> ()>) -> JsValue;
-    extern "js" fn engine(self, ext: String, fn_: fn(String, JsValue, fn(JsValue, String) -> ()) -> ()) -> Application;
-    extern "js" fn param(self, name: JsValue, handler: fn(Request<JsValue, JsValue, JsValue, JsValue, JsValue>, Response<JsValue, JsValue>, NextFunction, JsValue, String) -> JsValue) -> Application;
-    extern "js" fn set(self, setting: String, val: JsValue) -> Application;
-    extern "js" fn path(self) -> String;
-    // inherited from EventEmitter
-    extern "js" fn off(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn removeAllListeners(self, eventName: Option<JsValue>) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn once(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn rawListeners(self, eventName: JsValue) -> JsArray<JsValue>;
-    // inherited from EventEmitter
-    extern "js" fn getMaxListeners(self) -> f64;
-    // inherited from EventEmitter
-    extern "js" fn prependListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn on(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn listeners(self, eventName: JsValue) -> JsArray<JsValue>;
-    // inherited from EventEmitter
-    extern "js" fn emit(self, eventName: JsValue, args: (JsArray<JsValue>)) -> bool;
-    // inherited from EventEmitter
-    extern "js" fn removeListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn eventNames(self) -> JsArray<JsValue>;
-    // inherited from EventEmitter
-    extern "js" fn listenerCount(self, eventName: JsValue, listener: Option<JsValue>) -> f64;
-    // inherited from EventEmitter
-    extern "js" fn addListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn setMaxListeners(self, n: f64) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn prependOnceListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from IRouter
-    extern "js" fn route(self, prefix: JsValue) -> JsValue;
-}
+// Application methods - defined on JsValue since express() returns JsValue
+impl JsValue {
+    // HTTP routing methods
+    extern "js" fn get(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    extern "js" fn post(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    extern "js" fn put(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+    extern "js" fn delete(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
 
-impl Express {
-    // inherited from Application
-    extern "js" fn enable(self, setting: String) -> Application;
-    // inherited from Application
-    extern "js" fn disabled(self, setting: String) -> bool;
-    // inherited from Application
-    extern "js" fn render(self, name: String, options: Option<JsValue>, callback: Option<fn(JsValue, String) -> ()>);
-    // inherited from Application
-    extern "js" fn defaultConfiguration(self);
-    // inherited from Application
-    extern "js" fn init(self);
-    // inherited from Application
-    extern "js" fn enabled(self, setting: String) -> bool;
-    // inherited from Application
-    extern "js" fn disable(self, setting: String) -> Application;
-    // inherited from Application
-    extern "js" fn listen(self, port: f64, hostname: Option<String>, backlog: Option<f64>, callback: Option<fn(JsValue) -> ()>) -> JsValue;
-    // inherited from Application
-    extern "js" fn engine(self, ext: String, fn_: fn(String, JsValue, fn(JsValue, String) -> ()) -> ()) -> Application;
-    // inherited from Application
-    extern "js" fn param(self, name: JsValue, handler: fn(Request<JsValue, JsValue, JsValue, JsValue, JsValue>, Response<JsValue, JsValue>, NextFunction, JsValue, String) -> JsValue) -> Application;
-    // inherited from Application
-    extern "js" fn set(self, setting: String, val: JsValue) -> Application;
-    // inherited from Application
-    extern "js" fn path(self) -> String;
-    // inherited from EventEmitter
-    extern "js" fn off(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn removeAllListeners(self, eventName: Option<JsValue>) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn once(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn rawListeners(self, eventName: JsValue) -> JsArray<JsValue>;
-    // inherited from EventEmitter
-    extern "js" fn getMaxListeners(self) -> f64;
-    // inherited from EventEmitter
-    extern "js" fn prependListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn on(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn listeners(self, eventName: JsValue) -> JsArray<JsValue>;
-    // inherited from EventEmitter
-    extern "js" fn emit(self, eventName: JsValue, args: (JsArray<JsValue>)) -> bool;
-    // inherited from EventEmitter
-    extern "js" fn removeListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn eventNames(self) -> JsArray<JsValue>;
-    // inherited from EventEmitter
-    extern "js" fn listenerCount(self, eventName: JsValue, listener: Option<JsValue>) -> f64;
-    // inherited from EventEmitter
-    extern "js" fn addListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn setMaxListeners(self, n: f64) -> EventEmitter;
-    // inherited from EventEmitter
-    extern "js" fn prependOnceListener(self, eventName: JsValue, listener: JsValue) -> EventEmitter;
-    // inherited from IRouter
-    extern "js" fn route(self, prefix: JsValue) -> JsValue;
-}
+    // Middleware - 'use' is a reserved keyword in Husk
+    #[js_name = "use"]
+    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
 
-impl IRouter {
-    extern "js" fn param(self, name: String, handler: RequestParamHandler) -> IRouter;
-    // merged from 2 overloads
-    extern "js" fn route(self, prefix: JsValue) -> JsValue;
-}
+    // Start server
+    extern "js" fn listen(self, port: f64, callback: fn() -> ()) -> JsValue;
 
-impl Request {
-    // merged from 4 overloads
-    extern "js" fn acceptsEncodings(self, encoding: Option<String>) -> JsValue;
-    // merged from 2 overloads
-    extern "js" fn get(self, name: String) -> Option<JsArray<String>>;
-    extern "js" fn is(self, type_: JsValue) -> JsValue;
-    // merged from 4 overloads
-    extern "js" fn acceptsCharsets(self, charset: Option<String>) -> JsValue;
-    // merged from 4 overloads
-    extern "js" fn acceptsLanguages(self, lang: Option<String>) -> JsValue;
-    // merged from 2 overloads
-    extern "js" fn header(self, name: String) -> Option<JsArray<String>>;
-    extern "js" fn range(self, size: f64, options: Option<JsValue>) -> JsValue;
-    // merged from 4 overloads
-    extern "js" fn accepts(self, type_: Option<String>) -> JsValue;
-    // inherited from BodyMixin
-    extern "js" fn bytes(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn blob(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn json(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn text(self) -> JsPromise<String>;
-    // inherited from BodyMixin
-    extern "js" fn arrayBuffer(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn formData(self) -> JsPromise<()>;
-}
-
-impl Response {
-    // merged from 2 overloads
-    extern "js" fn redirect(self, status: f64, url: Option<String>);
-    // merged from 3 overloads
-    extern "js" fn cookie(self, name: String, val: String, options: Option<CookieOptions>) -> Response;
-    extern "js" fn clearCookie(self, name: String, options: Option<CookieOptions>) -> Response;
-    extern "js" fn links(self, links: JsValue) -> Response;
-    // merged from 2 overloads
-    extern "js" fn sendFile(self, path: String, options: JsValue, fn_: Option<fn(JsValue) -> ()>);
-    extern "js" fn append(self, field: String, value: Option<JsValue>) -> Response;
-    extern "js" fn sendStatus(self, code: StatusCode) -> Response;
-    extern "js" fn attachment(self, filename: Option<String>) -> Response;
-    // merged from 2 overloads
-    extern "js" fn render(self, view: String, options: Option<JsValue>, callback: Option<fn(JsValue, String) -> ()>);
-    extern "js" fn format(self, obj: JsValue) -> Response;
-    // merged from 2 overloads
-    extern "js" fn set(self, field: String, value: Option<JsValue>) -> Response;
-    // merged from 3 overloads
-    extern "js" fn download(self, path: String, filename: String, options: Option<JsValue>, fn_: Option<fn(JsValue) -> ()>);
-    extern "js" fn contentType(self, type_: String) -> Response;
-    // merged from 2 overloads
-    extern "js" fn header(self, field: String, value: Option<JsValue>) -> Response;
-    extern "js" fn get(self, field: String) -> Option<String>;
-    extern "js" fn type_(self, type_: String) -> Response;
-    extern "js" fn location(self, url: String) -> Response;
-    extern "js" fn vary(self, field: String) -> Response;
-    extern "js" fn status(self, code: StatusCode) -> Response;
-    // inherited from BodyMixin
-    extern "js" fn bytes(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn blob(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn json(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn text(self) -> JsPromise<String>;
-    // inherited from BodyMixin
-    extern "js" fn arrayBuffer(self) -> JsPromise<JsValue>;
-    // inherited from BodyMixin
-    extern "js" fn formData(self) -> JsPromise<()>;
-}
-
-impl Router {
-    // inherited from IRouter
-    extern "js" fn param(self, name: String, handler: RequestParamHandler) -> IRouter;
-    // inherited from IRouter
-    extern "js" fn route(self, prefix: JsValue) -> JsValue;
-}
-
-impl RouterOptions {
-    #[getter]
-    #[setter]
-    extern "js" caseSensitive: Option<Option<bool>>;
-    #[getter]
-    #[setter]
-    extern "js" mergeParams: Option<Option<bool>>;
-    #[getter]
-    #[setter]
-    extern "js" strict: Option<Option<bool>>;
+    // Response methods
+    extern "js" fn json(self, body: JsValue) -> JsValue;
+    extern "js" fn send(self, body: String) -> JsValue;
+    extern "js" fn status(self, code: f64) -> JsValue;
+    extern "js" fn sendStatus(self, code: f64) -> JsValue;
 }
