@@ -34,7 +34,7 @@ fn parse_id(req: Request) -> f64 {
 fn require_id(req: Request, res: Response) -> Option<f64> {
     let id_str = request_param_string(req, "id");
     if id_str == "" {
-        response_error(res, 400.0, "Invalid ID");
+        response_error(res, 400, "Invalid ID");
         None
     } else {
         Some(parseFloat(id_str))
@@ -44,7 +44,7 @@ fn require_id(req: Request, res: Response) -> Option<f64> {
 fn require_title(req: Request, res: Response) -> Option<String> {
     let title = request_body_string(req, "title");
     if title == "" {
-        response_error(res, 400.0, "Title is required");
+        response_error(res, 400, "Title is required");
         None
     } else {
         Some(title)
@@ -59,11 +59,11 @@ fn install_routes(app: ExpressApp, statements: TodoStatements) {
     app.get("/todos/:id", |req: Request, res: Response| {
         let id = parse_id(req);
         if id == 0.0 {
-            response_error(res, 400.0, "Invalid ID");
+            response_error(res, 400, "Invalid ID");
         } else {
             let todo = statements.find(id);
             if jsvalue_isNull(todo) || jsvalue_isUndefined(todo) {
-                response_error(res, 404.0, "Todo not found");
+                response_error(res, 404, "Todo not found");
             } else {
                 response_json(res, todo);
             }
@@ -75,7 +75,7 @@ fn install_routes(app: ExpressApp, statements: TodoStatements) {
         match title {
             Some(value) => {
                 let id = statements.create(value);
-                response_id(res, 201.0, id);
+                response_id(res, 201, id);
             },
             None => {},
         }
@@ -90,9 +90,9 @@ fn install_routes(app: ExpressApp, statements: TodoStatements) {
                     Some(title_value) => {
                         let completed = request_body_bool_as_number(req, "completed");
                         if statements.update(value, title_value, completed) {
-                            response_id(res, 200.0, value);
+                            response_id(res, 200, value);
                         } else {
-                            response_error(res, 404.0, "Todo not found");
+                            response_error(res, 404, "Todo not found");
                         }
                     },
                     None => {},
@@ -107,9 +107,9 @@ fn install_routes(app: ExpressApp, statements: TodoStatements) {
         match id {
             Some(value) => {
                 if statements.delete(value) {
-                    res.status(204.0).send("");
+                    res.status(204).send("");
                 } else {
-                    response_error(res, 404.0, "Todo not found");
+                    response_error(res, 404, "Todo not found");
                 }
             },
             None => {},
@@ -125,7 +125,7 @@ fn main() {
     app.use_middleware(json_middleware());
     install_routes(app, statements);
 
-    app.listen(3000.0, || {
+    app.listen(3000, || {
         println("Server running at http://localhost:3000");
     });
 }

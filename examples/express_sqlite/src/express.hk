@@ -57,7 +57,7 @@ pub fn request_body_bool_as_number(req: Request, key: String) -> f64 {
     }
 }
 
-pub fn response_error(res: Response, code: f64, message: String) {
+pub fn response_error(res: Response, code: i32, message: String) {
     let body = JsObject_new().setString("error", message).toJsValue();
     res.status(code).json_response(body);
 }
@@ -66,7 +66,7 @@ pub fn response_json(res: Response, body: JsValue) {
     res.json_response(body);
 }
 
-pub fn response_id(res: Response, code: f64, id: f64) {
+pub fn response_id(res: Response, code: i32, id: f64) {
     let body = JsObject_new().setNumber("id", id).toJsValue();
     res.status(code).json_response(body);
 }
@@ -80,7 +80,7 @@ impl ExpressApp {
     #[js_name = "use"]
     extern "js" fn use_middleware(self, middleware: Middleware) -> ExpressApp;
 
-    extern "js" fn listen(self, port: f64, callback: fn() -> ()) -> ExpressApp;
+    extern "js" fn listen(self, port: i32, callback: fn() -> ()) -> ExpressApp;
 }
 
 impl Request {
@@ -96,5 +96,5 @@ impl Response {
     extern "js" fn json_response(self, body: JsValue) -> Response;
 
     extern "js" fn send(self, body: String) -> Response;
-    extern "js" fn status(self, code: f64) -> Response;
+    extern "js" fn status(self, code: i32) -> Response;
 }
