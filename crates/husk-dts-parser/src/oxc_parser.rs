@@ -1013,7 +1013,7 @@ impl<'a> DtsVisitor<'a> {
 
         decl.declarations
             .iter()
-            .filter_map(|d| {
+            .map(|d| {
                 let name = self.binding_pattern_name(&d.id);
                 let ty =
                     d.id.type_annotation
@@ -1021,7 +1021,7 @@ impl<'a> DtsVisitor<'a> {
                         .map(|ta| self.convert_type(&ta.type_annotation))
                         .unwrap_or(DtsType::Primitive(Primitive::Any));
 
-                Some(DtsVariable { name, ty, is_const })
+                DtsVariable { name, ty, is_const }
             })
             .collect()
     }

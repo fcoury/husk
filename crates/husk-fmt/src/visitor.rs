@@ -34,6 +34,11 @@ pub struct Formatter<'a> {
     at_line_start: bool,
 }
 
+struct FnFormatOptions {
+    has_visibility: bool,
+    span_end: usize,
+}
+
 impl<'a> Formatter<'a> {
     pub fn new(config: &'a FormatConfig, trivia_map: &'a TriviaMap) -> Self {
         Self {
@@ -207,8 +212,10 @@ impl<'a> Formatter<'a> {
                     params,
                     ret_type,
                     body,
-                    item.visibility == Visibility::Public,
-                    item.span.range.end,
+                    FnFormatOptions {
+                        has_visibility: item.visibility == Visibility::Public,
+                        span_end: item.span.range.end,
+                    },
                 );
             }
             ItemKind::Struct {
@@ -320,10 +327,9 @@ impl<'a> Formatter<'a> {
         params: &[Param],
         ret_type: &Option<TypeExpr>,
         body: &[Stmt],
-        has_visibility: bool,
-        span_end: usize,
+        options: FnFormatOptions,
     ) {
-        if !has_visibility {
+        if !options.has_visibility {
             self.write_indent();
         }
         self.write("fn ");
@@ -374,7 +380,7 @@ impl<'a> Formatter<'a> {
         self.newline();
         self.indent += 1;
         self.format_stmts(body);
-        self.emit_block_end_trivia(span_end);
+        self.emit_block_end_trivia(options.span_end);
         self.indent -= 1;
         self.write_indent();
         self.write("}");
@@ -826,11 +832,11 @@ impl<'a> Formatter<'a> {
                     self.write(" -> ");
                     self.format_type(ret);
                 }
-                if method.default_body.is_some() {
+                if let Some(default_body) = &method.default_body {
                     self.write(" {");
                     self.newline();
                     self.indent += 1;
-                    self.format_stmts(method.default_body.as_ref().unwrap());
+                    self.format_stmts(default_body);
                     self.emit_block_end_trivia(span_end);
                     self.indent -= 1;
                     self.write_indent();
@@ -1804,12 +1810,12 @@ impl<'a> Formatter<'a> {
 
         let mut positions = HashSet::new();
         for segment in segments {
-            if let FormatSegment::Placeholder(ph) = segment {
-                if ph.name.is_some() {
-                    // Named placeholders have their position assigned by the parser
-                    if let Some(pos) = ph.position {
-                        positions.insert(pos);
-                    }
+            if let FormatSegment::Placeholder(ph) = segment
+                && ph.name.is_some()
+            {
+                // Named placeholders have their position assigned by the parser
+                if let Some(pos) = ph.position {
+                    positions.insert(pos);
                 }
             }
         }

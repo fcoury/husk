@@ -314,13 +314,13 @@ impl ResolvedModule {
             (false, false, false, false) => {
                 // Check for variable declarations that might be callable
                 for item in &file.items {
-                    if let DtsItem::Variable(v) = item {
-                        if v.name == symbol_name {
-                            // A variable could be a function or object, treat as namespace
-                            return ModuleIdentity::Namespace {
-                                name: symbol_name.to_string(),
-                            };
-                        }
+                    if let DtsItem::Variable(v) = item
+                        && v.name == symbol_name
+                    {
+                        // A variable could be a function or object, treat as namespace
+                        return ModuleIdentity::Namespace {
+                            name: symbol_name.to_string(),
+                        };
                     }
                 }
                 // Default to standard module if we can't find the symbol
@@ -433,10 +433,10 @@ impl Resolver {
             }
 
             // Check max depth
-            if let Some(max_depth) = self.options.max_depth {
-                if depth > max_depth {
-                    continue;
-                }
+            if let Some(max_depth) = self.options.max_depth
+                && depth > max_depth
+            {
+                continue;
             }
 
             processed.insert(path.clone());
@@ -696,10 +696,10 @@ impl Resolver {
         match ty {
             // import("module").Type - argument is a TSType, extract string literal
             TSType::TSImportType(import_type) => {
-                if let Some(source) = self.extract_string_from_type(&import_type.argument) {
-                    if seen.insert(source.clone()) {
-                        imports.push(source);
-                    }
+                if let Some(source) = self.extract_string_from_type(&import_type.argument)
+                    && seen.insert(source.clone())
+                {
+                    imports.push(source);
                 }
                 // Also check type arguments
                 if let Some(type_args) = &import_type.type_arguments {
@@ -775,12 +775,11 @@ impl Resolver {
 
             TSType::TSTypeQuery(query) => {
                 // Check if the query references an import
-                if let TSTypeQueryExprName::TSImportType(import_type) = &query.expr_name {
-                    if let Some(source) = self.extract_string_from_type(&import_type.argument) {
-                        if seen.insert(source.clone()) {
-                            imports.push(source);
-                        }
-                    }
+                if let TSTypeQueryExprName::TSImportType(import_type) = &query.expr_name
+                    && let Some(source) = self.extract_string_from_type(&import_type.argument)
+                    && seen.insert(source.clone())
+                {
+                    imports.push(source);
                 }
             }
 
@@ -798,10 +797,10 @@ impl Resolver {
 
     /// Extract a string from a TSType (for import type arguments).
     fn extract_string_from_type(&self, ty: &TSType<'_>) -> Option<String> {
-        if let TSType::TSLiteralType(lit) = ty {
-            if let TSLiteral::StringLiteral(s) = &lit.literal {
-                return Some(s.value.to_string());
-            }
+        if let TSType::TSLiteralType(lit) = ty
+            && let TSLiteral::StringLiteral(s) = &lit.literal
+        {
+            return Some(s.value.to_string());
         }
         None
     }
@@ -824,12 +823,11 @@ impl Resolver {
             _ => {
                 // The element itself is a type - try to match it as TSType
                 // Since TSTupleElement inherits TSType variants, we check for TSImportType etc.
-                if let TSTupleElement::TSImportType(import_type) = elem {
-                    if let Some(source) = self.extract_string_from_type(&import_type.argument) {
-                        if seen.insert(source.clone()) {
-                            imports.push(source);
-                        }
-                    }
+                if let TSTupleElement::TSImportType(import_type) = elem
+                    && let Some(source) = self.extract_string_from_type(&import_type.argument)
+                    && seen.insert(source.clone())
+                {
+                    imports.push(source);
                 }
                 // For other inherited TSType variants, recursively handle via TSType
                 // by extracting the inner type if it's a named tuple member
@@ -919,11 +917,11 @@ impl Resolver {
                 }
             }
             // /// <reference types="..." /> (for @types packages)
-            else if trimmed.starts_with("/// <reference types=") {
-                if let Some(types) = extract_reference_types(trimmed) {
-                    // Convert to @types package reference
-                    references.push(format!("@types/{}", types));
-                }
+            else if trimmed.starts_with("/// <reference types=")
+                && let Some(types) = extract_reference_types(trimmed)
+            {
+                // Convert to @types package reference
+                references.push(format!("@types/{}", types));
             }
         }
 
@@ -963,10 +961,10 @@ impl Resolver {
 
         while let Some(dir) = search_dir {
             let node_modules = dir.join("node_modules");
-            if node_modules.exists() {
-                if let Some(resolved) = self.resolve_in_node_modules(&node_modules, package) {
-                    return Some(resolved);
-                }
+            if node_modules.exists()
+                && let Some(resolved) = self.resolve_in_node_modules(&node_modules, package)
+            {
+                return Some(resolved);
             }
             search_dir = dir.parent();
         }
@@ -991,12 +989,12 @@ impl Resolver {
 
         // Try package.json "types" or "typings" field
         let package_json = package_dir.join("package.json");
-        if package_json.exists() {
-            if let Some(types_path) = self.read_types_field(&package_json) {
-                let resolved = package_dir.join(&types_path);
-                if resolved.exists() {
-                    return Some(resolved);
-                }
+        if package_json.exists()
+            && let Some(types_path) = self.read_types_field(&package_json)
+        {
+            let resolved = package_dir.join(&types_path);
+            if resolved.exists() {
+                return Some(resolved);
             }
         }
 
@@ -1007,7 +1005,7 @@ impl Resolver {
         }
 
         // Try package_name.d.ts (for scoped packages, use the package name)
-        let basename = package.split('/').last().unwrap_or(package);
+        let basename = package.split('/').next_back().unwrap_or(package);
         let named_dts = package_dir.join(format!("{}.d.ts", basename));
         if named_dts.exists() {
             return Some(named_dts);

@@ -137,7 +137,7 @@ pub fn generate_from_module(resolved: &ResolvedModule, options: &CodegenOptions)
         resolved.entry_file_items()
     } else {
         // Emit all items (original behavior)
-        all_items.iter().copied().collect()
+        all_items.to_vec()
     };
 
     // First pass: collect declarations from selected items only
@@ -373,10 +373,8 @@ impl<'a> Codegen<'a> {
         for ((name, _source), overloads) in merged {
             if overloads.len() == 1 {
                 self.functions.push(overloads.into_iter().next().unwrap());
-            } else {
-                if let Some(merged_fn) = self.merge_fn_overloads(&name, overloads) {
-                    self.functions.push(merged_fn);
-                }
+            } else if let Some(merged_fn) = self.merge_fn_overloads(&name, overloads) {
+                self.functions.push(merged_fn);
             }
         }
     }
@@ -403,10 +401,8 @@ impl<'a> Codegen<'a> {
             for ((name, _is_static), overloads) in merged_groups {
                 if overloads.len() == 1 {
                     final_methods.push(overloads.into_iter().next().unwrap());
-                } else {
-                    if let Some(merged_method) = self.merge_method_group(&name, overloads) {
-                        final_methods.push(merged_method);
-                    }
+                } else if let Some(merged_method) = self.merge_method_group(&name, overloads) {
+                    final_methods.push(merged_method);
                 }
             }
 
@@ -725,7 +721,7 @@ impl<'a> Codegen<'a> {
                         .iter()
                         .filter_map(|ty| match ty {
                             DtsType::Named { name, .. } => {
-                                Some(name.split('.').last().unwrap_or(name).to_string())
+                                Some(name.split('.').next_back().unwrap_or(name).to_string())
                             }
                             _ => None,
                         })
@@ -818,11 +814,11 @@ impl<'a> Codegen<'a> {
             }
             DtsItem::Class(c) => {
                 // Similar to interface, record inheritance
-                if let Some(ref extends) = c.extends {
-                    if let DtsType::Named { name, .. } = extends {
-                        let parent = name.split('.').last().unwrap_or(name).to_string();
-                        self.interface_extends.insert(c.name.clone(), vec![parent]);
-                    }
+                if let Some(ref extends) = c.extends
+                    && let DtsType::Named { name, .. } = extends
+                {
+                    let parent = name.split('.').next_back().unwrap_or(name).to_string();
+                    self.interface_extends.insert(c.name.clone(), vec![parent]);
                 }
             }
             DtsItem::Namespace(ns) => {
@@ -904,7 +900,7 @@ impl<'a> Codegen<'a> {
                     match ty {
                         DtsType::Named { name, .. } => {
                             // Handle qualified names like `core.Express` -> just `Express`
-                            Some(name.split('.').last().unwrap_or(name).to_string())
+                            Some(name.split('.').next_back().unwrap_or(name).to_string())
                         }
                         _ => None,
                     }
@@ -1258,10 +1254,10 @@ impl<'a> Codegen<'a> {
 
         // Check if we should generate an untagged enum for this type alias
         // We generate enums for union types that are suitable (non-generic, reasonable size)
-        if t.type_params.is_empty() {
-            if let Some(generated_enum) = self.try_generate_enum_from_type_alias(t) {
-                self.enums.push(generated_enum);
-            }
+        if t.type_params.is_empty()
+            && let Some(generated_enum) = self.try_generate_enum_from_type_alias(t)
+        {
+            self.enums.push(generated_enum);
         }
     }
 
@@ -1322,7 +1318,7 @@ impl<'a> Codegen<'a> {
             DtsType::Named { name, type_args } => {
                 // Use the simple name (last segment) for the variant name and inner type
                 // This matches how map_named_type handles qualified names
-                let simple_name = name.split('.').last().unwrap_or(name);
+                let simple_name = name.split('.').next_back().unwrap_or(name);
                 let variant_name = simple_name.to_string();
                 let inner_type = if type_args.is_empty() {
                     simple_name.to_string()
@@ -1581,7 +1577,7 @@ impl<'a> Codegen<'a> {
     fn map_named_type(&mut self, name: &str, type_args: &[DtsType]) -> String {
         // Handle qualified names: use the last segment as the type name
         // e.g., "Database.RunResult" -> "RunResult"
-        let simple_name = name.split('.').last().unwrap_or(name);
+        let simple_name = name.split('.').next_back().unwrap_or(name);
 
         // Check if it's a method-only type parameter - these get simplified to JsValue
         if self.method_type_params.contains(simple_name) {
@@ -1716,7 +1712,7 @@ impl<'a> Codegen<'a> {
                     // Check if any type args use method-only type parameters
                     let has_method_only_param = type_args.iter().any(|arg| {
                         if let DtsType::Named { name, type_args } = arg {
-                            let arg_simple = name.split('.').last().unwrap_or(name);
+                            let arg_simple = name.split('.').next_back().unwrap_or(name);
                             self.method_type_params.contains(arg_simple)
                                 || type_args
                                     .iter()
@@ -1771,7 +1767,7 @@ impl<'a> Codegen<'a> {
     fn type_uses_method_param(&self, ty: &DtsType) -> bool {
         match ty {
             DtsType::Named { name, type_args } => {
-                let simple_name = name.split('.').last().unwrap_or(name);
+                let simple_name = name.split('.').next_back().unwrap_or(name);
                 self.method_type_params.contains(simple_name)
                     || type_args
                         .iter()
@@ -1823,8 +1819,8 @@ impl<'a> Codegen<'a> {
                     type_args: args2,
                 },
             ) => {
-                let simple1 = name1.split('.').last().unwrap_or(name1);
-                let simple2 = name2.split('.').last().unwrap_or(name2);
+                let simple1 = name1.split('.').next_back().unwrap_or(name1);
+                let simple2 = name2.split('.').next_back().unwrap_or(name2);
                 if simple1 == simple2 {
                     // Same base type - use it with merged type args if possible
                     if args1.is_empty() && args2.is_empty() {
@@ -2484,10 +2480,10 @@ impl<'a> Codegen<'a> {
         let mut alias = base_alias.to_string();
 
         // Handle collision with file module name
-        if let Some(file_mod) = &self.options.file_module_name {
-            if alias == *file_mod {
-                alias = format!("{}_js", alias);
-            }
+        if let Some(file_mod) = &self.options.file_module_name
+            && alias == *file_mod
+        {
+            alias = format!("{}_js", alias);
         }
 
         // Apply suffix if provided
@@ -2509,10 +2505,10 @@ impl<'a> Codegen<'a> {
                 derive_binding_from_package(mod_name)
             };
 
-            if let Some(file_mod) = &self.options.file_module_name {
-                if alias == *file_mod {
-                    alias = format!("{}_js", alias);
-                }
+            if let Some(file_mod) = &self.options.file_module_name
+                && alias == *file_mod
+            {
+                alias = format!("{}_js", alias);
             }
 
             // Apply suffix if provided (e.g., "_mod" for class exports to avoid
@@ -3166,8 +3162,7 @@ pub fn is_keyword(name: &str) -> bool {
 /// if the original name differs from the sanitized version.
 fn sanitize_identifier(name: &str) -> (String, bool) {
     // Check if sanitization is needed
-    let needs_sanitization =
-        name.contains(|c: char| matches!(c, '.' | ':' | '-' | '/')) || name.starts_with(':');
+    let needs_sanitization = name.contains(['.', ':', '-', '/']) || name.starts_with(':');
 
     if !needs_sanitization {
         return (name.to_string(), false);
@@ -3280,25 +3275,25 @@ fn interface_to_object_type(iface: &DtsInterface) -> DtsType {
     let members: Vec<ObjectMember> = iface
         .members
         .iter()
-        .filter_map(|m| match m {
-            InterfaceMember::Property(p) => Some(ObjectMember::Property {
+        .map(|m| match m {
+            InterfaceMember::Property(p) => ObjectMember::Property {
                 name: p.name.clone(),
                 ty: p.ty.clone(),
                 optional: p.optional,
                 readonly: p.readonly,
-            }),
-            InterfaceMember::Method(m) => Some(ObjectMember::Method {
+            },
+            InterfaceMember::Method(m) => ObjectMember::Method {
                 name: m.name.clone(),
                 type_params: m.type_params.clone(),
                 params: m.params.clone(),
                 return_type: m.return_type.clone(),
                 optional: m.optional,
                 this_param: m.this_param.clone(),
-            }),
-            InterfaceMember::IndexSignature(sig) => Some(ObjectMember::IndexSignature(sig.clone())),
-            InterfaceMember::CallSignature(sig) => Some(ObjectMember::CallSignature(sig.clone())),
+            },
+            InterfaceMember::IndexSignature(sig) => ObjectMember::IndexSignature(sig.clone()),
+            InterfaceMember::CallSignature(sig) => ObjectMember::CallSignature(sig.clone()),
             InterfaceMember::ConstructSignature(sig) => {
-                Some(ObjectMember::ConstructSignature(sig.clone()))
+                ObjectMember::ConstructSignature(sig.clone())
             }
         })
         .collect();

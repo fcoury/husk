@@ -23,7 +23,7 @@
   </a>
 </p>
 
-Husk brings Rust's elegant syntax and safety to the JavaScript ecosystem. Write code with algebraic data types, pattern matching, and strong static typing, then seamlessly compile to clean, modern JavaScript that runs anywhere.
+Husk brings Rust-inspired syntax and algebraic data types to the JavaScript ecosystem. Write code with pattern matching, strong static typing, and explicit npm interop, then compile to modern JavaScript that runs on Node-compatible runtimes.
 
 ## Why Husk?
 
@@ -31,13 +31,13 @@ Husk brings Rust's elegant syntax and safety to the JavaScript ecosystem. Write 
 
 - Familiar syntax for Rust developers
 - Compiles to clean, readable ES modules or CommonJS
-- Interoperates seamlessly with npm packages
+- Interoperates with npm packages through explicit `extern "js"` bindings
 - Zero-cost abstractions over JavaScript
 
 **⚡ Outstanding Developer Experience**
 
 - **Language Server (LSP)** with real-time diagnostics, hover info, and go-to-definition
-- **Code formatter** (`husk fmt`) for consistent style
+- **Code formatter** (`huskc fmt`) for consistent style
 - **Editor support** for VS Code and Neovim with syntax highlighting and intelligent features
 - **TypeScript definitions** parser for npm package interop
 - **Watch mode** for instant feedback during development
@@ -128,13 +128,13 @@ Keep your code clean and consistent:
 
 ```bash
 # Format a file
-husk fmt src/main.hk
+huskc fmt src/main.hk
 
 # Check without modifying
-husk fmt --check src/
+huskc fmt --check src/
 
 # Format entire project
-husk fmt .
+huskc fmt .
 ```
 
 ### Editor Support
@@ -249,10 +249,14 @@ fn main() {
 
 ### TypeScript Definitions Support
 
-Automatically parse `.d.ts` files to use TypeScript-typed npm packages:
+Parse `.d.ts` files into Husk `extern "js"` declarations:
 
 ```bash
-huskc dts-to-husk node_modules/@types/express/index.d.ts > express.hk
+huskc import-dts node_modules/@types/express/index.d.ts --module express > express.hk
+
+# Or manage configured dependencies from husk.toml
+huskc dts add express --types @types/express --output src/express.hk
+huskc dts update express --follow-imports --report
 ```
 
 ## Build System
@@ -306,7 +310,8 @@ huskc watch --exec "node dist/main.js"
 - `huskc watch <file>` - Watch for changes and rebuild
 - `huskc run <file>` - Compile and execute with Node.js
 - `huskc fmt <path>` - Format Husk source files
-- `huskc dts-to-husk <file.d.ts>` - Convert TypeScript definitions
+- `huskc import-dts <file.d.ts>` - Convert TypeScript definitions
+- `huskc dts ...` - Manage configured TypeScript definition imports
 
 ### Compilation Options
 
@@ -331,7 +336,7 @@ The `examples/` directory showcases Husk's capabilities:
 - **generic_functions.hk** - Generic functions with type parameters
 - **format_strings.hk** - String interpolation
 - **feature_match/** - Pattern matching with enums
-- **express_sqlite/** - Full Express.js + SQLite web application
+- **express_sqlite/** - Express.js + SQLite API with curated npm wrappers
 - **demo_npm/** - Multi-file project with imports
 - **advent2025/** - Advent of Code solutions
 
@@ -394,7 +399,7 @@ Compiled Husk code includes a small runtime preamble providing:
 - `matchEnum(value, variants)` for pattern matching
 - Versioned runtime (currently 0.1.0) for compatibility
 
-The runtime is inlined at compile-time, adding ~2KB to output.
+The runtime is inlined at compile-time for now, so tiny programs still emit the shared helpers they might need.
 
 ## Contributing
 

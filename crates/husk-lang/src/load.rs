@@ -184,19 +184,20 @@ pub fn module_path_to_file(root: &Path, mod_path: &[String]) -> Option<PathBuf> 
 fn discover_module_paths(file: &File) -> Vec<Vec<String>> {
     let mut mods = Vec::new();
     for item in &file.items {
-        if let ItemKind::Use { path, .. } = &item.kind {
-            if path.first().map(|i| i.name.as_str()) == Some("crate") && path.len() >= 2 {
-                let module_seg = path[1].name.clone();
-                let mut mod_path = vec!["crate".to_string(), module_seg];
-                // The last segment is always an item (type, function, or enum for variant imports),
-                // so we exclude it. E.g., `use crate::foo::Result::{Ok, Err}` depends on module
-                // `crate::foo` (foo.hk), not `crate::foo::Result` (foo/Result.hk).
-                let path_end = path.len() - 1;
-                if path.len() > 2 {
-                    mod_path.extend(path[2..path_end].iter().map(|i| i.name.clone()));
-                }
-                mods.push(mod_path);
+        if let ItemKind::Use { path, .. } = &item.kind
+            && path.first().map(|i| i.name.as_str()) == Some("crate")
+            && path.len() >= 2
+        {
+            let module_seg = path[1].name.clone();
+            let mut mod_path = vec!["crate".to_string(), module_seg];
+            // The last segment is always an item (type, function, or enum for variant imports),
+            // so we exclude it. E.g., `use crate::foo::Result::{Ok, Err}` depends on module
+            // `crate::foo` (foo.hk), not `crate::foo::Result` (foo/Result.hk).
+            let path_end = path.len() - 1;
+            if path.len() > 2 {
+                mod_path.extend(path[2..path_end].iter().map(|i| i.name.clone()));
             }
+            mods.push(mod_path);
         }
     }
     mods
@@ -473,18 +474,17 @@ fn filter_extern_block(
     for ext in ext_items {
         match &ext.kind {
             ExternItemKind::Struct { name, .. } => {
-                if imported_types.contains(&name.name) {
-                    if included_structs.insert(name.name.clone()) {
-                        filtered.push(ext.clone());
-                    }
+                if imported_types.contains(&name.name) && included_structs.insert(name.name.clone())
+                {
+                    filtered.push(ext.clone());
                 }
             }
             ExternItemKind::Fn { name, .. } => {
                 // Allow only the entry-point callables we need
-                if name.name == "express" || name.name == "better_sqlite3" || name.name == "json" {
-                    if included_fns.insert(name.name.clone()) {
-                        filtered.push(ext.clone());
-                    }
+                if (name.name == "express" || name.name == "better_sqlite3" || name.name == "json")
+                    && included_fns.insert(name.name.clone())
+                {
+                    filtered.push(ext.clone());
                 }
             }
             ExternItemKind::Mod { binding, .. } => {
@@ -493,10 +493,9 @@ fn filter_extern_block(
                 }
             }
             ExternItemKind::Const { name, .. } => {
-                if imported_types.contains(&name.name) {
-                    if included_consts.insert(name.name.clone()) {
-                        filtered.push(ext.clone());
-                    }
+                if imported_types.contains(&name.name) && included_consts.insert(name.name.clone())
+                {
+                    filtered.push(ext.clone());
                 }
             }
             _ => {}

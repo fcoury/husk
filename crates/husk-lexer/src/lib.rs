@@ -470,18 +470,16 @@ impl<'src> Lexer<'src> {
             // Look ahead to see if there's a digit after the dot
             // We need to check if the next character after '.' is a digit
             let after_dot = self.src.get(dot_idx + 1..dot_idx + 2);
-            if let Some(ch_str) = after_dot {
-                if let Some(ch) = ch_str.chars().next() {
-                    if ch.is_ascii_digit() {
-                        // Consume the dot
-                        self.bump();
-                        // Consume the fractional digits
-                        let (frac_span, _) =
-                            self.consume_while(dot_idx + 1, |c| c.is_ascii_digit());
-                        end = frac_span.range.end;
-                        is_float = true;
-                    }
-                }
+            if let Some(ch_str) = after_dot
+                && let Some(ch) = ch_str.chars().next()
+                && ch.is_ascii_digit()
+            {
+                // Consume the dot
+                self.bump();
+                // Consume the fractional digits
+                let (frac_span, _) = self.consume_while(dot_idx + 1, |c| c.is_ascii_digit());
+                end = frac_span.range.end;
+                is_float = true;
             }
         }
 

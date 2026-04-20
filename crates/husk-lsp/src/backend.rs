@@ -32,10 +32,10 @@ struct LspContentProvider<'a> {
 impl ContentProvider for LspContentProvider<'_> {
     fn read_file(&self, path: &Path) -> std::result::Result<String, io::Error> {
         // Check open documents first
-        if let Ok(uri) = Url::from_file_path(path) {
-            if let Some(doc) = self.documents.get(&uri) {
-                return Ok(doc.text().to_string());
-            }
+        if let Ok(uri) = Url::from_file_path(path)
+            && let Some(doc) = self.documents.get(&uri)
+        {
+            return Ok(doc.text().to_string());
         }
         // Fall back to filesystem
         std::fs::read_to_string(path)
@@ -112,15 +112,14 @@ impl HuskBackend {
         for line in content.lines() {
             let line = line.trim();
             // Check if this line defines the "entry" key (not "entry_point" etc.)
-            if let Some(key) = line.split('=').next() {
-                if key.trim() == "entry" {
-                    if let Some(value) = line.split('=').nth(1) {
-                        let value = value.trim().trim_matches('"');
-                        let entry_path = project_root.join(value);
-                        if entry_path.exists() {
-                            return Some(entry_path);
-                        }
-                    }
+            if let Some(key) = line.split('=').next()
+                && key.trim() == "entry"
+                && let Some(value) = line.split('=').nth(1)
+            {
+                let value = value.trim().trim_matches('"');
+                let entry_path = project_root.join(value);
+                if entry_path.exists() {
+                    return Some(entry_path);
                 }
             }
         }
@@ -212,7 +211,7 @@ impl HuskBackend {
         let mut file_diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
 
         // Initialize empty diagnostics for all files in graph
-        for (module_path, _) in &graph.modules {
+        for module_path in graph.modules.keys() {
             if let Some(uri) = self.module_path_to_uri(module_path, root) {
                 file_diagnostics.insert(uri, Vec::new());
             }
@@ -221,31 +220,29 @@ impl HuskBackend {
         // For now, publish all errors to the entry point file
         // TODO: Track source file info in semantic errors for precise location
         let entry = self.entry_point.read().await.clone();
-        if let Some(entry_path) = entry {
-            if let Ok(entry_uri) = Url::from_file_path(&entry_path) {
-                // Get the entry file's text for span-to-position conversion
-                let text = if let Some(doc) = self.documents.get(&entry_uri) {
-                    doc.text().to_string()
-                } else if let Ok(content) = std::fs::read_to_string(&entry_path) {
-                    content
-                } else {
-                    String::new()
-                };
+        if let Some(entry_path) = entry
+            && let Ok(entry_uri) = Url::from_file_path(&entry_path)
+        {
+            // Get the entry file's text for span-to-position conversion
+            let text = if let Some(doc) = self.documents.get(&entry_uri) {
+                doc.text().to_string()
+            } else {
+                std::fs::read_to_string(&entry_path).unwrap_or_default()
+            };
 
-                let mut diagnostics = Vec::new();
+            let mut diagnostics = Vec::new();
 
-                // Convert symbol resolution errors
-                for error in &semantic.symbols.errors {
-                    diagnostics.push(semantic_error_to_diagnostic(&text, error));
-                }
-
-                // Convert type errors
-                for error in &semantic.type_errors {
-                    diagnostics.push(semantic_error_to_diagnostic(&text, error));
-                }
-
-                file_diagnostics.insert(entry_uri, diagnostics);
+            // Convert symbol resolution errors
+            for error in &semantic.symbols.errors {
+                diagnostics.push(semantic_error_to_diagnostic(&text, error));
             }
+
+            // Convert type errors
+            for error in &semantic.type_errors {
+                diagnostics.push(semantic_error_to_diagnostic(&text, error));
+            }
+
+            file_diagnostics.insert(entry_uri, diagnostics);
         }
 
         // Publish to each file
@@ -446,24 +443,24 @@ impl LanguageServer for HuskBackend {
 
         // Try to use cached semantic result first (from multi-file analysis)
         let semantic_result = self.semantic_result.read().await;
-        if let Some(semantic) = semantic_result.as_ref() {
-            if let Some(info) = semantic.hover_info.get(&(start, end)) {
-                let parse_result = husk_parser::parse_str(&doc.text());
-                let doc_map = build_doc_map(&parse_result.tokens);
-                let markdown = format_hover_markdown(info, &doc_map);
-                let range_start = doc.offset_to_position(start);
-                let range_end = doc.offset_to_position(end);
-                return Ok(Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: markdown,
-                    }),
-                    range: Some(Range {
-                        start: range_start,
-                        end: range_end,
-                    }),
-                }));
-            }
+        if let Some(semantic) = semantic_result.as_ref()
+            && let Some(info) = semantic.hover_info.get(&(start, end))
+        {
+            let parse_result = husk_parser::parse_str(&doc.text());
+            let doc_map = build_doc_map(&parse_result.tokens);
+            let markdown = format_hover_markdown(info, &doc_map);
+            let range_start = doc.offset_to_position(start);
+            let range_end = doc.offset_to_position(end);
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: markdown,
+                }),
+                range: Some(Range {
+                    start: range_start,
+                    end: range_end,
+                }),
+            }));
         }
         drop(semantic_result);
 
@@ -568,41 +565,39 @@ impl LanguageServer for HuskBackend {
             // Search ALL modules for definition
             for (module_path, module) in &graph.modules {
                 for item in &module.file.items {
-                    if let Some((name_ident, span)) = item_definition_info(item, &word) {
-                        if let Some(target_uri) = self.module_path_to_uri(module_path, &root) {
-                            // Need to read the target file to convert spans
-                            if let Some(target_doc) = self.documents.get(&target_uri) {
-                                let start = target_doc.offset_to_position(span.range.start);
-                                let end = target_doc.offset_to_position(span.range.end);
+                    if let Some((name_ident, span)) = item_definition_info(item, &word)
+                        && let Some(target_uri) = self.module_path_to_uri(module_path, &root)
+                    {
+                        // Need to read the target file to convert spans
+                        if let Some(target_doc) = self.documents.get(&target_uri) {
+                            let start = target_doc.offset_to_position(span.range.start);
+                            let end = target_doc.offset_to_position(span.range.end);
+                            debug!(
+                                name = %name_ident,
+                                module = module_path.join("::"),
+                                "Found cross-file definition"
+                            );
+                            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                                uri: target_uri,
+                                range: Range { start, end },
+                            })));
+                        } else {
+                            // File not open, try to read it for position calculation
+                            if let Some(file_path) = module_path_to_file(&root, module_path)
+                                && let Ok(content) = std::fs::read_to_string(&file_path)
+                            {
+                                let temp_doc = Document::new(content, 0);
+                                let start = temp_doc.offset_to_position(span.range.start);
+                                let end = temp_doc.offset_to_position(span.range.end);
                                 debug!(
                                     name = %name_ident,
                                     module = module_path.join("::"),
-                                    "Found cross-file definition"
+                                    "Found cross-file definition (file not open)"
                                 );
                                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                                     uri: target_uri,
                                     range: Range { start, end },
                                 })));
-                            } else {
-                                // File not open, try to read it for position calculation
-                                if let Some(file_path) = module_path_to_file(&root, module_path) {
-                                    if let Ok(content) = std::fs::read_to_string(&file_path) {
-                                        let temp_doc = Document::new(content, 0);
-                                        let start = temp_doc.offset_to_position(span.range.start);
-                                        let end = temp_doc.offset_to_position(span.range.end);
-                                        debug!(
-                                            name = %name_ident,
-                                            module = module_path.join("::"),
-                                            "Found cross-file definition (file not open)"
-                                        );
-                                        return Ok(Some(GotoDefinitionResponse::Scalar(
-                                            Location {
-                                                uri: target_uri,
-                                                range: Range { start, end },
-                                            },
-                                        )));
-                                    }
-                                }
                             }
                         }
                     }
@@ -787,9 +782,10 @@ impl LanguageServer for HuskBackend {
         };
 
         // Check if there are any references for this symbol
-        let has_references = semantic.references.iter().any(|((name, _), refs)| {
-            name == &word && !refs.is_empty()
-        });
+        let has_references = semantic
+            .references
+            .iter()
+            .any(|((name, _), refs)| name == &word && !refs.is_empty());
 
         if !has_references {
             // Not a known symbol definition or reference
@@ -877,7 +873,9 @@ impl LanguageServer for HuskBackend {
 
         // Get entry point for cross-file resolution
         let entry = self.entry_point.read().await.clone();
-        let project_root = entry.as_ref().and_then(|e| e.parent().map(|p| p.to_path_buf()));
+        let project_root = entry
+            .as_ref()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()));
 
         // Build text edits grouped by URI
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
@@ -892,7 +890,7 @@ impl LanguageServer for HuskBackend {
                         None => continue, // Skip unresolved cross-file references
                     }
                 } else {
-                    continue // Skip cross-file refs when no project root
+                    continue; // Skip cross-file refs when no project root
                 }
             } else {
                 // Same file reference

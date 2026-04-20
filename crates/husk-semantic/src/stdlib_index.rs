@@ -232,10 +232,10 @@ impl StdlibIndex {
             "zip" | "chain" => InferenceStrategy::PassThrough,
             _ => {
                 // Check if return type indicates an iterator
-                if let Some(ret_ty) = return_type {
-                    if Self::is_iterator_type(ret_ty) {
-                        return InferenceStrategy::PassThrough;
-                    }
+                if let Some(ret_ty) = return_type
+                    && Self::is_iterator_type(ret_ty)
+                {
+                    return InferenceStrategy::PassThrough;
                 }
                 InferenceStrategy::Standard
             }

@@ -1,37 +1,100 @@
-// Simplified Express.js bindings for Husk
-// Uses JsValue for most types since extern struct typing has limitations
+// Curated Express.js wrapper for the todo example.
+//
+// This file is the hand-maintained interop surface. The raw declarations
+// generated from @types/express should live next to it as express.gen.hk when
+// `huskc dts update express --follow-imports --report` is used.
 
 extern "js" {
+    struct ExpressApp;
+    struct Request;
+    struct Response;
+    struct Middleware;
+
     #[default]
     mod express {
-        // Main entry point - creates Express app
-        fn express() -> JsValue;
-
-        // Middleware
-        fn json() -> JsValue;
-        fn urlencoded() -> JsValue;
-        fn static_(path: String) -> JsValue;
+        #[default]
+        fn express() -> ExpressApp;
+        fn json() -> Middleware;
     }
 }
 
-// Application methods - defined on JsValue since express() returns JsValue
-impl JsValue {
-    // HTTP routing methods
-    extern "js" fn get(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    extern "js" fn post(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    extern "js" fn put(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    extern "js" fn delete(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
+pub fn create_app() -> ExpressApp {
+    express()
+}
 
-    // Middleware - 'use' is a reserved keyword in Husk
+pub fn json_middleware() -> Middleware {
+    json()
+}
+
+pub fn request_param_string(req: Request, key: String) -> String {
+    let val = jsvalue_get(req.params, key);
+    if jsvalue_isNull(val) {
+        ""
+    } else {
+        jsvalue_toString(val)
+    }
+}
+
+pub fn request_body_string(req: Request, key: String) -> String {
+    let val = jsvalue_get(req.body, key);
+    if jsvalue_isNull(val) {
+        ""
+    } else {
+        jsvalue_toString(val)
+    }
+}
+
+pub fn request_body_bool_as_number(req: Request, key: String) -> f64 {
+    let val = jsvalue_get(req.body, key);
+    if jsvalue_isNull(val) {
+        0.0
+    } else {
+        if jsvalue_toBool(val) {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+
+pub fn response_error(res: Response, code: f64, message: String) {
+    let body = JsObject_new().setString("error", message).toJsValue();
+    res.status(code).json_response(body);
+}
+
+pub fn response_json(res: Response, body: JsValue) {
+    res.json_response(body);
+}
+
+pub fn response_id(res: Response, code: f64, id: f64) {
+    let body = JsObject_new().setNumber("id", id).toJsValue();
+    res.status(code).json_response(body);
+}
+
+impl ExpressApp {
+    extern "js" fn get(self, path: String, handler: fn(Request, Response) -> ()) -> ExpressApp;
+    extern "js" fn post(self, path: String, handler: fn(Request, Response) -> ()) -> ExpressApp;
+    extern "js" fn put(self, path: String, handler: fn(Request, Response) -> ()) -> ExpressApp;
+    extern "js" fn delete(self, path: String, handler: fn(Request, Response) -> ()) -> ExpressApp;
+
     #[js_name = "use"]
-    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
+    extern "js" fn use_middleware(self, middleware: Middleware) -> ExpressApp;
 
-    // Start server
-    extern "js" fn listen(self, port: f64, callback: fn() -> ()) -> JsValue;
+    extern "js" fn listen(self, port: f64, callback: fn() -> ()) -> ExpressApp;
+}
 
-    // Response methods
-    extern "js" fn json(self, body: JsValue) -> JsValue;
-    extern "js" fn send(self, body: String) -> JsValue;
-    extern "js" fn status(self, code: f64) -> JsValue;
-    extern "js" fn sendStatus(self, code: f64) -> JsValue;
+impl Request {
+    #[getter]
+    extern "js" body: JsValue;
+
+    #[getter]
+    extern "js" params: JsValue;
+}
+
+impl Response {
+    #[js_name = "json"]
+    extern "js" fn json_response(self, body: JsValue) -> Response;
+
+    extern "js" fn send(self, body: String) -> Response;
+    extern "js" fn status(self, code: f64) -> Response;
 }

@@ -301,7 +301,7 @@ pub struct FormatPlaceholder {
 }
 
 /// Format specifier details like width, precision, alignment, etc.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct FormatSpec {
     /// Fill character for padding (default: space)
     pub fill: Option<char>,
@@ -319,21 +319,6 @@ pub struct FormatSpec {
     pub precision: Option<usize>,
     /// Type specifier: None (display), '?' (debug), 'x'/'X' (hex), 'b' (binary), 'o' (octal)
     pub ty: Option<char>,
-}
-
-impl Default for FormatSpec {
-    fn default() -> Self {
-        Self {
-            fill: None,
-            align: None,
-            sign: false,
-            alternate: false,
-            zero_pad: false,
-            width: None,
-            precision: None,
-            ty: None,
-        }
-    }
 }
 
 /// A field initializer in a struct expression.

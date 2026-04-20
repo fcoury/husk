@@ -32,10 +32,10 @@ impl GenerationGapWriter {
     /// - Writes directly to the specified path (legacy behavior)
     pub fn write(&self, output_path: &Path, generated_code: &str) -> io::Result<WriteResult> {
         // Ensure parent directory exists
-        if let Some(parent) = output_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = output_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
         }
 
         if !self.enabled {

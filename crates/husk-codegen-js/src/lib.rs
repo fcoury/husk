@@ -25,8 +25,7 @@ use std::path::Path;
 /// (used by format_type in type_resolution).
 fn normalize_type_name_for_lookup(type_name: &str) -> String {
     // Convert "T[]" to "[T]" format to match type_resolution
-    if type_name.ends_with("[]") {
-        let elem_type = &type_name[..type_name.len() - 2];
+    if let Some(elem_type) = type_name.strip_suffix("[]") {
         format!("[{}]", elem_type)
     } else {
         type_name.to_string()
@@ -203,12 +202,12 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
                                 .insert((normalized_type_name.clone(), base_name.clone()));
 
                             // Check if the first parameter has #[this] attribute
-                            if let Some(first_param) = method.params.first() {
-                                if first_param.attributes.iter().any(|a| a.name.name == "this") {
-                                    accessors
-                                        .this_binding_methods
-                                        .insert((normalized_type_name.clone(), base_name.clone()));
-                                }
+                            if let Some(first_param) = method.params.first()
+                                && first_param.attributes.iter().any(|a| a.name.name == "this")
+                            {
+                                accessors
+                                    .this_binding_methods
+                                    .insert((normalized_type_name.clone(), base_name.clone()));
                             }
 
                             // Methods that should NOT be treated as getters
@@ -254,10 +253,10 @@ fn collect_accessors_from_file(file: &File, accessors: &mut PropertyAccessors) {
         }
 
         // Collect untagged enums for variant construction
-        if let ItemKind::Enum { name, .. } = &item.kind {
-            if item.is_untagged() {
-                accessors.untagged_enums.insert(name.name.clone());
-            }
+        if let ItemKind::Enum { name, .. } = &item.kind
+            && item.is_untagged()
+        {
+            accessors.untagged_enums.insert(name.name.clone());
         }
     }
 }
@@ -746,38 +745,45 @@ pub fn lower_file_to_js(
         file,
         call_main,
         target,
-        None,
-        None,
-        name_resolution,
-        type_resolution,
-        variant_calls,
-        variant_patterns,
+        LowerFileContext {
+            source: None,
+            source_path: None,
+            name_resolution,
+            type_resolution,
+            variant_calls,
+            variant_patterns,
+        },
     )
+}
+
+/// Shared lowering inputs that describe source context and semantic resolution maps.
+pub struct LowerFileContext<'a> {
+    pub source: Option<&'a str>,
+    pub source_path: Option<&'a Path>,
+    pub name_resolution: &'a NameResolution,
+    pub type_resolution: &'a TypeResolution,
+    pub variant_calls: &'a VariantCallMap,
+    pub variant_patterns: &'a VariantPatternMap,
 }
 
 /// Lower a Husk AST file into a JS module with source text for accurate source maps.
 ///
-/// When `source` is provided, source spans will have accurate line/column info.
-/// When `source_path` is provided, compile-time operations like `include_str` can resolve
-/// relative file paths.
-/// `name_resolution` provides the mapping from variable spans to resolved names
+/// When `context.source` is provided, source spans will have accurate
+/// line/column info. When `context.source_path` is provided, compile-time
+/// operations like `include_str` can resolve relative file paths.
+/// `context.name_resolution` provides the mapping from variable spans to resolved names
 /// for handling variable shadowing.
-/// `type_resolution` provides the mapping from expression spans to resolved types
+/// `context.type_resolution` provides the mapping from expression spans to resolved types
 /// for type-dependent operations like .into(), .parse(), .try_into().
-/// `variant_calls` provides the mapping from call spans to enum/variant names
+/// `context.variant_calls` provides the mapping from call spans to enum/variant names
 /// for imported variant constructor calls.
-/// `variant_patterns` provides the mapping from pattern spans to enum/variant names
+/// `context.variant_patterns` provides the mapping from pattern spans to enum/variant names
 /// for imported variant patterns in match expressions.
 pub fn lower_file_to_js_with_source(
     file: &File,
     call_main: bool,
     target: JsTarget,
-    source: Option<&str>,
-    source_path: Option<&Path>,
-    name_resolution: &NameResolution,
-    type_resolution: &TypeResolution,
-    variant_calls: &VariantCallMap,
-    variant_patterns: &VariantPatternMap,
+    context: LowerFileContext<'_>,
 ) -> JsModule {
     use std::collections::HashSet;
 
@@ -790,12 +796,12 @@ pub fn lower_file_to_js_with_source(
     // Collect extern struct names - these are opaque JS types
     let mut extern_structs: HashSet<String> = HashSet::new();
     for item in &file.items {
-        if let ItemKind::ExternBlock { abi, items } = &item.kind {
-            if abi == "js" {
-                for ext in items {
-                    if let ExternItemKind::Struct { name, .. } = &ext.kind {
-                        extern_structs.insert(name.name.clone());
-                    }
+        if let ItemKind::ExternBlock { abi, items } = &item.kind
+            && abi == "js"
+        {
+            for ext in items {
+                if let ExternItemKind::Struct { name, .. } = &ext.kind {
+                    extern_structs.insert(name.name.clone());
                 }
             }
         }
@@ -814,47 +820,84 @@ pub fn lower_file_to_js_with_source(
     let stdlib_index = get_stdlib_index();
 
     // Create codegen context with accessors, optional source path, name resolution, type resolution, and variant maps
-    let mut ctx = match source_path {
+    let mut ctx = match context.source_path {
         Some(path) => CodegenContext::with_source_path(
             &accessors,
             path,
-            name_resolution,
-            type_resolution,
-            variant_calls,
-            variant_patterns,
+            context.name_resolution,
+            context.type_resolution,
+            context.variant_calls,
+            context.variant_patterns,
             stdlib_index,
         ),
         None => CodegenContext::new(
             &accessors,
-            name_resolution,
-            type_resolution,
-            variant_calls,
-            variant_patterns,
+            context.name_resolution,
+            context.type_resolution,
+            context.variant_calls,
+            context.variant_patterns,
             stdlib_index,
         ),
     };
     // Build line index for O(log N) source map span lookups
-    ctx.line_index = source.map(LineIndex::new);
+    ctx.line_index = context.source.map(LineIndex::new);
 
     // First pass: collect module imports
     for item in &file.items {
-        if let ItemKind::ExternBlock { abi, items } = &item.kind {
-            if abi == "js" {
-                for ext in items {
-                    if let ExternItemKind::Mod {
-                        package,
-                        binding,
-                        items: mod_items,
-                        is_global,
-                    } = &ext.kind
-                    {
-                        // Skip import/require for global JS objects (Array, Math, JSON, etc.)
-                        if *is_global {
-                            continue;
-                        }
+        if let ItemKind::ExternBlock { abi, items } = &item.kind
+            && abi == "js"
+        {
+            for ext in items {
+                if let ExternItemKind::Mod {
+                    package,
+                    binding,
+                    items: mod_items,
+                    is_global,
+                } = &ext.kind
+                {
+                    // Skip import/require for global JS objects (Array, Math, JSON, etc.)
+                    if *is_global {
+                        continue;
+                    }
 
-                        if mod_items.is_empty() {
-                            // Simple default import: import binding from "package";
+                    if mod_items.is_empty() {
+                        // Simple default import: import binding from "package";
+                        match target {
+                            JsTarget::Esm => imports.push(JsStmt::Import {
+                                name: binding.name.clone(),
+                                source: package.clone(),
+                            }),
+                            JsTarget::Cjs => imports.push(JsStmt::Require {
+                                name: binding.name.clone(),
+                                source: package.clone(),
+                            }),
+                        }
+                    } else {
+                        // Check for #[default] on mod or on any function
+                        let mod_is_default = ext.is_default();
+                        let fn_has_default = mod_items.iter().any(|mi| mi.is_default());
+                        let has_default = mod_is_default || fn_has_default;
+
+                        if has_default {
+                            // Default export pattern (like express)
+                            for mi in mod_items {
+                                let ModItemKind::Fn { name, params, .. } = &mi.kind;
+                                let method_call = MethodCallInfo {
+                                    binding: binding.name.clone(),
+                                    params: params.clone(),
+                                };
+
+                                if mi.is_default() {
+                                    module_functions
+                                        .direct_calls
+                                        .insert(name.name.clone(), method_call);
+                                } else {
+                                    module_functions
+                                        .method_calls
+                                        .insert(name.name.clone(), method_call);
+                                }
+                            }
+                            // Generate default import
                             match target {
                                 JsTarget::Esm => imports.push(JsStmt::Import {
                                     name: binding.name.clone(),
@@ -866,69 +909,32 @@ pub fn lower_file_to_js_with_source(
                                 }),
                             }
                         } else {
-                            // Check for #[default] on mod or on any function
-                            let mod_is_default = ext.is_default();
-                            let fn_has_default = mod_items.iter().any(|mi| mi.is_default());
-                            let has_default = mod_is_default || fn_has_default;
+                            // Named export pattern (like nanoid)
+                            let names: Vec<String> = mod_items
+                                .iter()
+                                .map(|mi| match &mi.kind {
+                                    ModItemKind::Fn { name, params, .. } => {
+                                        let method_call = MethodCallInfo {
+                                            binding: name.name.clone(), // For named imports, binding = function name
+                                            params: params.clone(),
+                                        };
 
-                            if has_default {
-                                // Default export pattern (like express)
-                                for mi in mod_items {
-                                    let ModItemKind::Fn { name, params, .. } = &mi.kind;
-                                    let method_call = MethodCallInfo {
-                                        binding: binding.name.clone(),
-                                        params: params.clone(),
-                                    };
-
-                                    if mi.is_default() {
                                         module_functions
                                             .direct_calls
                                             .insert(name.name.clone(), method_call);
-                                    } else {
-                                        module_functions
-                                            .method_calls
-                                            .insert(name.name.clone(), method_call);
+                                        name.name.clone()
                                     }
-                                }
-                                // Generate default import
-                                match target {
-                                    JsTarget::Esm => imports.push(JsStmt::Import {
-                                        name: binding.name.clone(),
-                                        source: package.clone(),
-                                    }),
-                                    JsTarget::Cjs => imports.push(JsStmt::Require {
-                                        name: binding.name.clone(),
-                                        source: package.clone(),
-                                    }),
-                                }
-                            } else {
-                                // Named export pattern (like nanoid)
-                                let names: Vec<String> = mod_items
-                                    .iter()
-                                    .filter_map(|mi| match &mi.kind {
-                                        ModItemKind::Fn { name, params, .. } => {
-                                            let method_call = MethodCallInfo {
-                                                binding: name.name.clone(), // For named imports, binding = function name
-                                                params: params.clone(),
-                                            };
-
-                                            module_functions
-                                                .direct_calls
-                                                .insert(name.name.clone(), method_call);
-                                            Some(name.name.clone())
-                                        }
-                                    })
-                                    .collect();
-                                match target {
-                                    JsTarget::Esm => imports.push(JsStmt::NamedImport {
-                                        names,
-                                        source: package.clone(),
-                                    }),
-                                    JsTarget::Cjs => imports.push(JsStmt::NamedRequire {
-                                        names,
-                                        source: package.clone(),
-                                    }),
-                                }
+                                })
+                                .collect();
+                            match target {
+                                JsTarget::Esm => imports.push(JsStmt::NamedImport {
+                                    names,
+                                    source: package.clone(),
+                                }),
+                                JsTarget::Cjs => imports.push(JsStmt::NamedRequire {
+                                    names,
+                                    source: package.clone(),
+                                }),
                             }
                         }
                     }
@@ -943,7 +949,10 @@ pub fn lower_file_to_js_with_source(
         let param_names: Vec<String> = info.params.iter().map(|p| p.name.name.clone()).collect();
 
         // Create args for the call: each param name becomes an identifier
-        let args: Vec<JsExpr> = param_names.iter().map(|p| JsExpr::Ident(p.clone())).collect();
+        let args: Vec<JsExpr> = param_names
+            .iter()
+            .map(|p| JsExpr::Ident(p.clone()))
+            .collect();
 
         let call = JsExpr::Call {
             callee: Box::new(JsExpr::Member {
@@ -966,10 +975,10 @@ pub fn lower_file_to_js_with_source(
     // Second pass: generate constructor functions for structs (needed for prototype methods)
     // Skip extern structs - they're opaque JS types and don't need constructors
     for item in &file.items {
-        if let ItemKind::Struct { name, fields, .. } = &item.kind {
-            if !extern_structs.contains(&name.name) {
-                body.push(lower_struct_constructor(&name.name, fields));
-            }
+        if let ItemKind::Struct { name, fields, .. } = &item.kind
+            && !extern_structs.contains(&name.name)
+        {
+            body.push(lower_struct_constructor(&name.name, fields));
         }
     }
 
@@ -983,7 +992,12 @@ pub fn lower_file_to_js_with_source(
                 ..
             } => {
                 body.push(lower_fn_with_span(
-                    &name.name, params, fn_body, &item.span, source, &ctx,
+                    &name.name,
+                    params,
+                    fn_body,
+                    &item.span,
+                    context.source,
+                    &ctx,
                 ));
                 fn_names.push(name.name.clone());
                 if name.name == "main" && params.is_empty() {
@@ -1071,7 +1085,7 @@ pub fn lower_file_to_js_with_source(
                             &self_ty_name,
                             method,
                             &impl_item.span,
-                            source,
+                            context.source,
                             &ctx,
                         ));
                     }
@@ -1161,8 +1175,8 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             }
             ExprKind::Struct { fields, .. } => fields.iter().any(|f| check_expr(&f.value)),
             ExprKind::Range { start, end, .. } => {
-                start.as_ref().map_or(false, |e| check_expr(e))
-                    || end.as_ref().map_or(false, |e| check_expr(e))
+                start.as_ref().is_some_and(|e| check_expr(e))
+                    || end.as_ref().is_some_and(|e| check_expr(e))
             }
             ExprKind::Assign { target, value, .. } => check_expr(target) || check_expr(value),
             ExprKind::TupleField { base, .. } => check_expr(base),
@@ -1180,10 +1194,10 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             StmtKind::Let {
                 value, else_block, ..
             } => {
-                value.as_ref().map_or(false, check_expr)
+                value.as_ref().is_some_and(check_expr)
                     || else_block
                         .as_ref()
-                        .map_or(false, |b| contains_try_expr(&b.stmts))
+                        .is_some_and(|b| contains_try_expr(&b.stmts))
             }
             StmtKind::ForIn { iterable, body, .. } => {
                 check_expr(iterable) || contains_try_expr(&body.stmts)
@@ -1196,7 +1210,7 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             } => {
                 check_expr(cond)
                     || contains_try_expr(&then_branch.stmts)
-                    || else_branch.as_ref().map_or(false, |b| check_stmt(b))
+                    || else_branch.as_ref().is_some_and(|b| check_stmt(b))
             }
             StmtKind::IfLet {
                 scrutinee,
@@ -1206,10 +1220,10 @@ fn contains_try_expr(stmts: &[Stmt]) -> bool {
             } => {
                 check_expr(scrutinee)
                     || contains_try_expr(&then_branch.stmts)
-                    || else_branch.as_ref().map_or(false, |b| check_stmt(b))
+                    || else_branch.as_ref().is_some_and(|b| check_stmt(b))
             }
             StmtKind::Assign { target, value, .. } => check_expr(target) || check_expr(value),
-            StmtKind::Return { value } => value.as_ref().map_or(false, check_expr),
+            StmtKind::Return { value } => value.as_ref().is_some_and(check_expr),
             StmtKind::Block(block) => contains_try_expr(&block.stmts),
             StmtKind::Loop { body } => contains_try_expr(&body.stmts),
             _ => false,
@@ -1776,20 +1790,20 @@ fn lower_stmt(stmt: &Stmt, ctx: &CodegenContext) -> JsStmt {
                     .type_resolution
                     .get(&(iterable.span.range.start, iterable.span.range.end));
 
-                if let Some(ty) = iterable_type {
-                    if ty.starts_with("Range") {
-                        // Generate: for (let binding = iterable.start; binding < iterable.end; binding++)
-                        let js_iterable = lower_expr(iterable, ctx);
-                        let js_body: Vec<JsStmt> =
-                            body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
+                if let Some(ty) = iterable_type
+                    && ty.starts_with("Range")
+                {
+                    // Generate: for (let binding = iterable.start; binding < iterable.end; binding++)
+                    let js_iterable = lower_expr(iterable, ctx);
+                    let js_body: Vec<JsStmt> =
+                        body.stmts.iter().map(|s| lower_stmt(s, ctx)).collect();
 
-                        return JsStmt::ForRange {
-                            binding: ctx.resolve_name(&binding.name, &binding.span),
-                            range_expr: js_iterable,
-                            body: js_body,
-                            source_span,
-                        };
-                    }
+                    return JsStmt::ForRange {
+                        binding: ctx.resolve_name(&binding.name, &binding.span),
+                        range_expr: js_iterable,
+                        body: js_body,
+                        source_span,
+                    };
                 }
 
                 // Check if iterable needs into_iter() call (for collections that implement IntoIterator)
@@ -2422,7 +2436,8 @@ fn lower_conversion_method(
         "parse" => {
             // Generate parsing conversion based on target type
             // Returns Result<TargetType, String>
-            let parse_call = match target_type {
+
+            match target_type {
                 "i32" => {
                     // "str".parse::<i32>() -> __husk_parse_i32(str)
                     JsExpr::Call {
@@ -2454,8 +2469,7 @@ fn lower_conversion_method(
                         ),
                     ])
                 }
-            };
-            parse_call
+            }
         }
         "try_into" => {
             // Generate fallible conversion based on target type
@@ -2585,17 +2599,16 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
                         matches!(base_type, "String" | "Map" | "Set" | "Range" | "Array")
                             || recv_type.starts_with("[");
 
-                    if is_stdlib_type {
-                        if let Some(prop) = ctx
+                    if is_stdlib_type
+                        && let Some(prop) = ctx
                             .accessors
                             .getters
                             .get(&(lookup_type, method_name.clone()))
-                        {
-                            return JsExpr::Member {
-                                object: Box::new(lower_expr(receiver, ctx)),
-                                property: prop.clone(),
-                            };
-                        }
+                    {
+                        return JsExpr::Member {
+                            object: Box::new(lower_expr(receiver, ctx)),
+                            property: prop.clone(),
+                        };
                     }
                 }
 
@@ -2716,13 +2729,11 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
 
                 // Handle Set.values()
                 // Similar to Map, JS Set.values() returns an iterator, but Husk expects arrays
-                if recv_type.starts_with("Set") {
-                    if method_name == "values" && args.is_empty() {
-                        return JsExpr::Call {
-                            callee: Box::new(JsExpr::Ident("__husk_set_values".to_string())),
-                            args: vec![lower_expr(receiver, ctx)],
-                        };
-                    }
+                if recv_type.starts_with("Set") && method_name == "values" && args.is_empty() {
+                    return JsExpr::Call {
+                        callee: Box::new(JsExpr::Ident("__husk_set_values".to_string())),
+                        args: vec![lower_expr(receiver, ctx)],
+                    };
                 }
 
                 // Handle iterator methods: iter(), into_iter()
@@ -2809,32 +2820,30 @@ fn lower_expr(expr: &Expr, ctx: &CodegenContext) -> JsExpr {
             let is_iterator = is_iterator_from_type || is_iterator_from_method_call;
 
             // Use StdlibIndex to look up iterator method JS names
-            if is_iterator {
-                if let Some(js_name) = ctx.stdlib_index.get_js_name("Iterator", method_name) {
-                    // All iterator methods follow: js_name(receiver, ...args)
-                    let js_receiver = lower_expr(receiver, ctx);
-                    let mut js_args = vec![js_receiver];
-                    for arg in args {
-                        js_args.push(lower_expr(arg, ctx));
-                    }
-                    return JsExpr::Call {
-                        callee: Box::new(JsExpr::Ident(js_name.to_string())),
-                        args: js_args,
-                    };
+            if is_iterator
+                && let Some(js_name) = ctx.stdlib_index.get_js_name("Iterator", method_name)
+            {
+                // All iterator methods follow: js_name(receiver, ...args)
+                let js_receiver = lower_expr(receiver, ctx);
+                let mut js_args = vec![js_receiver];
+                for arg in args {
+                    js_args.push(lower_expr(arg, ctx));
                 }
+                return JsExpr::Call {
+                    callee: Box::new(JsExpr::Ident(js_name.to_string())),
+                    args: js_args,
+                };
             }
 
             // Handle type conversion methods (.into(), .parse(), .try_into())
             // The semantic phase records the resolved target type in type_resolution
             if (method_name == "into" || method_name == "parse" || method_name == "try_into")
                 && args.is_empty()
-            {
-                if let Some(target_type) = ctx
+                && let Some(target_type) = ctx
                     .type_resolution
                     .get(&(expr.span.range.start, expr.span.range.end))
-                {
-                    return lower_conversion_method(receiver, method_name, target_type, ctx);
-                }
+            {
+                return lower_conversion_method(receiver, method_name, target_type, ctx);
             }
 
             // Default: emit as a regular method call
@@ -4479,13 +4488,13 @@ fn write_stmt_with_mapping(stmt: &JsStmt, indent_level: usize, ctx: &mut OutputC
             ctx.write("}");
             if let Some(else_stmts) = else_block {
                 // Check if the else block contains a single If statement (else if)
-                if else_stmts.len() == 1 {
-                    if let JsStmt::If { .. } = &else_stmts[0] {
-                        ctx.write(" else ");
-                        // Write without indent since it's an else-if chain
-                        write_stmt_with_mapping(&else_stmts[0], 0, ctx);
-                        return;
-                    }
+                if else_stmts.len() == 1
+                    && let JsStmt::If { .. } = &else_stmts[0]
+                {
+                    ctx.write(" else ");
+                    // Write without indent since it's an else-if chain
+                    write_stmt_with_mapping(&else_stmts[0], 0, ctx);
+                    return;
                 }
                 ctx.write(" else {\n");
                 for s in else_stmts {
@@ -4779,7 +4788,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
         JsStmt::Return { expr, .. } => {
             indent(indent_level, out);
             out.push_str("return ");
-            write_expr(&expr, out);
+            write_expr(expr, out);
             out.push(';');
         }
         JsStmt::Let { name, init, .. } => {
@@ -4804,7 +4813,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
         }
         JsStmt::Expr { expr, .. } => {
             indent(indent_level, out);
-            write_expr(&expr, out);
+            write_expr(expr, out);
             out.push(';');
         }
         JsStmt::TryCatch {
@@ -4848,14 +4857,14 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
             out.push('}');
             if let Some(else_stmts) = else_block {
                 // Check if the else block contains a single If statement (else if)
-                if else_stmts.len() == 1 {
-                    if let JsStmt::If { .. } = &else_stmts[0] {
-                        out.push_str(" else ");
-                        // Write without indent since it's an else-if chain
-                        write_stmt(&else_stmts[0], 0, out);
-                        // Trim leading whitespace that write_stmt added
-                        return;
-                    }
+                if else_stmts.len() == 1
+                    && let JsStmt::If { .. } = &else_stmts[0]
+                {
+                    out.push_str(" else ");
+                    // Write without indent since it's an else-if chain
+                    write_stmt(&else_stmts[0], 0, out);
+                    // Trim leading whitespace that write_stmt added
+                    return;
                 }
                 out.push_str(" else {\n");
                 for s in else_stmts {
@@ -5032,7 +5041,7 @@ fn write_stmt(stmt: &JsStmt, indent_level: usize, out: &mut String) {
         JsStmt::Throw { expr, .. } => {
             indent(indent_level, out);
             out.push_str("throw ");
-            write_expr(&expr, out);
+            write_expr(expr, out);
             out.push(';');
         }
     }
@@ -5215,11 +5224,11 @@ fn write_expr(expr: &JsExpr, out: &mut String) {
             out.push_str(") => ");
 
             // If body is a single return statement, emit concise form
-            if body.len() == 1 {
-                if let JsStmt::Return { expr, .. } = &body[0] {
-                    write_expr(expr, out);
-                    return;
-                }
+            if body.len() == 1
+                && let JsStmt::Return { expr, .. } = &body[0]
+            {
+                write_expr(expr, out);
+                return;
             }
 
             // Otherwise emit block form

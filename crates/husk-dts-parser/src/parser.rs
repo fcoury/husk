@@ -1550,7 +1550,7 @@ impl<'src> Parser<'src> {
                     let type_start = abs_pos + 2; // After ${
                     let mut type_end = type_start;
 
-                    while let Some((offset, c)) = char_iter.next() {
+                    for (offset, c) in char_iter.by_ref() {
                         match c {
                             '{' => brace_depth += 1,
                             '}' => {

@@ -106,14 +106,14 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 ### 4.4 JS Module Imports for Node/Bun
 
-- [ ] Extend language syntax with `extern "js" mod name;` to declare dependencies on JS modules by package name.
-- [ ] Implement codegen for ESM targets:
-  - [ ] Map `extern "js" mod name;` to `import name from "name";` in the generated JS.
-- [ ] (Optional later) Add CommonJS support:
-  - [ ] Map `extern "js" mod name;` to `const name = require("name");` for CommonJS targets, if introduced.
-- [ ] Integrate with the `.d.ts` importer:
-  - [ ] Document how to combine module imports with extern function signatures generated from `.d.ts`.
-- [ ] Add examples showing direct imports of common Node/Bun modules (e.g., `express`, `fs`, small npm libraries).
+- [x] Extend language syntax with `extern "js" mod name;` to declare dependencies on JS modules by package name.
+- [x] Implement codegen for ESM targets:
+  - [x] Map `extern "js" mod name;` to `import name from "name";` in the generated JS.
+- [x] Add CommonJS support:
+  - [x] Map `extern "js" mod name;` to `const name = require("name");` for CommonJS targets.
+- [x] Integrate with the `.d.ts` importer:
+  - [x] Document how to combine module imports with extern function signatures generated from `.d.ts`.
+- [x] Add examples showing direct imports of common Node/Bun modules (e.g., `express`, SQLite, small npm libraries).
 
 ---
 
@@ -128,11 +128,11 @@ Use `[ ]` for pending items and `[x]` for completed items.
 
 ## Phase 6 – Tooling & Developer Experience
 
-- [ ] Extend CLI:
-  - [ ] `huskc fmt` (formatter).
-  - [ ] `huskc new` (project template).
-  - [ ] `huskc test` (test harness, if added).
-- [ ] Implement or integrate a source formatter for the language.
+- [x] Extend CLI:
+  - [x] `huskc fmt` (formatter).
+  - [x] `huskc new` (project template).
+  - [x] `huskc test` (test harness).
+- [x] Implement or integrate a source formatter for the language.
 - [x] Implement an LSP server (basic version):
   - [x] Real-time diagnostics.
   - [x] Go-to-definition.

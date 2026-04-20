@@ -250,17 +250,13 @@ fn format_type(ty: &Type) -> String {
         Type::Array(inner) => format!("[{}]", format_type(inner)),
         Type::Named { name, args } if args.is_empty() => name.clone(),
         Type::Named { name, args } => {
-            let args_str = args
-                .iter()
-                .map(|a| format_type(a))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let args_str = args.iter().map(format_type).collect::<Vec<_>>().join(", ");
             format!("{}<{}>", name, args_str)
         }
         Type::Function { params, ret } => {
             let params_str = params
                 .iter()
-                .map(|p| format_type(p))
+                .map(format_type)
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("fn({}) -> {}", params_str, format_type(ret))
@@ -269,7 +265,7 @@ fn format_type(ty: &Type) -> String {
         Type::Tuple(elements) => {
             let elements_str = elements
                 .iter()
-                .map(|e| format_type(e))
+                .map(format_type)
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("({})", elements_str)
@@ -557,12 +553,11 @@ impl TypeEnv {
         // Check for direct trait implementation
         for impl_info in &self.impls {
             // Match either the exact type name or the base type for generics
-            if impl_info.self_ty_name == type_name || impl_info.self_ty_name == base_type_name {
-                if let Some(ref impl_trait) = impl_info.trait_name {
-                    if impl_trait == trait_name {
-                        return true;
-                    }
-                }
+            if (impl_info.self_ty_name == type_name || impl_info.self_ty_name == base_type_name)
+                && let Some(ref impl_trait) = impl_info.trait_name
+                && impl_trait == trait_name
+            {
+                return true;
             }
         }
         false
@@ -602,10 +597,10 @@ impl TypeEnv {
         if let Some(trait_info) = self.traits.get(trait_name) {
             for supertrait in &trait_info.supertraits {
                 // Check if this supertrait is missing
-                if !self.type_implements_trait(type_name, supertrait) {
-                    if !missing.contains(supertrait) {
-                        missing.push(supertrait.clone());
-                    }
+                if !self.type_implements_trait(type_name, supertrait)
+                    && !missing.contains(supertrait)
+                {
+                    missing.push(supertrait.clone());
                 }
                 // Recursively check the supertrait's supertraits
                 self.collect_missing_supertraits_recursive(type_name, supertrait, missing, visited);
@@ -628,7 +623,7 @@ fn extract_trait_type_arg<'a>(trait_name: &'a str, prefix: &str) -> Option<&'a s
 /// Currently matches single uppercase letters (e.g., "T", "U").
 /// NOTE: Multi-letter type params like "Key" are not matched (known limitation).
 fn is_generic_type_param(inner: &str) -> bool {
-    inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_uppercase())
+    inner.len() == 1 && inner.chars().next().is_some_and(|c| c.is_uppercase())
 }
 
 /// Extract a simple type name from a TypeExpr (for impl/trait lookups).
@@ -641,7 +636,7 @@ fn type_expr_to_name(ty: &TypeExpr) -> String {
             } else {
                 let args_str = args
                     .iter()
-                    .map(|a| type_expr_to_name(a))
+                    .map(type_expr_to_name)
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}<{}>", name.name, args_str)
@@ -720,6 +715,16 @@ struct TypeChecker {
     references: ReferenceMap,
 }
 
+struct IteratorMethodArgs<'a> {
+    elem_ty: &'a Type,
+    receiver_ty: &'a Type,
+    method_name: &'a str,
+    args: &'a [Expr],
+    receiver: &'a Expr,
+    type_args: &'a [TypeExpr],
+    span: &'a husk_ast::Span,
+}
+
 impl TypeChecker {
     fn new() -> Self {
         Self {
@@ -737,14 +742,17 @@ impl TypeChecker {
     /// Record a reference to a symbol.
     fn add_reference(&mut self, name: &str, kind: ReferenceKind, span: Span) {
         let key = (name.to_string(), kind);
-        self.references.entry(key).or_default().push(SymbolReference {
-            span,
-            module_path: None,
-        });
+        self.references
+            .entry(key)
+            .or_default()
+            .push(SymbolReference {
+                span,
+                module_path: None,
+            });
     }
 
     fn build_type_env(&mut self, file: &File) {
-        for (_idx, item) in file.items.iter().enumerate() {
+        for item in file.items.iter() {
             match &item.kind {
                 ItemKind::Struct {
                     name,
@@ -766,7 +774,11 @@ impl TypeChecker {
                     // Track field definitions for rename support
                     for field in fields {
                         let field_key = format!("{}.{}", name.name, field.name.name);
-                        self.add_reference(&field_key, ReferenceKind::Field, field.name.span.clone());
+                        self.add_reference(
+                            &field_key,
+                            ReferenceKind::Field,
+                            field.name.span.clone(),
+                        );
                     }
 
                     // Register hover info for struct definition
@@ -827,7 +839,11 @@ impl TypeChecker {
                     // Track variant definitions for rename support
                     for variant in variants {
                         let variant_key = format!("{}::{}", name.name, variant.name.name);
-                        self.add_reference(&variant_key, ReferenceKind::Variant, variant.name.span.clone());
+                        self.add_reference(
+                            &variant_key,
+                            ReferenceKind::Variant,
+                            variant.name.span.clone(),
+                        );
                     }
 
                     // Register hover info for enum definition
@@ -1020,8 +1036,7 @@ impl TypeChecker {
                                     // Mod block with functions - create module with its functions.
                                     // Check for #[default] on mod or on any function
                                     let mod_is_default = ext.is_default();
-                                    let fn_has_default =
-                                        mod_items.iter().any(|mi| mi.is_default());
+                                    let fn_has_default = mod_items.iter().any(|mi| mi.is_default());
                                     let has_default = mod_is_default || fn_has_default;
 
                                     let mut functions = HashMap::new();
@@ -1145,7 +1160,11 @@ impl TypeChecker {
                     };
                     self.env.traits.insert(trait_def.name.name.clone(), info);
                     // Track trait definition for rename support
-                    self.add_reference(&trait_def.name.name, ReferenceKind::Trait, trait_def.name.span.clone());
+                    self.add_reference(
+                        &trait_def.name.name,
+                        ReferenceKind::Trait,
+                        trait_def.name.span.clone(),
+                    );
                 }
                 ItemKind::Impl(impl_block) => {
                     let self_ty_name = type_expr_to_name(&impl_block.self_ty);
@@ -1247,7 +1266,7 @@ impl TypeChecker {
         // Collect supertrait errors separately to avoid borrow issues
         let mut supertrait_errors: Vec<(String, String, Vec<String>, Span)> = Vec::new();
 
-        for (_idx, impl_info) in self.env.impls.iter().enumerate() {
+        for impl_info in self.env.impls.iter() {
             // Only check trait impls (skip inherent impls)
             let Some(trait_name) = &impl_info.trait_name else {
                 continue;
@@ -1342,37 +1361,37 @@ impl TypeChecker {
         // Validate main() return type - must implement Termination trait
         // Currently only () and Result<T, E> are allowed
         for item in &file.items {
-            if let ItemKind::Fn { name, ret_type, .. } = &item.kind {
-                if name.name == "main" {
-                    let return_type = ret_type
+            if let ItemKind::Fn { name, ret_type, .. } = &item.kind
+                && name.name == "main"
+            {
+                let return_type = ret_type
+                    .as_ref()
+                    .map(|ty| self.resolve_type_expr(ty, &[]))
+                    .unwrap_or(Type::Primitive(PrimitiveType::Unit));
+
+                let is_valid_termination = match &return_type {
+                    // () implements Termination
+                    Type::Primitive(PrimitiveType::Unit) => true,
+                    // Result<T, E> implements Termination (where T: Termination, E: Debug)
+                    // For now, we accept any Result type
+                    Type::Named { name, args } if name == "Result" && args.len() == 2 => true,
+                    _ => false,
+                };
+
+                if !is_valid_termination {
+                    let span = ret_type
                         .as_ref()
-                        .map(|ty| self.resolve_type_expr(ty, &[]))
-                        .unwrap_or(Type::Primitive(PrimitiveType::Unit));
-
-                    let is_valid_termination = match &return_type {
-                        // () implements Termination
-                        Type::Primitive(PrimitiveType::Unit) => true,
-                        // Result<T, E> implements Termination (where T: Termination, E: Debug)
-                        // For now, we accept any Result type
-                        Type::Named { name, args } if name == "Result" && args.len() == 2 => true,
-                        _ => false,
-                    };
-
-                    if !is_valid_termination {
-                        let span = ret_type
-                            .as_ref()
-                            .map(|ty| ty.span.clone())
-                            .unwrap_or(name.span.clone());
-                        self.errors.push(SemanticError {
-                            message: format!(
-                                "`main` has invalid return type `{}`\n\
+                        .map(|ty| ty.span.clone())
+                        .unwrap_or(name.span.clone());
+                    self.errors.push(SemanticError {
+                        message: format!(
+                            "`main` has invalid return type `{}`\n\
                                  `main` can only return types that implement `Termination`\n\
                                  help: consider using `()`, or a `Result`",
-                                format_type(&return_type)
-                            ),
-                            span,
-                        });
-                    }
+                            format_type(&return_type)
+                        ),
+                        span,
+                    });
                 }
             }
         }
@@ -1454,22 +1473,15 @@ impl TypeChecker {
     fn resolve_type_expr(&mut self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match &ty.kind {
             TypeExprKind::Named(id) => {
-                let result =
-                    self.resolve_named_type(&id.name, &[], ty.span.clone(), generic_params);
-                result
+                self.resolve_named_type(&id.name, &[], ty.span.clone(), generic_params)
             }
             TypeExprKind::Generic { name, args } => {
                 let resolved_args: Vec<Type> = args
                     .iter()
                     .map(|a| self.resolve_type_expr(a, generic_params))
                     .collect();
-                let result = self.resolve_named_type(
-                    &name.name,
-                    &resolved_args,
-                    ty.span.clone(),
-                    generic_params,
-                );
-                result
+
+                self.resolve_named_type(&name.name, &resolved_args, ty.span.clone(), generic_params)
             }
             TypeExprKind::Function { params, ret } => {
                 let param_types: Vec<Type> = params
@@ -1773,7 +1785,8 @@ impl<'a> FnContext<'a> {
             .insert((span.range.start, span.range.end), resolved.clone());
 
         // Track variable binding for rename support
-        self.tcx.add_reference(name, ReferenceKind::Variable, span.clone());
+        self.tcx
+            .add_reference(name, ReferenceKind::Variable, span.clone());
 
         // Register hover info for the variable binding
         let type_str = self.format_type(&ty);
@@ -2120,7 +2133,8 @@ impl<'a> FnContext<'a> {
                         self.tcx.errors.push(SemanticError {
                             message: format!(
                                 "mismatched types in match arms: expected `{}`, found `{}`",
-                                self.format_type(&expected), self.format_type(&arm_ty)
+                                self.format_type(expected),
+                                self.format_type(&arm_ty)
                             ),
                             span: arm.expr.span.clone(),
                         });
@@ -2130,18 +2144,18 @@ impl<'a> FnContext<'a> {
         }
 
         // Exhaustiveness for simple enums.
-        if let Some((enum_name, variant_names)) = enum_info {
-            if !has_catch_all {
-                for variant in &variant_names {
-                    if !seen_variants.contains(variant) {
-                        self.tcx.errors.push(SemanticError {
-                            message: format!(
-                                "non-exhaustive match on enum `{}`: missing variant `{}`",
-                                enum_name, variant
-                            ),
-                            span: expr.span.clone(),
-                        });
-                    }
+        if let Some((enum_name, variant_names)) = enum_info
+            && !has_catch_all
+        {
+            for variant in &variant_names {
+                if !seen_variants.contains(variant) {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "non-exhaustive match on enum `{}`: missing variant `{}`",
+                            enum_name, variant
+                        ),
+                        span: expr.span.clone(),
+                    });
                 }
             }
         }
@@ -2268,7 +2282,8 @@ impl<'a> FnContext<'a> {
                             self.tcx.errors.push(SemanticError {
                                 message: format!(
                                     "mismatched types in `let`: expected `{}`, found `{}`",
-                                    self.format_type(&a), self.format_type(&v)
+                                    self.format_type(&a),
+                                    self.format_type(&v)
                                 ),
                                 span: stmt.span.clone(),
                             });
@@ -2320,7 +2335,7 @@ impl<'a> FnContext<'a> {
                 // (pattern validation happens in bind_pattern_locals)
                 let mut pattern_bindings = HashSet::new();
                 self.bind_pattern_locals(pattern, &final_ty, &mut pattern_bindings);
-                return None;
+                None
             }
             StmtKind::Assign { target, op, value } => {
                 // Validate target is assignable (lvalue: ident, field, or index)
@@ -2371,14 +2386,14 @@ impl<'a> FnContext<'a> {
                         }
                     }
                 }
-                return None;
+                None
             }
             StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
                 let ty = self.check_expr(expr);
                 if matches!(stmt.kind, StmtKind::Semi(_)) {
                     return Some(Type::Primitive(PrimitiveType::Unit));
                 }
-                return Some(ty);
+                Some(ty)
             }
             StmtKind::Return { value } => {
                 let actual_ty = if let Some(expr) = value {
@@ -2395,7 +2410,7 @@ impl<'a> FnContext<'a> {
                         span: stmt.span.clone(),
                     });
                 }
-                return None;
+                None
             }
             StmtKind::If {
                 cond,
@@ -2415,13 +2430,13 @@ impl<'a> FnContext<'a> {
                     let else_ty = self.check_stmt(else_stmt);
                     // If both branches have matching types, return that type
                     // This allows if/else statements to be used as expressions in blocks
-                    if let Some(else_ty) = else_ty {
-                        if self.types_compatible(&then_ty, &else_ty) {
-                            return Some(then_ty);
-                        }
+                    if let Some(else_ty) = else_ty
+                        && self.types_compatible(&then_ty, &else_ty)
+                    {
+                        return Some(then_ty);
                     }
                 }
-                return None;
+                None
             }
             StmtKind::While { cond, body } => {
                 let cond_ty = self.check_expr(cond);
@@ -2436,14 +2451,14 @@ impl<'a> FnContext<'a> {
                 self.in_loop = true;
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
-                return None;
+                None
             }
             StmtKind::Loop { body } => {
                 let prev_in_loop = self.in_loop;
                 self.in_loop = true;
                 self.check_block(body);
                 self.in_loop = prev_in_loop;
-                return None;
+                None
             }
             StmtKind::ForIn {
                 binding,
@@ -2504,7 +2519,7 @@ impl<'a> FnContext<'a> {
                 self.locals = old_locals;
                 self.shadow_counts = old_shadow_counts;
                 self.resolved_names = old_resolved_names;
-                return None;
+                None
             }
             StmtKind::Break | StmtKind::Continue => {
                 if !self.in_loop {
@@ -2520,9 +2535,9 @@ impl<'a> FnContext<'a> {
                         span: stmt.span.clone(),
                     });
                 }
-                return None;
+                None
             }
-            StmtKind::Block(block) => return Some(self.check_block(block)),
+            StmtKind::Block(block) => Some(self.check_block(block)),
             StmtKind::IfLet {
                 pattern,
                 scrutinee,
@@ -2530,7 +2545,7 @@ impl<'a> FnContext<'a> {
                 else_branch,
             } => {
                 self.check_if_let_stmt(pattern, scrutinee, then_branch, else_branch, &stmt.span);
-                return None;
+                None
             }
         }
     }
@@ -2615,10 +2630,9 @@ impl<'a> FnContext<'a> {
                     }
                     // Register type in type_resolution for codegen (needed for iterator method dispatch)
                     let type_str = self.format_type(&ty);
-                    self.tcx.type_resolution.insert(
-                        (id.span.range.start, id.span.range.end),
-                        type_str.clone(),
-                    );
+                    self.tcx
+                        .type_resolution
+                        .insert((id.span.range.start, id.span.range.end), type_str.clone());
                     // Register hover info for variable usage
                     self.tcx.hover_info.insert(
                         (id.span.range.start, id.span.range.end),
@@ -2629,7 +2643,8 @@ impl<'a> FnContext<'a> {
                         },
                     );
                     // Track variable reference for rename support
-                    self.tcx.add_reference(&id.name, ReferenceKind::Variable, id.span.clone());
+                    self.tcx
+                        .add_reference(&id.name, ReferenceKind::Variable, id.span.clone());
                     return ty;
                 }
                 // Try top-level function.
@@ -2671,7 +2686,8 @@ impl<'a> FnContext<'a> {
                         },
                     );
                     // Track function reference for rename support
-                    self.tcx.add_reference(&id.name, ReferenceKind::Function, id.span.clone());
+                    self.tcx
+                        .add_reference(&id.name, ReferenceKind::Function, id.span.clone());
                     return fn_type;
                 }
 
@@ -2796,16 +2812,15 @@ impl<'a> FnContext<'a> {
                 };
 
                 // Check if the callee is an imported enum variant and record it for codegen
-                if let ExprKind::Ident(id) = &callee.kind {
-                    if let Some((enum_name, _variant_def)) =
+                if let ExprKind::Ident(id) = &callee.kind
+                    && let Some((enum_name, _variant_def)) =
                         self.tcx.env.variant_imports.get(&id.name).cloned()
-                    {
-                        // Record this call as a variant call for codegen
-                        self.tcx.variant_calls.insert(
-                            (expr.span.range.start, expr.span.range.end),
-                            (enum_name, id.name.clone()),
-                        );
-                    }
+                {
+                    // Record this call as a variant call for codegen
+                    self.tcx.variant_calls.insert(
+                        (expr.span.range.start, expr.span.range.end),
+                        (enum_name, id.name.clone()),
+                    );
                 }
 
                 // Get the function name for looking up generic type parameters
@@ -2932,32 +2947,32 @@ impl<'a> FnContext<'a> {
                 // Special handling for assert_eq and assert_ne: enforce PartialEq on arguments
                 // These are extern "js" functions that accept JsValue, but semantically we want
                 // to require PartialEq on the types being compared.
-                if let Some(ref name) = fn_name {
-                    if name == "assert_eq" || name == "assert_ne" {
-                        // Check first two arguments for PartialEq
-                        for (i, arg) in args.iter().take(2).enumerate() {
-                            let arg_ty = self.check_expr(arg);
-                            let arg_type_name = self.type_to_name(&arg_ty);
+                if let Some(ref name) = fn_name
+                    && (name == "assert_eq" || name == "assert_ne")
+                {
+                    // Check first two arguments for PartialEq
+                    for (i, arg) in args.iter().take(2).enumerate() {
+                        let arg_ty = self.check_expr(arg);
+                        let arg_type_name = self.type_to_name(&arg_ty);
 
-                            // Skip if type is JsValue or an extern type (already opaque)
-                            if arg_type_name != "JsValue" && !arg_type_name.starts_with('?') {
-                                if !self
-                                    .tcx
-                                    .env
-                                    .type_implements_trait(&arg_type_name, "PartialEq")
-                                {
-                                    self.tcx.errors.push(SemanticError {
-                                        message: format!(
-                                            "the trait bound `{}: PartialEq` is not satisfied",
-                                            arg_type_name
-                                        ),
-                                        span: args
-                                            .get(i)
-                                            .map(|a| a.span.clone())
-                                            .unwrap_or_else(|| expr.span.clone()),
-                                    });
-                                }
-                            }
+                        // Skip if type is JsValue or an extern type (already opaque)
+                        if arg_type_name != "JsValue"
+                            && !arg_type_name.starts_with('?')
+                            && !self
+                                .tcx
+                                .env
+                                .type_implements_trait(&arg_type_name, "PartialEq")
+                        {
+                            self.tcx.errors.push(SemanticError {
+                                message: format!(
+                                    "the trait bound `{}: PartialEq` is not satisfied",
+                                    arg_type_name
+                                ),
+                                span: args
+                                    .get(i)
+                                    .map(|a| a.span.clone())
+                                    .unwrap_or_else(|| expr.span.clone()),
+                            });
                         }
                     }
                 }
@@ -2994,57 +3009,59 @@ impl<'a> FnContext<'a> {
                 }
 
                 // Handle Range.start and Range.end fields
-                if let Type::Named { name, args } = &base_ty {
-                    if name == "Range"
-                        && (member.name == "start"
-                            || member.name == "end"
-                            || member.name == "inclusive")
-                    {
-                        // Range<T> has start/end fields of type T and an inclusive flag
-                        let field_ty = if member.name == "inclusive" {
-                            Type::Primitive(PrimitiveType::Bool)
-                        } else {
-                            args.first()
-                                .cloned()
-                                .unwrap_or(Type::Primitive(PrimitiveType::I32))
-                        };
-                        let type_str = self.format_type(&field_ty);
-                        self.tcx.hover_info.insert(
-                            (member.span.range.start, member.span.range.end),
-                            HoverInfo {
-                                signature: format!("Range.{}: {}", member.name, type_str),
-                                docs: None,
-                                definition_span: None,
-                            },
-                        );
-                        return field_ty;
-                    }
+                if let Type::Named { name, args } = &base_ty
+                    && name == "Range"
+                    && (member.name == "start"
+                        || member.name == "end"
+                        || member.name == "inclusive")
+                {
+                    // Range<T> has start/end fields of type T and an inclusive flag
+                    let field_ty = if member.name == "inclusive" {
+                        Type::Primitive(PrimitiveType::Bool)
+                    } else {
+                        args.first()
+                            .cloned()
+                            .unwrap_or(Type::Primitive(PrimitiveType::I32))
+                    };
+                    let type_str = self.format_type(&field_ty);
+                    self.tcx.hover_info.insert(
+                        (member.span.range.start, member.span.range.end),
+                        HoverInfo {
+                            signature: format!("Range.{}: {}", member.name, type_str),
+                            docs: None,
+                            definition_span: None,
+                        },
+                    );
+                    return field_ty;
                 }
 
                 if let Type::Named { name, args } = &base_ty {
                     // First, check regular struct fields
-                    if let Some(def) = self.tcx.env.structs.get(name).cloned() {
-                        if let Some(field_ty_expr) = def.fields.get(&member.name) {
-                            // For now, ignore generic substitution and just resolve as-is.
-                            let _ = args;
-                            let field_ty =
-                                self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
-                            // Register hover info for struct field access
-                            let type_str = self.format_type(&field_ty);
-                            self.tcx.hover_info.insert(
-                                (member.span.range.start, member.span.range.end),
-                                HoverInfo {
-                                    signature: format!("{}.{}: {}", name, member.name, type_str),
-                                    docs: None,
-                                    definition_span: None,
-                                },
-                            );
-                            // Track field reference for rename support
-                            // Use format "StructName.field_name" to identify fields uniquely
-                            let field_key = format!("{}.{}", name, member.name);
-                            self.tcx.add_reference(&field_key, ReferenceKind::Field, member.span.clone());
-                            return field_ty;
-                        }
+                    if let Some(def) = self.tcx.env.structs.get(name).cloned()
+                        && let Some(field_ty_expr) = def.fields.get(&member.name)
+                    {
+                        // For now, ignore generic substitution and just resolve as-is.
+                        let _ = args;
+                        let field_ty = self.tcx.resolve_type_expr(field_ty_expr, &def.type_params);
+                        // Register hover info for struct field access
+                        let type_str = self.format_type(&field_ty);
+                        self.tcx.hover_info.insert(
+                            (member.span.range.start, member.span.range.end),
+                            HoverInfo {
+                                signature: format!("{}.{}: {}", name, member.name, type_str),
+                                docs: None,
+                                definition_span: None,
+                            },
+                        );
+                        // Track field reference for rename support
+                        // Use format "StructName.field_name" to identify fields uniquely
+                        let field_key = format!("{}.{}", name, member.name);
+                        self.tcx.add_reference(
+                            &field_key,
+                            ReferenceKind::Field,
+                            member.span.clone(),
+                        );
+                        return field_ty;
                     }
 
                     // Then check extern properties from impl blocks
@@ -3263,18 +3280,18 @@ impl<'a> FnContext<'a> {
                 };
 
                 // Use StdlibIndex to infer iterator method return types
-                if let Some(elem_ty) = iterator_elem_ty {
-                    if let Some(result_ty) = self.infer_iterator_method(
-                        &elem_ty,
-                        &receiver_ty,
+                if let Some(elem_ty) = iterator_elem_ty
+                    && let Some(result_ty) = self.infer_iterator_method(IteratorMethodArgs {
+                        elem_ty: &elem_ty,
+                        receiver_ty: &receiver_ty,
                         method_name,
                         args,
                         receiver,
                         type_args,
-                        &expr.span,
-                    ) {
-                        return result_ty;
-                    }
+                        span: &expr.span,
+                    })
+                {
+                    return result_ty;
                 }
 
                 // Type-check remaining arguments without expected types
@@ -3283,46 +3300,46 @@ impl<'a> FnContext<'a> {
                 }
 
                 // Handle tuple.to_array() specially
-                if let Type::Tuple(elements) = &receiver_ty {
-                    if method_name == "to_array" {
-                        // Check that all elements have the same type
-                        if elements.is_empty() {
-                            // Empty tuple -> Result<[()], String>
-                            return Type::Named {
-                                name: "Result".to_string(),
-                                args: vec![
-                                    Type::Array(Box::new(Type::Primitive(PrimitiveType::Unit))),
-                                    Type::Primitive(PrimitiveType::String),
-                                ],
-                            };
-                        }
+                if let Type::Tuple(elements) = &receiver_ty
+                    && method_name == "to_array"
+                {
+                    // Check that all elements have the same type
+                    if elements.is_empty() {
+                        // Empty tuple -> Result<[()], String>
+                        return Type::Named {
+                            name: "Result".to_string(),
+                            args: vec![
+                                Type::Array(Box::new(Type::Primitive(PrimitiveType::Unit))),
+                                Type::Primitive(PrimitiveType::String),
+                            ],
+                        };
+                    }
 
-                        let first_type = &elements[0];
-                        let all_same = elements
-                            .iter()
-                            .skip(1)
-                            .all(|t| self.types_compatible(first_type, t));
+                    let first_type = &elements[0];
+                    let all_same = elements
+                        .iter()
+                        .skip(1)
+                        .all(|t| self.types_compatible(first_type, t));
 
-                        if all_same {
-                            // Homogeneous tuple -> Result<[T], String>
-                            return Type::Named {
-                                name: "Result".to_string(),
-                                args: vec![
-                                    Type::Array(Box::new(first_type.clone())),
-                                    Type::Primitive(PrimitiveType::String),
-                                ],
-                            };
-                        } else {
-                            // Heterogeneous tuple -> compile error
-                            self.tcx.errors.push(SemanticError {
-                                message: format!(
-                                    "cannot call `to_array()` on tuple with mixed types `{}`",
-                                    self.format_type(&receiver_ty)
-                                ),
-                                span: expr.span.clone(),
-                            });
-                            return Type::Primitive(PrimitiveType::Unit);
-                        }
+                    if all_same {
+                        // Homogeneous tuple -> Result<[T], String>
+                        return Type::Named {
+                            name: "Result".to_string(),
+                            args: vec![
+                                Type::Array(Box::new(first_type.clone())),
+                                Type::Primitive(PrimitiveType::String),
+                            ],
+                        };
+                    } else {
+                        // Heterogeneous tuple -> compile error
+                        self.tcx.errors.push(SemanticError {
+                            message: format!(
+                                "cannot call `to_array()` on tuple with mixed types `{}`",
+                                self.format_type(&receiver_ty)
+                            ),
+                            span: expr.span.clone(),
+                        });
+                        return Type::Primitive(PrimitiveType::Unit);
                     }
                 }
 
@@ -3367,27 +3384,26 @@ impl<'a> FnContext<'a> {
 
                 // Look up the method in impl blocks and get its return type.
                 // Use Option<Option<TypeExpr>> to distinguish "method not found" from "method found with no return type"
-                let method_lookup_result: Option<Option<TypeExpr>> =
-                    if let Some(ref type_name) = receiver_type_name {
-                        let mut found = None;
-                        for impl_info in &self.tcx.env.impls {
-                            // Match either the exact type name or the generic form
-                            let matches = impl_info.self_ty_name == *type_name
-                                || generic_type_name
-                                    .as_ref()
-                                    .map_or(false, |g| impl_info.self_ty_name == *g);
-                            if matches {
-                                if let Some(method_info) = impl_info.methods.get(method_name) {
-                                    // Found the method - wrap ret_type in Some to indicate success
-                                    found = Some(method_info.ret_type.clone());
-                                    break;
-                                }
-                            }
+                let method_lookup_result: Option<Option<TypeExpr>> = if let Some(ref type_name) =
+                    receiver_type_name
+                {
+                    let mut found = None;
+                    for impl_info in &self.tcx.env.impls {
+                        // Match either the exact type name or the generic form
+                        let matches = impl_info.self_ty_name == *type_name
+                            || generic_type_name
+                                .as_ref()
+                                .is_some_and(|g| impl_info.self_ty_name == *g);
+                        if matches && let Some(method_info) = impl_info.methods.get(method_name) {
+                            // Found the method - wrap ret_type in Some to indicate success
+                            found = Some(method_info.ret_type.clone());
+                            break;
                         }
-                        found
-                    } else {
-                        None
-                    };
+                    }
+                    found
+                } else {
+                    None
+                };
 
                 // Resolve the return type
                 match method_lookup_result {
@@ -3586,15 +3602,21 @@ impl<'a> FnContext<'a> {
 
                 // Track struct literal reference for rename support
                 if let Some(name_ident) = name.last() {
-                    self.tcx
-                        .add_reference(&type_name, ReferenceKind::Struct, name_ident.span.clone());
+                    self.tcx.add_reference(
+                        &type_name,
+                        ReferenceKind::Struct,
+                        name_ident.span.clone(),
+                    );
                 }
 
                 // Track field references in struct literal for rename support
                 for field in fields {
                     let field_key = format!("{}.{}", type_name, field.name.name);
-                    self.tcx
-                        .add_reference(&field_key, ReferenceKind::Field, field.name.span.clone());
+                    self.tcx.add_reference(
+                        &field_key,
+                        ReferenceKind::Field,
+                        field.name.span.clone(),
+                    );
                 }
 
                 Type::Named {
@@ -3638,9 +3660,10 @@ impl<'a> FnContext<'a> {
                 if has_explicit_position {
                     // With explicit positions, check that all indices are in bounds
                     for ph in &placeholders {
-                        if let Some(pos) = ph.position {
-                            if pos >= args.len() {
-                                self.tcx.errors.push(SemanticError {
+                        if let Some(pos) = ph.position
+                            && pos >= args.len()
+                        {
+                            self.tcx.errors.push(SemanticError {
                                     message: format!(
                                         "positional argument {} is out of range (only {} argument(s) provided)",
                                         pos,
@@ -3648,7 +3671,6 @@ impl<'a> FnContext<'a> {
                                     ),
                                     span: ph.span.clone(),
                                 });
-                            }
                         }
                     }
                 } else {
@@ -3728,9 +3750,10 @@ impl<'a> FnContext<'a> {
                 let has_explicit_position = placeholders.iter().any(|ph| ph.position.is_some());
                 if has_explicit_position {
                     for ph in &placeholders {
-                        if let Some(pos) = ph.position {
-                            if pos >= args.len() {
-                                self.tcx.errors.push(SemanticError {
+                        if let Some(pos) = ph.position
+                            && pos >= args.len()
+                        {
+                            self.tcx.errors.push(SemanticError {
                                     message: format!(
                                         "positional argument {} is out of range (only {} argument(s) provided)",
                                         pos,
@@ -3738,7 +3761,6 @@ impl<'a> FnContext<'a> {
                                     ),
                                     span: ph.span.clone(),
                                 });
-                            }
                         }
                     }
                 } else {
@@ -3759,22 +3781,22 @@ impl<'a> FnContext<'a> {
 
                 for (i, ph) in placeholders.iter().enumerate() {
                     let arg_index = ph.position.unwrap_or(i);
-                    if let Some(arg_ty) = arg_types.get(arg_index) {
-                        if let Some(ty_char) = ph.spec.ty {
-                            match ty_char {
-                                'x' | 'X' | 'b' | 'o' => {
-                                    if !matches!(arg_ty, Type::Primitive(PrimitiveType::I32)) {
-                                        self.tcx.errors.push(SemanticError {
+                    if let Some(arg_ty) = arg_types.get(arg_index)
+                        && let Some(ty_char) = ph.spec.ty
+                    {
+                        match ty_char {
+                            'x' | 'X' | 'b' | 'o' => {
+                                if !matches!(arg_ty, Type::Primitive(PrimitiveType::I32)) {
+                                    self.tcx.errors.push(SemanticError {
                                             message: format!(
                                                 "format specifier `:{ty_char}` requires numeric type, found `{arg_ty:?}`"
                                             ),
                                             span: ph.span.clone(),
                                         });
-                                    }
                                 }
-                                '?' => {}
-                                _ => {}
                             }
+                            '?' => {}
+                            _ => {}
                         }
                     }
                 }
@@ -3954,10 +3976,9 @@ impl<'a> FnContext<'a> {
             } => {
                 // Type check both sides
                 let _target_ty = self.check_expr(target);
-                let value_ty = self.check_expr(value);
 
                 // Assignment expression returns the assigned value
-                value_ty
+                self.check_expr(value)
             }
             ExprKind::JsLiteral { .. } => {
                 // Raw JavaScript literals are treated as dynamically typed (JsValue)
@@ -4294,11 +4315,8 @@ impl<'a> FnContext<'a> {
         let target_ty = if !type_args.is_empty() {
             // Turbofish: .into::<TargetType>()
             Some(self.tcx.resolve_type_expr(&type_args[0], &[]))
-        } else if let Some(expected) = expected {
-            // Infer from let binding or function argument
-            Some(expected.clone())
         } else {
-            None
+            expected.cloned()
         };
 
         match target_ty {
@@ -4517,16 +4535,16 @@ impl<'a> FnContext<'a> {
     ///
     /// This uses the InferenceStrategy from the stdlib index to determine
     /// how to type-check closure parameters and infer return types.
-    fn infer_iterator_method(
-        &mut self,
-        elem_ty: &Type,
-        receiver_ty: &Type,
-        method_name: &str,
-        args: &[Expr],
-        receiver: &Expr,
-        type_args: &[TypeExpr],
-        span: &husk_ast::Span,
-    ) -> Option<Type> {
+    fn infer_iterator_method(&mut self, method: IteratorMethodArgs<'_>) -> Option<Type> {
+        let IteratorMethodArgs {
+            elem_ty,
+            receiver_ty,
+            method_name,
+            args,
+            receiver,
+            type_args,
+            span,
+        } = method;
         let index = get_stdlib_index();
         let strategy = index.get_inference_strategy("Iterator", method_name);
 
@@ -4641,23 +4659,22 @@ impl<'a> FnContext<'a> {
                 // Methods like take, skip, enumerate, zip, chain
                 // Need special handling for some
                 match method_name {
-                    "enumerate" => {
-                        Some(Type::ImplTrait {
-                            trait_ty: Box::new(Type::Named {
-                                name: "Iterator".to_string(),
-                                args: vec![Type::Tuple(vec![
-                                    Type::Primitive(PrimitiveType::I32),
-                                    elem_ty.clone(),
-                                ])],
-                            }),
-                        })
-                    }
+                    "enumerate" => Some(Type::ImplTrait {
+                        trait_ty: Box::new(Type::Named {
+                            name: "Iterator".to_string(),
+                            args: vec![Type::Tuple(vec![
+                                Type::Primitive(PrimitiveType::I32),
+                                elem_ty.clone(),
+                            ])],
+                        }),
+                    }),
                     "take" | "skip" => {
                         if args.len() == 1 {
                             let count_ty = self.check_expr(&args[0]);
-                            let is_valid_count =
-                                matches!(count_ty, Type::Primitive(PrimitiveType::I32))
-                                    || matches!(&count_ty, Type::Named { name, .. } if name == "number");
+                            let is_valid_count = matches!(
+                                count_ty,
+                                Type::Primitive(PrimitiveType::I32)
+                            ) || matches!(&count_ty, Type::Named { name, .. } if name == "number");
                             if !is_valid_count {
                                 self.tcx.errors.push(SemanticError {
                                     message: format!(
@@ -4711,19 +4728,19 @@ impl<'a> FnContext<'a> {
         let source_name = self.format_type(source);
 
         for impl_info in &self.tcx.env.impls {
-            if impl_info.self_ty_name == target_name {
-                if let Some(trait_name) = &impl_info.trait_name {
-                    // Check if this is impl From<source> for target
-                    let expected_trait = format!("From<{}>", source_name);
-                    if trait_name == &expected_trait {
-                        return true;
-                    }
-                    // Also check for generic From<T> implementations
-                    if let Some(inner) = extract_trait_type_arg(trait_name, "From<") {
-                        if is_generic_type_param(inner) || inner == source_name {
-                            return true;
-                        }
-                    }
+            if impl_info.self_ty_name == target_name
+                && let Some(trait_name) = &impl_info.trait_name
+            {
+                // Check if this is impl From<source> for target
+                let expected_trait = format!("From<{}>", source_name);
+                if trait_name == &expected_trait {
+                    return true;
+                }
+                // Also check for generic From<T> implementations
+                if let Some(inner) = extract_trait_type_arg(trait_name, "From<")
+                    && (is_generic_type_param(inner) || inner == source_name)
+                {
+                    return true;
                 }
             }
         }
@@ -4736,18 +4753,18 @@ impl<'a> FnContext<'a> {
         let source_name = self.format_type(source);
 
         for impl_info in &self.tcx.env.impls {
-            if impl_info.self_ty_name == target_name {
-                if let Some(trait_name) = &impl_info.trait_name {
-                    let expected_trait = format!("TryFrom<{}>", source_name);
-                    if trait_name == &expected_trait {
-                        return true;
-                    }
-                    // Check for generic TryFrom<T> implementations
-                    if let Some(inner) = extract_trait_type_arg(trait_name, "TryFrom<") {
-                        if is_generic_type_param(inner) || inner == source_name {
-                            return true;
-                        }
-                    }
+            if impl_info.self_ty_name == target_name
+                && let Some(trait_name) = &impl_info.trait_name
+            {
+                let expected_trait = format!("TryFrom<{}>", source_name);
+                if trait_name == &expected_trait {
+                    return true;
+                }
+                // Check for generic TryFrom<T> implementations
+                if let Some(inner) = extract_trait_type_arg(trait_name, "TryFrom<")
+                    && (is_generic_type_param(inner) || inner == source_name)
+                {
+                    return true;
                 }
             }
         }
@@ -4788,18 +4805,17 @@ impl<'a> FnContext<'a> {
                 let annotated = self.tcx.resolve_type_expr(type_expr, &[]);
 
                 // Validate against expected type if available
-                if let Some(expected_params) = expected_params {
-                    if let Some(expected_ty) = expected_params.get(i) {
-                        if !self.types_compatible(expected_ty, &annotated) {
-                            self.tcx.errors.push(SemanticError {
-                                message: format!(
-                                    "closure parameter type `{:?}` does not match expected `{:?}`",
-                                    annotated, expected_ty
-                                ),
-                                span: param.name.span.clone(),
-                            });
-                        }
-                    }
+                if let Some(expected_params) = expected_params
+                    && let Some(expected_ty) = expected_params.get(i)
+                    && !self.types_compatible(expected_ty, &annotated)
+                {
+                    self.tcx.errors.push(SemanticError {
+                        message: format!(
+                            "closure parameter type `{:?}` does not match expected `{:?}`",
+                            annotated, expected_ty
+                        ),
+                        span: param.name.span.clone(),
+                    });
                 }
                 annotated
             } else if let Some(expected_params) = expected_params {
@@ -4852,17 +4868,17 @@ impl<'a> FnContext<'a> {
         }
 
         // Check arity mismatch (fewer params than expected)
-        if let Some(expected_params) = expected_params {
-            if params.len() < expected_params.len() {
-                self.tcx.errors.push(SemanticError {
-                    message: format!(
-                        "closure has fewer parameters than expected (expected {}, got {})",
-                        expected_params.len(),
-                        params.len()
-                    ),
-                    span: _expr.span.clone(),
-                });
-            }
+        if let Some(expected_params) = expected_params
+            && params.len() < expected_params.len()
+        {
+            self.tcx.errors.push(SemanticError {
+                message: format!(
+                    "closure has fewer parameters than expected (expected {}, got {})",
+                    expected_params.len(),
+                    params.len()
+                ),
+                span: _expr.span.clone(),
+            });
         }
 
         // Resolve return type if specified
@@ -4883,7 +4899,7 @@ impl<'a> FnContext<'a> {
             std::mem::replace(&mut self.resolved_names, closure_resolved_names);
         let old_ret_ty = std::mem::replace(&mut self.ret_ty, expected_ret_ty.clone());
         // Closures have their own return type context - set fn name to None for error messages
-        let old_fn_name = std::mem::replace(&mut self.enclosing_fn_name, None);
+        let old_fn_name = self.enclosing_fn_name.take();
 
         // Check the body and infer return type
         let body_ty = self.check_expr(body);
@@ -4958,10 +4974,11 @@ impl<'a> FnContext<'a> {
     fn types_compatible_inner(&self, expected: &Type, actual: &Type) -> bool {
         // JsValue is compatible with any type (it's JavaScript's dynamic "any" type)
         // This allows passing primitives to functions expecting JsValue (e.g., assert_eq)
-        if let Type::Named { name, args } = expected {
-            if name == "JsValue" && args.is_empty() {
-                return true;
-            }
+        if let Type::Named { name, args } = expected
+            && name == "JsValue"
+            && args.is_empty()
+        {
+            return true;
         }
 
         // Empty array [()] is compatible with any array type
@@ -4977,17 +4994,17 @@ impl<'a> FnContext<'a> {
 
         // Generic type parameters (like T, U) are compatible with any type
         // This enables type inference to work with explicit closure annotations
-        if let Type::Named { name, args } = expected {
-            if args.is_empty() {
-                // Check if this is a generic type parameter (single uppercase letter
-                // or a name that's not a known type)
-                let is_generic = name.len() == 1 && name.chars().next().unwrap().is_uppercase()
-                    || (!self.tcx.env.structs.contains_key(name)
-                        && !self.tcx.env.enums.contains_key(name)
-                        && !matches!(name.as_str(), "i32" | "bool" | "String" | "Unit"));
-                if is_generic {
-                    return true;
-                }
+        if let Type::Named { name, args } = expected
+            && args.is_empty()
+        {
+            // Check if this is a generic type parameter (single uppercase letter
+            // or a name that's not a known type)
+            let is_generic = name.len() == 1 && name.chars().next().unwrap().is_uppercase()
+                || (!self.tcx.env.structs.contains_key(name)
+                    && !self.tcx.env.enums.contains_key(name)
+                    && !matches!(name.as_str(), "i32" | "bool" | "String" | "Unit"));
+            if is_generic {
+                return true;
             }
         }
 
@@ -5028,12 +5045,11 @@ impl<'a> FnContext<'a> {
                 args: actual_args,
             },
         ) = (expected, actual)
+            && expected_name == actual_name
         {
-            if expected_name == actual_name {
-                // If actual has no type args (from enum constructor), allow it
-                if actual_args.is_empty() {
-                    return true;
-                }
+            // If actual has no type args (from enum constructor), allow it
+            if actual_args.is_empty() {
+                return true;
             }
         }
 
@@ -5055,12 +5071,10 @@ impl<'a> FnContext<'a> {
 
     /// Check if an expression is a valid assignment target (lvalue).
     fn is_lvalue(&self, expr: &Expr) -> bool {
-        match &expr.kind {
-            ExprKind::Ident(_) => true,
-            ExprKind::Field { .. } => true,
-            ExprKind::Index { .. } => true,
-            _ => false,
-        }
+        matches!(
+            &expr.kind,
+            ExprKind::Ident(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
+        )
     }
 
     /// Check if a type is numeric (supports arithmetic operations).
@@ -5099,11 +5113,11 @@ impl<'a> FnContext<'a> {
                     name: arg_name,
                     args: arg_args,
                 } = arg_ty
+                    && name == arg_name
+                    && args.len() == arg_args.len()
                 {
-                    if name == arg_name && args.len() == arg_args.len() {
-                        for (param_arg, arg_arg) in args.iter().zip(arg_args.iter()) {
-                            self.unify_types(param_arg, arg_arg, type_params, substitutions);
-                        }
+                    for (param_arg, arg_arg) in args.iter().zip(arg_args.iter()) {
+                        self.unify_types(param_arg, arg_arg, type_params, substitutions);
                     }
                 }
             }
@@ -5113,13 +5127,12 @@ impl<'a> FnContext<'a> {
                     params: arg_params,
                     ret: arg_ret,
                 } = arg_ty
+                    && params.len() == arg_params.len()
                 {
-                    if params.len() == arg_params.len() {
-                        for (p, a) in params.iter().zip(arg_params.iter()) {
-                            self.unify_types(p, a, type_params, substitutions);
-                        }
-                        self.unify_types(ret, arg_ret, type_params, substitutions);
+                    for (p, a) in params.iter().zip(arg_params.iter()) {
+                        self.unify_types(p, a, type_params, substitutions);
                     }
+                    self.unify_types(ret, arg_ret, type_params, substitutions);
                 }
             }
             _ => {
@@ -5477,9 +5490,7 @@ impl<'a> FnContext<'a> {
                 ..
             } => {
                 self.block_diverges(then_branch)
-                    && else_branch
-                        .as_ref()
-                        .map_or(false, |e| self.stmt_diverges(e))
+                    && else_branch.as_ref().is_some_and(|e| self.stmt_diverges(e))
             }
 
             // IfLet: same as if - both branches must diverge
@@ -5489,9 +5500,7 @@ impl<'a> FnContext<'a> {
                 ..
             } => {
                 self.block_diverges(then_branch)
-                    && else_branch
-                        .as_ref()
-                        .map_or(false, |e| self.stmt_diverges(e))
+                    && else_branch.as_ref().is_some_and(|e| self.stmt_diverges(e))
             }
 
             // Expression statements: check for divergent expressions (panic!, etc.)
@@ -5531,7 +5540,7 @@ impl<'a> FnContext<'a> {
                     let then_has_break = self.block_has_reachable_break(then_branch);
                     let else_has_break = else_branch
                         .as_ref()
-                        .map_or(false, |e| self.stmt_has_reachable_break(e));
+                        .is_some_and(|e| self.stmt_has_reachable_break(e));
 
                     if then_has_break || else_has_break {
                         return true;
@@ -5539,9 +5548,7 @@ impl<'a> FnContext<'a> {
 
                     // If BOTH branches diverge, subsequent statements are unreachable
                     let then_diverges = self.block_diverges(then_branch);
-                    let else_diverges = else_branch
-                        .as_ref()
-                        .map_or(false, |e| self.stmt_diverges(e));
+                    let else_diverges = else_branch.as_ref().is_some_and(|e| self.stmt_diverges(e));
                     if then_diverges && else_diverges {
                         return false;
                     }
@@ -5555,16 +5562,14 @@ impl<'a> FnContext<'a> {
                     let then_has_break = self.block_has_reachable_break(then_branch);
                     let else_has_break = else_branch
                         .as_ref()
-                        .map_or(false, |e| self.stmt_has_reachable_break(e));
+                        .is_some_and(|e| self.stmt_has_reachable_break(e));
 
                     if then_has_break || else_has_break {
                         return true;
                     }
 
                     let then_diverges = self.block_diverges(then_branch);
-                    let else_diverges = else_branch
-                        .as_ref()
-                        .map_or(false, |e| self.stmt_diverges(e));
+                    let else_diverges = else_branch.as_ref().is_some_and(|e| self.stmt_diverges(e));
                     if then_diverges && else_diverges {
                         return false;
                     }
@@ -8454,7 +8459,11 @@ fn main() {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8484,7 +8493,11 @@ fn create_point() -> Point {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8514,7 +8527,11 @@ fn get_x(p: Point) -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8547,7 +8564,11 @@ fn check(s: Status) -> bool {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8566,7 +8587,10 @@ fn check(s: Status) -> bool {
         // Check variant definitions and usages
         let active_key = ("Status::Active".to_string(), ReferenceKind::Variant);
         let active_refs = result.references.get(&active_key);
-        assert!(active_refs.is_some(), "expected references for variant 'Status::Active'");
+        assert!(
+            active_refs.is_some(),
+            "expected references for variant 'Status::Active'"
+        );
         let active_refs = active_refs.unwrap();
         // Should have at least 2: definition + pattern match
         assert!(
@@ -8586,7 +8610,11 @@ fn test() -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8613,14 +8641,21 @@ fn get_user(id: UserId) -> UserId {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
         // Check type alias definition and usages
         let key = ("UserId".to_string(), ReferenceKind::TypeAlias);
         let refs = result.references.get(&key);
-        assert!(refs.is_some(), "expected references for type alias 'UserId'");
+        assert!(
+            refs.is_some(),
+            "expected references for type alias 'UserId'"
+        );
         let refs = refs.unwrap();
         // Should have at least 3: definition + param type + return type
         assert!(
@@ -8638,7 +8673,11 @@ trait Printable {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8663,7 +8702,11 @@ fn wrap(x: i32) -> Option<i32> {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8671,7 +8714,10 @@ fn wrap(x: i32) -> Option<i32> {
         // 1 from prelude definition + at least 1 from this file's usage
         let key = ("Option::Some".to_string(), ReferenceKind::Variant);
         let refs = result.references.get(&key);
-        assert!(refs.is_some(), "expected references for variant 'Option::Some'");
+        assert!(
+            refs.is_some(),
+            "expected references for variant 'Option::Some'"
+        );
         let refs = refs.unwrap();
         assert!(
             refs.len() >= 2,
@@ -8691,7 +8737,11 @@ fn unwrap_or(opt: Option<i32>, default: i32) -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8699,7 +8749,10 @@ fn unwrap_or(opt: Option<i32>, default: i32) -> i32 {
         // Each should have at least 2: 1 from prelude definition + 1 from pattern usage
         let some_key = ("Option::Some".to_string(), ReferenceKind::Variant);
         let some_refs = result.references.get(&some_key);
-        assert!(some_refs.is_some(), "expected references for variant 'Option::Some' in pattern");
+        assert!(
+            some_refs.is_some(),
+            "expected references for variant 'Option::Some' in pattern"
+        );
         let some_refs = some_refs.unwrap();
         assert!(
             some_refs.len() >= 2,
@@ -8709,7 +8762,10 @@ fn unwrap_or(opt: Option<i32>, default: i32) -> i32 {
 
         let none_key = ("Option::None".to_string(), ReferenceKind::Variant);
         let none_refs = result.references.get(&none_key);
-        assert!(none_refs.is_some(), "expected references for variant 'Option::None' in pattern");
+        assert!(
+            none_refs.is_some(),
+            "expected references for variant 'Option::None' in pattern"
+        );
         let none_refs = none_refs.unwrap();
         assert!(
             none_refs.len() >= 2,
@@ -8730,7 +8786,11 @@ fn check_some(opt: Option<i32>) -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -8738,7 +8798,10 @@ fn check_some(opt: Option<i32>) -> i32 {
         // 1 from prelude definition + at least 1 from this file's usage
         let key = ("Option::Some".to_string(), ReferenceKind::Variant);
         let refs = result.references.get(&key);
-        assert!(refs.is_some(), "expected references for variant 'Option::Some' in if-let");
+        assert!(
+            refs.is_some(),
+            "expected references for variant 'Option::Some' in if-let"
+        );
         let refs = refs.unwrap();
         assert!(
             refs.len() >= 2,
@@ -8764,14 +8827,21 @@ fn check(e: MyEnum) -> i32 {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
         // Check that qualified variant in if-let is tracked
         let key = ("MyEnum::Foo".to_string(), ReferenceKind::Variant);
         let refs = result.references.get(&key);
-        assert!(refs.is_some(), "expected references for variant 'MyEnum::Foo' in if-let");
+        assert!(
+            refs.is_some(),
+            "expected references for variant 'MyEnum::Foo' in if-let"
+        );
         let refs = refs.unwrap();
         // Should have at least 2: definition + if-let pattern
         assert!(
@@ -8794,7 +8864,11 @@ fn make_point() -> Point {
 }
 "#;
         let parsed = parse_str(src);
-        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        assert!(
+            parsed.errors.is_empty(),
+            "parse errors: {:?}",
+            parsed.errors
+        );
         let file = parsed.file.expect("parser produced no AST");
         let result = analyze_file(&file);
 
@@ -9095,7 +9169,10 @@ fn main() -> Option<i32> {
             "expected error for ? on Result in Option-returning function"
         );
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on a `Result` value in a function that returns") && e.message.contains("Option<i32>")),
+            result.type_errors.iter().any(|e| e
+                .message
+                .contains("cannot use `?` on a `Result` value in a function that returns")
+                && e.message.contains("Option<i32>")),
             "error message should mention Result/Option mismatch, got: {:?}",
             result.type_errors
         );
@@ -9123,7 +9200,10 @@ fn main() -> Result<i32, String> {
             "expected error for ? on Option in Result-returning function"
         );
         assert!(
-            result.type_errors.iter().any(|e| e.message.contains("cannot use `?` on an `Option` value in a function that returns") && e.message.contains("Result<i32, String>")),
+            result.type_errors.iter().any(|e| e
+                .message
+                .contains("cannot use `?` on an `Option` value in a function that returns")
+                && e.message.contains("Result<i32, String>")),
             "error message should mention Option/Result mismatch, got: {:?}",
             result.type_errors
         );

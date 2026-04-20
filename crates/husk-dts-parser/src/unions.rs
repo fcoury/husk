@@ -381,12 +381,11 @@ fn find_discriminant_value(
     use crate::ast::ObjectMember;
 
     for member in members {
-        if let ObjectMember::Property { name, ty, .. } = member {
-            if name == discriminant {
-                if let DtsType::StringLiteral(value) = ty {
-                    return Some(value.clone());
-                }
-            }
+        if let ObjectMember::Property { name, ty, .. } = member
+            && name == discriminant
+            && let DtsType::StringLiteral(value) = ty
+        {
+            return Some(value.clone());
         }
     }
 

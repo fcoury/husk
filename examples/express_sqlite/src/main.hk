@@ -1,196 +1,131 @@
-// Express.js + SQLite Todo API in Husk
+// Express.js + SQLite Todo API in Husk.
 //
-// This example demonstrates:
-// - npm package integration with extern "js" blocks
-// - JsValue null checking: jsvalue_isNull() for checking missing values
-// - JsObject construction: JsObject_new().setString()
-// - Default module imports with #[default] attribute
+// The app code uses curated wrapper modules instead of declaring raw npm
+// bindings inline. JsValue is still present at the JSON boundary, but request,
+// response, app, database, and statement handles have named Husk types.
 
-// External bindings for Express.js
-extern "js" {
-    #[default]
-    mod express {
-        #[default]
-        fn express() -> JsValue;
-        fn json() -> JsValue;
-    }
-}
+use crate::database::Database;
+use crate::database::Statement;
+use crate::database::TodoStatements;
+use crate::database::open_database;
+use crate::database::prepare_todo_statements;
+use crate::express::ExpressApp;
+use crate::express::Middleware;
+use crate::express::Request;
+use crate::express::Response;
+use crate::express::create_app;
+use crate::express::json_middleware;
+use crate::express::request_body_bool_as_number;
+use crate::express::request_body_string;
+use crate::express::request_param_string;
+use crate::express::response_error;
+use crate::express::response_id;
+use crate::express::response_json;
 
-// External bindings for better-sqlite3
-extern "js" {
-    #[default]
-    mod "better-sqlite3" as better_sqlite3 {
-        #[default]
-        fn better_sqlite3(filename: String) -> JsValue;
-    }
-}
-
-// JsValue methods for Express app, response, and SQLite
-impl JsValue {
-    // Express app methods
-    extern "js" fn get(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    extern "js" fn post(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    extern "js" fn put(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    extern "js" fn delete(self, path: String, handler: fn(JsValue, JsValue) -> ()) -> JsValue;
-    #[js_name = "use"]
-    extern "js" fn use_middleware(self, middleware: JsValue) -> JsValue;
-    extern "js" fn listen(self, port: f64, callback: fn() -> ()) -> JsValue;
-
-    // Response methods
-
-    #[js_name = "json"]
-    extern "js" fn res_json(self, body: JsValue) -> JsValue;
-    extern "js" fn send(self, body: String) -> JsValue;
-    extern "js" fn status(self, code: f64) -> JsValue;
-
-    // SQLite Database methods
-    extern "js" fn exec(self, sql: String) -> JsValue;
-    extern "js" fn prepare(self, sql: String) -> JsValue;
-
-    // SQLite Statement methods
-    extern "js" fn all(self) -> JsValue;
-    #[js_name = "run"]
-    extern "js" fn run1(self, p1: f64) -> JsValue;
-    #[js_name = "run"]
-    extern "js" fn run2(self, p1: String, p2: f64) -> JsValue;
-    #[js_name = "run"]
-    extern "js" fn run3(self, p1: String, p2: f64, p3: f64) -> JsValue;
-    #[js_name = "get"]
-    extern "js" fn get1(self, p1: f64) -> JsValue;
-}
-
-// Helper to extract string from JsValue, returns empty string if not found
-fn get_string_or_empty(obj: JsValue, key: String) -> String {
-    let val = jsvalue_get(obj, key);
-    if jsvalue_isNull(val) {
-        ""
-    } else {
-        jsvalue_toString(val)
-    }
-}
-
-/// Helper to get boolean as number (0.0 or 1.0) for SQLite
-fn get_bool_as_number(obj: JsValue, key: String) -> f64 {
-    let val = jsvalue_get(obj, key);
-    if jsvalue_isNull(val) {
+fn parse_id(req: Request) -> f64 {
+    let id_str = request_param_string(req, "id");
+    if id_str == "" {
         0.0
     } else {
-        if jsvalue_toBool(val) {
-            1.0
-        } else {
-            0.0
-        }
+        parseFloat(id_str)
     }
+}
+
+fn require_id(req: Request, res: Response) -> Option<f64> {
+    let id_str = request_param_string(req, "id");
+    if id_str == "" {
+        response_error(res, 400.0, "Invalid ID");
+        None
+    } else {
+        Some(parseFloat(id_str))
+    }
+}
+
+fn require_title(req: Request, res: Response) -> Option<String> {
+    let title = request_body_string(req, "title");
+    if title == "" {
+        response_error(res, 400.0, "Title is required");
+        None
+    } else {
+        Some(title)
+    }
+}
+
+fn install_routes(app: ExpressApp, statements: TodoStatements) {
+    app.get("/todos", |req: Request, res: Response| {
+        response_json(res, statements.list());
+    });
+
+    app.get("/todos/:id", |req: Request, res: Response| {
+        let id = parse_id(req);
+        if id == 0.0 {
+            response_error(res, 400.0, "Invalid ID");
+        } else {
+            let todo = statements.find(id);
+            if jsvalue_isNull(todo) || jsvalue_isUndefined(todo) {
+                response_error(res, 404.0, "Todo not found");
+            } else {
+                response_json(res, todo);
+            }
+        }
+    });
+
+    app.post("/todos", |req: Request, res: Response| {
+        let title = require_title(req, res);
+        match title {
+            Some(value) => {
+                let id = statements.create(value);
+                response_id(res, 201.0, id);
+            },
+            None => {},
+        }
+    });
+
+    app.put("/todos/:id", |req: Request, res: Response| {
+        let id = require_id(req, res);
+        match id {
+            Some(value) => {
+                let title = require_title(req, res);
+                match title {
+                    Some(title_value) => {
+                        let completed = request_body_bool_as_number(req, "completed");
+                        if statements.update(value, title_value, completed) {
+                            response_id(res, 200.0, value);
+                        } else {
+                            response_error(res, 404.0, "Todo not found");
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+    });
+
+    app.delete("/todos/:id", |req: Request, res: Response| {
+        let id = require_id(req, res);
+        match id {
+            Some(value) => {
+                if statements.delete(value) {
+                    res.status(204.0).send("");
+                } else {
+                    response_error(res, 404.0, "Todo not found");
+                }
+            },
+            None => {},
+        }
+    });
 }
 
 fn main() {
-    // Initialize database
-    let db = better_sqlite3("todos.db");
-    db.exec("CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0)");
+    let db = open_database("todos.db");
+    let statements = prepare_todo_statements(db);
 
-    // Prepare statements
-    let insert_stmt = db.prepare("INSERT INTO todos (title, completed) VALUES (?, ?)");
-    let select_all_stmt = db.prepare("SELECT id, title, completed FROM todos");
-    let select_one_stmt = db.prepare("SELECT id, title, completed FROM todos WHERE id = ?");
-    let update_stmt = db.prepare("UPDATE todos SET title = ?, completed = ? WHERE id = ?");
-    let delete_stmt = db.prepare("DELETE FROM todos WHERE id = ?");
+    let app = create_app();
+    app.use_middleware(json_middleware());
+    install_routes(app, statements);
 
-    // Create Express app
-    let app = express();
-    app.use_middleware(json());
-
-    // GET /todos - List all todos
-    app.get("/todos", |req: JsValue, res: JsValue| {
-        let todos = select_all_stmt.all();
-        res.res_json(todos);
-    });
-
-    // GET /todos/:id - Get single todo
-    app.get("/todos/:id", |req: JsValue, res: JsValue| {
-        let params = jsvalue_get(req, "params");
-        let id_str = get_string_or_empty(params, "id");
-        if id_str == "" {
-            let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400.0).res_json(err);
-        } else {
-            let id = parseFloat(id_str);
-            let todo = select_one_stmt.get1(id);
-            if jsvalue_isNull(todo) {
-                let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                res.status(404.0).res_json(err);
-            } else {
-                res.res_json(todo);
-            }
-        }
-    });
-
-    // POST /todos - Create new todo
-    app.post("/todos", |req: JsValue, res: JsValue| {
-        let body = jsvalue_get(req, "body");
-        let title = get_string_or_empty(body, "title");
-        if title == "" {
-            let err = JsObject_new().setString("error", "Title is required").toJsValue();
-            res.status(400.0).res_json(err);
-        } else {
-            let result = insert_stmt.run2(title, 0.0);
-            let id = jsvalue_get(result, "lastInsertRowid");
-            let response = JsObject_new().set("id", id).toJsValue();
-            res.status(201.0).res_json(response);
-        }
-    });
-
-    // PUT /todos/:id - Update todo
-    app.put("/todos/:id", |req: JsValue, res: JsValue| {
-        let params = jsvalue_get(req, "params");
-        let body = jsvalue_get(req, "body");
-        let id_str = get_string_or_empty(params, "id");
-        if id_str == "" {
-            let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400.0).res_json(err);
-        } else {
-            let id = parseFloat(id_str);
-            let title = get_string_or_empty(body, "title");
-            if title == "" {
-                let err = JsObject_new().setString("error", "Title is required").toJsValue();
-                res.status(400.0).res_json(err);
-            } else {
-                let completed_int = get_bool_as_number(body, "completed");
-                let result = update_stmt.run3(title, completed_int, id);
-                let changes = jsvalue_toNumber(jsvalue_get(result, "changes"));
-                if changes > 0.0 {
-                    let response = JsObject_new().setNumber("id", id).toJsValue();
-                    res.res_json(response);
-                } else {
-                    let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                    res.status(404.0).res_json(err);
-                }
-            }
-        }
-    });
-
-    // DELETE /todos/:id - Delete todo
-    app.delete("/todos/:id", |req: JsValue, res: JsValue| {
-        let params = jsvalue_get(req, "params");
-        let id_str = get_string_or_empty(params, "id");
-        if id_str == "" {
-            let err = JsObject_new().setString("error", "Invalid ID").toJsValue();
-            res.status(400.0).res_json(err);
-        } else {
-            let id = parseFloat(id_str);
-            let result = delete_stmt.run1(id);
-            let changes = jsvalue_toNumber(jsvalue_get(result, "changes"));
-            if changes > 0.0 {
-                res.status(204.0).send("");
-            } else {
-                let err = JsObject_new().setString("error", "Todo not found").toJsValue();
-                res.status(404.0).res_json(err);
-            }
-        }
-    });
-
-    // Start server
     app.listen(3000.0, || {
         println("Server running at http://localhost:3000");
     });
 }
-

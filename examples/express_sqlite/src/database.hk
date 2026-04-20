@@ -1,45 +1,85 @@
-// Simplified better-sqlite3 bindings for Husk
-// Uses JsValue for most types since extern struct typing has limitations
+// Curated better-sqlite3 wrapper for the todo example.
+//
+// This keeps raw statement handles inside the module and exposes named
+// operations that describe the todo API's storage behavior.
 
 extern "js" {
+    struct Database;
+    struct Statement;
+
     #[default]
     mod "better-sqlite3" as better_sqlite3 {
-        // Database constructor - creates/opens SQLite database
-        fn better_sqlite3(filename: String) -> JsValue;
+        #[default]
+        fn better_sqlite3(filename: String) -> Database;
     }
 }
 
-// Database methods
-impl JsValue {
-    // Execute SQL without returning results
-    extern "js" fn exec(self, sql: String) -> JsValue;
-
-    // Prepare a statement for execution
-    extern "js" fn prepare(self, sql: String) -> JsValue;
-
-    // Close the database
-    extern "js" fn close(self) -> JsValue;
+pub struct TodoStatements {
+    insert: Statement,
+    select_all: Statement,
+    select_one: Statement,
+    update_stmt: Statement,
+    delete_stmt: Statement,
 }
 
-// Statement methods (prepared statements)
-// Note: These are also on JsValue since prepare() returns JsValue
-impl JsValue {
-    // Execute statement and return results
+pub fn open_database(filename: String) -> Database {
+    better_sqlite3(filename)
+}
+
+pub fn prepare_todo_statements(db: Database) -> TodoStatements {
+    db.exec("CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0)");
+
+    TodoStatements {
+        insert: db.prepare("INSERT INTO todos (title, completed) VALUES (?, ?)"),
+        select_all: db.prepare("SELECT id, title, completed FROM todos"),
+        select_one: db.prepare("SELECT id, title, completed FROM todos WHERE id = ?"),
+        update_stmt: db.prepare("UPDATE todos SET title = ?, completed = ? WHERE id = ?"),
+        delete_stmt: db.prepare("DELETE FROM todos WHERE id = ?"),
+    }
+}
+
+impl TodoStatements {
+    fn list(self) -> JsValue {
+        self.select_all.all()
+    }
+
+    fn find(self, id: f64) -> JsValue {
+        self.select_one.row(id)
+    }
+
+    fn create(self, title: String) -> f64 {
+        let result = self.insert.run2(title, 0.0);
+        jsvalue_toNumber(jsvalue_get(result, "lastInsertRowid"))
+    }
+
+    fn update(self, id: f64, title: String, completed: f64) -> bool {
+        let result = self.update_stmt.run3(title, completed, id);
+        jsvalue_toNumber(jsvalue_get(result, "changes")) > 0.0
+    }
+
+    fn delete(self, id: f64) -> bool {
+        let result = self.delete_stmt.run1(id);
+        jsvalue_toNumber(jsvalue_get(result, "changes")) > 0.0
+    }
+}
+
+impl Database {
+    extern "js" fn exec(self, sql: String) -> JsValue;
+    extern "js" fn prepare(self, sql: String) -> Statement;
+}
+
+impl Statement {
     extern "js" fn all(self) -> JsValue;
 
-    // Execute statement and return first row
-    extern "js" fn get(self) -> JsValue;
-
-    // Execute statement (for INSERT/UPDATE/DELETE)
-    extern "js" fn run(self) -> JsValue;
-
-    // Convenience methods with parameters
     #[js_name = "run"]
     extern "js" fn run1(self, p1: f64) -> JsValue;
+
     #[js_name = "run"]
     extern "js" fn run2(self, p1: String, p2: f64) -> JsValue;
+
     #[js_name = "run"]
     extern "js" fn run3(self, p1: String, p2: f64, p3: f64) -> JsValue;
+
     #[js_name = "get"]
-    extern "js" fn get1(self, p1: f64) -> JsValue;
+    extern "js" fn row(self, p1: f64) -> JsValue;
 }

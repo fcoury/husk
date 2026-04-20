@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use husk_codegen_js::{JsTarget, file_to_dts, lower_file_to_js, lower_file_to_js_with_source};
+use husk_codegen_js::{
+    JsTarget, LowerFileContext, file_to_dts, lower_file_to_js, lower_file_to_js_with_source,
+};
 use husk_dts_parser::{
     CodegenOptions as DtsCodegenOptions, DtsFile, UnionStrategy, generate as generate_husk,
     generate_from_module as generate_husk_from_module, parse as parse_dts,
@@ -321,17 +323,17 @@ fn main() {
             run,
             exec,
             args,
-        }) => run_watch(
-            file.as_deref(),
-            output.as_deref(),
+        }) => run_watch(WatchOptions {
+            file: file.as_deref(),
+            output: output.as_deref(),
             target,
             lib,
             no_prelude,
-            run,
-            exec.as_deref(),
-            &args,
-            &config,
-        ),
+            run_after: run,
+            exec_cmd: exec.as_deref(),
+            args: &args,
+            config: &config,
+        }),
         Some(Command::Dts { action }) => run_dts(action, &config),
         Some(Command::Test {
             file,
@@ -550,12 +552,14 @@ fn run_compile(
             &file,
             !lib,
             js_target,
-            Some(&content),
-            Some(source_path),
-            &semantic.name_resolution,
-            &semantic.type_resolution,
-            &semantic.variant_calls,
-            &semantic.variant_patterns,
+            LowerFileContext {
+                source: Some(&content),
+                source_path: Some(source_path),
+                name_resolution: &semantic.name_resolution,
+                type_resolution: &semantic.type_resolution,
+                variant_calls: &semantic.variant_calls,
+                variant_patterns: &semantic.variant_patterns,
+            },
         );
         let source_file = Path::new(path)
             .file_name()
@@ -574,13 +578,12 @@ fn run_compile(
         js.push_str(&format!("//# sourceMappingURL={}\n", map_name));
 
         // Ensure output directory exists
-        if let Some(parent) = Path::new(output_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Err(err) = fs::create_dir_all(parent) {
-                    eprintln!("Failed to create output directory: {err}");
-                    std::process::exit(1);
-                }
-            }
+        if let Some(parent) = Path::new(output_path).parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(err) = fs::create_dir_all(parent)
+        {
+            eprintln!("Failed to create output directory: {err}");
+            std::process::exit(1);
         }
 
         // Write JS file
@@ -603,24 +606,25 @@ fn run_compile(
             &file,
             !lib,
             js_target,
-            None,
-            Some(source_path),
-            &semantic.name_resolution,
-            &semantic.type_resolution,
-            &semantic.variant_calls,
-            &semantic.variant_patterns,
+            LowerFileContext {
+                source: None,
+                source_path: Some(source_path),
+                name_resolution: &semantic.name_resolution,
+                type_resolution: &semantic.type_resolution,
+                variant_calls: &semantic.variant_calls,
+                variant_patterns: &semantic.variant_patterns,
+            },
         );
         let js = module.to_source_with_preamble();
 
         if let Some(output_path) = output {
             // Write to file
-            if let Some(parent) = Path::new(output_path).parent() {
-                if !parent.as_os_str().is_empty() {
-                    if let Err(err) = fs::create_dir_all(parent) {
-                        eprintln!("Failed to create output directory: {err}");
-                        std::process::exit(1);
-                    }
-                }
+            if let Some(parent) = Path::new(output_path).parent()
+                && !parent.as_os_str().is_empty()
+                && let Err(err) = fs::create_dir_all(parent)
+            {
+                eprintln!("Failed to create output directory: {err}");
+                std::process::exit(1);
             }
             if let Err(err) = fs::write(output_path, &js) {
                 eprintln!("Failed to write {}: {err}", output_path);
@@ -810,21 +814,35 @@ node_modules/
     println!("  npm start");
 }
 
-fn run_watch(
-    file: Option<&str>,
-    output: Option<&str>,
+struct WatchOptions<'a> {
+    file: Option<&'a str>,
+    output: Option<&'a str>,
     target: Option<Target>,
     lib: bool,
     no_prelude: bool,
     run_after: bool,
-    exec_cmd: Option<&str>,
-    args: &[String],
-    config: &HuskConfig,
-) {
+    exec_cmd: Option<&'a str>,
+    args: &'a [String],
+    config: &'a HuskConfig,
+}
+
+fn run_watch(options: WatchOptions<'_>) {
     use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
     use std::process::Child;
     use std::sync::mpsc::channel;
     use std::time::Duration;
+
+    let WatchOptions {
+        file,
+        output,
+        target,
+        lib,
+        no_prelude,
+        run_after,
+        exec_cmd,
+        args,
+        config,
+    } = options;
 
     // Determine entry file (same logic as run command)
     let entry_path = match file {
@@ -886,8 +904,8 @@ fn run_watch(
     if !ignore_patterns.is_empty() {
         println!("Ignoring: {:?}", ignore_patterns);
     }
-    if effective_exec.is_some() {
-        println!("Exec: {}", effective_exec.unwrap());
+    if let Some(exec) = effective_exec {
+        println!("Exec: {exec}");
     } else if should_run {
         println!("Mode: compile + run");
     }
@@ -922,11 +940,11 @@ fn run_watch(
             .stderr(Stdio::inherit());
 
         // Set env vars from config
-        if let Some(ref run_config) = config.run {
-            if let Some(ref env_vars) = run_config.env {
-                for (key, value) in env_vars {
-                    cmd.env(key, value);
-                }
+        if let Some(ref run_config) = config.run
+            && let Some(ref env_vars) = run_config.env
+        {
+            for (key, value) in env_vars {
+                cmd.env(key, value);
             }
         }
 
@@ -1115,23 +1133,24 @@ fn compile_to_file(path: &str, output: &str, target: Target, lib: bool, no_prelu
         &file,
         !lib,
         js_target,
-        Some(&content),
-        Some(entry_path),
-        &semantic.name_resolution,
-        &semantic.type_resolution,
-        &semantic.variant_calls,
-        &semantic.variant_patterns,
+        LowerFileContext {
+            source: Some(&content),
+            source_path: Some(entry_path),
+            name_resolution: &semantic.name_resolution,
+            type_resolution: &semantic.type_resolution,
+            variant_calls: &semantic.variant_calls,
+            variant_patterns: &semantic.variant_patterns,
+        },
     );
     let js = module.to_source_with_preamble();
 
     // Ensure output directory exists
-    if let Some(parent) = Path::new(output).parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(err) = fs::create_dir_all(parent) {
-                eprintln!("Failed to create output directory: {err}");
-                return false;
-            }
-        }
+    if let Some(parent) = Path::new(output).parent()
+        && !parent.as_os_str().is_empty()
+        && let Err(err) = fs::create_dir_all(parent)
+    {
+        eprintln!("Failed to create output directory: {err}");
+        return false;
     }
 
     if let Err(err) = fs::write(output, js) {
@@ -1193,19 +1212,20 @@ fn run_build(
     config: &HuskConfig,
 ) {
     // Auto-update dts files if configured
-    if let Some(ref dts_options) = config.dts_options {
-        if dts_options.auto_update.unwrap_or(false) && !config.dts.is_empty() {
-            debug_log("[huskc] auto-updating dts files before build");
-            run_dts_update(
-                None,
-                false,
-                false,
-                false,
-                ReportFormat::Markdown,
-                None,
-                config,
-            );
-        }
+    if let Some(ref dts_options) = config.dts_options
+        && dts_options.auto_update.unwrap_or(false)
+        && !config.dts.is_empty()
+    {
+        debug_log("[huskc] auto-updating dts files before build");
+        run_dts_update(
+            None,
+            false,
+            false,
+            false,
+            ReportFormat::Markdown,
+            None,
+            config,
+        );
     }
 
     // Resolve entry point: CLI arg > config > auto-detect
@@ -1253,11 +1273,12 @@ fn run_build(
 
     // Clean output directory if requested
     let output_path = Path::new(output_dir);
-    if clean && output_path.exists() {
-        if let Err(err) = fs::remove_dir_all(output_path) {
-            eprintln!("Failed to clean output directory: {err}");
-            std::process::exit(1);
-        }
+    if clean
+        && output_path.exists()
+        && let Err(err) = fs::remove_dir_all(output_path)
+    {
+        eprintln!("Failed to clean output directory: {err}");
+        std::process::exit(1);
     }
 
     // Create output directory
@@ -1345,12 +1366,14 @@ fn run_build(
             &filtered_ast,
             !lib,
             codegen_target,
-            Some(&content),
-            Some(&entry_path),
-            &semantic.name_resolution,
-            &semantic.type_resolution,
-            &semantic.variant_calls,
-            &semantic.variant_patterns,
+            LowerFileContext {
+                source: Some(&content),
+                source_path: Some(&entry_path),
+                name_resolution: &semantic.name_resolution,
+                type_resolution: &semantic.type_resolution,
+                variant_calls: &semantic.variant_calls,
+                variant_patterns: &semantic.variant_patterns,
+            },
         );
         let source_file = entry_path
             .file_name()
@@ -1376,7 +1399,7 @@ fn run_build(
 
         if !quiet {
             println!("Built {} -> {}", entry_str, js_file.display());
-            println!("      {} -> {}", "", map_file.display());
+            println!("       -> {}", map_file.display());
         }
     } else {
         // No source map
@@ -1411,7 +1434,7 @@ fn run_build(
             std::process::exit(1);
         }
         if !quiet {
-            println!("      {} -> {}", "", dts_file.display());
+            println!("       -> {}", dts_file.display());
         }
     }
 }
@@ -1480,11 +1503,11 @@ fn run_run(
         .stderr(Stdio::inherit());
 
     // Set environment variables from config
-    if let Some(ref run_config) = config.run {
-        if let Some(ref env_vars) = run_config.env {
-            for (key, value) in env_vars {
-                cmd.env(key, value);
-            }
+    if let Some(ref run_config) = config.run
+        && let Some(ref env_vars) = run_config.env
+    {
+        for (key, value) in env_vars {
+            cmd.env(key, value);
         }
     }
 
@@ -1517,12 +1540,12 @@ fn run_run(
 fn discover_tests(file: &husk_ast::File) -> Vec<(String, bool, Option<String>)> {
     let mut tests = Vec::new();
     for item in &file.items {
-        if item.is_test() {
-            if let husk_ast::ItemKind::Fn { name, .. } = &item.kind {
-                let is_ignored = item.is_ignored();
-                let expected_panic = item.expected_panic_message().map(|s| s.to_string());
-                tests.push((name.name.clone(), is_ignored, expected_panic));
-            }
+        if item.is_test()
+            && let husk_ast::ItemKind::Fn { name, .. } = &item.kind
+        {
+            let is_ignored = item.is_ignored();
+            let expected_panic = item.expected_panic_message().map(|s| s.to_string());
+            tests.push((name.name.clone(), is_ignored, expected_panic));
         }
     }
     tests
@@ -1662,12 +1685,14 @@ fn run_test(
         &file_ast,
         false,
         JsTarget::Cjs,
-        Some(&content),
-        Some(source_path),
-        &semantic.name_resolution,
-        &semantic.type_resolution,
-        &semantic.variant_calls,
-        &semantic.variant_patterns,
+        LowerFileContext {
+            source: Some(&content),
+            source_path: Some(source_path),
+            name_resolution: &semantic.name_resolution,
+            type_resolution: &semantic.type_resolution,
+            variant_calls: &semantic.variant_calls,
+            variant_patterns: &semantic.variant_patterns,
+        },
     );
 
     // Generate source map for better error messages
@@ -1827,10 +1852,6 @@ fn run_dts(action: DtsAction, config: &HuskConfig) {
 }
 
 /// Derive a Husk module name from an output file path.
-/// - Strips the last extension (e.g., .hk)
-/// - Strips a trailing `.gen` if present (for generation-gap files)
-/// - Replaces non-identifier characters with '_' and prefixes '_' if needed
-/// Derive a Husk module name from an output file path.
 ///
 /// Uses the full file stem (everything before the last extension) as the
 /// module name and normalizes it into a valid identifier by replacing
@@ -1876,7 +1897,7 @@ fn run_dts_add(package: &str, types: Option<&str>, output: Option<&str>, config:
 
     // Derive output path if not provided
     let output_path = output.map(String::from).unwrap_or_else(|| {
-        let safe_name = package.replace('@', "").replace('/', "_").replace('-', "_");
+        let safe_name = package.replace('@', "").replace(['/', '-'], "_");
         format!("{}/{}.hk", default_output_dir, safe_name)
     });
 
@@ -2373,12 +2394,11 @@ fn run_dts_remove(package: &str) {
                 .get(i)
                 .and_then(|t| t.get("package"))
                 .and_then(|v| v.as_str())
+                && pkg == package
             {
-                if pkg == package {
-                    dts_array.remove(i);
-                    removed = true;
-                    continue;
-                }
+                dts_array.remove(i);
+                removed = true;
+                continue;
             }
             i += 1;
         }

@@ -1,14 +1,10 @@
-use std::fs;
 use std::path::Path;
 
 use glob::glob;
 
-use husk_ast;
 use husk_codegen_js::{lower_file_to_js, JsTarget};
-use husk_parser::parse_str;
-use husk_semantic::analyze_file;
 use husk_cli::load::{assemble_root, load_graph};
-use std::collections::HashSet;
+use husk_semantic::analyze_file;
 
 fn husk_files(pattern: &str) -> Vec<String> {
     glob(pattern)
@@ -43,8 +39,42 @@ fn examples_codegen() {
         };
         let sem = analyze_file(&file);
         if sem.symbols.errors.is_empty() && sem.type_errors.is_empty() {
-            let module = lower_file_to_js(&file, true, JsTarget::Cjs, &sem.name_resolution, &sem.type_resolution);
+            let module = lower_file_to_js(
+                &file,
+                true,
+                JsTarget::Cjs,
+                &sem.name_resolution,
+                &sem.type_resolution,
+            );
             let _js = module.to_source_with_preamble();
         }
     }
+}
+
+#[test]
+fn express_sqlite_uses_direct_module_imports_and_wrappers() {
+    let graph = load_graph(Path::new("examples/express_sqlite/src/main.hk"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let file = assemble_root(&graph).unwrap_or_else(|e| panic!("{e}"));
+    let sem = analyze_file(&file);
+    assert!(
+        sem.symbols.errors.is_empty() && sem.type_errors.is_empty(),
+        "semantic errors in express_sqlite: symbols={:?}, types={:?}",
+        sem.symbols.errors,
+        sem.type_errors
+    );
+
+    let module = lower_file_to_js(
+        &file,
+        true,
+        JsTarget::Cjs,
+        &sem.name_resolution,
+        &sem.type_resolution,
+    );
+    let js = module.to_source_with_preamble();
+
+    assert!(js.contains("require(\"express\")"));
+    assert!(js.contains("require(\"better-sqlite3\")"));
+    assert!(js.contains("function request_body_string"));
+    assert!(js.contains("function open_database"));
 }

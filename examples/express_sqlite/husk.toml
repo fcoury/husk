@@ -10,7 +10,8 @@ target = "cjs"
 source_maps = true
 
 [dts_options]
-generation_gap = false
+generation_gap = true
+generate_report = true
 
 [[dts]]
 package = "express"

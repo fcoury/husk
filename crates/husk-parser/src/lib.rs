@@ -1539,12 +1539,7 @@ impl<'src> Parser<'src> {
             return params;
         }
 
-        loop {
-            let name = match self.parse_ident("expected type parameter name") {
-                Some(id) => id,
-                None => break,
-            };
-
+        while let Some(name) = self.parse_ident("expected type parameter name") {
             // Parse optional bounds: `: Foo + Bar`
             let bounds = if self.matches_token(&TokenKind::Colon) {
                 self.parse_trait_bounds()
@@ -1570,13 +1565,8 @@ impl<'src> Parser<'src> {
     fn parse_trait_bounds(&mut self) -> Vec<TypeExpr> {
         let mut bounds = Vec::new();
 
-        loop {
-            if let Some(ty) = self.parse_type_expr() {
-                bounds.push(ty);
-            } else {
-                break;
-            }
-
+        while let Some(ty) = self.parse_type_expr() {
+            bounds.push(ty);
             if !self.matches_token(&TokenKind::Plus) {
                 break;
             }
@@ -1645,8 +1635,6 @@ impl<'src> Parser<'src> {
 
     fn parse_type_expr(&mut self) -> Option<TypeExpr> {
         let tok = self.current().clone();
-        // Only log impl Trait parsing for debugging
-        if matches!(tok.kind, TokenKind::Keyword(Keyword::Impl)) {}
         match tok.kind {
             // Impl Trait type: `impl Iterator<T>`
             TokenKind::Keyword(Keyword::Impl) => {
@@ -1692,8 +1680,7 @@ impl<'src> Parser<'src> {
                 if !self.matches_token(&TokenKind::RParen) {
                     loop {
                         // Skip `&` if present (reference types not fully supported, treat &T as T)
-                        let is_ref = self.matches_token(&TokenKind::Amp);
-                        if is_ref {}
+                        let _ = self.matches_token(&TokenKind::Amp);
                         match self.parse_type_expr() {
                             Some(param_ty) => {
                                 params.push(param_ty);
@@ -2762,11 +2749,11 @@ impl<'src> Parser<'src> {
                             expr = format_expr;
                             continue;
                         }
-                    } else if id.name == "format" {
-                        if let Some(format_expr) = self.try_parse_format(&expr) {
-                            expr = format_expr;
-                            continue;
-                        }
+                    } else if id.name == "format"
+                        && let Some(format_expr) = self.try_parse_format(&expr)
+                    {
+                        expr = format_expr;
+                        continue;
                     }
                 }
 
@@ -2819,33 +2806,32 @@ impl<'src> Parser<'src> {
                 // We split it into two tuple field accesses
                 if let TokenKind::FloatLiteral(ref s) = name_tok.kind {
                     // Check if this looks like chained tuple access (e.g., "0.0", "0.1", "1.2")
-                    if let Some((first, rest)) = s.split_once('.') {
-                        if let (Ok(idx1), Ok(idx2)) =
+                    if let Some((first, rest)) = s.split_once('.')
+                        && let (Ok(idx1), Ok(idx2)) =
                             (first.parse::<usize>(), rest.parse::<usize>())
-                        {
-                            self.advance();
-                            // First tuple access
-                            let mid_span = Span {
-                                range: expr.span.range.start..name_tok.span.range.end,
-                                file: None,
-                            };
-                            let first_access = Expr {
-                                kind: ExprKind::TupleField {
-                                    base: Box::new(expr),
-                                    index: idx1,
-                                },
-                                span: mid_span.clone(),
-                            };
-                            // Second tuple access
-                            expr = Expr {
-                                kind: ExprKind::TupleField {
-                                    base: Box::new(first_access),
-                                    index: idx2,
-                                },
-                                span: mid_span,
-                            };
-                            continue;
-                        }
+                    {
+                        self.advance();
+                        // First tuple access
+                        let mid_span = Span {
+                            range: expr.span.range.start..name_tok.span.range.end,
+                            file: None,
+                        };
+                        let first_access = Expr {
+                            kind: ExprKind::TupleField {
+                                base: Box::new(expr),
+                                index: idx1,
+                            },
+                            span: mid_span.clone(),
+                        };
+                        // Second tuple access
+                        expr = Expr {
+                            kind: ExprKind::TupleField {
+                                base: Box::new(first_access),
+                                index: idx2,
+                            },
+                            span: mid_span,
+                        };
+                        continue;
                     }
                 }
 
@@ -3109,13 +3095,8 @@ impl<'src> Parser<'src> {
         }
 
         let mut type_args = Vec::new();
-        loop {
-            if let Some(ty) = self.parse_type_expr() {
-                type_args.push(ty);
-            } else {
-                break;
-            }
-
+        while let Some(ty) = self.parse_type_expr() {
+            type_args.push(ty);
             if self.matches_token(&TokenKind::Gt) {
                 break;
             }
@@ -3334,27 +3315,27 @@ impl<'src> Parser<'src> {
         // where the synthetic arg actually ends up in the vector, regardless of how many
         // explicit args were passed by the caller.
         for segment in &mut format.segments {
-            if let FormatSegment::Placeholder(ph) = segment {
-                if let Some(name) = &ph.name {
-                    // Check if we've already seen this name
-                    if let Some(&pos) = named_positions.get(name) {
-                        // Reuse the same position
-                        ph.position = Some(pos);
-                    } else {
-                        // Synthesize at current end of args vector
-                        let pos = args.len();
-                        named_positions.insert(name.clone(), pos);
-                        ph.position = Some(pos);
+            if let FormatSegment::Placeholder(ph) = segment
+                && let Some(name) = &ph.name
+            {
+                // Check if we've already seen this name
+                if let Some(&pos) = named_positions.get(name) {
+                    // Reuse the same position
+                    ph.position = Some(pos);
+                } else {
+                    // Synthesize at current end of args vector
+                    let pos = args.len();
+                    named_positions.insert(name.clone(), pos);
+                    ph.position = Some(pos);
 
-                        // Create identifier expression for this variable
-                        args.push(Expr {
-                            kind: ExprKind::Ident(Ident {
-                                name: name.clone(),
-                                span: ph.span.clone(),
-                            }),
+                    // Create identifier expression for this variable
+                    args.push(Expr {
+                        kind: ExprKind::Ident(Ident {
+                            name: name.clone(),
                             span: ph.span.clone(),
-                        });
-                    }
+                        }),
+                        span: ph.span.clone(),
+                    });
                 }
             }
         }
@@ -3760,12 +3741,7 @@ impl<'src> Parser<'src> {
             return params;
         }
 
-        loop {
-            let name = match self.parse_ident("expected parameter name in closure") {
-                Some(id) => id,
-                None => break,
-            };
-
+        while let Some(name) = self.parse_ident("expected parameter name in closure") {
             // Optional type annotation: `: Type`
             let ty = if self.matches_token(&TokenKind::Colon) {
                 self.parse_type_expr()
