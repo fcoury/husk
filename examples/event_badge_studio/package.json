@@ -1,0 +1,18 @@
+{
+  "name": "husk-event-badge-studio",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "private": true,
+  "description": "Static event microsite and badge generator written in Husk",
+  "scripts": {
+    "build": "huskc build",
+    "start": "node dist/main.js",
+    "dev": "npm run build && npm start"
+  },
+  "dependencies": {
+    "chroma-js": "^3.2.0",
+    "date-fns": "^4.1.0",
+    "qrcode-svg": "^1.1.0",
+    "slugify": "^1.6.9"
+  }
+}

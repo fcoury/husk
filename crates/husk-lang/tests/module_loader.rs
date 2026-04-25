@@ -454,6 +454,20 @@ fn main() {
         "Should have exactly one extern block, not duplicated"
     );
 
+    // Verify explicitly imported extern functions are kept.
+    assert!(
+        file.items.iter().any(|it| {
+            if let ItemKind::ExternBlock { items, .. } = &it.kind {
+                items.iter().any(|ext| {
+                    matches!(&ext.kind, husk_ast::ExternItemKind::Fn { name, .. } if name.name == "connect")
+                })
+            } else {
+                false
+            }
+        }),
+        "Explicitly imported extern function should be included"
+    );
+
     // Verify impl block is included
     assert!(
         file.items.iter().any(|it| {

@@ -1,0 +1,8 @@
+kind|starts_at|duration_min|track|room|title|speaker|url|summary
+keynote|2026-05-12T09:00:00-03:00|45|main|Auditorium|Shipping Tiny Languages|Fernanda Coury|https://husk-lang.org/events/opening|A practical keynote about building small languages that still feel productive.
+talk|2026-05-12T10:05:00-03:00|35|interop|Room A|Typed Wrappers for Wild JavaScript|Mara Silva|https://husk-lang.org/events/wrappers|Turn broad npm APIs into precise Husk surfaces without losing the JavaScript ecosystem.
+workshop|2026-05-12T11:00:00-03:00|90|design|Studio|Designing With Algebraic Data|Noah Kim|https://husk-lang.org/events/algebraic-design|Use enums, matches, and data-first rendering to make interfaces easier to reason about.
+break|2026-05-12T12:30:00-03:00|45|community|Garden|Lunch and Demos||https://husk-lang.org/events/lunch|Meet other builders and try the demo stations.
+panel|2026-05-12T14:00:00-03:00|50|main|Auditorium|Can Tiny Tools Beat Big Frameworks?|Lina Costa|https://husk-lang.org/events/panel|A panel on leverage, constraints, and the future of compile-to-JS languages.
+talk|2026-05-12T15:10:00-03:00|30|runtime|Room B|Readable JavaScript as a Feature|Iris Patel|https://husk-lang.org/events/readable-js|Why generated code should be something developers can inspect without fear.
+workshop|2026-05-12T16:00:00-03:00|60|lab|Room C|Hands-On Badge Automation|Example Bot|https://husk-lang.org/events/badge-automation|Build a small badge pipeline by composing typed Husk parsing with npm rendering libraries.

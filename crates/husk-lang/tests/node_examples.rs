@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use glob::glob;
-use husk_codegen_js::{JsTarget, lower_file_to_js};
+use husk_codegen_js::{JsTarget, LowerFileContext, lower_file_to_js, lower_file_to_js_with_source};
 use husk_lang::load::{assemble_root, load_graph};
 use husk_semantic::{analyze_file, filter_items_by_cfg};
 
@@ -35,6 +35,8 @@ fn husk_example_files() -> Vec<PathBuf> {
         .filter(|p| !p.to_string_lossy().contains("bindings"))
         // Skip express_sqlite directory - requires npm packages (express, better-sqlite3)
         .filter(|p| !p.to_string_lossy().contains("express_sqlite"))
+        // Skip event_badge_studio directory - requires npm packages and writes generated assets
+        .filter(|p| !p.to_string_lossy().contains("event_badge_studio"))
         // Skip advent2025 directory - requires external input files
         .filter(|p| !p.to_string_lossy().contains("advent2025"))
         // Skip array_range_test - uses unimplemented features (array indexing, ranges)
@@ -57,6 +59,46 @@ fn workspace_root_finds_cargo_toml() {
         "workspace root {:?} missing Cargo.toml",
         root
     );
+}
+
+#[test]
+fn event_badge_studio_assembles_npm_wrappers() {
+    let root = workspace_root();
+    let path = root.join("examples/event_badge_studio/src/main.hk");
+
+    let graph = load_graph(&path).unwrap_or_else(|e| panic!("{e}"));
+    let file = assemble_root(&graph).unwrap_or_else(|e| panic!("{e}"));
+    let sem = analyze_file(&file);
+    assert!(
+        sem.symbols.errors.is_empty() && sem.type_errors.is_empty(),
+        "semantic errors in {}: symbols={:?}, types={:?}",
+        path.display(),
+        sem.symbols.errors,
+        sem.type_errors
+    );
+
+    let module = lower_file_to_js_with_source(
+        &file,
+        true,
+        JsTarget::Cjs,
+        LowerFileContext {
+            source: None,
+            source_path: Some(&path),
+            name_resolution: &sem.name_resolution,
+            type_resolution: &sem.type_resolution,
+            variant_calls: &sem.variant_calls,
+            variant_patterns: &sem.variant_patterns,
+        },
+    );
+    let js = module.to_source_with_preamble();
+
+    assert!(js.contains("require(\"chroma-js\")"));
+    assert!(js.contains("require(\"date-fns\")"));
+    assert!(js.contains("require(\"qrcode-svg\")"));
+    assert!(js.contains("require(\"slugify\")"));
+    assert!(js.contains("require(\"node:fs\")"));
+    assert!(js.contains("function render_page"));
+    assert!(js.contains("function qr_svg"));
 }
 
 #[test]

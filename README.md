@@ -337,6 +337,7 @@ The `examples/` directory showcases Husk's capabilities:
 - **format_strings.hk** - String interpolation
 - **feature_match/** - Pattern matching with enums
 - **express_sqlite/** - Express.js + SQLite API with curated npm wrappers
+- **event_badge_studio/** - Static event microsite and SVG badge generator using npm libraries
 - **demo_npm/** - Multi-file project with imports
 - **advent2025/** - Advent of Code solutions
 

@@ -221,6 +221,55 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
     let mut included_fns = HashSet::new(); // Track which extern fns we've added
     let mut included_mods = HashSet::new(); // Track which extern mods we've added
     let mut included_consts = HashSet::new(); // Track which extern consts we've added
+    let mut requested_extern_fns = HashSet::new(); // Extern fns explicitly imported with `use`
+    let mut requested_extern_values = HashSet::new(); // Extern const/static values explicitly imported with `use`
+
+    // Pre-scan root `use` statements for extern items. This lets the first
+    // imported item from an extern block carry all explicitly requested
+    // declarations, instead of emitting one sliced extern block per `use`.
+    for item in root_mod.file.items.iter() {
+        if let ItemKind::Use { path, kind } = &item.kind {
+            if !matches!(kind, husk_ast::UseKind::Item) || path.len() < 3 {
+                continue;
+            }
+
+            let module_path = module_path_from_use(path);
+            let Some(module) = graph.modules.get(&module_path) else {
+                continue;
+            };
+            let item_name = path.last().unwrap().name.clone();
+            let Some(export) = find_pub_item(&module.file, &item_name) else {
+                continue;
+            };
+
+            if let ItemKind::ExternBlock {
+                items: ext_items, ..
+            } = &export.kind
+            {
+                for ext in ext_items {
+                    match &ext.kind {
+                        ExternItemKind::Struct { name, .. } => {
+                            if name.name == item_name {
+                                imported_types.insert(name.name.clone());
+                            }
+                        }
+                        ExternItemKind::Fn { name, .. } => {
+                            if name.name == item_name {
+                                requested_extern_fns.insert(name.name.clone());
+                            }
+                        }
+                        ExternItemKind::Const { name, .. }
+                        | ExternItemKind::Static { name, .. } => {
+                            if name.name == item_name {
+                                requested_extern_values.insert(name.name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 
     // Phase 1: Process use statements and root items
     for item in root_mod.file.items.iter() {
@@ -257,10 +306,20 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                                 // If we're importing from an extern block, track the type
                                 for ext in ext_items {
                                     match &ext.kind {
-                                        ExternItemKind::Struct { name, .. }
-                                        | ExternItemKind::Const { name, .. } => {
+                                        ExternItemKind::Struct { name, .. } => {
                                             if name.name == item_name {
                                                 imported_types.insert(name.name.clone());
+                                            }
+                                        }
+                                        ExternItemKind::Fn { name, .. } => {
+                                            if name.name == item_name {
+                                                requested_extern_fns.insert(name.name.clone());
+                                            }
+                                        }
+                                        ExternItemKind::Const { name, .. }
+                                        | ExternItemKind::Static { name, .. } => {
+                                            if name.name == item_name {
+                                                requested_extern_values.insert(name.name.clone());
                                             }
                                         }
                                         _ => {}
@@ -283,15 +342,18 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                             items: ext_items,
                         } = &export.kind
                         {
-                            if let Some(mut filtered) = filter_extern_block(
-                                ext_items,
-                                abi,
-                                &imported_types,
-                                &mut included_structs,
-                                &mut included_fns,
-                                &mut included_mods,
-                                &mut included_consts,
-                            ) {
+                            let mut filter = ExternFilter {
+                                imported_types: &imported_types,
+                                included_structs: &mut included_structs,
+                                included_fns: &mut included_fns,
+                                included_mods: &mut included_mods,
+                                included_consts: &mut included_consts,
+                                requested_extern_fns: &requested_extern_fns,
+                                requested_extern_values: &requested_extern_values,
+                            };
+                            if let Some(mut filtered) =
+                                filter_extern_block(ext_items, abi, &mut filter)
+                            {
                                 // Set the file path on the cloned item
                                 filtered.set_file_path(module.file_path.clone());
                                 items.push(filtered);
@@ -343,15 +405,16 @@ pub fn assemble_root(graph: &ModuleGraph) -> Result<File, LoadError> {
                     items: ext_items,
                 } => {
                     // Reuse filter_extern_block for consistent filtering across phases
-                    if let Some(mut filtered) = filter_extern_block(
-                        ext_items,
-                        abi,
-                        &imported_types,
-                        &mut included_structs,
-                        &mut included_fns,
-                        &mut included_mods,
-                        &mut included_consts,
-                    ) {
+                    let mut filter = ExternFilter {
+                        imported_types: &imported_types,
+                        included_structs: &mut included_structs,
+                        included_fns: &mut included_fns,
+                        included_mods: &mut included_mods,
+                        included_consts: &mut included_consts,
+                        requested_extern_fns: &requested_extern_fns,
+                        requested_extern_values: &requested_extern_values,
+                    };
+                    if let Some(mut filtered) = filter_extern_block(ext_items, abi, &mut filter) {
                         filtered.set_file_path(module.file_path.clone());
                         items.push(filtered);
                     }
@@ -461,39 +524,57 @@ fn matches_extern_item_name(kind: &ExternItemKind, name: &str) -> bool {
 }
 
 /// Filter extern block items down to the imported structs and a small allowlist of functions.
+struct ExternFilter<'a> {
+    imported_types: &'a HashSet<String>,
+    included_structs: &'a mut HashSet<String>,
+    included_fns: &'a mut HashSet<String>,
+    included_mods: &'a mut HashSet<String>,
+    included_consts: &'a mut HashSet<String>,
+    requested_extern_fns: &'a HashSet<String>,
+    requested_extern_values: &'a HashSet<String>,
+}
+
 fn filter_extern_block(
     ext_items: &[husk_ast::ExternItem],
     abi: &str,
-    imported_types: &HashSet<String>,
-    included_structs: &mut HashSet<String>,
-    included_fns: &mut HashSet<String>,
-    included_mods: &mut HashSet<String>,
-    included_consts: &mut HashSet<String>,
+    filter: &mut ExternFilter<'_>,
 ) -> Option<husk_ast::Item> {
     let mut filtered = Vec::new();
     for ext in ext_items {
         match &ext.kind {
             ExternItemKind::Struct { name, .. } => {
-                if imported_types.contains(&name.name) && included_structs.insert(name.name.clone())
+                if filter.imported_types.contains(&name.name)
+                    && filter.included_structs.insert(name.name.clone())
                 {
                     filtered.push(ext.clone());
                 }
             }
             ExternItemKind::Fn { name, .. } => {
-                // Allow only the entry-point callables we need
-                if (name.name == "express" || name.name == "better_sqlite3" || name.name == "json")
-                    && included_fns.insert(name.name.clone())
+                let explicitly_requested = filter.requested_extern_fns.contains(&name.name);
+                let legacy_entrypoint =
+                    name.name == "express" || name.name == "better_sqlite3" || name.name == "json";
+                if (explicitly_requested || legacy_entrypoint)
+                    && filter.included_fns.insert(name.name.clone())
                 {
                     filtered.push(ext.clone());
                 }
             }
             ExternItemKind::Mod { binding, .. } => {
-                if included_mods.insert(binding.name.clone()) {
+                if filter.included_mods.insert(binding.name.clone()) {
                     filtered.push(ext.clone());
                 }
             }
             ExternItemKind::Const { name, .. } => {
-                if imported_types.contains(&name.name) && included_consts.insert(name.name.clone())
+                if (filter.imported_types.contains(&name.name)
+                    || filter.requested_extern_values.contains(&name.name))
+                    && filter.included_consts.insert(name.name.clone())
+                {
+                    filtered.push(ext.clone());
+                }
+            }
+            ExternItemKind::Static { name, .. } => {
+                if filter.requested_extern_values.contains(&name.name)
+                    && filter.included_consts.insert(name.name.clone())
                 {
                     filtered.push(ext.clone());
                 }

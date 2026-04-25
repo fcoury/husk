@@ -1,0 +1,451 @@
+// Event Badge Studio: a static site and SVG badge generator built with Husk
+// domain modeling plus small, explicit npm wrappers.
+
+extern "js" {
+    struct ChromaColor;
+    struct JsDate;
+    struct QrCode;
+
+    #[default]
+    mod "chroma-js" as chroma {
+        #[default]
+        fn chroma(color: String) -> ChromaColor;
+    }
+
+    #[default]
+    mod "date-fns" as date_fns {
+        fn parseISO(value: String) -> JsDate;
+        fn isValid(date: JsDate) -> bool;
+        fn format(date: JsDate, pattern: String) -> String;
+    }
+
+    #[default]
+    mod slugify {
+        #[default]
+        fn slugify(value: String) -> String;
+    }
+
+    #[default]
+    mod "qrcode-svg" as qrcode_svg_mod;
+
+    #[module_call = "qrcode_svg_mod"]
+    fn create_qrcode(options: JsValue) -> QrCode;
+
+    #[js_name = "String"]
+    fn string_from_i32(value: i32) -> String;
+
+    #[default]
+    mod "node:fs" as fs {
+        fn mkdirSync(path: String, options: JsValue) -> JsValue;
+        fn writeFileSync(path: String, contents: String) -> JsValue;
+    }
+}
+
+impl ChromaColor {
+    extern "js" fn brighten(self, amount: f64) -> ChromaColor;
+    extern "js" fn darken(self, amount: f64) -> ChromaColor;
+    extern "js" fn hex(self, mode: String) -> String;
+}
+
+impl QrCode {
+    extern "js" fn svg(self, options: JsValue) -> String;
+}
+
+enum SessionKind {
+    Keynote,
+    Talk,
+    Workshop,
+    Panel,
+    Break,
+}
+
+enum ParseErrorKind {
+    MissingField,
+    UnknownKind,
+    InvalidDuration,
+    InvalidDate,
+}
+
+struct ParseError {
+    kind: ParseErrorKind,
+    line_no: i32,
+    value: String,
+}
+
+struct Session {
+    kind: SessionKind,
+    starts_at: JsDate,
+    duration_min: i32,
+    track: String,
+    room: Option<String>,
+    title: String,
+    speaker: Option<String>,
+    url: String,
+    summary: String,
+}
+
+struct Schedule {
+    sessions: [Session],
+    errors: [ParseError],
+}
+
+struct Theme {
+    accent: String,
+    dark: String,
+    light: String,
+}
+
+impl Session {
+    fn slug(self) -> String {
+        slugify(self.track + " " + self.title)
+    }
+}
+
+fn color_light(base: String) -> String {
+    chroma(base).brighten(2.4).hex("rgb")
+}
+
+fn color_dark(base: String) -> String {
+    chroma(base).darken(1.7).hex("rgb")
+}
+
+fn date_time(date: JsDate) -> String {
+    format(date, "h:mm a")
+}
+
+fn date_day(date: JsDate) -> String {
+    format(date, "EEEE, MMMM d")
+}
+
+fn qr_svg(content: String, color: String, background: String) -> String {
+    let options = JsObject_new()
+        .setString("content", content)
+        .setNumber("padding", 2.0)
+        .setNumber("width", 148.0)
+        .setNumber("height", 148.0)
+        .setString("color", color)
+        .setString("background", background)
+        .setString("ecl", "M")
+        .setBool("join", true)
+        .setBool("xmlDeclaration", false)
+        .setString("container", "svg-viewbox")
+        .toJsValue();
+
+    let render_options = JsObject_new()
+        .setBool("xmlDeclaration", false)
+        .setString("container", "svg-viewbox")
+        .toJsValue();
+
+    create_qrcode(options).svg(render_options)
+}
+
+fn ensure_dir(path: String) {
+    let options = JsObject_new().setBool("recursive", true).toJsValue();
+    mkdirSync(path, options);
+}
+
+fn write_text(path: String, contents: String) {
+    writeFileSync(path, contents);
+}
+
+fn kind_label(kind: SessionKind) -> String {
+    match kind {
+        SessionKind::Keynote => "Keynote",
+        SessionKind::Talk => "Talk",
+        SessionKind::Workshop => "Workshop",
+        SessionKind::Panel => "Panel",
+        SessionKind::Break => "Break",
+    }
+}
+
+fn kind_key(kind: SessionKind) -> String {
+    match kind {
+        SessionKind::Keynote => "keynote",
+        SessionKind::Talk => "talk",
+        SessionKind::Workshop => "workshop",
+        SessionKind::Panel => "panel",
+        SessionKind::Break => "break",
+    }
+}
+
+fn theme_for(kind: SessionKind) -> Theme {
+    let accent = match kind {
+        SessionKind::Keynote => "#0066ff",
+        SessionKind::Talk => "#1f9d72",
+        SessionKind::Workshop => "#d12f7a",
+        SessionKind::Panel => "#6f42c1",
+        SessionKind::Break => "#d9822b",
+    };
+
+    Theme {
+        accent: accent,
+        dark: color_dark(accent),
+        light: color_light(accent),
+    }
+}
+
+fn parse_error(kind: ParseErrorKind, line_no: i32, value: String) -> ParseError {
+    ParseError {
+        kind: kind,
+        line_no: line_no,
+        value: value,
+    }
+}
+
+fn parse_kind(line_no: i32, raw_kind: String) -> Result<SessionKind, ParseError> {
+    if raw_kind == "keynote" {
+        return Ok(SessionKind::Keynote);
+    }
+    if raw_kind == "talk" {
+        return Ok(SessionKind::Talk);
+    }
+    if raw_kind == "workshop" {
+        return Ok(SessionKind::Workshop);
+    }
+    if raw_kind == "panel" {
+        return Ok(SessionKind::Panel);
+    }
+    if raw_kind == "break" {
+        return Ok(SessionKind::Break);
+    }
+
+    Err(parse_error(ParseErrorKind::UnknownKind, line_no, raw_kind))
+}
+
+fn parse_optional(text: String) -> Option<String> {
+    if text.trim() == "" {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn parse_session(line_no: i32, line: String) -> Result<Session, ParseError> {
+    let fields = line.split("|");
+    if fields.length < 9 {
+        return Err(parse_error(ParseErrorKind::MissingField, line_no, ""));
+    }
+
+    let kind_result = parse_kind(line_no, fields[0]);
+    match kind_result {
+        Ok(kind) => {
+            let starts_at = parseISO(fields[1]);
+            if !isValid(starts_at) {
+                return Err(parse_error(ParseErrorKind::InvalidDate, line_no, fields[1]));
+            }
+
+            let duration = parseInt(fields[2]) as i32;
+            if duration <= 0 {
+                return Err(parse_error(ParseErrorKind::InvalidDuration, line_no, fields[2]));
+            }
+
+            Ok(Session {
+                kind: kind,
+                starts_at: starts_at,
+                duration_min: duration,
+                track: fields[3],
+                room: parse_optional(fields[4]),
+                title: fields[5],
+                speaker: parse_optional(fields[6]),
+                url: fields[7],
+                summary: fields[8],
+            })
+        },
+        Err(error) => Err(error),
+    }
+}
+
+fn load_schedule() -> Schedule {
+    let lines = include_str("data/sessions.txt").trim().split("\n");
+    let sessions: [Session] = [];
+    let errors: [ParseError] = [];
+
+    for i in 1..lines.length {
+        let parsed = parse_session(i + 1, lines[i]);
+        match parsed {
+            Ok(session) => sessions.push(session),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    Schedule {
+        sessions: sessions,
+        errors: errors,
+    }
+}
+
+fn escape_text(text: String) -> String {
+    text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+}
+
+fn optional_text(value: Option<String>, fallback: String) -> String {
+    match value {
+        Some(text) => text,
+        None => fallback,
+    }
+}
+
+fn session_meta(session: Session) -> String {
+    let speaker = optional_text(session.speaker, "Community session");
+    let room = optional_text(session.room, "TBA");
+    speaker + " · " + room + " · " + string_from_i32(session.duration_min) + " min"
+}
+
+fn render_badge_svg(session: Session, theme: Theme) -> String {
+    let time = date_time(session.starts_at);
+    let day = date_day(session.starts_at);
+    let speaker = optional_text(session.speaker, "Community session");
+    let qr = qr_svg(session.url, theme.dark, "#ffffff");
+
+    "<svg xmlns='http://www.w3.org/2000/svg' width='760' height='430' viewBox='0 0 760 430'>"
+        + "<rect width='760' height='430' rx='24' fill='"
+        + theme.light
+        + "'/>"
+        + "<rect x='28' y='28' width='704' height='374' rx='18' fill='#ffffff'/>"
+        + "<rect x='28' y='28' width='12' height='374' fill='"
+        + theme.accent
+        + "'/>"
+        + "<text x='64' y='82' fill='"
+        + theme.dark
+        + "' font-family='Inter, Arial, sans-serif' font-size='20' font-weight='700'>"
+        + escape_text(kind_label(session.kind))
+        + " · "
+        + escape_text(time)
+        + "</text>"
+        + "<text x='64' y='140' fill='#15212f' font-family='Inter, Arial, sans-serif' font-size='36' font-weight='800'>"
+        + escape_text(session.title)
+        + "</text>"
+        + "<text x='64' y='190' fill='#405466' font-family='Inter, Arial, sans-serif' font-size='23'>"
+        + escape_text(speaker)
+        + "</text>"
+        + "<text x='64' y='236' fill='#607184' font-family='Inter, Arial, sans-serif' font-size='18'>"
+        + escape_text(day)
+        + " · "
+        + escape_text(optional_text(session.room, "TBA"))
+        + "</text>"
+        + "<g transform='translate(548 146)'>"
+        + qr
+        + "</g>"
+        + "<text x='64' y='352' fill='#607184' font-family='Inter, Arial, sans-serif' font-size='16'>"
+        + escape_text(session.url)
+        + "</text>"
+        + "</svg>"
+}
+
+fn render_session_card(session: Session) -> String {
+    let theme = theme_for(session.kind);
+    let badge = render_badge_svg(session, theme);
+
+    "<article class='session kind-"
+        + kind_key(session.kind)
+        + "' style='--accent: "
+        + theme.accent
+        + "; --dark: "
+        + theme.dark
+        + "; --light: "
+        + theme.light
+        + ";'>"
+        + "<div class='time'><strong>"
+        + escape_text(date_time(session.starts_at))
+        + "</strong><span class='kind'>"
+        + escape_text(kind_label(session.kind))
+        + "</span></div>"
+        + "<div class='details'><h2>"
+        + escape_text(session.title)
+        + "</h2><p class='meta'>"
+        + escape_text(session_meta(session))
+        + "</p><p class='summary'>"
+        + escape_text(session.summary)
+        + "</p></div>"
+        + "<div class='badge-preview'>"
+        + badge
+        + "</div></article>"
+}
+
+fn render_error(error: ParseError) -> String {
+    match error.kind {
+        ParseErrorKind::MissingField => {
+            "Line " + string_from_i32(error.line_no) + ": missing one or more pipe-delimited fields"
+        },
+        ParseErrorKind::UnknownKind => {
+            "Line " + string_from_i32(error.line_no) + ": unknown session kind `" + error.value + "`"
+        },
+        ParseErrorKind::InvalidDuration => {
+            "Line " + string_from_i32(error.line_no) + ": invalid duration `" + error.value + "`"
+        },
+        ParseErrorKind::InvalidDate => {
+            "Line " + string_from_i32(error.line_no) + ": invalid date `" + error.value + "`"
+        },
+    }
+}
+
+fn render_diagnostics(errors: [ParseError]) -> String {
+    if errors.length == 0 {
+        ""
+    } else {
+        let html = "<section class='diagnostics'><h2>Schedule diagnostics</h2><ul>";
+        for error in errors {
+            html += "<li>" + escape_text(render_error(error)) + "</li>";
+        }
+        html + "</ul></section>"
+    }
+}
+
+fn render_page(sessions: [Session], errors: [ParseError]) -> String {
+    let styles = include_str("data/styles.css");
+    let first_day = if sessions.length > 0 {
+        date_day(sessions[0].starts_at)
+    } else {
+        "No sessions"
+    };
+
+    let agenda = "";
+    for session in sessions {
+        agenda += render_session_card(session);
+    }
+
+    "<!doctype html><html><head><meta charset='utf-8'>"
+        + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        + "<title>HuskConf Badge Studio</title><style>"
+        + styles
+        + "</style></head><body><main class='shell'>"
+        + "<section class='hero'><div><p class='eyebrow'>Generated with Husk + npm</p>"
+        + "<h1>HuskConf badge studio</h1>"
+        + "<p class='lede'>A static event microsite generated from typed Husk domain data. Npm handles colors, dates, slugs, QR codes, and file output while Husk keeps the schedule model explicit.</p></div>"
+        + "<div class='stats'><div class='stat'><strong>"
+        + string_from_i32(sessions.length)
+        + "</strong><span>published sessions</span></div><div class='stat'><strong>"
+        + first_day
+        + "</strong><span>program day</span></div></div></section>"
+        + "<h2 class='section-title'>Agenda</h2><section class='agenda'>"
+        + agenda
+        + "</section>"
+        + render_diagnostics(errors)
+        + "<footer>Badges are written to <code>dist/badges</code> as standalone SVG files.</footer>"
+        + "</main></body></html>"
+}
+
+fn write_badges(sessions: [Session]) {
+    ensure_dir("dist/badges");
+
+    for session in sessions {
+        let theme = theme_for(session.kind);
+        let svg = render_badge_svg(session, theme);
+        write_text("dist/badges/" + session.slug() + ".svg", svg);
+    }
+}
+
+fn main() {
+    let schedule = load_schedule();
+
+    ensure_dir("dist");
+    write_badges(schedule.sessions);
+
+    let html = render_page(schedule.sessions, schedule.errors);
+    write_text("dist/index.html", html);
+
+    let message = "Generated dist/index.html and "
+        + string_from_i32(schedule.sessions.length)
+        + " session badges.";
+    println(message);
+}

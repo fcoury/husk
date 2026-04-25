@@ -1,0 +1,10 @@
+[package]
+name = "husk-event-badge-studio"
+version = "1.0.0"
+description = "Static event microsite and badge generator written in Husk"
+
+[build]
+entry = "src/main.hk"
+output = "dist"
+target = "cjs"
+source_maps = true
